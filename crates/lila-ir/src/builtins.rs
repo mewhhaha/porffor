@@ -513,8 +513,9 @@ use crate::{
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
-    BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID, BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID,
-    BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID, BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID,
+    BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID, BUILTIN_TYPED_ARRAY_CONSTRUCTOR_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID, BUILTIN_TYPED_ARRAY_OF_FUNCTION_ID,
+    BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BUFFER_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID,
@@ -573,9 +574,9 @@ use crate::{
     OBJECT_NAME, PARSE_FLOAT_NAME, PARSE_INT_NAME, PRINT_NAME, PROMISE_NAME, PROXY_NAME,
     RANGE_ERROR_NAME, REALM_EVAL_SCRIPT_NAME, REFERENCE_ERROR_NAME, REGEXP_NAME, SET_NAME,
     SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME,
-    TEMPORAL_INSTANT_NAME, TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME,
-    UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME, WEAK_MAP_NAME, WEAK_REF_NAME,
-    WEAK_SET_NAME,
+    TEMPORAL_INSTANT_NAME, TYPED_ARRAY_NAME, TYPE_ERROR_NAME, UINT16_ARRAY_NAME, UINT32_ARRAY_NAME,
+    UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME, UNESCAPE_NAME, URI_ERROR_NAME, WEAK_MAP_NAME,
+    WEAK_REF_NAME, WEAK_SET_NAME,
 };
 
 /// Why a host-backed callable is visible as a global binding.
@@ -588,33 +589,30 @@ pub enum HostBuiltinExposure {
 
 /// Which global realms install a host-backed callable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostBuiltinRealmScope {
+enum HostBuiltinRealmScope {
     EntryRealmOnly,
     EveryRealm,
 }
 
 /// The only two legal shapes of a host builtin's visible surface.
 ///
-/// An internal callable cannot accidentally acquire a global name or realm
-/// scope: those fields exist only on the `Global` variant.
+/// An internal callable cannot accidentally acquire global exposure, and a
+/// global's exposure exhaustively determines its realm scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostBuiltinSurface {
-    Global {
-        exposure: HostBuiltinExposure,
-        realms: HostBuiltinRealmScope,
-    },
+    Global(HostBuiltinExposure),
     InternalCallable,
 }
 
 impl HostBuiltinSurface {
-    const fn global(exposure: HostBuiltinExposure, realms: HostBuiltinRealmScope) -> Self {
-        Self::Global { exposure, realms }
+    const fn global(exposure: HostBuiltinExposure) -> Self {
+        Self::Global(exposure)
     }
 }
 
 /// Defines host builtin identity, callable name, function id and surface from
-/// one row source. Adding a row without deciding its exposure and realm scope
-/// is therefore a compile error.
+/// one row source. Adding a row without deciding its exposure is therefore a
+/// compile error, and that exposure exhaustively determines realm scope.
 macro_rules! host_builtin_catalog {
     (
         $(
@@ -647,7 +645,7 @@ macro_rules! host_builtin_catalog {
 
             pub const fn global_name(self) -> Option<&'static str> {
                 match self.surface() {
-                    HostBuiltinSurface::Global { .. } => Some(self.as_str()),
+                    HostBuiltinSurface::Global(_) => Some(self.as_str()),
                     HostBuiltinSurface::InternalCallable => None,
                 }
             }
@@ -663,10 +661,8 @@ macro_rules! host_builtin_catalog {
                 Self::ALL.iter().copied().filter(|builtin| {
                     matches!(
                         builtin.surface(),
-                        HostBuiltinSurface::Global {
-                            realms: HostBuiltinRealmScope::EveryRealm,
-                            ..
-                        }
+                        HostBuiltinSurface::Global(exposure)
+                            if exposure.realm_scope() == HostBuiltinRealmScope::EveryRealm
                     )
                 })
             }
@@ -716,18 +712,21 @@ impl GlobalOrdinal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct BuiltinFlags(u8);
+struct BuiltinFlags(u16);
 
 impl BuiltinFlags {
     const NONE: Self = Self(0);
-    const WALL_CLOCK: u8 = 1 << 0;
-    const CONSTRUCTABLE: u8 = 1 << 1;
-    const ERROR_CONSTRUCTOR: u8 = 1 << 2;
-    const STATIC_METHOD: u8 = 1 << 3;
-    const BOXED_PRIMITIVE: u8 = 1 << 4;
-    const RANDOM: u8 = 1 << 5;
+    const WALL_CLOCK: u16 = 1 << 0;
+    const CONSTRUCTABLE: u16 = 1 << 1;
+    const ERROR_CONSTRUCTOR: u16 = 1 << 2;
+    const STATIC_METHOD: u16 = 1 << 3;
+    const BOXED_PRIMITIVE: u16 = 1 << 4;
+    const RANDOM: u16 = 1 << 5;
+    const SYNCHRONOUS_USER_CODE: u16 = 1 << 6;
+    const ALWAYS_THROWS: u16 = 1 << 7;
+    const INDEXED_RECEIVER_MUTATION: u16 = 1 << 8;
 
-    const fn contains(self, flag: u8) -> bool {
+    const fn contains(self, flag: u16) -> bool {
         self.0 & flag != 0
     }
 }
@@ -833,6 +832,15 @@ macro_rules! catalog_flag_bit {
     };
     (RANDOM) => {
         BuiltinFlags::RANDOM
+    };
+    (SYNCHRONOUS_USER_CODE) => {
+        BuiltinFlags::SYNCHRONOUS_USER_CODE
+    };
+    (ALWAYS_THROWS) => {
+        BuiltinFlags::ALWAYS_THROWS
+    };
+    (INDEXED_RECEIVER_MUTATION) => {
+        BuiltinFlags::INDEXED_RECEIVER_MUTATION
     };
 }
 
@@ -1008,6 +1016,19 @@ macro_rules! standard_builtin_catalog {
                 self.flags().contains(BuiltinFlags::BOXED_PRIMITIVE)
             }
 
+            pub const fn may_run_user_code_synchronously(self) -> bool {
+                self.flags().contains(BuiltinFlags::SYNCHRONOUS_USER_CODE)
+            }
+
+            pub const fn always_throws(self) -> bool {
+                self.flags().contains(BuiltinFlags::ALWAYS_THROWS)
+            }
+
+            pub(crate) const fn mutates_indexed_receiver(self) -> bool {
+                self.flags()
+                    .contains(BuiltinFlags::INDEXED_RECEIVER_MUTATION)
+            }
+
             pub const fn intrinsic_installer(self) -> StandardBuiltinInstaller {
                 match self {
                     $(Self::$variant => StandardBuiltinInstaller::$installer,)+
@@ -1043,27 +1064,14 @@ macro_rules! standard_builtin_catalog {
     };
 }
 
+mod callable_to_string;
 mod catalog;
+#[cfg(test)]
+mod catalog_contract_tests;
 
+pub use callable_to_string::CallableToStringRepresentation;
 pub use catalog::StandardBuiltinId;
 pub use catalog::StandardBuiltinInstaller;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CallableToStringRepresentation {
-    ExactSource(String),
-    NativeNamed(String),
-    NativeAnonymous,
-}
-
-impl CallableToStringRepresentation {
-    pub fn materialize(&self) -> String {
-        match self {
-            Self::ExactSource(source) => source.clone(),
-            Self::NativeNamed(name) => format!("function {name}() {{ [native code] }}"),
-            Self::NativeAnonymous => "function () { [native code] }".to_string(),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1086,7 +1094,7 @@ mod tests {
     fn host_builtin_surface_catalog_owns_global_lookup_and_realm_installation() {
         for builtin in HostBuiltinId::ALL.iter().copied() {
             match builtin.surface() {
-                HostBuiltinSurface::Global { .. } => {
+                HostBuiltinSurface::Global(_) => {
                     let name = builtin
                         .global_name()
                         .expect("global host builtin must carry a visible name");
@@ -1104,13 +1112,11 @@ mod tests {
             vec![HostBuiltinId::ParseInt, HostBuiltinId::ParseFloat]
         );
         for builtin in HostBuiltinId::every_realm_globals() {
-            assert!(matches!(
-                builtin.surface(),
-                HostBuiltinSurface::Global {
-                    exposure: HostBuiltinExposure::EcmaGlobal,
-                    realms: HostBuiltinRealmScope::EveryRealm,
-                }
-            ));
+            let HostBuiltinSurface::Global(exposure) = builtin.surface() else {
+                panic!("every-realm host builtin must be global");
+            };
+            assert_eq!(exposure, HostBuiltinExposure::EcmaGlobal);
+            assert_eq!(exposure.realm_scope(), HostBuiltinRealmScope::EveryRealm);
         }
     }
 
@@ -1738,22 +1744,5 @@ mod tests {
 
         assert!(StandardBuiltinId::SetConstructor.constructable());
         assert!(StandardBuiltinId::all_globals().contains(&StandardBuiltinId::SetConstructor));
-    }
-
-    #[test]
-    fn callable_to_string_representations_materialize_spec_shapes() {
-        assert_eq!(
-            CallableToStringRepresentation::ExactSource("function f() {}".to_string())
-                .materialize(),
-            "function f() {}"
-        );
-        assert_eq!(
-            CallableToStringRepresentation::NativeNamed("Array".to_string()).materialize(),
-            "function Array() { [native code] }"
-        );
-        assert_eq!(
-            CallableToStringRepresentation::NativeAnonymous.materialize(),
-            "function () { [native code] }"
-        );
     }
 }

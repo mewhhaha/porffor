@@ -134,9 +134,7 @@ trait CallableDeclaration {
     fn parameters_allow_await(&self) -> bool;
     fn body_allow_yield(&self) -> bool;
     fn body_allow_await(&self) -> bool;
-    fn contains_super_error_message(&self) -> &'static str {
-        "invalid super usage"
-    }
+    fn contains_super_error_message(&self) -> &'static str;
     fn parameters_yield_is_early_error(&self) -> bool {
         false
     }

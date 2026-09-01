@@ -3,6 +3,9 @@ const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const EARLY_ERRORS_SOURCE: &str = include_str!("../../lila-ir/src/early_errors.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const THROW_INFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/lowering/throw_inference.rs");
+const BUILTIN_CALL_INFO_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/builtin_call_info.rs");
+const ASSIGNMENT_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const REFERENCE_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_compound.rs");
 const LOGICAL_LOWERING_SOURCE: &str =
@@ -163,10 +166,14 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
     positions_in_order(
         producer,
         &[
-            "let (known_getters, known_setters) = match &referenced_name",
-            "Self::possible_shape_accessors(base_and_receiver.heap_shape.as_deref())",
+            "fn collect_receiver_accessors(",
+            "possible_receiver_values: &mut Vec<ValueInfo>",
+            "possible_receiver_values.push(receiver.value_info());",
+            "ScriptLowerer::possible_shape_accessors(receiver.heap_shape.as_deref())",
+            "let receiver_shapes_are_known = possible_receiver_values",
             "let mut possible_getters = PropertyHookTargets::from_known(known_getters);",
             "let mut possible_setters = PropertyHookTargets::from_known(known_setters);",
+            "for receiver in &possible_receiver_values",
             "let key_may_call_user_code = Self::property_key_may_call_user_code(&referenced_name);",
             "self.possible_unknown_accessor_functions()",
             "possible_getters.extend_targets(unknown_getters);",
@@ -175,6 +182,7 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
             "possible_getters.extend_known(self.dynamically_installed_getters.iter().cloned());",
             "possible_setters.extend_known(self.dynamically_installed_setters.iter().cloned());",
             "include_all_planned_source(self.analysis.planned_source_function_ids.clone())",
+            "possible_receiver_values: possible_receiver_values.into_boxed_slice(),",
             "unknown_property_hooks_possible:",
             "possible_getters,",
             "possible_setters,",
@@ -187,7 +195,6 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
         "    fn possible_shape_accessors(",
     );
     for marker in [
-        "let base_may_be_object = Self::value_info_may_be_object(&metadata.base_value_info);",
         "self.invalidate_possible_global_property_value_info(name);",
         "self.invalidate_all_possible_global_property_value_infos();",
         "self.number_prototype_to_string_state = PrototypeToStringState::Unknown;",
@@ -195,10 +202,13 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
         "self.possible_ordinary_property_setters(metadata, intervening_user_code);",
         "let setter_may_call_user_code = metadata.unknown_property_hooks_possible",
         "self.invalidate_unknown_user_code_effects();",
-        "self.invalidate_ordinary_property_shape_aliases(&metadata.base_value_info);",
-        "fn contains_alias(shape: &HeapShape, alias: &HeapShape) -> bool",
+        "for receiver in &metadata.possible_receiver_values",
+        "self.invalidate_ordinary_property_shape_aliases(receiver);",
+        "fn shape_contains_alias(shape: &HeapShape, alias: &ValueInfo) -> bool",
         "shape.properties.values().any(property_contains_alias)",
-        "shape.elements.iter().any(|info|",
+        ".is_some_and(|prototype| shape_contains_alias(prototype, alias))",
+        "HeapShape::Array(shape) => {",
+        ".any(|info| value_contains_alias(info, alias))",
     ] {
         assert!(
             possible_write.contains(marker),
@@ -218,14 +228,14 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
     assert!(REFERENCE_LOWERING_SOURCE.contains("self.analysis.planned_source_function_ids.clone()"));
     assert!(REFERENCE_LOWERING_SOURCE.contains("fn property_key_may_call_user_code("));
     assert!(LOWERING_SOURCE.contains("self.dynamically_installed_getters"));
-    assert!(LOWERING_SOURCE.contains("self.read_object_shape(descriptor, \"get\")"));
+    assert!(BUILTIN_CALL_INFO_SOURCE.contains("self.read_object_shape(descriptor, \"get\")"));
     assert!(LOWERING_SOURCE.contains("fn invalidate_unknown_user_code_effects(&mut self)"));
     assert!(LOWERING_SOURCE.contains(".extend(lowerer.dynamically_installed_getters)"));
     assert!(LOWERING_SOURCE.contains("unknown_user_code_effects_observed"));
-    assert!(LOWERING_SOURCE.contains("A Proxy is not an ordinary empty object"));
-    assert!(LOWERING_SOURCE.contains("StandardBuiltinId::ObjectSetPrototypeOf =>"));
-    assert!(LOWERING_SOURCE.contains("StandardBuiltinId::ObjectDefineProperties =>"));
-    assert!(LOWERING_SOURCE.contains("StandardBuiltinId::ReflectSetPrototypeOf =>"));
+    assert!(BUILTIN_CALL_INFO_SOURCE.contains("A Proxy is not an ordinary empty object"));
+    assert!(BUILTIN_CALL_INFO_SOURCE.contains("StandardBuiltinId::ObjectSetPrototypeOf =>"));
+    assert!(BUILTIN_CALL_INFO_SOURCE.contains("StandardBuiltinId::ObjectDefineProperties =>"));
+    assert!(BUILTIN_CALL_INFO_SOURCE.contains("StandardBuiltinId::ReflectSetPrototypeOf =>"));
     assert!(LOWERING_SOURCE.contains("self.lookup_binding(GLOBAL_THIS_NAME).is_none()"));
     assert!(LOWERING_SOURCE.contains("fn is_intrinsic_global_constructor(&self, name: &str)"));
 
@@ -240,7 +250,7 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
             "self.lower_ordinary_property_reference_plan(access)",
             "self.record_ordinary_property_get(&metadata)",
             "let skipped_rhs = self.capture_conditional_flow_facts();",
-            "let rhs_may_invoke_user_code = self.prepare_potentially_effectful_expression(rhs);",
+            "let rhs_effect_accounting = self.prepare_potentially_effectful_expression(rhs);",
             "let rhs = self.lower_expression(rhs);",
             "let taken_rhs = self.capture_conditional_flow_facts();",
             "self.merge_conditional_flow_facts(skipped_rhs, taken_rhs);",
@@ -272,7 +282,7 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
     }
 
     let arm = bounded(
-        LOWERING_SOURCE,
+        ASSIGNMENT_SOURCE,
         "            AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {",
         "            AssignOp::And\n            | AssignOp::Or",
     );
@@ -317,7 +327,7 @@ fn backend_typestate_keeps_boxed_target_receiver_key_and_branch_order() {
     let sealed = bounded(
         EXPRESSIONS_SOURCE,
         "trait OrdinaryPropertyReferenceSource {",
-        "#[derive(Debug)]\n#[must_use = \"a raw Super Property Reference",
+        "impl<'a> FunctionBuilder<'a> {",
     );
     assert_eq!(
         sealed
@@ -422,7 +432,8 @@ fn exhaustive_consumers_and_budget_name_the_fused_lifecycle() {
         "fn joined_eager_property_base_roots_every_carried_builtin_getter()",
         "fn joined_numeric_property_base_roots_every_carried_builtin_getter()",
         "fn joined_plain_property_base_roots_its_carried_builtin_setter()",
-        "any_accessor(shape, target, include_getter, include_setter)",
+        "selection: ShapeAccessorReferenceSelection,",
+        "any_accessor(shape, target, selection)",
         "assignment.possible_getters().contains(target)",
         "assignment.possible_setters().contains(target)",
     ] {

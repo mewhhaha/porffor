@@ -154,7 +154,7 @@ impl<'a> ScriptLowerer<'a> {
                                 kind: ValueKind::Dynamic,
                                 possible_kinds: KindSet::all_runtime_tags(),
                                 heap_shape: None,
-                                function_targets: BTreeSet::new(),
+                                function_targets: FunctionTargetKnowledge::unknown(),
                             },
                             ExprIr::Undefined,
                         );

@@ -49,6 +49,144 @@ fn inspect_reports_phase_twenty_seven_boxed_builtin_ir_shape() {
 }
 
 #[test]
+fn run_wasm_backend_publishes_created_realm_promise_foundation() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_promise_created_realm.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_preserves_created_realm_promise_internal_callbacks() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg(fixture_path("wasm_promise_internal_callback_realm.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("promise-internal-callback-realm:ok"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_uses_callback_realms_for_promise_created_allocations() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg(fixture_path(
+            "wasm_promise_callback_created_allocation_realm.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("promise-callback-created-allocation-realm:ok"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_distinguishes_all_promise_combinator_modes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg(fixture_path("wasm_promise_combinator_modes.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("promise-combinator-modes:ok"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_uses_created_realm_promise_combinator_algorithm_errors() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg(fixture_path(
+            "wasm_promise_combinator_algorithm_error_realm.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("promise-combinator-algorithm-error-realm:ok"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_uses_async_function_realms_for_promises_and_reactions() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg(fixture_path("wasm_async_execution_realm.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("async-execution-realm:ok"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn inspect_reports_phase_twenty_eight_bind_builtin_ir_shape() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("inspect")
@@ -756,6 +894,26 @@ fn run_wasm_backend_preserves_arguments_callee_semantics() {
 }
 
 #[test]
+fn run_wasm_backend_invokes_arguments_special_property_accessors() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_arguments_special_accessors.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_reads_arguments_symbol_iterator() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -833,6 +991,46 @@ fn run_wasm_backend_succeeds_for_super_property_evaluation_order_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
+}
+
+#[test]
+fn call_arguments_invalidate_previously_captured_heap_shapes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg(fixture_path("wasm_call_argument_snapshot_invalidation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn function_apply_observes_array_like_user_code_effects() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg(fixture_path("wasm_function_apply_array_like_effects.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
 }
 
 #[test]

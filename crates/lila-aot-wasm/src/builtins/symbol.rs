@@ -1,7 +1,6 @@
 use super::super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum SymbolBuiltin {
+enum SymbolBuiltin {
     Constructor,
     For,
     KeyFor,
@@ -9,6 +8,26 @@ pub(super) enum SymbolBuiltin {
     PrototypeToString,
     PrototypeValueOf,
     PrototypeToPrimitive,
+}
+
+enum SymbolReceiverOperation {
+    Description,
+    ToString,
+    ValueOf,
+    ToPrimitive,
+}
+
+impl SymbolReceiverOperation {
+    const fn receiver_error_message(self) -> &'static str {
+        match self {
+            Self::Description => "Symbol.prototype.description requires that 'this' be a Symbol",
+            Self::ToString => "Symbol.prototype.toString requires that 'this' be a Symbol",
+            Self::ValueOf => "Symbol.prototype.valueOf requires that 'this' be a Symbol",
+            Self::ToPrimitive => {
+                "Symbol.prototype[Symbol.toPrimitive] requires that 'this' be a Symbol"
+            }
+        }
+    }
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -22,9 +41,10 @@ impl<'a> FunctionBuilder<'a> {
         receiver_payload_local: u32,
         receiver_tag_local: u32,
         symbol_local: u32,
-        error_message: &'static str,
+        operation: SymbolReceiverOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let error_message = operation.receiver_error_message();
         let boxed_kind_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
@@ -158,7 +178,56 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_symbol(
+    pub(super) fn emit_symbol_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_symbol(SymbolBuiltin::Constructor, function)
+    }
+
+    pub(super) fn emit_symbol_for_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_symbol(SymbolBuiltin::For, function)
+    }
+
+    pub(super) fn emit_symbol_key_for_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_symbol(SymbolBuiltin::KeyFor, function)
+    }
+
+    pub(super) fn emit_symbol_prototype_description_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_symbol(SymbolBuiltin::PrototypeDescriptionGetter, function)
+    }
+
+    pub(super) fn emit_symbol_prototype_to_string_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_symbol(SymbolBuiltin::PrototypeToString, function)
+    }
+
+    pub(super) fn emit_symbol_prototype_value_of_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_symbol(SymbolBuiltin::PrototypeValueOf, function)
+    }
+
+    pub(super) fn emit_symbol_prototype_to_primitive_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_symbol(SymbolBuiltin::PrototypeToPrimitive, function)
+    }
+
+    fn emit_symbol(
         &mut self,
         builtin: SymbolBuiltin,
         function: &mut Function,
@@ -378,7 +447,7 @@ impl<'a> FunctionBuilder<'a> {
                     receiver_payload_local,
                     receiver_tag_local,
                     symbol_local,
-                    "Symbol.prototype.description requires that 'this' be a Symbol",
+                    SymbolReceiverOperation::Description,
                     function,
                 )?;
                 self.emit_symbol_description_to_locals(
@@ -405,7 +474,7 @@ impl<'a> FunctionBuilder<'a> {
                     receiver_payload_local,
                     receiver_tag_local,
                     symbol_local,
-                    "Symbol.prototype.toString requires that 'this' be a Symbol",
+                    SymbolReceiverOperation::ToString,
                     function,
                 )?;
                 self.emit_symbol_descriptive_string_to_local(
@@ -434,7 +503,7 @@ impl<'a> FunctionBuilder<'a> {
                     receiver_payload_local,
                     receiver_tag_local,
                     symbol_local,
-                    "Symbol.prototype.valueOf requires that 'this' be a Symbol",
+                    SymbolReceiverOperation::ValueOf,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalGet(symbol_local));
@@ -444,11 +513,6 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(symbol_local);
             }
             SymbolBuiltin::PrototypeToPrimitive => {
-                // Symbol.prototype[Symbol.toPrimitive](hint) ignores `hint`
-                // entirely: 1. If Type(s) is Symbol, return s. 2. If Type(s)
-                // is not Object, throw a TypeError. 3. If s does not have a
-                // [[SymbolData]] internal slot, throw a TypeError. 4. Return
-                // s.[[SymbolData]].
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
                     EmitError::unsupported(
                         "unsupported in lila wasm-aot first slice: missing Symbol.prototype[Symbol.toPrimitive] receiver",
@@ -459,58 +523,19 @@ impl<'a> FunctionBuilder<'a> {
                         "unsupported in lila wasm-aot first slice: missing Symbol.prototype[Symbol.toPrimitive] receiver",
                     )
                 })?;
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(receiver_payload_local));
+                let symbol_local = self.reserve_temp_local();
+                self.emit_this_symbol_value_to_local(
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    symbol_local,
+                    SymbolReceiverOperation::ToPrimitive,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(symbol_local));
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(receiver_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    "Symbol.prototype[Symbol.toPrimitive] requires that 'this' be a Symbol",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::Else);
-                let boxed_kind_local = self.reserve_temp_local();
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_OBJECT_BOXED_KIND_OFFSET,
-                    boxed_kind_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(boxed_kind_local));
-                function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_SYMBOL as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.load_i64_to_local_from_offset(
-                    receiver_payload_local,
-                    HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-                    self.result_local,
-                    function,
-                );
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Else);
-                self.emit_throw_current_function_realm_type_error(
-                    "Symbol.prototype[Symbol.toPrimitive] requires that 'this' be a Symbol",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                self.release_temp_local(boxed_kind_local);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
+                self.release_temp_local(symbol_local);
             }
         }
         Ok(())

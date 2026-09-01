@@ -100,7 +100,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 });
                 for resource in resources.iter() {
                     info = self.merge_optional_value_info(
@@ -117,7 +117,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 });
                 for resource in resources.iter() {
                     info = self.merge_optional_value_info(
@@ -326,9 +326,22 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            StatementIr::ForOfArray { iterable, body, .. }
-            | StatementIr::ForOfString { iterable, body, .. }
-            | StatementIr::ForOfIterator { iterable, body, .. } => self.merge_optional_value_info(
+            StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+                let mut info = self.infer_expr_throw_info(iterable);
+                for statement in plan
+                    .before_await()
+                    .iter()
+                    .chain(std::iter::once(plan.await_statement()))
+                    .chain(plan.after_await())
+                {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_statement_throw_info(statement),
+                    );
+                }
+                info
+            }
+            StatementIr::ForOfIterator { iterable, body, .. } => self.merge_optional_value_info(
                 self.infer_expr_throw_info(iterable),
                 self.infer_statement_throw_info(body),
             ),
@@ -549,7 +562,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 }),
                             );
                             &spread.value
@@ -568,7 +581,8 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::DeleteValue { expr: value }
             | ExprIr::TypeOf { expr: value }
             | ExprIr::LogicalNot { expr: value }
-            | ExprIr::UnaryNumber { expr: value, .. }
+            | ExprIr::UnaryPlus { expr: value }
+            | ExprIr::UnaryMinusNumeric { expr: value }
             | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
             | ExprIr::StringFromCharCode { code: value } => self.infer_expr_throw_info(value),
             ExprIr::SuperPropertyWrite {
@@ -632,7 +646,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 }),
                             );
                         }
@@ -643,7 +657,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 }),
                             );
                             for arg in args {
@@ -800,7 +814,16 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            ExprIr::JsonParseStaticReviver { reviver, .. } => self.infer_expr_throw_info(reviver),
+            ExprIr::JsonParseStaticReviver {
+                callee,
+                input,
+                reviver,
+                ..
+            } => {
+                let mut info = self.infer_expr_throw_info(callee);
+                info = self.merge_optional_value_info(info, self.infer_expr_throw_info(input));
+                self.merge_optional_value_info(info, self.infer_expr_throw_info(reviver))
+            }
             ExprIr::Construct { callee, args, .. } => {
                 let mut info = self.infer_expr_throw_info(callee);
                 for arg in args {

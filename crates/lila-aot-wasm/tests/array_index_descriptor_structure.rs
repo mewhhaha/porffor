@@ -1,5 +1,7 @@
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
-const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const DEFINE_PROPERTY_SOURCE: &str = include_str!("../src/builtins/object/define_property.rs");
+const GET_OWN_PROPERTY_DESCRIPTOR_SOURCE: &str =
+    include_str!("../src/builtins/object/get_own_property_descriptor.rs");
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 
 fn function_source<'a>(source: &'a str, signature: &str) -> &'a str {
@@ -18,9 +20,14 @@ fn function_source<'a>(source: &'a str, signature: &str) -> &'a str {
 fn array_index_define_uses_one_validated_descriptor_before_mutation() {
     assert!(!ARRAY_SOURCE.contains("fn emit_array_define_data_index("));
     assert!(!ARRAY_SOURCE.contains("fn emit_array_define_accessor_index("));
-    assert!(OBJECT_SOURCE.matches("WasmPartialDescriptor {").count() >= 2);
+    assert!(
+        DEFINE_PROPERTY_SOURCE
+            .matches("WasmPartialDescriptor {")
+            .count()
+            >= 2
+    );
     assert_eq!(
-        OBJECT_SOURCE
+        DEFINE_PROPERTY_SOURCE
             .matches("self.emit_array_define_index_descriptor(")
             .count(),
         2
@@ -48,7 +55,7 @@ fn array_index_define_uses_one_validated_descriptor_before_mutation() {
         );
     }
 
-    let call_positions = OBJECT_SOURCE
+    let call_positions = DEFINE_PROPERTY_SOURCE
         .match_indices("self.emit_array_define_index_descriptor(")
         .map(|(position, _)| position)
         .collect::<Vec<_>>();
@@ -56,10 +63,10 @@ fn array_index_define_uses_one_validated_descriptor_before_mutation() {
     let descriptors = call_positions
         .into_iter()
         .map(|call| {
-            let start = OBJECT_SOURCE[..call]
+            let start = DEFINE_PROPERTY_SOURCE[..call]
                 .rfind("let descriptor = WasmPartialDescriptor {")
                 .expect("typed descriptor before Array call");
-            &OBJECT_SOURCE[start..call]
+            &DEFINE_PROPERTY_SOURCE[start..call]
         })
         .collect::<Vec<_>>();
     for (field, local) in [
@@ -92,23 +99,28 @@ fn array_index_compatibility_reuses_the_typed_stored_descriptor_validator() {
         "pub(crate) fn emit_validate_stored_descriptor(",
     );
     assert!(validation_body.contains("let classification = classify(descriptor);"));
-    assert!(validation_body.contains("self.emit_tagged_payload_same_value_i32("));
-    assert!(ARRAY_SOURCE
-        .contains("StoredDescriptorLocals::new(existing_value, existing_value, existing_setter)"));
+    assert!(validation_body.contains("builder.emit_tagged_payload_same_value_i32("));
+    for projection in [
+        "StoredDescriptorDataLocals::new(existing_value)",
+        "StoredDescriptorGetterLocals::new(existing_value)",
+        "StoredDescriptorSetterLocals::new(existing_setter)",
+    ] {
+        assert!(ARRAY_SOURCE.contains(projection));
+    }
     assert!(ARRAY_SOURCE.contains("let descriptor = descriptor.into_partial();"));
 
     // Arguments now consumes the same typed validator through its own exotic
     // post-application mapping protocol.
-    assert!(OBJECT_SOURCE.contains("fn emit_arguments_define_index_descriptor("));
-    assert!(!OBJECT_SOURCE.contains("fn emit_arguments_define_data_index("));
-    assert!(!OBJECT_SOURCE.contains("fn emit_arguments_define_accessor_index("));
+    assert!(DEFINE_PROPERTY_SOURCE.contains("fn emit_arguments_define_index_descriptor("));
+    assert!(!DEFINE_PROPERTY_SOURCE.contains("fn emit_arguments_define_data_index("));
+    assert!(!DEFINE_PROPERTY_SOURCE.contains("fn emit_arguments_define_accessor_index("));
 }
 
 #[test]
 fn array_index_accessor_descriptors_materialize_both_accessor_fields() {
     let body = function_source(
-        OBJECT_SOURCE,
-        "pub(super) fn compile_object_get_own_property_descriptor_builtin(",
+        GET_OWN_PROPERTY_DESCRIPTOR_SOURCE,
+        "pub(in crate::builtins) fn compile_object_get_own_property_descriptor_builtin(",
     );
     let materialization = body
         .find("self.emit_array_accessor_setter_for_index(")

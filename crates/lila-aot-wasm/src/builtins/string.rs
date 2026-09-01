@@ -4,23 +4,69 @@ use crate::runtime_helpers::{
     RegExpMatcherFailure, RegExpMatcherFailureRoute, RegExpMatcherStatus,
 };
 
+pub(crate) enum StringNormalizationForm {
+    Nfc,
+    Nfd,
+    Nfkc,
+    Nfkd,
+}
+
+impl StringNormalizationForm {
+    pub(crate) const ALL: [Self; 4] = [Self::Nfc, Self::Nfd, Self::Nfkc, Self::Nfkd];
+
+    pub(crate) const fn spelling(&self) -> &'static str {
+        match self {
+            Self::Nfc => "NFC",
+            Self::Nfd => "NFD",
+            Self::Nfkc => "NFKC",
+            Self::Nfkd => "NFKD",
+        }
+    }
+
+    pub(super) const fn runtime_kind(self) -> i64 {
+        match self {
+            Self::Nfc => 0,
+            Self::Nfd => 1,
+            Self::Nfkc => 2,
+            Self::Nfkd => 3,
+        }
+    }
+
+    fn decomposition_table(&self, strings: &StringPool) -> (u32, u32) {
+        match self {
+            Self::Nfc | Self::Nfd => (
+                strings.canonical_decomposition_table_ptr,
+                strings.canonical_decomposition_count,
+            ),
+            Self::Nfkc | Self::Nfkd => (
+                strings.compatibility_decomposition_table_ptr,
+                strings.compatibility_decomposition_count,
+            ),
+        }
+    }
+
+    const fn composes(self) -> bool {
+        match self {
+            Self::Nfc | Self::Nfkc => true,
+            Self::Nfd | Self::Nfkd => false,
+        }
+    }
+}
+
 mod empty_string_split_units {
     use super::*;
 
-    #[derive(Clone, Copy)]
     struct UnitIndexLocal(u32);
 
-    #[derive(Clone, Copy)]
     struct UnitLengthLocal(u32);
 
-    #[derive(Clone, Copy)]
     struct OneUnitLocal(u32);
 
     fn emit_one_unit_payload(
         builder: &mut FunctionBuilder<'_>,
         string_local: u32,
-        index: UnitIndexLocal,
-        one: OneUnitLocal,
+        index: &UnitIndexLocal,
+        one: &OneUnitLocal,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         builder.emit_utf16_code_unit_range_payload_from_locals(
@@ -72,7 +118,7 @@ mod empty_string_split_units {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::BrIf(1));
 
-        emit_one_unit_payload(builder, string_local, index, one, function)?;
+        emit_one_unit_payload(builder, string_local, &index, &one, function)?;
         function.instruction(&Instruction::LocalSet(piece_payload_local));
         builder.emit_array_write(
             result_array_local,
@@ -486,248 +532,42 @@ mod annexb_unescape_output {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UriCodecKind {
     Uri,
     Component,
 }
 
-mod string_code_unit_range {
-    use super::*;
-
-    #[must_use]
-    struct UnitIndexLocal(u32);
-
-    #[must_use]
-    struct UnitLengthLocal(u32);
-
-    #[must_use]
-    struct RangeLengthLocal(u32);
-
-    #[must_use = "a normalized String range must be materialized"]
-    struct MaterializableRangeLocals {
-        start: UnitIndexLocal,
-        end: UnitIndexLocal,
-        length: RangeLengthLocal,
-    }
-
-    enum Method {
-        Slice,
-        Substring,
-    }
-
-    impl Method {
-        fn emit_normalized_index(
-            &self,
-            builder: &mut FunctionBuilder<'_>,
-            number_payload_local: u32,
-            string_length: &UnitLengthLocal,
-            index: &UnitIndexLocal,
-            function: &mut Function,
-        ) {
-            match self {
-                Self::Slice => builder.emit_to_slice_index_clamped_to_string_len(
-                    number_payload_local,
-                    string_length.0,
-                    index.0,
-                    function,
-                ),
-                Self::Substring => builder.emit_to_integer_clamped_to_string_len(
-                    number_payload_local,
-                    string_length.0,
-                    index.0,
-                    function,
-                ),
-            }
-        }
-
-        fn emit_range(
-            &self,
-            start: &UnitIndexLocal,
-            end: &UnitIndexLocal,
-            length: &RangeLengthLocal,
-            function: &mut Function,
-        ) {
-            match self {
-                Self::Slice => {
-                    function.instruction(&Instruction::LocalGet(end.0));
-                    function.instruction(&Instruction::LocalGet(start.0));
-                    function.instruction(&Instruction::I64LtU);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(length.0));
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(end.0));
-                    function.instruction(&Instruction::LocalGet(start.0));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(length.0));
-                    function.instruction(&Instruction::End);
-                }
-                Self::Substring => {
-                    function.instruction(&Instruction::LocalGet(start.0));
-                    function.instruction(&Instruction::LocalGet(end.0));
-                    function.instruction(&Instruction::I64LeU);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(end.0));
-                    function.instruction(&Instruction::LocalGet(start.0));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(length.0));
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(start.0));
-                    function.instruction(&Instruction::LocalGet(end.0));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(length.0));
-                    function.instruction(&Instruction::LocalGet(end.0));
-                    function.instruction(&Instruction::LocalSet(start.0));
-                    function.instruction(&Instruction::End);
-                }
-            }
-        }
-    }
-
-    impl MaterializableRangeLocals {
-        fn emit_payload(
-            self,
-            builder: &mut FunctionBuilder<'_>,
-            string_local: u32,
-            function: &mut Function,
-        ) -> Result<(), EmitError> {
-            builder.emit_utf16_code_unit_range_payload_from_locals(
-                string_local,
-                self.start.0,
-                self.length.0,
-                function,
-            )?;
-            builder.release_temp_local(self.length.0);
-            builder.release_temp_local(self.end.0);
-            builder.release_temp_local(self.start.0);
-            Ok(())
-        }
-    }
-
-    pub(super) fn emit_slice(
-        builder: &mut FunctionBuilder<'_>,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        emit(builder, Method::Slice, function)
-    }
-
-    pub(super) fn emit_substring(
-        builder: &mut FunctionBuilder<'_>,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        emit(builder, Method::Substring, function)
-    }
-
-    fn emit(
-        builder: &mut FunctionBuilder<'_>,
-        method: Method,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let receiver_payload_local = builder.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing String range receiver",
-            )
-        })?;
-        let receiver_tag_local = builder.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing String range receiver",
-            )
-        })?;
-        let string_local = builder.reserve_temp_local();
-        let string_offset_local = builder.reserve_temp_local();
-        let string_byte_length_local = builder.reserve_temp_local();
-        let string_length = UnitLengthLocal(builder.reserve_temp_local());
-        let start_payload_local = builder.reserve_temp_local();
-        let start_tag_local = builder.reserve_temp_local();
-        let end_payload_local = builder.reserve_temp_local();
-        let end_tag_local = builder.reserve_temp_local();
-        let start = UnitIndexLocal(builder.reserve_temp_local());
-        let end = UnitIndexLocal(builder.reserve_temp_local());
-        let range_length = RangeLengthLocal(builder.reserve_temp_local());
-
-        builder.compile_nullish_tagged_i32(receiver_tag_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        builder.emit_throw_current_function_realm_type_error(
-            "String.prototype method receiver is null or undefined",
-            builder.result_local,
-            builder.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        builder.emit_value_to_string_payload(
-            receiver_payload_local,
-            receiver_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(string_local));
-        builder.set_completion_kind(CompletionKind::Normal, function);
-        builder.emit_return_current_completion_if_throw(function);
-        builder.emit_unpack_string_payload(
-            string_local,
-            string_offset_local,
-            string_byte_length_local,
-            function,
-        );
-        builder.emit_utf16_code_unit_len_from_utf8_locals(
-            string_offset_local,
-            string_byte_length_local,
-            string_length.0,
-            function,
-        );
-
-        builder.emit_builtin_arg_to_locals(0, start_payload_local, start_tag_local, function);
-        builder.emit_value_to_number_payload(start_tag_local, start_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(start_payload_local));
-        builder.set_completion_kind(CompletionKind::Normal, function);
-        builder.emit_return_current_completion_if_throw(function);
-        method.emit_normalized_index(
-            builder,
-            start_payload_local,
-            &string_length,
-            &start,
-            function,
-        );
-
-        builder.emit_builtin_arg_to_locals(1, end_payload_local, end_tag_local, function);
-        function.instruction(&Instruction::LocalGet(end_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(string_length.0));
-        function.instruction(&Instruction::LocalSet(end.0));
-        function.instruction(&Instruction::Else);
-        builder.emit_value_to_number_payload(end_tag_local, end_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(end_payload_local));
-        builder.set_completion_kind(CompletionKind::Normal, function);
-        builder.emit_return_current_completion_if_throw(function);
-        method.emit_normalized_index(builder, end_payload_local, &string_length, &end, function);
-        function.instruction(&Instruction::End);
-
-        method.emit_range(&start, &end, &range_length, function);
-        MaterializableRangeLocals {
-            start,
-            end,
-            length: range_length,
-        }
-        .emit_payload(builder, string_local, function)?;
-        function.instruction(&Instruction::LocalSet(builder.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(builder.result_tag_local));
-        builder.set_completion_kind(CompletionKind::Normal, function);
-        function.instruction(&Instruction::End);
-
-        builder.release_temp_local(end_tag_local);
-        builder.release_temp_local(end_payload_local);
-        builder.release_temp_local(start_tag_local);
-        builder.release_temp_local(start_payload_local);
-        builder.release_temp_local(string_length.0);
-        builder.release_temp_local(string_byte_length_local);
-        builder.release_temp_local(string_offset_local);
-        builder.release_temp_local(string_local);
-        Ok(())
-    }
+enum RegExpExecResultMode {
+    MatchArrayOrNull,
+    Boolean,
 }
+
+enum StringSymbolHookOperation {
+    Match,
+    MatchAll,
+    Replace,
+    ReplaceAll,
+    Search,
+}
+
+enum RegExpFlagGetter {
+    HasIndices,
+    Global,
+    IgnoreCase,
+    Multiline,
+    DotAll,
+    Unicode,
+    UnicodeSets,
+    Sticky,
+}
+
+mod duplicate_named_group_pattern;
+mod global_ascii_class_quantifier;
+mod postal_code_match_result_shape;
+mod regexp_substitution;
+mod string_code_unit_range;
+mod string_literal_replacement_scope;
+mod string_well_formed_operation;
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_string_slice_range_builtin(
@@ -852,14 +692,46 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(offset_local);
     }
 
-    pub(crate) fn emit_string_symbol_hook_builtin(
+    pub(super) fn emit_string_match_builtin(
         &mut self,
-        builtin: StandardBuiltinId,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if matches!(builtin, StandardBuiltinId::StringPrototypeSplit) {
-            return self.emit_string_split_builtin(function);
-        }
+        self.emit_string_symbol_hook_builtin(StringSymbolHookOperation::Match, function)
+    }
+
+    pub(super) fn emit_string_match_all_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_string_symbol_hook_builtin(StringSymbolHookOperation::MatchAll, function)
+    }
+
+    pub(super) fn emit_string_replace_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_string_symbol_hook_builtin(StringSymbolHookOperation::Replace, function)
+    }
+
+    pub(super) fn emit_string_replace_all_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_string_symbol_hook_builtin(StringSymbolHookOperation::ReplaceAll, function)
+    }
+
+    pub(super) fn emit_string_search_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_string_symbol_hook_builtin(StringSymbolHookOperation::Search, function)
+    }
+
+    fn emit_string_symbol_hook_builtin(
+        &mut self,
+        operation: StringSymbolHookOperation,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
             EmitError::unsupported(
                 "unsupported in lila wasm-aot first slice: missing String.prototype hook receiver",
@@ -884,21 +756,14 @@ impl<'a> FunctionBuilder<'a> {
         let match_all_prototype_payload_local = self.reserve_temp_local();
         let match_all_prototype_tag_local = self.reserve_temp_local();
 
-        let symbol_key = match builtin {
-            StandardBuiltinId::StringPrototypeMatch => "Symbol.match",
-            StandardBuiltinId::StringPrototypeMatchAll => "Symbol.matchAll",
-            StandardBuiltinId::StringPrototypeReplace
-            | StandardBuiltinId::StringPrototypeReplaceAll => "Symbol.replace",
-            StandardBuiltinId::StringPrototypeSearch => "Symbol.search",
-            StandardBuiltinId::StringPrototypeSplit => "Symbol.split",
-            _ => unreachable!(),
+        let symbol_key = match &operation {
+            StringSymbolHookOperation::Match => "Symbol.match",
+            StringSymbolHookOperation::MatchAll => "Symbol.matchAll",
+            StringSymbolHookOperation::Replace | StringSymbolHookOperation::ReplaceAll => {
+                "Symbol.replace"
+            }
+            StringSymbolHookOperation::Search => "Symbol.search",
         };
-        let passes_second_arg = matches!(
-            builtin,
-            StandardBuiltinId::StringPrototypeReplace
-                | StandardBuiltinId::StringPrototypeReplaceAll
-                | StandardBuiltinId::StringPrototypeSplit
-        );
 
         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -910,13 +775,23 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::Else);
         self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-        if passes_second_arg {
-            self.emit_builtin_arg_to_locals(1, replace_payload_local, replace_tag_local, function);
+        match &operation {
+            StringSymbolHookOperation::Replace | StringSymbolHookOperation::ReplaceAll => {
+                self.emit_builtin_arg_to_locals(
+                    1,
+                    replace_payload_local,
+                    replace_tag_local,
+                    function,
+                );
+            }
+            StringSymbolHookOperation::Match
+            | StringSymbolHookOperation::MatchAll
+            | StringSymbolHookOperation::Search => {}
         }
         self.compile_nullish_tagged_i32(arg_tag_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_string_symbol_hook_fallback(
-            builtin,
+            &operation,
             receiver_payload_local,
             receiver_tag_local,
             arg_payload_local,
@@ -932,19 +807,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(symbol_receiver_payload_local));
         function.instruction(&Instruction::LocalGet(arg_tag_local));
         function.instruction(&Instruction::LocalSet(symbol_receiver_tag_local));
-        if matches!(
-            builtin,
-            StandardBuiltinId::StringPrototypeMatchAll
-                | StandardBuiltinId::StringPrototypeReplaceAll
-        ) {
-            self.emit_string_validate_regexp_global_flags(
-                symbol_receiver_payload_local,
-                symbol_receiver_tag_local,
-                match_all_is_regexp_local,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
+        match &operation {
+            StringSymbolHookOperation::MatchAll | StringSymbolHookOperation::ReplaceAll => {
+                self.emit_string_validate_regexp_global_flags(
+                    symbol_receiver_payload_local,
+                    symbol_receiver_tag_local,
+                    match_all_is_regexp_local,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+            }
+            StringSymbolHookOperation::Match
+            | StringSymbolHookOperation::Replace
+            | StringSymbolHookOperation::Search => {}
         }
         // `symbol_key` names a well-known symbol (`Symbol.match`,
         // `Symbol.replace`, ...), so the PropertyKey payload used for the
@@ -956,14 +832,20 @@ impl<'a> FunctionBuilder<'a> {
             self.strings.property_key_symbol_payload(symbol_key),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
-        if matches!(builtin, StandardBuiltinId::StringPrototypeMatchAll) {
-            self.emit_object_own_property_present(
-                symbol_receiver_payload_local,
-                symbol_receiver_tag_local,
-                key_local,
-                match_all_own_present_local,
-                function,
-            );
+        match &operation {
+            StringSymbolHookOperation::MatchAll => {
+                self.emit_object_own_property_present(
+                    symbol_receiver_payload_local,
+                    symbol_receiver_tag_local,
+                    key_local,
+                    match_all_own_present_local,
+                    function,
+                );
+            }
+            StringSymbolHookOperation::Match
+            | StringSymbolHookOperation::Replace
+            | StringSymbolHookOperation::ReplaceAll
+            | StringSymbolHookOperation::Search => {}
         }
         self.emit_object_read(
             arg_payload_local,
@@ -978,116 +860,127 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion_if_throw(function);
         self.compile_nullish_tagged_i32(method_tag_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        if matches!(builtin, StandardBuiltinId::StringPrototypeMatchAll) {
-            function.instruction(&Instruction::LocalGet(match_all_is_regexp_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::LocalGet(match_all_own_present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_ordinary_get_prototype_of(
-                symbol_receiver_payload_local,
-                symbol_receiver_tag_local,
-                match_all_prototype_payload_local,
-                match_all_prototype_tag_local,
-                function,
-            );
-            self.emit_object_read(
-                match_all_prototype_payload_local,
-                match_all_prototype_tag_local,
-                symbol_receiver_payload_local,
-                symbol_receiver_tag_local,
-                key_local,
-                method_payload_local,
-                method_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
-            function.instruction(&Instruction::LocalGet(method_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_function_handle_call(
-                method_payload_local,
-                method_tag_local,
-                Some((
+        match &operation {
+            StringSymbolHookOperation::MatchAll => {
+                function.instruction(&Instruction::LocalGet(match_all_is_regexp_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(match_all_own_present_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_ordinary_get_prototype_of(
                     symbol_receiver_payload_local,
-                    Some(symbol_receiver_tag_local),
-                )),
-                &[(receiver_payload_local, receiver_tag_local)],
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "String.prototype.matchAll RegExp @@matchAll is not callable",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::Else);
-            self.emit_string_symbol_hook_fallback(
-                builtin,
-                receiver_payload_local,
-                receiver_tag_local,
-                symbol_receiver_payload_local,
-                symbol_receiver_tag_local,
-                replace_payload_local,
-                replace_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::End);
-        } else {
-            self.emit_string_symbol_hook_fallback(
-                builtin,
-                receiver_payload_local,
-                receiver_tag_local,
-                symbol_receiver_payload_local,
-                symbol_receiver_tag_local,
-                replace_payload_local,
-                replace_tag_local,
-                function,
-            )?;
+                    symbol_receiver_tag_local,
+                    match_all_prototype_payload_local,
+                    match_all_prototype_tag_local,
+                    function,
+                );
+                self.emit_object_read(
+                    match_all_prototype_payload_local,
+                    match_all_prototype_tag_local,
+                    symbol_receiver_payload_local,
+                    symbol_receiver_tag_local,
+                    key_local,
+                    method_payload_local,
+                    method_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                function.instruction(&Instruction::LocalGet(method_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_function_handle_call(
+                    method_payload_local,
+                    method_tag_local,
+                    Some((
+                        symbol_receiver_payload_local,
+                        Some(symbol_receiver_tag_local),
+                    )),
+                    &[(receiver_payload_local, receiver_tag_local)],
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                self.emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
+                    "String.prototype.matchAll RegExp @@matchAll is not callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                self.emit_string_symbol_hook_fallback(
+                    &operation,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    symbol_receiver_payload_local,
+                    symbol_receiver_tag_local,
+                    replace_payload_local,
+                    replace_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+            }
+            StringSymbolHookOperation::Match
+            | StringSymbolHookOperation::Replace
+            | StringSymbolHookOperation::ReplaceAll
+            | StringSymbolHookOperation::Search => {
+                self.emit_string_symbol_hook_fallback(
+                    &operation,
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    symbol_receiver_payload_local,
+                    symbol_receiver_tag_local,
+                    replace_payload_local,
+                    replace_tag_local,
+                    function,
+                )?;
+            }
         }
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(method_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if passes_second_arg {
-            self.emit_function_handle_call(
-                method_payload_local,
-                method_tag_local,
-                Some((
-                    symbol_receiver_payload_local,
-                    Some(symbol_receiver_tag_local),
-                )),
-                &[
-                    (receiver_payload_local, receiver_tag_local),
-                    (replace_payload_local, replace_tag_local),
-                ],
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-        } else {
-            self.emit_function_handle_call(
-                method_payload_local,
-                method_tag_local,
-                Some((
-                    symbol_receiver_payload_local,
-                    Some(symbol_receiver_tag_local),
-                )),
-                &[(receiver_payload_local, receiver_tag_local)],
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
+        match &operation {
+            StringSymbolHookOperation::Replace | StringSymbolHookOperation::ReplaceAll => {
+                self.emit_function_handle_call(
+                    method_payload_local,
+                    method_tag_local,
+                    Some((
+                        symbol_receiver_payload_local,
+                        Some(symbol_receiver_tag_local),
+                    )),
+                    &[
+                        (receiver_payload_local, receiver_tag_local),
+                        (replace_payload_local, replace_tag_local),
+                    ],
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+            }
+            StringSymbolHookOperation::Match
+            | StringSymbolHookOperation::MatchAll
+            | StringSymbolHookOperation::Search => {
+                self.emit_function_handle_call(
+                    method_payload_local,
+                    method_tag_local,
+                    Some((
+                        symbol_receiver_payload_local,
+                        Some(symbol_receiver_tag_local),
+                    )),
+                    &[(receiver_payload_local, receiver_tag_local)],
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+            }
         }
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error(
@@ -1101,7 +994,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_string_symbol_hook_fallback(
-            builtin,
+            &operation,
             receiver_payload_local,
             receiver_tag_local,
             arg_payload_local,
@@ -1352,9 +1245,9 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_string_symbol_hook_fallback(
+    fn emit_string_symbol_hook_fallback(
         &mut self,
-        builtin: StandardBuiltinId,
+        operation: &StringSymbolHookOperation,
         receiver_payload_local: u32,
         receiver_tag_local: u32,
         arg_payload_local: u32,
@@ -1368,947 +1261,59 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(string_local));
         self.emit_return_current_completion_if_throw(function);
 
-        if matches!(builtin, StandardBuiltinId::StringPrototypeSplit) {
-            self.emit_string_split_from_string_locals(
-                string_local,
-                arg_payload_local,
-                arg_tag_local,
-                second_payload_local,
-                second_tag_local,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-        } else if matches!(builtin, StandardBuiltinId::StringPrototypeMatch) {
-            self.emit_string_match_literal_fallback_from_string_locals(
-                string_local,
-                arg_payload_local,
-                arg_tag_local,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-        } else if matches!(builtin, StandardBuiltinId::StringPrototypeMatchAll) {
-            self.emit_string_match_all_literal_fallback_from_string_locals(
-                string_local,
-                arg_payload_local,
-                arg_tag_local,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-        } else if matches!(builtin, StandardBuiltinId::StringPrototypeSearch) {
-            self.emit_string_search_regexp_fallback_from_string_locals(
-                string_local,
-                arg_payload_local,
-                arg_tag_local,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-        } else if matches!(
-            builtin,
-            StandardBuiltinId::StringPrototypeReplace
-                | StandardBuiltinId::StringPrototypeReplaceAll
-        ) {
-            self.emit_string_replace_literal_from_string_locals(
-                builtin,
-                string_local,
-                arg_payload_local,
-                arg_tag_local,
-                second_payload_local,
-                second_tag_local,
-                function,
-            )?;
-        } else {
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "String.prototype RegExp/string fallback is unsupported in wasm-aot",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
+        match operation {
+            StringSymbolHookOperation::Match => {
+                self.emit_string_match_literal_fallback_from_string_locals(
+                    string_local,
+                    arg_payload_local,
+                    arg_tag_local,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+            }
+            StringSymbolHookOperation::MatchAll => {
+                self.emit_string_match_all_literal_fallback_from_string_locals(
+                    string_local,
+                    arg_payload_local,
+                    arg_tag_local,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+            }
+            StringSymbolHookOperation::Replace => {
+                self.emit_string_replace_literal_first_occurrence_from_string_locals(
+                    string_local,
+                    arg_payload_local,
+                    arg_tag_local,
+                    second_payload_local,
+                    second_tag_local,
+                    function,
+                )?;
+            }
+            StringSymbolHookOperation::ReplaceAll => {
+                self.emit_string_replace_literal_all_occurrences_from_string_locals(
+                    string_local,
+                    arg_payload_local,
+                    arg_tag_local,
+                    second_payload_local,
+                    second_tag_local,
+                    function,
+                )?;
+            }
+            StringSymbolHookOperation::Search => {
+                self.emit_string_search_regexp_fallback_from_string_locals(
+                    string_local,
+                    arg_payload_local,
+                    arg_tag_local,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+            }
         }
         self.release_temp_local(string_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_string_replace_literal_from_string_locals(
-        &mut self,
-        builtin: StandardBuiltinId,
-        string_local: u32,
-        search_payload_local: u32,
-        search_tag_local: u32,
-        replacement_payload_local: u32,
-        replacement_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let search_string_local = self.reserve_temp_local();
-        let replacement_string_local = self.reserve_temp_local();
-        let source_offset_local = self.reserve_temp_local();
-        let source_len_local = self.reserve_temp_local();
-        let search_offset_local = self.reserve_temp_local();
-        let search_len_local = self.reserve_temp_local();
-        let replacement_offset_local = self.reserve_temp_local();
-        let replacement_len_local = self.reserve_temp_local();
-        let scan_index_local = self.reserve_temp_local();
-        let last_end_local = self.reserve_temp_local();
-        let compare_index_local = self.reserve_temp_local();
-        let match_local = self.reserve_temp_local();
-        let source_byte_local = self.reserve_temp_local();
-        let search_byte_local = self.reserve_temp_local();
-        let piece_len_local = self.reserve_temp_local();
-        let piece_payload_local = self.reserve_temp_local();
-        let functional_replacement_local = self.reserve_temp_local();
-        let callback_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
-        let callback_string_local = self.reserve_temp_local();
-        let position_local = self.reserve_temp_local();
-        let position_payload_local = self.reserve_temp_local();
-        let number_tag_local = self.reserve_temp_local();
-        let string_tag_local = self.reserve_temp_local();
-        let substitution_local = self.reserve_temp_local();
-        let replacement_index_local = self.reserve_temp_local();
-        let literal_start_local = self.reserve_temp_local();
-        let next_byte_local = self.reserve_temp_local();
-        let substitution_kind_local = self.reserve_temp_local();
-        let zero_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-
-        self.emit_value_to_string_payload(search_payload_local, search_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(search_string_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(replacement_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(functional_replacement_local));
-        function.instruction(&Instruction::LocalGet(functional_replacement_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_string_payload(
-            replacement_payload_local,
-            replacement_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(replacement_string_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_unpack_string_payload(
-            string_local,
-            source_offset_local,
-            source_len_local,
-            function,
-        );
-        self.emit_unpack_string_payload(
-            search_string_local,
-            search_offset_local,
-            search_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(scan_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(last_end_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(string_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(number_tag_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(source_len_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::LocalGet(search_len_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(search_len_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(source_len_local));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(compare_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::LocalGet(search_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(source_offset_local));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(source_byte_local));
-        function.instruction(&Instruction::LocalGet(search_offset_local));
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(search_byte_local));
-        function.instruction(&Instruction::LocalGet(source_byte_local));
-        function.instruction(&Instruction::LocalGet(search_byte_local));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(compare_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(match_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(scan_index_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(last_end_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            string_local,
-            last_end_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(self.result_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-
-        function.instruction(&Instruction::LocalGet(functional_replacement_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_unpack_string_payload(
-            replacement_string_local,
-            replacement_offset_local,
-            replacement_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(substitution_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(literal_start_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(substitution_kind_local));
-        function.instruction(&Instruction::LocalGet(replacement_offset_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I32Const(i32::from(b'$')));
-        function.instruction(&Instruction::I32Eq);
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_offset_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(next_byte_local));
-        for (byte, kind) in [(b'$', 1), (b'&', 2), (b'`', 3), (b'\'', 4)] {
-            function.instruction(&Instruction::LocalGet(next_byte_local));
-            function.instruction(&Instruction::I64Const(i64::from(byte)));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(kind));
-            function.instruction(&Instruction::LocalSet(substitution_kind_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(substitution_kind_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(literal_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            replacement_string_local,
-            literal_start_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(substitution_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(substitution_local));
-        for (kind, payload) in [
-            (1, None),
-            (2, Some(search_string_local)),
-            (3, Some(string_local)),
-            (4, Some(string_local)),
-        ] {
-            function.instruction(&Instruction::LocalGet(substitution_kind_local));
-            function.instruction(&Instruction::I64Const(kind));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            if kind == 1 {
-                function.instruction(&Instruction::I64Const(self.strings.payload("$")));
-                function.instruction(&Instruction::LocalSet(piece_payload_local));
-            } else if kind == 2 {
-                function.instruction(&Instruction::LocalGet(payload.unwrap()));
-                function.instruction(&Instruction::LocalSet(piece_payload_local));
-            } else if kind == 3 {
-                self.emit_string_slice_payload_from_locals(
-                    payload.unwrap(),
-                    zero_local,
-                    scan_index_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(piece_payload_local));
-            } else {
-                function.instruction(&Instruction::LocalGet(source_len_local));
-                function.instruction(&Instruction::LocalGet(scan_index_local));
-                function.instruction(&Instruction::LocalGet(search_len_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(piece_len_local));
-                function.instruction(&Instruction::LocalGet(scan_index_local));
-                function.instruction(&Instruction::LocalGet(search_len_local));
-                function.instruction(&Instruction::I64Add);
-                function.instruction(&Instruction::LocalSet(compare_index_local));
-                self.emit_string_slice_payload_from_locals(
-                    payload.unwrap(),
-                    compare_index_local,
-                    piece_len_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(piece_payload_local));
-            }
-            self.emit_concat_string_payloads_local(
-                substitution_local,
-                piece_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(substitution_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalSet(literal_start_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::LocalGet(literal_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            replacement_string_local,
-            literal_start_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(substitution_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(substitution_local));
-        function.instruction(&Instruction::Else);
-        self.emit_utf16_code_unit_len_from_utf8_locals(
-            source_offset_local,
-            scan_index_local,
-            position_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(position_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(position_payload_local));
-        self.emit_function_handle_call(
-            replacement_payload_local,
-            replacement_tag_local,
-            Some((zero_local, Some(undefined_tag_local))),
-            &[
-                (search_string_local, string_tag_local),
-                (position_payload_local, number_tag_local),
-                (string_local, string_tag_local),
-            ],
-            callback_payload_local,
-            callback_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_value_to_string_payload(callback_payload_local, callback_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(callback_string_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(callback_string_local));
-        function.instruction(&Instruction::LocalSet(substitution_local));
-        function.instruction(&Instruction::End);
-        self.emit_concat_string_payloads_local(self.result_local, substitution_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(search_len_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(last_end_local));
-        if builtin == StandardBuiltinId::StringPrototypeReplace {
-            function.instruction(&Instruction::Br(2));
-        } else {
-            function.instruction(&Instruction::LocalGet(last_end_local));
-            function.instruction(&Instruction::LocalSet(scan_index_local));
-            function.instruction(&Instruction::LocalGet(search_len_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(scan_index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(scan_index_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(source_len_local));
-        function.instruction(&Instruction::LocalGet(last_end_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            string_local,
-            last_end_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(self.result_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-
-        for local in [
-            undefined_tag_local,
-            zero_local,
-            substitution_kind_local,
-            next_byte_local,
-            literal_start_local,
-            replacement_index_local,
-            substitution_local,
-            string_tag_local,
-            number_tag_local,
-            position_payload_local,
-            position_local,
-            callback_string_local,
-            callback_tag_local,
-            callback_payload_local,
-            functional_replacement_local,
-            piece_payload_local,
-            piece_len_local,
-            search_byte_local,
-            source_byte_local,
-            match_local,
-            compare_index_local,
-            last_end_local,
-            scan_index_local,
-            replacement_len_local,
-            replacement_offset_local,
-            search_len_local,
-            search_offset_local,
-            source_len_local,
-            source_offset_local,
-            replacement_string_local,
-            search_string_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
-    fn emit_regexp_get_substitution(
-        &mut self,
-        replacement_string_local: u32,
-        input_string_local: u32,
-        match_string_local: u32,
-        match_result_local: u32,
-        match_result_tag_local: u32,
-        match_result_len_local: u32,
-        named_captures_local: u32,
-        named_captures_tag_local: u32,
-        position_local: u32,
-        match_len_local: u32,
-        output_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let replacement_offset_local = self.reserve_temp_local();
-        let replacement_len_local = self.reserve_temp_local();
-        let replacement_index_local = self.reserve_temp_local();
-        let literal_start_local = self.reserve_temp_local();
-        let next_byte_local = self.reserve_temp_local();
-        let substitution_kind_local = self.reserve_temp_local();
-        let piece_len_local = self.reserve_temp_local();
-        let piece_payload_local = self.reserve_temp_local();
-        let input_offset_local = self.reserve_temp_local();
-        let input_byte_len_local = self.reserve_temp_local();
-        let input_len_local = self.reserve_temp_local();
-        let match_end_local = self.reserve_temp_local();
-        let zero_local = self.reserve_temp_local();
-        let capture_index_local = self.reserve_temp_local();
-        let capture_count_local = self.reserve_temp_local();
-        let capture_payload_local = self.reserve_temp_local();
-        let capture_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let number_payload_local = self.reserve_temp_local();
-        let consumed_local = self.reserve_temp_local();
-        let candidate_local = self.reserve_temp_local();
-        let group_end_local = self.reserve_temp_local();
-        let group_name_start_local = self.reserve_temp_local();
-        let group_name_len_local = self.reserve_temp_local();
-
-        self.emit_unpack_string_payload(
-            replacement_string_local,
-            replacement_offset_local,
-            replacement_len_local,
-            function,
-        );
-        self.emit_unpack_string_payload(
-            input_string_local,
-            input_offset_local,
-            input_byte_len_local,
-            function,
-        );
-        self.emit_utf16_code_unit_len_from_utf8_locals(
-            input_offset_local,
-            input_byte_len_local,
-            input_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(output_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(literal_start_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero_local));
-        function.instruction(&Instruction::LocalGet(match_result_len_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(capture_count_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(match_result_len_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(capture_count_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(substitution_kind_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::LocalSet(consumed_local));
-        function.instruction(&Instruction::LocalGet(replacement_offset_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I32Const(i32::from(b'$')));
-        function.instruction(&Instruction::I32Eq);
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_offset_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(next_byte_local));
-        for (byte, kind) in [(b'$', 1), (b'&', 2), (b'`', 3), (b'\'', 4)] {
-            function.instruction(&Instruction::LocalGet(next_byte_local));
-            function.instruction(&Instruction::I64Const(i64::from(byte)));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(kind));
-            function.instruction(&Instruction::LocalSet(substitution_kind_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(next_byte_local));
-        function.instruction(&Instruction::I64Const(i64::from(b'<')));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(named_captures_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(group_end_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(group_end_local));
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(replacement_offset_local));
-        function.instruction(&Instruction::LocalGet(group_end_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I32Const(i32::from(b'>')));
-        function.instruction(&Instruction::I32Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::LocalSet(substitution_kind_local));
-        function.instruction(&Instruction::LocalGet(group_end_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(consumed_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(group_end_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(group_end_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(next_byte_local));
-        function.instruction(&Instruction::I64Const(i64::from(b'0')));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(next_byte_local));
-        function.instruction(&Instruction::I64Const(i64::from(b'9')));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(next_byte_local));
-        function.instruction(&Instruction::I64Const(i64::from(b'0')));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(capture_index_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::LocalSet(consumed_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_offset_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(candidate_local));
-        function.instruction(&Instruction::LocalGet(candidate_local));
-        function.instruction(&Instruction::I64Const(i64::from(b'0')));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(candidate_local));
-        function.instruction(&Instruction::I64Const(i64::from(b'9')));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(capture_index_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(candidate_local));
-        function.instruction(&Instruction::I64Const(i64::from(b'0')));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(candidate_local));
-        function.instruction(&Instruction::LocalGet(candidate_local));
-        function.instruction(&Instruction::LocalGet(capture_count_local));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(candidate_local));
-        function.instruction(&Instruction::LocalSet(capture_index_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::LocalSet(consumed_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(capture_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(capture_index_local));
-        function.instruction(&Instruction::LocalGet(capture_count_local));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::LocalSet(substitution_kind_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(substitution_kind_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(literal_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            replacement_string_local,
-            literal_start_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(output_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_local));
-        for kind in 1..=6 {
-            function.instruction(&Instruction::LocalGet(substitution_kind_local));
-            function.instruction(&Instruction::I64Const(kind));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            match kind {
-                1 => {
-                    function.instruction(&Instruction::I64Const(self.strings.payload("$")));
-                    function.instruction(&Instruction::LocalSet(piece_payload_local));
-                }
-                2 => {
-                    function.instruction(&Instruction::LocalGet(match_string_local));
-                    function.instruction(&Instruction::LocalSet(piece_payload_local));
-                }
-                3 => {
-                    self.emit_utf16_code_unit_range_payload_from_locals(
-                        input_string_local,
-                        zero_local,
-                        position_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalSet(piece_payload_local));
-                }
-                4 => {
-                    function.instruction(&Instruction::LocalGet(position_local));
-                    function.instruction(&Instruction::LocalGet(match_len_local));
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::LocalSet(match_end_local));
-                    function.instruction(&Instruction::LocalGet(match_end_local));
-                    function.instruction(&Instruction::LocalGet(input_len_local));
-                    function.instruction(&Instruction::I64GtU);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(input_len_local));
-                    function.instruction(&Instruction::LocalSet(match_end_local));
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::LocalGet(input_len_local));
-                    function.instruction(&Instruction::LocalGet(match_end_local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(piece_len_local));
-                    self.emit_utf16_code_unit_range_payload_from_locals(
-                        input_string_local,
-                        match_end_local,
-                        piece_len_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalSet(piece_payload_local));
-                }
-                5 => {
-                    self.emit_index_to_flat_map_key_local(
-                        capture_index_local,
-                        number_payload_local,
-                        key_local,
-                        function,
-                    )?;
-                    self.emit_object_read(
-                        match_result_local,
-                        match_result_tag_local,
-                        match_result_local,
-                        match_result_tag_local,
-                        key_local,
-                        capture_payload_local,
-                        capture_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion_if_throw(function);
-                    function.instruction(&Instruction::LocalGet(capture_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(self.strings.payload("")));
-                    function.instruction(&Instruction::LocalSet(piece_payload_local));
-                    function.instruction(&Instruction::Else);
-                    self.emit_value_to_string_payload(
-                        capture_payload_local,
-                        capture_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalSet(piece_payload_local));
-                    self.emit_return_current_completion_if_throw(function);
-                    function.instruction(&Instruction::End);
-                }
-                6 => {
-                    function.instruction(&Instruction::LocalGet(replacement_index_local));
-                    function.instruction(&Instruction::I64Const(2));
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::LocalSet(group_name_start_local));
-                    function.instruction(&Instruction::LocalGet(group_end_local));
-                    function.instruction(&Instruction::LocalGet(group_name_start_local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(group_name_len_local));
-                    self.emit_string_slice_payload_from_locals(
-                        replacement_string_local,
-                        group_name_start_local,
-                        group_name_len_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalSet(key_local));
-                    self.emit_object_read(
-                        named_captures_local,
-                        named_captures_tag_local,
-                        named_captures_local,
-                        named_captures_tag_local,
-                        key_local,
-                        capture_payload_local,
-                        capture_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion_if_throw(function);
-                    function.instruction(&Instruction::LocalGet(capture_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(self.strings.payload("")));
-                    function.instruction(&Instruction::LocalSet(piece_payload_local));
-                    function.instruction(&Instruction::Else);
-                    self.emit_value_to_string_payload(
-                        capture_payload_local,
-                        capture_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalSet(piece_payload_local));
-                    self.emit_return_current_completion_if_throw(function);
-                    function.instruction(&Instruction::End);
-                }
-                _ => unreachable!(),
-            }
-            self.emit_concat_string_payloads_local(output_local, piece_payload_local, function)?;
-            function.instruction(&Instruction::LocalSet(output_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(consumed_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(replacement_index_local));
-        function.instruction(&Instruction::LocalGet(replacement_index_local));
-        function.instruction(&Instruction::LocalSet(literal_start_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(replacement_len_local));
-        function.instruction(&Instruction::LocalGet(literal_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(piece_len_local));
-        self.emit_string_slice_payload_from_locals(
-            replacement_string_local,
-            literal_start_local,
-            piece_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(output_local, piece_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(output_local));
-
-        for local in [
-            group_name_len_local,
-            group_name_start_local,
-            group_end_local,
-            candidate_local,
-            consumed_local,
-            number_payload_local,
-            key_local,
-            capture_tag_local,
-            capture_payload_local,
-            capture_count_local,
-            capture_index_local,
-            zero_local,
-            match_end_local,
-            input_len_local,
-            input_byte_len_local,
-            input_offset_local,
-            piece_payload_local,
-            piece_len_local,
-            substitution_kind_local,
-            next_byte_local,
-            literal_start_local,
-            replacement_index_local,
-            replacement_len_local,
-            replacement_offset_local,
-        ] {
-            self.release_temp_local(local);
-        }
         Ok(())
     }
 
@@ -3109,25 +2114,76 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_regexp_prototype_flag_getter_builtin(
+    pub(super) fn emit_regexp_prototype_has_indices_getter_builtin(
         &mut self,
-        builtin: StandardBuiltinId,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let flag = match builtin {
-            StandardBuiltinId::RegExpPrototypeHasIndicesGetter => b'd',
-            StandardBuiltinId::RegExpPrototypeGlobalGetter => b'g',
-            StandardBuiltinId::RegExpPrototypeIgnoreCaseGetter => b'i',
-            StandardBuiltinId::RegExpPrototypeMultilineGetter => b'm',
-            StandardBuiltinId::RegExpPrototypeDotAllGetter => b's',
-            StandardBuiltinId::RegExpPrototypeUnicodeGetter => b'u',
-            StandardBuiltinId::RegExpPrototypeUnicodeSetsGetter => b'v',
-            StandardBuiltinId::RegExpPrototypeStickyGetter => b'y',
-            _ => {
-                return Err(EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: invalid RegExp flag getter",
-                ));
-            }
+        self.emit_regexp_prototype_flag_getter_builtin(RegExpFlagGetter::HasIndices, function)
+    }
+
+    pub(super) fn emit_regexp_prototype_global_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_regexp_prototype_flag_getter_builtin(RegExpFlagGetter::Global, function)
+    }
+
+    pub(super) fn emit_regexp_prototype_ignore_case_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_regexp_prototype_flag_getter_builtin(RegExpFlagGetter::IgnoreCase, function)
+    }
+
+    pub(super) fn emit_regexp_prototype_multiline_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_regexp_prototype_flag_getter_builtin(RegExpFlagGetter::Multiline, function)
+    }
+
+    pub(super) fn emit_regexp_prototype_dot_all_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_regexp_prototype_flag_getter_builtin(RegExpFlagGetter::DotAll, function)
+    }
+
+    pub(super) fn emit_regexp_prototype_unicode_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_regexp_prototype_flag_getter_builtin(RegExpFlagGetter::Unicode, function)
+    }
+
+    pub(super) fn emit_regexp_prototype_unicode_sets_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_regexp_prototype_flag_getter_builtin(RegExpFlagGetter::UnicodeSets, function)
+    }
+
+    pub(super) fn emit_regexp_prototype_sticky_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_regexp_prototype_flag_getter_builtin(RegExpFlagGetter::Sticky, function)
+    }
+
+    fn emit_regexp_prototype_flag_getter_builtin(
+        &mut self,
+        getter: RegExpFlagGetter,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let flag = match &getter {
+            RegExpFlagGetter::HasIndices => b'd',
+            RegExpFlagGetter::Global => b'g',
+            RegExpFlagGetter::IgnoreCase => b'i',
+            RegExpFlagGetter::Multiline => b'm',
+            RegExpFlagGetter::DotAll => b's',
+            RegExpFlagGetter::Unicode => b'u',
+            RegExpFlagGetter::UnicodeSets => b'v',
+            RegExpFlagGetter::Sticky => b'y',
         };
         let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
             EmitError::unsupported(
@@ -4920,9 +3976,8 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_match_postal_code_from_string_locals(
+        self.emit_string_match_postal_code_global_from_string_locals(
             input_string_local,
-            true,
             self.result_local,
             self.result_tag_local,
             function,
@@ -4932,10 +3987,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("\\d{1}")));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_match_global_ascii_class_quantifier_from_string_locals(
+        self.emit_string_match_global_ascii_digit_once_from_string_locals(
             input_string_local,
-            true,
-            1,
             self.result_local,
             self.result_tag_local,
             function,
@@ -4945,10 +3998,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("\\d{2}")));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_match_global_ascii_class_quantifier_from_string_locals(
+        self.emit_string_match_global_ascii_digit_twice_from_string_locals(
             input_string_local,
-            true,
-            2,
             self.result_local,
             self.result_tag_local,
             function,
@@ -4958,10 +4009,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("\\D{2}")));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_match_global_ascii_class_quantifier_from_string_locals(
+        self.emit_string_match_global_ascii_non_digit_twice_from_string_locals(
             input_string_local,
-            false,
-            2,
             self.result_local,
             self.result_tag_local,
             function,
@@ -5050,7 +4099,7 @@ impl<'a> FunctionBuilder<'a> {
             receiver_tag_local,
             input_string_local,
             input_tag_local,
-            false,
+            RegExpExecResultMode::MatchArrayOrNull,
             self.result_local,
             self.result_tag_local,
             function,
@@ -5117,9 +4166,8 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_match_duplicate_named_groups_from_string_locals(
+        self.emit_string_match_duplicate_named_group_alternative_captures(
             input_string_local,
-            false,
             has_indices_local,
             self.result_local,
             self.result_tag_local,
@@ -5132,9 +4180,8 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_match_duplicate_named_groups_from_string_locals(
+        self.emit_string_match_duplicate_named_group_iterated_backreference(
             input_string_local,
-            true,
             has_indices_local,
             self.result_local,
             self.result_tag_local,
@@ -5147,9 +4194,8 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_match_postal_code_from_string_locals(
+        self.emit_string_match_postal_code_exec_from_string_locals(
             input_string_local,
-            false,
             self.result_local,
             self.result_tag_local,
             function,
@@ -7773,7 +6819,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_array_iterator_create_from_locals(
             result_array_local,
             match_array_tag_local,
-            ARRAY_ITERATOR_KIND_VALUES,
+            &ArrayIteratorKind::Value,
             payload_local,
             tag_local,
             function,
@@ -7796,27 +6842,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(pattern_offset_local);
         self.release_temp_local(src_len_local);
         self.release_temp_local(src_offset_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_string_match_all_global_ascii_word_iterator_from_string_locals(
-        &mut self,
-        string_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let start_index_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(start_index_local));
-        self.emit_string_match_all_global_ascii_word_iterator_from_string_locals_from_start(
-            string_local,
-            start_index_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.release_temp_local(start_index_local);
         Ok(())
     }
 
@@ -7924,7 +6949,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_array_iterator_create_from_locals(
             result_array_local,
             match_array_tag_local,
-            ARRAY_ITERATOR_KIND_VALUES,
+            &ArrayIteratorKind::Value,
             payload_local,
             tag_local,
             function,
@@ -8048,7 +7073,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_array_iterator_create_from_locals(
             result_array_local,
             match_array_tag_local,
-            ARRAY_ITERATOR_KIND_VALUES,
+            &ArrayIteratorKind::Value,
             payload_local,
             tag_local,
             function,
@@ -8234,7 +7259,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_array_iterator_create_from_locals(
             result_array_local,
             match_array_tag_local,
-            ARRAY_ITERATOR_KIND_VALUES,
+            &ArrayIteratorKind::Value,
             payload_local,
             tag_local,
             function,
@@ -8301,7 +7326,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_array_iterator_create_from_locals(
             result_array_local,
             match_array_tag_local,
-            ARRAY_ITERATOR_KIND_VALUES,
+            &ArrayIteratorKind::Value,
             payload_local,
             tag_local,
             function,
@@ -10345,7 +9370,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
     }
 
-    pub(crate) fn emit_string_is_well_formed_payload_from_local(
+    fn emit_string_is_well_formed_payload_from_local(
         &mut self,
         string_payload_local: u32,
         function: &mut Function,
@@ -10509,7 +9534,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(dst_pos_local));
     }
 
-    pub(crate) fn emit_string_to_well_formed_payload_from_local(
+    fn emit_string_to_well_formed_payload_from_local(
         &mut self,
         string_payload_local: u32,
         function: &mut Function,
@@ -11874,205 +10899,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_string_match_global_ascii_class_quantifier_from_string_locals(
-        &mut self,
-        string_local: u32,
-        match_digits: bool,
-        quantifier: i64,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let src_offset_local = self.reserve_temp_local();
-        let src_len_local = self.reserve_temp_local();
-        let result_array_local = self.reserve_temp_local();
-        let zero_local = self.reserve_temp_local();
-        let write_index_local = self.reserve_temp_local();
-        let scan_index_local = self.reserve_temp_local();
-        let probe_index_local = self.reserve_temp_local();
-        let compare_index_local = self.reserve_temp_local();
-        let match_local = self.reserve_temp_local();
-        let first_byte_local = self.reserve_temp_local();
-        let codepoint_local = self.reserve_temp_local();
-        let advance_local = self.reserve_temp_local();
-        let temp_local = self.reserve_temp_local();
-        let match_payload_local = self.reserve_temp_local();
-        let match_len_local = self.reserve_temp_local();
-        let string_tag_local = self.reserve_temp_local();
-
-        self.emit_unpack_string_payload(string_local, src_offset_local, src_len_local, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero_local));
-        self.emit_alloc_array_payload_with_length(zero_local, result_array_local, function)?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(write_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(scan_index_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalSet(probe_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(compare_index_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::I64Const(quantifier));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(probe_index_local));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        self.emit_load_string_byte(
-            src_offset_local,
-            probe_index_local,
-            first_byte_local,
-            function,
-        );
-        self.emit_decode_utf8_scalar_at_index(
-            src_offset_local,
-            probe_index_local,
-            src_len_local,
-            first_byte_local,
-            codepoint_local,
-            advance_local,
-            temp_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(codepoint_local));
-        function.instruction(&Instruction::I64Const(b'0' as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(codepoint_local));
-        function.instruction(&Instruction::I64Const(b'9' as i64));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        if !match_digits {
-            function.instruction(&Instruction::I32Eqz);
-        }
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(probe_index_local));
-        function.instruction(&Instruction::LocalGet(advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(probe_index_local));
-        function.instruction(&Instruction::LocalGet(compare_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(compare_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(probe_index_local));
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(match_len_local));
-        self.emit_string_slice_payload_from_locals(
-            string_local,
-            scan_index_local,
-            match_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(match_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(string_tag_local));
-        self.emit_array_write(
-            result_array_local,
-            write_index_local,
-            match_payload_local,
-            string_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(write_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(write_index_local));
-        function.instruction(&Instruction::LocalGet(probe_index_local));
-        function.instruction(&Instruction::LocalSet(scan_index_local));
-        function.instruction(&Instruction::Else);
-        self.emit_load_string_byte(
-            src_offset_local,
-            scan_index_local,
-            first_byte_local,
-            function,
-        );
-        self.emit_decode_utf8_scalar_at_index(
-            src_offset_local,
-            scan_index_local,
-            src_len_local,
-            first_byte_local,
-            codepoint_local,
-            advance_local,
-            temp_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(scan_index_local));
-        function.instruction(&Instruction::LocalGet(advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(scan_index_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(write_index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(result_array_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(string_tag_local);
-        self.release_temp_local(match_len_local);
-        self.release_temp_local(match_payload_local);
-        self.release_temp_local(temp_local);
-        self.release_temp_local(advance_local);
-        self.release_temp_local(codepoint_local);
-        self.release_temp_local(first_byte_local);
-        self.release_temp_local(match_local);
-        self.release_temp_local(compare_index_local);
-        self.release_temp_local(probe_index_local);
-        self.release_temp_local(scan_index_local);
-        self.release_temp_local(write_index_local);
-        self.release_temp_local(zero_local);
-        self.release_temp_local(result_array_local);
-        self.release_temp_local(src_len_local);
-        self.release_temp_local(src_offset_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_regexp_indices_pair_array_to_local(
         &mut self,
         start: i64,
@@ -12865,84 +11691,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_string_match_duplicate_named_groups_from_string_locals(
-        &mut self,
-        string_local: u32,
-        iterated: bool,
-        has_indices_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let candidate_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-
-        if iterated {
-            function.instruction(&Instruction::I64Const(self.strings.payload("aac")));
-            function.instruction(&Instruction::LocalSet(candidate_local));
-            self.emit_string_payload_equality_i32(string_local, candidate_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_string_match_duplicate_named_groups_result(
-                string_local,
-                "aac",
-                3,
-                &[("x", None, None)],
-                has_indices_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::End);
-        } else {
-            function.instruction(&Instruction::I64Const(self.strings.payload("abc")));
-            function.instruction(&Instruction::LocalSet(candidate_local));
-            self.emit_string_payload_equality_i32(string_local, candidate_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_string_match_duplicate_named_groups_result(
-                string_local,
-                "abc",
-                3,
-                &[
-                    ("x", Some("b"), Some((1, 2))),
-                    ("y", Some("a"), Some((0, 1))),
-                    ("z", Some("c"), Some((2, 3))),
-                ],
-                has_indices_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(self.strings.payload("ad")));
-            function.instruction(&Instruction::LocalSet(candidate_local));
-            self.emit_string_payload_equality_i32(string_local, candidate_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_string_match_duplicate_named_groups_result(
-                string_local,
-                "ad",
-                2,
-                &[
-                    ("x", Some("a"), Some((0, 1))),
-                    ("y", None, None),
-                    ("z", Some("d"), Some((1, 2))),
-                ],
-                has_indices_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-
-        self.release_temp_local(candidate_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_ascii_digit_run_match_to_local(
         &mut self,
         src_offset_local: u32,
@@ -12995,363 +11743,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(byte_local);
         self.release_temp_local(index_local);
-    }
-
-    pub(crate) fn emit_string_match_postal_code_from_string_locals(
-        &mut self,
-        string_local: u32,
-        global: bool,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let src_offset_local = self.reserve_temp_local();
-        let src_len_local = self.reserve_temp_local();
-        let match_start_local = self.reserve_temp_local();
-        let match_len_local = self.reserve_temp_local();
-        let capture1_start_local = self.reserve_temp_local();
-        let capture2_start_local = self.reserve_temp_local();
-        let capture2_len_local = self.reserve_temp_local();
-        let has_match_local = self.reserve_temp_local();
-        let has_capture2_local = self.reserve_temp_local();
-        let digit_match_local = self.reserve_temp_local();
-        let sep_index_local = self.reserve_temp_local();
-        let sep_byte_local = self.reserve_temp_local();
-        let array_len_local = self.reserve_temp_local();
-        let array_local = self.reserve_temp_local();
-        let array_index_local = self.reserve_temp_local();
-        let match_payload_local = self.reserve_temp_local();
-        let capture1_payload_local = self.reserve_temp_local();
-        let capture2_payload_local = self.reserve_temp_local();
-        let index_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-
-        self.emit_unpack_string_payload(string_local, src_offset_local, src_len_local, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(has_match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(has_capture2_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_start_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_len_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(capture1_start_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(capture2_start_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(capture2_len_local));
-
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(match_start_local));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(capture2_start_local));
-        self.emit_ascii_digit_run_match_to_local(
-            src_offset_local,
-            match_start_local,
-            5,
-            digit_match_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(digit_match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(capture2_start_local));
-        function.instruction(&Instruction::LocalSet(sep_index_local));
-        self.emit_load_string_byte(src_offset_local, sep_index_local, sep_byte_local, function);
-        function.instruction(&Instruction::LocalGet(sep_byte_local));
-        function.instruction(&Instruction::I64Const(b'-' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(sep_byte_local));
-        function.instruction(&Instruction::I64Const(b' ' as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(sep_index_local));
-        self.emit_ascii_digit_run_match_to_local(
-            src_offset_local,
-            sep_index_local,
-            4,
-            digit_match_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(digit_match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_match_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_capture2_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::LocalSet(match_len_local));
-        function.instruction(&Instruction::LocalGet(match_start_local));
-        function.instruction(&Instruction::LocalSet(capture1_start_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::LocalSet(capture2_len_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(has_match_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(9));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(9));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(match_start_local));
-        self.emit_ascii_digit_run_match_to_local(
-            src_offset_local,
-            match_start_local,
-            9,
-            digit_match_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(digit_match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_match_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_capture2_local));
-        function.instruction(&Instruction::I64Const(9));
-        function.instruction(&Instruction::LocalSet(match_len_local));
-        function.instruction(&Instruction::LocalGet(match_start_local));
-        function.instruction(&Instruction::LocalSet(capture1_start_local));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(capture2_start_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::LocalSet(capture2_len_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(has_match_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(src_len_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(match_start_local));
-        self.emit_ascii_digit_run_match_to_local(
-            src_offset_local,
-            match_start_local,
-            5,
-            digit_match_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(digit_match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(has_capture2_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::LocalSet(match_len_local));
-        function.instruction(&Instruction::LocalGet(match_start_local));
-        function.instruction(&Instruction::LocalSet(capture1_start_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(has_match_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        if global {
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(array_len_local));
-        } else {
-            function.instruction(&Instruction::I64Const(3));
-            function.instruction(&Instruction::LocalSet(array_len_local));
-        }
-        self.emit_alloc_array_payload_with_length(array_len_local, array_local, function)?;
-        self.emit_string_slice_payload_from_locals(
-            string_local,
-            match_start_local,
-            match_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(match_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(array_index_local));
-        self.emit_array_write(
-            array_local,
-            array_index_local,
-            match_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        if !global {
-            function.instruction(&Instruction::I64Const(5));
-            function.instruction(&Instruction::LocalSet(array_len_local));
-            self.emit_string_slice_payload_from_locals(
-                string_local,
-                capture1_start_local,
-                array_len_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(capture1_payload_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(array_index_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_array_write(
-                array_local,
-                array_index_local,
-                capture1_payload_local,
-                value_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(2));
-            function.instruction(&Instruction::LocalSet(array_index_local));
-            function.instruction(&Instruction::LocalGet(has_capture2_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_string_slice_payload_from_locals(
-                string_local,
-                capture2_start_local,
-                capture2_len_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(capture2_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_array_write(
-                array_local,
-                array_index_local,
-                capture2_payload_local,
-                value_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(capture2_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_array_write(
-                array_local,
-                array_index_local,
-                capture2_payload_local,
-                value_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::End);
-
-            self.emit_utf16_code_unit_len_from_utf8_locals(
-                src_offset_local,
-                match_start_local,
-                array_len_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(array_len_local));
-            function.instruction(&Instruction::F64ConvertI64U);
-            function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(index_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_array_define_builtin_named_data_property(
-                array_local,
-                HEAP_ARRAY_INDEX_PROP_DESCRIPTOR_KIND_OFFSET,
-                HEAP_ARRAY_INDEX_PROP_DATA_TAG_OFFSET,
-                HEAP_ARRAY_INDEX_PROP_DATA_PAYLOAD_OFFSET,
-                index_payload_local,
-                value_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(self.strings.payload("index")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_array_define_named_data_property(
-                array_local,
-                key_local,
-                index_payload_local,
-                value_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            self.emit_array_define_builtin_named_data_property(
-                array_local,
-                HEAP_ARRAY_INPUT_PROP_DESCRIPTOR_KIND_OFFSET,
-                HEAP_ARRAY_INPUT_PROP_DATA_TAG_OFFSET,
-                HEAP_ARRAY_INPUT_PROP_DATA_PAYLOAD_OFFSET,
-                string_local,
-                value_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(self.strings.payload("input")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_array_define_named_data_property(
-                array_local,
-                key_local,
-                string_local,
-                value_tag_local,
-                function,
-            )?;
-        }
-        function.instruction(&Instruction::LocalGet(array_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(key_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(index_payload_local);
-        self.release_temp_local(capture2_payload_local);
-        self.release_temp_local(capture1_payload_local);
-        self.release_temp_local(match_payload_local);
-        self.release_temp_local(array_index_local);
-        self.release_temp_local(array_local);
-        self.release_temp_local(array_len_local);
-        self.release_temp_local(sep_byte_local);
-        self.release_temp_local(sep_index_local);
-        self.release_temp_local(digit_match_local);
-        self.release_temp_local(has_capture2_local);
-        self.release_temp_local(has_match_local);
-        self.release_temp_local(capture2_len_local);
-        self.release_temp_local(capture2_start_local);
-        self.release_temp_local(capture1_start_local);
-        self.release_temp_local(match_len_local);
-        self.release_temp_local(match_start_local);
-        self.release_temp_local(src_len_local);
-        self.release_temp_local(src_offset_local);
-        Ok(())
     }
 
     pub(crate) fn emit_string_match_array_from_locals(
@@ -13683,20 +12074,6 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )
-    }
-
-    pub(crate) fn static_number_expr_value(expr: &TypedExpr) -> Option<f64> {
-        match &expr.expr {
-            ExprIr::Number(bits) => Some(f64::from_bits(*bits)),
-            ExprIr::UnaryNumber { op, expr } => {
-                let value = Self::static_number_expr_value(expr)?;
-                match op {
-                    UnaryNumericOp::Plus => Some(value),
-                    UnaryNumericOp::Minus => Some(-value),
-                }
-            }
-            _ => None,
-        }
     }
 
     pub(crate) fn emit_string_char_code_at_from_locals(
@@ -15450,7 +13827,7 @@ impl<'a> FunctionBuilder<'a> {
             receiver_tag_local,
             input_payload_local,
             input_tag_local,
-            false,
+            RegExpExecResultMode::MatchArrayOrNull,
             self.result_local,
             self.result_tag_local,
             function,
@@ -15561,7 +13938,7 @@ impl<'a> FunctionBuilder<'a> {
             receiver_tag_local,
             input_payload_local,
             input_tag_local,
-            true,
+            RegExpExecResultMode::Boolean,
             self.result_local,
             self.result_tag_local,
             function,
@@ -15588,7 +13965,7 @@ impl<'a> FunctionBuilder<'a> {
         receiver_tag_local: u32,
         input_payload_local: u32,
         input_tag_local: u32,
-        return_boolean: bool,
+        result_mode: RegExpExecResultMode,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -15626,7 +14003,7 @@ impl<'a> FunctionBuilder<'a> {
             receiver_payload_local,
             receiver_tag_local,
             input_payload_local,
-            return_boolean,
+            &result_mode,
             program_handled_local,
             payload_local,
             tag_local,
@@ -15642,7 +14019,7 @@ impl<'a> FunctionBuilder<'a> {
             receiver_payload_local,
             receiver_tag_local,
             input_payload_local,
-            return_boolean,
+            &result_mode,
             sticky_handled_local,
             payload_local,
             tag_local,
@@ -15993,92 +14370,95 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(match_local));
         function.instruction(&Instruction::End);
 
-        if return_boolean {
-            function.instruction(&Instruction::LocalGet(match_local));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-        } else {
-            function.instruction(&Instruction::LocalGet(match_local));
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(index_local));
-            self.emit_alloc_array_payload_with_length(index_local, array_local, function)?;
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::LocalGet(input_payload_local));
-            function.instruction(&Instruction::LocalSet(match_payload_local));
-            function.instruction(&Instruction::LocalGet(invalid_escape_local));
-            function.instruction(&Instruction::I64Const(4));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload("")));
-            function.instruction(&Instruction::LocalSet(match_payload_local));
-            function.instruction(&Instruction::End);
-            self.emit_array_write(
-                array_local,
-                index_local,
-                match_payload_local,
-                source_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(self.strings.payload("index")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(index_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(source_tag_local));
-            self.emit_array_define_builtin_named_data_property(
-                array_local,
-                HEAP_ARRAY_INDEX_PROP_DESCRIPTOR_KIND_OFFSET,
-                HEAP_ARRAY_INDEX_PROP_DATA_TAG_OFFSET,
-                HEAP_ARRAY_INDEX_PROP_DATA_PAYLOAD_OFFSET,
-                index_local,
-                source_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(self.strings.payload("index")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_array_define_named_data_property(
-                array_local,
-                key_local,
-                index_local,
-                source_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(self.strings.payload("input")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(source_tag_local));
-            self.emit_array_define_builtin_named_data_property(
-                array_local,
-                HEAP_ARRAY_INPUT_PROP_DESCRIPTOR_KIND_OFFSET,
-                HEAP_ARRAY_INPUT_PROP_DATA_TAG_OFFSET,
-                HEAP_ARRAY_INPUT_PROP_DATA_PAYLOAD_OFFSET,
-                input_payload_local,
-                source_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(self.strings.payload("input")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_array_define_named_data_property(
-                array_local,
-                key_local,
-                input_payload_local,
-                source_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(array_local));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::End);
+        match result_mode {
+            RegExpExecResultMode::Boolean => {
+                function.instruction(&Instruction::LocalGet(match_local));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+            RegExpExecResultMode::MatchArrayOrNull => {
+                function.instruction(&Instruction::LocalGet(match_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(index_local));
+                self.emit_alloc_array_payload_with_length(index_local, array_local, function)?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(input_payload_local));
+                function.instruction(&Instruction::LocalSet(match_payload_local));
+                function.instruction(&Instruction::LocalGet(invalid_escape_local));
+                function.instruction(&Instruction::I64Const(4));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(self.strings.payload("")));
+                function.instruction(&Instruction::LocalSet(match_payload_local));
+                function.instruction(&Instruction::End);
+                self.emit_array_write(
+                    array_local,
+                    index_local,
+                    match_payload_local,
+                    source_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(self.strings.payload("index")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(source_tag_local));
+                self.emit_array_define_builtin_named_data_property(
+                    array_local,
+                    HEAP_ARRAY_INDEX_PROP_DESCRIPTOR_KIND_OFFSET,
+                    HEAP_ARRAY_INDEX_PROP_DATA_TAG_OFFSET,
+                    HEAP_ARRAY_INDEX_PROP_DATA_PAYLOAD_OFFSET,
+                    index_local,
+                    source_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(self.strings.payload("index")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_array_define_named_data_property(
+                    array_local,
+                    key_local,
+                    index_local,
+                    source_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(self.strings.payload("input")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(source_tag_local));
+                self.emit_array_define_builtin_named_data_property(
+                    array_local,
+                    HEAP_ARRAY_INPUT_PROP_DESCRIPTOR_KIND_OFFSET,
+                    HEAP_ARRAY_INPUT_PROP_DATA_TAG_OFFSET,
+                    HEAP_ARRAY_INPUT_PROP_DATA_PAYLOAD_OFFSET,
+                    input_payload_local,
+                    source_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(self.strings.payload("input")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_array_define_named_data_property(
+                    array_local,
+                    key_local,
+                    input_payload_local,
+                    source_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(array_local));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                function.instruction(&Instruction::End);
+            }
         }
 
         function.instruction(&Instruction::End);
@@ -16198,7 +14578,7 @@ impl<'a> FunctionBuilder<'a> {
         receiver_payload_local: u32,
         receiver_tag_local: u32,
         input_payload_local: u32,
-        return_boolean: bool,
+        result_mode: &RegExpExecResultMode,
         handled_local: u32,
         payload_local: u32,
         tag_local: u32,
@@ -16584,51 +14964,54 @@ impl<'a> FunctionBuilder<'a> {
         // the heap checkpoint used for the transient matcher arena.
         function.instruction(&Instruction::GlobalGet(HEAP_PTR_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(pre_carrier_heap_ptr_local));
-        if !return_boolean {
-            function.instruction(&Instruction::LocalGet(capture_count_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(capture_index_local));
-            self.emit_alloc_array_payload_with_length(
-                capture_index_local,
-                capture_array_local,
-                function,
-            )?;
-            self.load_i64_to_local_from_offset(
-                capture_array_local,
-                HEAP_PTR_OFFSET,
-                capture_buffer_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(capture_index_local));
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::LocalGet(capture_count_local));
-            function.instruction(&Instruction::I64GtU);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(capture_buffer_local));
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(capture_entry_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.store_i64_local_at_offset(
-                capture_entry_local,
-                HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
-                self.scratch_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(capture_index_local));
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+        match result_mode {
+            RegExpExecResultMode::MatchArrayOrNull => {
+                function.instruction(&Instruction::LocalGet(capture_count_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(capture_index_local));
+                self.emit_alloc_array_payload_with_length(
+                    capture_index_local,
+                    capture_array_local,
+                    function,
+                )?;
+                self.load_i64_to_local_from_offset(
+                    capture_array_local,
+                    HEAP_PTR_OFFSET,
+                    capture_buffer_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(capture_index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::LocalGet(capture_count_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(capture_buffer_local));
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(capture_entry_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.scratch_local));
+                self.store_i64_local_at_offset(
+                    capture_entry_local,
+                    HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
+                    self.scratch_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(capture_index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
+            RegExpExecResultMode::Boolean => {}
         }
 
         function.instruction(&Instruction::GlobalGet(HEAP_PTR_GLOBAL_INDEX));
@@ -16695,90 +15078,93 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(found_local));
         function.instruction(&Instruction::End);
-        if !return_boolean {
-            function.instruction(&Instruction::LocalGet(capture_count_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(status_local));
-            function.instruction(&Instruction::I64Const(
-                RegExpMatcherStatus::Complete.abi_word(),
-            ));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(found_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(number_tag_local));
-            self.load_i64_to_local_from_offset(
-                capture_array_local,
-                HEAP_PTR_OFFSET,
-                capture_buffer_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(capture_index_local));
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::LocalGet(capture_count_local));
-            function.instruction(&Instruction::I64GtU);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(scratch_ptr_local));
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::I64Const(16));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I64Load(Self::memarg8(0)));
-            function.instruction(&Instruction::LocalSet(capture_start_local));
-            function.instruction(&Instruction::LocalGet(scratch_ptr_local));
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::I64Const(16));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I64Load(Self::memarg8(8)));
-            function.instruction(&Instruction::LocalSet(capture_end_local));
-            function.instruction(&Instruction::LocalGet(capture_start_local));
-            function.instruction(&Instruction::I64Const(32));
-            function.instruction(&Instruction::I64Shl);
-            function.instruction(&Instruction::LocalGet(capture_end_local));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(capture_packed_local));
-            function.instruction(&Instruction::LocalGet(capture_buffer_local));
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(capture_entry_local));
-            self.store_i64_local_at_offset(
-                capture_entry_local,
-                HEAP_ARRAY_TAG_OFFSET,
-                number_tag_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                capture_entry_local,
-                HEAP_ARRAY_PAYLOAD_OFFSET,
-                capture_packed_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(capture_index_local));
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+        match result_mode {
+            RegExpExecResultMode::MatchArrayOrNull => {
+                function.instruction(&Instruction::LocalGet(capture_count_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(status_local));
+                function.instruction(&Instruction::I64Const(
+                    RegExpMatcherStatus::Complete.abi_word(),
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(found_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(number_tag_local));
+                self.load_i64_to_local_from_offset(
+                    capture_array_local,
+                    HEAP_PTR_OFFSET,
+                    capture_buffer_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(capture_index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::LocalGet(capture_count_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(scratch_ptr_local));
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::I64Const(16));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+                function.instruction(&Instruction::LocalSet(capture_start_local));
+                function.instruction(&Instruction::LocalGet(scratch_ptr_local));
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::I64Const(16));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::I64Load(Self::memarg8(8)));
+                function.instruction(&Instruction::LocalSet(capture_end_local));
+                function.instruction(&Instruction::LocalGet(capture_start_local));
+                function.instruction(&Instruction::I64Const(32));
+                function.instruction(&Instruction::I64Shl);
+                function.instruction(&Instruction::LocalGet(capture_end_local));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalSet(capture_packed_local));
+                function.instruction(&Instruction::LocalGet(capture_buffer_local));
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(capture_entry_local));
+                self.store_i64_local_at_offset(
+                    capture_entry_local,
+                    HEAP_ARRAY_TAG_OFFSET,
+                    number_tag_local,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    capture_entry_local,
+                    HEAP_ARRAY_PAYLOAD_OFFSET,
+                    capture_packed_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(capture_index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
+            RegExpExecResultMode::Boolean => {}
         }
         // The matcher scratch arena is raw, rewindable memory: scrub it before
         // restoring HEAP_PTR so subsequent allocations never inherit captures.
@@ -16805,58 +15191,64 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         // A failed exec rewinds the result carrier too. Clear its complete
         // range first: a later bump allocation may not initialize every byte.
-        if !return_boolean {
-            function.instruction(&Instruction::LocalGet(status_local));
-            function.instruction(&Instruction::I64Const(
-                RegExpMatcherStatus::Complete.abi_word(),
-            ));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(found_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(pre_carrier_heap_ptr_local));
-            function.instruction(&Instruction::LocalSet(input_offset_local));
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(input_offset_local));
-            function.instruction(&Instruction::LocalGet(saved_heap_ptr_local));
-            function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(input_offset_local));
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Store(Self::memarg8(0)));
-            function.instruction(&Instruction::LocalGet(input_offset_local));
-            function.instruction(&Instruction::I64Const(8));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(input_offset_local));
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+        match result_mode {
+            RegExpExecResultMode::MatchArrayOrNull => {
+                function.instruction(&Instruction::LocalGet(status_local));
+                function.instruction(&Instruction::I64Const(
+                    RegExpMatcherStatus::Complete.abi_word(),
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(found_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(pre_carrier_heap_ptr_local));
+                function.instruction(&Instruction::LocalSet(input_offset_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(input_offset_local));
+                function.instruction(&Instruction::LocalGet(saved_heap_ptr_local));
+                function.instruction(&Instruction::I64GeU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(input_offset_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Store(Self::memarg8(0)));
+                function.instruction(&Instruction::LocalGet(input_offset_local));
+                function.instruction(&Instruction::I64Const(8));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(input_offset_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
+            RegExpExecResultMode::Boolean => {}
         }
         // Preserve a materialized result carrier only on a successful match.
         // No-match and either failed-matcher exit must also discard it.
-        if !return_boolean {
-            function.instruction(&Instruction::LocalGet(status_local));
-            function.instruction(&Instruction::I64Const(
-                RegExpMatcherStatus::Complete.abi_word(),
-            ));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(found_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-            function.instruction(&Instruction::LocalGet(saved_heap_ptr_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(pre_carrier_heap_ptr_local));
-            function.instruction(&Instruction::End);
-        } else {
-            function.instruction(&Instruction::LocalGet(saved_heap_ptr_local));
+        match result_mode {
+            RegExpExecResultMode::MatchArrayOrNull => {
+                function.instruction(&Instruction::LocalGet(status_local));
+                function.instruction(&Instruction::I64Const(
+                    RegExpMatcherStatus::Complete.abi_word(),
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(found_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                function.instruction(&Instruction::LocalGet(saved_heap_ptr_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(pre_carrier_heap_ptr_local));
+                function.instruction(&Instruction::End);
+            }
+            RegExpExecResultMode::Boolean => {
+                function.instruction(&Instruction::LocalGet(saved_heap_ptr_local));
+            }
         }
         function.instruction(&Instruction::GlobalSet(HEAP_PTR_GLOBAL_INDEX));
         self.emit_route_regexp_matcher_status_or_return(
@@ -16900,183 +15292,186 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        if return_boolean {
-            function.instruction(&Instruction::LocalGet(found_local));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-        } else {
-            function.instruction(&Instruction::LocalGet(found_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(match_end_local));
-            function.instruction(&Instruction::LocalGet(match_start_local));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(last_index_local));
-            self.emit_utf16_code_unit_range_payload_from_locals(
-                input_payload_local,
-                match_start_local,
-                last_index_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(match_payload_local));
-            function.instruction(&Instruction::LocalGet(match_start_local));
-            function.instruction(&Instruction::F64ConvertI64U);
-            function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(number_payload_local));
-            self.emit_regexp_indices_array_from_capture_bounds(
-                capture_array_local,
-                capture_count_local,
-                match_start_local,
-                match_end_local,
-                has_indices_local,
-                indices_array_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(capture_index_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(number_tag_local));
-            self.emit_array_write(
-                capture_array_local,
-                capture_index_local,
-                match_payload_local,
-                number_tag_local,
-                function,
-            )?;
-            self.load_i64_to_local_from_offset(
-                capture_array_local,
-                HEAP_PTR_OFFSET,
-                capture_buffer_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(capture_index_local));
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::LocalGet(capture_count_local));
-            function.instruction(&Instruction::I64GtU);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(capture_buffer_local));
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(capture_entry_local));
-            self.load_i64_to_local_from_offset(
-                capture_entry_local,
-                HEAP_ARRAY_PAYLOAD_OFFSET,
-                capture_packed_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(capture_packed_local));
-            function.instruction(&Instruction::I64Const(-1));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(match_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(number_tag_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(capture_packed_local));
-            function.instruction(&Instruction::I64Const(32));
-            function.instruction(&Instruction::I64ShrU);
-            function.instruction(&Instruction::LocalSet(capture_start_local));
-            function.instruction(&Instruction::LocalGet(capture_packed_local));
-            function.instruction(&Instruction::I64Const(0xffff_ffff));
-            function.instruction(&Instruction::I64And);
-            function.instruction(&Instruction::LocalSet(capture_end_local));
-            function.instruction(&Instruction::LocalGet(capture_end_local));
-            function.instruction(&Instruction::LocalGet(capture_start_local));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(last_index_local));
-            self.emit_utf16_code_unit_range_payload_from_locals(
-                input_payload_local,
-                capture_start_local,
-                last_index_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(match_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(number_tag_local));
-            function.instruction(&Instruction::End);
-            self.emit_array_write(
-                capture_array_local,
-                capture_index_local,
-                match_payload_local,
-                number_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(capture_index_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(capture_index_local));
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(capture_array_local));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::LocalGet(match_start_local));
-            function.instruction(&Instruction::F64ConvertI64U);
-            function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(number_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(number_tag_local));
-            self.emit_array_define_builtin_named_data_property(
-                capture_array_local,
-                HEAP_ARRAY_INDEX_PROP_DESCRIPTOR_KIND_OFFSET,
-                HEAP_ARRAY_INDEX_PROP_DATA_TAG_OFFSET,
-                HEAP_ARRAY_INDEX_PROP_DATA_PAYLOAD_OFFSET,
-                number_payload_local,
-                number_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(self.strings.payload("index")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_array_define_named_data_property(
-                capture_array_local,
-                key_local,
-                number_payload_local,
-                number_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(number_tag_local));
-            self.emit_array_define_builtin_named_data_property(
-                capture_array_local,
-                HEAP_ARRAY_INPUT_PROP_DESCRIPTOR_KIND_OFFSET,
-                HEAP_ARRAY_INPUT_PROP_DATA_TAG_OFFSET,
-                HEAP_ARRAY_INPUT_PROP_DATA_PAYLOAD_OFFSET,
-                input_payload_local,
-                number_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(self.strings.payload("input")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_array_define_named_data_property(
-                capture_array_local,
-                key_local,
-                input_payload_local,
-                number_tag_local,
-                function,
-            )?;
-            self.emit_regexp_exec_program_groups_and_indices(
-                capture_array_local,
-                named_group_table_ptr_local,
-                has_indices_local,
-                indices_array_local,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::End);
+        match result_mode {
+            RegExpExecResultMode::Boolean => {
+                function.instruction(&Instruction::LocalGet(found_local));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+            RegExpExecResultMode::MatchArrayOrNull => {
+                function.instruction(&Instruction::LocalGet(found_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(match_end_local));
+                function.instruction(&Instruction::LocalGet(match_start_local));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(last_index_local));
+                self.emit_utf16_code_unit_range_payload_from_locals(
+                    input_payload_local,
+                    match_start_local,
+                    last_index_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(match_payload_local));
+                function.instruction(&Instruction::LocalGet(match_start_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(number_payload_local));
+                self.emit_regexp_indices_array_from_capture_bounds(
+                    capture_array_local,
+                    capture_count_local,
+                    match_start_local,
+                    match_end_local,
+                    has_indices_local,
+                    indices_array_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(capture_index_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(number_tag_local));
+                self.emit_array_write(
+                    capture_array_local,
+                    capture_index_local,
+                    match_payload_local,
+                    number_tag_local,
+                    function,
+                )?;
+                self.load_i64_to_local_from_offset(
+                    capture_array_local,
+                    HEAP_PTR_OFFSET,
+                    capture_buffer_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(capture_index_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::LocalGet(capture_count_local));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(capture_buffer_local));
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(capture_entry_local));
+                self.load_i64_to_local_from_offset(
+                    capture_entry_local,
+                    HEAP_ARRAY_PAYLOAD_OFFSET,
+                    capture_packed_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(capture_packed_local));
+                function.instruction(&Instruction::I64Const(-1));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(match_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(number_tag_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(capture_packed_local));
+                function.instruction(&Instruction::I64Const(32));
+                function.instruction(&Instruction::I64ShrU);
+                function.instruction(&Instruction::LocalSet(capture_start_local));
+                function.instruction(&Instruction::LocalGet(capture_packed_local));
+                function.instruction(&Instruction::I64Const(0xffff_ffff));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::LocalSet(capture_end_local));
+                function.instruction(&Instruction::LocalGet(capture_end_local));
+                function.instruction(&Instruction::LocalGet(capture_start_local));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(last_index_local));
+                self.emit_utf16_code_unit_range_payload_from_locals(
+                    input_payload_local,
+                    capture_start_local,
+                    last_index_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(match_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(number_tag_local));
+                function.instruction(&Instruction::End);
+                self.emit_array_write(
+                    capture_array_local,
+                    capture_index_local,
+                    match_payload_local,
+                    number_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(capture_index_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(capture_index_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(capture_array_local));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                function.instruction(&Instruction::LocalGet(match_start_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(number_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(number_tag_local));
+                self.emit_array_define_builtin_named_data_property(
+                    capture_array_local,
+                    HEAP_ARRAY_INDEX_PROP_DESCRIPTOR_KIND_OFFSET,
+                    HEAP_ARRAY_INDEX_PROP_DATA_TAG_OFFSET,
+                    HEAP_ARRAY_INDEX_PROP_DATA_PAYLOAD_OFFSET,
+                    number_payload_local,
+                    number_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(self.strings.payload("index")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_array_define_named_data_property(
+                    capture_array_local,
+                    key_local,
+                    number_payload_local,
+                    number_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(number_tag_local));
+                self.emit_array_define_builtin_named_data_property(
+                    capture_array_local,
+                    HEAP_ARRAY_INPUT_PROP_DESCRIPTOR_KIND_OFFSET,
+                    HEAP_ARRAY_INPUT_PROP_DATA_TAG_OFFSET,
+                    HEAP_ARRAY_INPUT_PROP_DATA_PAYLOAD_OFFSET,
+                    input_payload_local,
+                    number_tag_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(self.strings.payload("input")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_array_define_named_data_property(
+                    capture_array_local,
+                    key_local,
+                    input_payload_local,
+                    number_tag_local,
+                    function,
+                )?;
+                self.emit_regexp_exec_program_groups_and_indices(
+                    capture_array_local,
+                    named_group_table_ptr_local,
+                    has_indices_local,
+                    indices_array_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                function.instruction(&Instruction::End);
+            }
         }
         function.instruction(&Instruction::End);
 
@@ -17137,7 +15532,7 @@ impl<'a> FunctionBuilder<'a> {
         receiver_payload_local: u32,
         receiver_tag_local: u32,
         input_payload_local: u32,
-        return_boolean: bool,
+        result_mode: &RegExpExecResultMode,
         handled_local: u32,
         payload_local: u32,
         tag_local: u32,
@@ -18221,34 +16616,37 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        if return_boolean {
-            function.instruction(&Instruction::LocalGet(match_success_local));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-        } else {
-            function.instruction(&Instruction::LocalGet(match_success_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(scan_index_local));
-            function.instruction(&Instruction::F64ConvertI64U);
-            function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(number_payload_local));
-            self.emit_string_match_array_from_locals(
-                input_payload_local,
-                match_payload_local,
-                number_payload_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            function.instruction(&Instruction::End);
+        match result_mode {
+            RegExpExecResultMode::Boolean => {
+                function.instruction(&Instruction::LocalGet(match_success_local));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+            }
+            RegExpExecResultMode::MatchArrayOrNull => {
+                function.instruction(&Instruction::LocalGet(match_success_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(scan_index_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(number_payload_local));
+                self.emit_string_match_array_from_locals(
+                    input_payload_local,
+                    match_payload_local,
+                    number_payload_local,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                function.instruction(&Instruction::End);
+            }
         }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -18674,7 +17072,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.emit_uri_unescaped_codepoint_i32(codepoint_local, codec_kind, function);
+        self.emit_uri_unescaped_codepoint_i32(codepoint_local, &codec_kind, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_store_byte_local(dst_pos_local, codepoint_local, function);
         self.emit_increment_local(dst_pos_local, 1, function);
@@ -18786,27 +17184,30 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0x80));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        if codec_kind == UriCodecKind::Uri {
-            self.emit_uri_reserved_ascii_i32(byte_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            for delta in 0..3 {
-                self.emit_load_string_byte_at_delta(
-                    src_offset_local,
-                    index_local,
-                    delta,
-                    temp_local,
-                    function,
-                );
-                self.emit_store_byte_local(dst_pos_local, temp_local, function);
+        match codec_kind {
+            UriCodecKind::Uri => {
+                self.emit_uri_reserved_ascii_i32(byte_local, function);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                for delta in 0..3 {
+                    self.emit_load_string_byte_at_delta(
+                        src_offset_local,
+                        index_local,
+                        delta,
+                        temp_local,
+                        function,
+                    );
+                    self.emit_store_byte_local(dst_pos_local, temp_local, function);
+                    self.emit_increment_local(dst_pos_local, 1, function);
+                }
+                function.instruction(&Instruction::Else);
+                self.emit_store_byte_local(dst_pos_local, byte_local, function);
+                self.emit_increment_local(dst_pos_local, 1, function);
+                function.instruction(&Instruction::End);
+            }
+            UriCodecKind::Component => {
+                self.emit_store_byte_local(dst_pos_local, byte_local, function);
                 self.emit_increment_local(dst_pos_local, 1, function);
             }
-            function.instruction(&Instruction::Else);
-            self.emit_store_byte_local(dst_pos_local, byte_local, function);
-            self.emit_increment_local(dst_pos_local, 1, function);
-            function.instruction(&Instruction::End);
-        } else {
-            self.emit_store_byte_local(dst_pos_local, byte_local, function);
-            self.emit_increment_local(dst_pos_local, 1, function);
         }
         self.emit_increment_local(index_local, 3, function);
         function.instruction(&Instruction::Br(1));
@@ -18974,7 +17375,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_uri_unescaped_codepoint_i32(
         &self,
         codepoint_local: u32,
-        codec_kind: UriCodecKind,
+        codec_kind: &UriCodecKind,
         function: &mut Function,
     ) {
         for (index, (low, high)) in [(b'A', b'Z'), (b'a', b'z'), (b'0', b'9')]
@@ -20299,11 +18700,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Store8(Self::memarg8(0)));
     }
 
-    pub(crate) fn emit_normalized_string_payload_from_local(
+    pub(super) fn emit_normalized_string_payload_from_local(
         &mut self,
         string_payload_local: u32,
-        compatibility: bool,
-        compose: bool,
+        form: StringNormalizationForm,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let src_offset_local = self.reserve_temp_local();
@@ -20375,7 +18775,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_normalization_decomposition_lookup(
             codepoint_local,
-            compatibility,
+            &form,
             sequence_ptr_local,
             sequence_len_local,
             function,
@@ -20433,7 +18833,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_normalization_decomposition_lookup(
             codepoint_local,
-            compatibility,
+            &form,
             sequence_ptr_local,
             sequence_len_local,
             function,
@@ -20592,7 +18992,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        if compose {
+        if form.composes() {
             function.instruction(&Instruction::LocalGet(decomposed_count_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
@@ -20776,22 +19176,12 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_normalization_decomposition_lookup(
         &mut self,
         codepoint_local: u32,
-        compatibility: bool,
+        form: &StringNormalizationForm,
         sequence_ptr_local: u32,
         sequence_len_local: u32,
         function: &mut Function,
     ) {
-        let (table_ptr, table_count) = if compatibility {
-            (
-                self.strings.compatibility_decomposition_table_ptr,
-                self.strings.compatibility_decomposition_count,
-            )
-        } else {
-            (
-                self.strings.canonical_decomposition_table_ptr,
-                self.strings.canonical_decomposition_count,
-            )
-        };
+        let (table_ptr, table_count) = form.decomposition_table(self.strings);
         let low_local = self.reserve_temp_local();
         let high_local = self.reserve_temp_local();
         let middle_local = self.reserve_temp_local();

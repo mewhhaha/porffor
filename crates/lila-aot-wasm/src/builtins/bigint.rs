@@ -1,41 +1,28 @@
 use super::super::*;
 use crate::operations::BigIntNumberPolicy;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct BigIntValueResult(());
+mod radix_formatting;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct BigIntRadixStringResult(());
+struct BigIntValueResult(());
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct BigIntLocaleStringFallbackResult(());
+struct BigIntRadixStringResult(());
 
-#[derive(Debug)]
-#[must_use = "a prepared BigInt radix local must be formatted and released"]
-struct PreparedBigIntRadixLocal(u32);
+struct BigIntLocaleStringFallbackResult(());
 
-impl PreparedBigIntRadixLocal {
-    const fn local(&self) -> u32 {
-        self.0
-    }
-
-    const fn into_local(self) -> u32 {
-        self.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum BigIntPrototypeResultPolicy {
+enum BigIntPrototypeResultPolicy {
     ExactValue(BigIntValueResult),
     RadixString(BigIntRadixStringResult),
     LocaleStringFallback(BigIntLocaleStringFallbackResult),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum BigIntBuiltin {
+enum BigIntFixedWidthOperation {
+    Signed,
+    Unsigned,
+}
+
+enum BigIntBuiltin {
     Constructor,
-    AsIntN,
-    AsUintN,
+    FixedWidth(BigIntFixedWidthOperation),
     Prototype(BigIntPrototypeResultPolicy),
 }
 
@@ -43,19 +30,67 @@ pub(super) enum BigIntBuiltin {
 impl BigIntBuiltin {
     // Preserve the existing producer spelling while carrying the result policy
     // in the value that reaches the emitter.
-    pub(super) const PrototypeToString: Self = Self::Prototype(
-        BigIntPrototypeResultPolicy::RadixString(BigIntRadixStringResult(())),
-    );
-    pub(super) const PrototypeToLocaleString: Self = Self::Prototype(
+    const PrototypeToString: Self = Self::Prototype(BigIntPrototypeResultPolicy::RadixString(
+        BigIntRadixStringResult(()),
+    ));
+    const PrototypeToLocaleString: Self = Self::Prototype(
         BigIntPrototypeResultPolicy::LocaleStringFallback(BigIntLocaleStringFallbackResult(())),
     );
-    pub(super) const PrototypeValueOf: Self = Self::Prototype(
-        BigIntPrototypeResultPolicy::ExactValue(BigIntValueResult(())),
-    );
+    const PrototypeValueOf: Self = Self::Prototype(BigIntPrototypeResultPolicy::ExactValue(
+        BigIntValueResult(()),
+    ));
 }
 
 impl<'a> FunctionBuilder<'a> {
-    pub(super) fn emit_bigint_builtin(
+    pub(super) fn emit_bigint_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_bigint_builtin(BigIntBuiltin::Constructor, function)
+    }
+
+    pub(super) fn emit_bigint_as_int_n_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_bigint_builtin(
+            BigIntBuiltin::FixedWidth(BigIntFixedWidthOperation::Signed),
+            function,
+        )
+    }
+
+    pub(super) fn emit_bigint_as_uint_n_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_bigint_builtin(
+            BigIntBuiltin::FixedWidth(BigIntFixedWidthOperation::Unsigned),
+            function,
+        )
+    }
+
+    pub(super) fn emit_bigint_prototype_to_string_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_bigint_builtin(BigIntBuiltin::PrototypeToString, function)
+    }
+
+    pub(super) fn emit_bigint_prototype_to_locale_string_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_bigint_builtin(BigIntBuiltin::PrototypeToLocaleString, function)
+    }
+
+    pub(super) fn emit_bigint_prototype_value_of_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_bigint_builtin(BigIntBuiltin::PrototypeValueOf, function)
+    }
+
+    fn emit_bigint_builtin(
         &mut self,
         builtin: BigIntBuiltin,
         function: &mut Function,
@@ -91,7 +126,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(arg_tag_local);
                 self.release_temp_local(arg_payload_local);
             }
-            BigIntBuiltin::AsIntN | BigIntBuiltin::AsUintN => {
+            BigIntBuiltin::FixedWidth(operation) => {
                 let bits_payload_local = self.reserve_temp_local();
                 let bits_tag_local = self.reserve_temp_local();
                 let bigint_payload_local = self.reserve_temp_local();
@@ -162,26 +197,29 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(mask_local));
                 function.instruction(&Instruction::I64And);
                 function.instruction(&Instruction::LocalSet(word_payload_local));
-                if builtin == BigIntBuiltin::AsIntN {
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalGet(index_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::I64Shl);
-                    function.instruction(&Instruction::LocalSet(sign_local));
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::LocalGet(sign_local));
-                    function.instruction(&Instruction::I64And);
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::LocalGet(mask_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(word_payload_local));
-                    function.instruction(&Instruction::End);
+                match &operation {
+                    BigIntFixedWidthOperation::Signed => {
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::LocalGet(index_local));
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::I64Sub);
+                        function.instruction(&Instruction::I64Shl);
+                        function.instruction(&Instruction::LocalSet(sign_local));
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::LocalGet(sign_local));
+                        function.instruction(&Instruction::I64And);
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::LocalGet(mask_local));
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::I64Add);
+                        function.instruction(&Instruction::I64Sub);
+                        function.instruction(&Instruction::LocalSet(word_payload_local));
+                        function.instruction(&Instruction::End);
+                    }
+                    BigIntFixedWidthOperation::Unsigned => {}
                 }
                 function.instruction(&Instruction::LocalGet(word_payload_local));
                 function.instruction(&Instruction::LocalSet(self.result_local));
@@ -192,26 +230,31 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                if builtin == BigIntBuiltin::AsUintN {
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64LtS);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_alloc_one_limb_bigint(1, word_payload_local, function)?;
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                    function.instruction(&Instruction::End);
-                } else {
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                match &operation {
+                    BigIntFixedWidthOperation::Signed => {
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::LocalSet(self.result_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                    }
+                    BigIntFixedWidthOperation::Unsigned => {
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64LtS);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.emit_alloc_one_limb_bigint(1, word_payload_local, function)?;
+                        function.instruction(&Instruction::LocalSet(self.result_local));
+                        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
+                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                        function.instruction(&Instruction::Else);
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::LocalSet(self.result_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                        function.instruction(&Instruction::End);
+                    }
                 }
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::LocalGet(bigint_tag_local));
@@ -301,11 +344,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(result_capacity_local));
                 function.instruction(&Instruction::I64LtU);
                 function.instruction(&Instruction::I32And);
-                if builtin == BigIntBuiltin::AsUintN {
-                    function.instruction(&Instruction::LocalGet(input_sign_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64GeS);
-                    function.instruction(&Instruction::I32And);
+                match &operation {
+                    BigIntFixedWidthOperation::Signed => {}
+                    BigIntFixedWidthOperation::Unsigned => {
+                        function.instruction(&Instruction::LocalGet(input_sign_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64GeS);
+                        function.instruction(&Instruction::I32And);
+                    }
                 }
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::LocalGet(bigint_payload_local));
@@ -421,91 +467,94 @@ impl<'a> FunctionBuilder<'a> {
 
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::LocalSet(result_sign_local));
-                if builtin == BigIntBuiltin::AsIntN {
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalGet(index_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::I64Const(63));
-                    function.instruction(&Instruction::I64And);
-                    function.instruction(&Instruction::I64Shl);
-                    function.instruction(&Instruction::LocalSet(sign_local));
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::LocalGet(sign_local));
-                    function.instruction(&Instruction::I64And);
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(-1));
-                    function.instruction(&Instruction::LocalSet(result_sign_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalSet(carry_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(limb_index_local));
-                    function.instruction(&Instruction::Block(BlockType::Empty));
-                    function.instruction(&Instruction::Loop(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(limb_index_local));
-                    function.instruction(&Instruction::LocalGet(result_capacity_local));
-                    function.instruction(&Instruction::I64GeU);
-                    function.instruction(&Instruction::BrIf(1));
-                    function.instruction(&Instruction::LocalGet(result_limbs_local));
-                    function.instruction(&Instruction::LocalGet(limb_index_local));
-                    function.instruction(&Instruction::I64Const(8));
-                    function.instruction(&Instruction::I64Mul);
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::I32WrapI64);
-                    function.instruction(&Instruction::I64Load(self.buffer_memarg64(0)));
-                    function.instruction(&Instruction::I64Const(-1));
-                    function.instruction(&Instruction::I64Xor);
-                    function.instruction(&Instruction::LocalGet(carry_local));
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::LocalSet(word_payload_local));
-                    function.instruction(&Instruction::LocalGet(carry_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::I32And);
-                    function.instruction(&Instruction::I64ExtendI32U);
-                    function.instruction(&Instruction::LocalSet(carry_local));
-                    function.instruction(&Instruction::LocalGet(result_limbs_local));
-                    function.instruction(&Instruction::LocalGet(limb_index_local));
-                    function.instruction(&Instruction::I64Const(8));
-                    function.instruction(&Instruction::I64Mul);
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::I32WrapI64);
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::I64Store(self.buffer_memarg64(0)));
-                    function.instruction(&Instruction::LocalGet(limb_index_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::LocalSet(limb_index_local));
-                    function.instruction(&Instruction::Br(0));
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::LocalGet(result_limbs_local));
-                    function.instruction(&Instruction::LocalGet(result_capacity_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::I64Const(8));
-                    function.instruction(&Instruction::I64Mul);
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::I32WrapI64);
-                    function.instruction(&Instruction::I64Load(self.buffer_memarg64(0)));
-                    function.instruction(&Instruction::LocalGet(mask_local));
-                    function.instruction(&Instruction::I64And);
-                    function.instruction(&Instruction::LocalSet(word_payload_local));
-                    function.instruction(&Instruction::LocalGet(result_limbs_local));
-                    function.instruction(&Instruction::LocalGet(result_capacity_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::I64Const(8));
-                    function.instruction(&Instruction::I64Mul);
-                    function.instruction(&Instruction::I64Add);
-                    function.instruction(&Instruction::I32WrapI64);
-                    function.instruction(&Instruction::LocalGet(word_payload_local));
-                    function.instruction(&Instruction::I64Store(self.buffer_memarg64(0)));
-                    function.instruction(&Instruction::End);
+                match &operation {
+                    BigIntFixedWidthOperation::Signed => {
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::LocalGet(index_local));
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::I64Sub);
+                        function.instruction(&Instruction::I64Const(63));
+                        function.instruction(&Instruction::I64And);
+                        function.instruction(&Instruction::I64Shl);
+                        function.instruction(&Instruction::LocalSet(sign_local));
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::LocalGet(sign_local));
+                        function.instruction(&Instruction::I64And);
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        function.instruction(&Instruction::I64Const(-1));
+                        function.instruction(&Instruction::LocalSet(result_sign_local));
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::LocalSet(carry_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::LocalSet(limb_index_local));
+                        function.instruction(&Instruction::Block(BlockType::Empty));
+                        function.instruction(&Instruction::Loop(BlockType::Empty));
+                        function.instruction(&Instruction::LocalGet(limb_index_local));
+                        function.instruction(&Instruction::LocalGet(result_capacity_local));
+                        function.instruction(&Instruction::I64GeU);
+                        function.instruction(&Instruction::BrIf(1));
+                        function.instruction(&Instruction::LocalGet(result_limbs_local));
+                        function.instruction(&Instruction::LocalGet(limb_index_local));
+                        function.instruction(&Instruction::I64Const(8));
+                        function.instruction(&Instruction::I64Mul);
+                        function.instruction(&Instruction::I64Add);
+                        function.instruction(&Instruction::I32WrapI64);
+                        function.instruction(&Instruction::I64Load(self.buffer_memarg64(0)));
+                        function.instruction(&Instruction::I64Const(-1));
+                        function.instruction(&Instruction::I64Xor);
+                        function.instruction(&Instruction::LocalGet(carry_local));
+                        function.instruction(&Instruction::I64Add);
+                        function.instruction(&Instruction::LocalSet(word_payload_local));
+                        function.instruction(&Instruction::LocalGet(carry_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64Ne);
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::I64Eqz);
+                        function.instruction(&Instruction::I32And);
+                        function.instruction(&Instruction::I64ExtendI32U);
+                        function.instruction(&Instruction::LocalSet(carry_local));
+                        function.instruction(&Instruction::LocalGet(result_limbs_local));
+                        function.instruction(&Instruction::LocalGet(limb_index_local));
+                        function.instruction(&Instruction::I64Const(8));
+                        function.instruction(&Instruction::I64Mul);
+                        function.instruction(&Instruction::I64Add);
+                        function.instruction(&Instruction::I32WrapI64);
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::I64Store(self.buffer_memarg64(0)));
+                        function.instruction(&Instruction::LocalGet(limb_index_local));
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::I64Add);
+                        function.instruction(&Instruction::LocalSet(limb_index_local));
+                        function.instruction(&Instruction::Br(0));
+                        function.instruction(&Instruction::End);
+                        function.instruction(&Instruction::End);
+                        function.instruction(&Instruction::LocalGet(result_limbs_local));
+                        function.instruction(&Instruction::LocalGet(result_capacity_local));
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::I64Sub);
+                        function.instruction(&Instruction::I64Const(8));
+                        function.instruction(&Instruction::I64Mul);
+                        function.instruction(&Instruction::I64Add);
+                        function.instruction(&Instruction::I32WrapI64);
+                        function.instruction(&Instruction::I64Load(self.buffer_memarg64(0)));
+                        function.instruction(&Instruction::LocalGet(mask_local));
+                        function.instruction(&Instruction::I64And);
+                        function.instruction(&Instruction::LocalSet(word_payload_local));
+                        function.instruction(&Instruction::LocalGet(result_limbs_local));
+                        function.instruction(&Instruction::LocalGet(result_capacity_local));
+                        function.instruction(&Instruction::I64Const(1));
+                        function.instruction(&Instruction::I64Sub);
+                        function.instruction(&Instruction::I64Const(8));
+                        function.instruction(&Instruction::I64Mul);
+                        function.instruction(&Instruction::I64Add);
+                        function.instruction(&Instruction::I32WrapI64);
+                        function.instruction(&Instruction::LocalGet(word_payload_local));
+                        function.instruction(&Instruction::I64Store(self.buffer_memarg64(0)));
+                        function.instruction(&Instruction::End);
+                    }
+                    BigIntFixedWidthOperation::Unsigned => {}
                 }
 
                 function.instruction(&Instruction::LocalGet(result_capacity_local));
@@ -767,83 +816,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(bigint_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-    }
-
-    fn emit_bigint_radix_string_result(
-        &mut self,
-        result: BigIntRadixStringResult,
-        bigint_payload_local: u32,
-        bigint_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let radix = self.emit_prepare_bigint_radix(result, function)?;
-
-        function.instruction(&Instruction::LocalGet(bigint_tag_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        self.emit_heap_bigint_to_radix_string_payload(
-            bigint_payload_local,
-            radix.local(),
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_bigint_to_radix_string_payload(bigint_payload_local, radix.local(), function)?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(radix.into_local());
-        Ok(())
-    }
-
-    fn emit_prepare_bigint_radix(
-        &mut self,
-        _result: BigIntRadixStringResult,
-        function: &mut Function,
-    ) -> Result<PreparedBigIntRadixLocal, EmitError> {
-        let radix_local = self.reserve_temp_local();
-        let radix_payload_local = self.reserve_temp_local();
-        let radix_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, radix_payload_local, radix_tag_local, function);
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::LocalGet(radix_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_number_payload(radix_tag_local, radix_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(radix_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Trunc);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(radix_local));
-        function.instruction(&Instruction::I64Const(36));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "BigInt.prototype.toString radix out of range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(radix_tag_local);
-        self.release_temp_local(radix_payload_local);
-        Ok(PreparedBigIntRadixLocal(radix_local))
     }
 
     fn emit_bigint_locale_string_fallback_result(

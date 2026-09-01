@@ -16,7 +16,9 @@ impl<'a> ScriptLowerer<'a> {
             );
             return (StatementIr::Empty, ValueKind::Undefined);
         }
+        self.loop_depth += 1;
         let condition = self.lower_expression(while_loop.condition());
+        self.loop_depth -= 1;
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
         let (body, body_kind) = self.lower_loop_body(while_loop.body());
@@ -94,7 +96,9 @@ impl<'a> ScriptLowerer<'a> {
             return (StatementIr::Empty, ValueKind::Undefined);
         }
         let (body, body_kind) = self.lower_loop_body(do_while.body());
+        self.loop_depth += 1;
         let condition = self.lower_expression(do_while.cond());
+        self.loop_depth -= 1;
         (
             StatementIr::DoWhile {
                 body: Box::new(body),

@@ -25,7 +25,7 @@ const TEMPORAL_PLAIN_DATE_TIME_MINIMUM_EPOCH_DAY: i64 = -100_000_001;
 
 /// Field order: the constructor argument order, and the order the fields are
 /// written into the record. Indices 0..3 are the date, 3..9 the time.
-pub(crate) const TEMPORAL_PLAIN_DATE_TIME_FIELD_OFFSETS: [u64; 9] = [
+const TEMPORAL_PLAIN_DATE_TIME_FIELD_OFFSETS: [u64; 9] = [
     HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_YEAR_OFFSET,
     HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_MONTH_OFFSET,
     HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_DAY_OFFSET,

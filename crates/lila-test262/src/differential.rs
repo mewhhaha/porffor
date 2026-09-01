@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "spec-exec-oracle")]
 use std::sync::{Arc, Mutex};
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 use lila_engine::{CompileOptions, ModuleLoadingPolicy, ObservedCompletion, ObservedJsValue};
 #[cfg(feature = "spec-exec-oracle")]
 use lila_engine::{
@@ -85,6 +86,7 @@ pub enum DifferentialGoal {
     Module,
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl DifferentialGoal {
     const fn as_str(self) -> &'static str {
         match self {
@@ -192,9 +194,9 @@ impl From<ObservationContract> for DifferentialProtocol {
 
 /// The complete output-observation policy selected by a protocol.
 ///
-/// There is no caller-provided boolean/default: adding a protocol or policy
-/// must update the exhaustive projections and comparison below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// There is no caller-provided boolean/default. A new protocol row must choose
+/// a policy exhaustively; a new policy row must define comparison exhaustively.
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 enum OutputComparisonPolicy {
     RequireCapturedEmpty,
     CompareCapturedPrintTranscript,
@@ -422,6 +424,7 @@ pub enum DifferentialBackend {
     SpecExec,
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl DifferentialBackend {
     const fn as_str(self) -> &'static str {
         match self {
@@ -446,6 +449,7 @@ pub enum ExecutionDisposition {
     Error,
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl ExecutionDisposition {
     const fn as_str(self) -> &'static str {
         match self {
@@ -462,6 +466,7 @@ pub enum CompletionKindObservation {
     Throw,
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl CompletionKindObservation {
     const fn as_str(self) -> &'static str {
         match self {
@@ -491,6 +496,7 @@ pub enum PrimitiveValueObservation {
     },
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl PrimitiveValueObservation {
     fn from_observed(value: &ObservedJsValue) -> Result<Self, UnsupportedObservedValueType> {
         match value {
@@ -504,7 +510,7 @@ impl PrimitiveValueObservation {
                 utf16_units: units.to_vec(),
             }),
             ObservedJsValue::BigInt(decimal) => Ok(Self::BigInt {
-                decimal: decimal.to_string(),
+                decimal: decimal.as_str().to_string(),
             }),
             ObservedJsValue::Symbol => Err(UnsupportedObservedValueType::Symbol),
             ObservedJsValue::Object => Err(UnsupportedObservedValueType::Object),
@@ -538,6 +544,7 @@ impl PrimitiveCompletionObservation {
         }
     }
 
+    #[cfg(any(test, feature = "spec-exec-oracle"))]
     fn value(&self) -> &PrimitiveValueObservation {
         match self {
             Self::Normal { value } | Self::Throw { value } => value,
@@ -552,6 +559,7 @@ pub enum UnsupportedObservedValueType {
     Object,
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl UnsupportedObservedValueType {
     const fn as_str(self) -> &'static str {
         match self {
@@ -574,6 +582,7 @@ pub enum FailurePhase {
     RunnerInvariant,
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl FailurePhase {
     const fn as_str(self) -> &'static str {
         match self {
@@ -652,6 +661,7 @@ pub enum OutputUnavailableReason {
     SpecExecBypassesEngineHostHooks,
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl OutputUnavailableReason {
     const fn as_str(self) -> &'static str {
         match self {
@@ -748,6 +758,7 @@ impl DifferentialProtocol {
         }
     }
 
+    #[cfg(any(test, feature = "spec-exec-oracle"))]
     const fn output_policy(self) -> OutputComparisonPolicy {
         match self {
             Self::V1SelfCheckingNoOutput | Self::V2PrimitiveCompletionNoOutput => {
@@ -989,14 +1000,16 @@ impl lila_engine::HostHooks for CapturingOutput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(test, feature = "spec-exec-oracle"))]
+#[derive(Debug)]
 struct BackendExecution {
     backend: DifferentialBackend,
     output_events: OutputEventsObservation,
     result: BackendExecutionResult,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(test, feature = "spec-exec-oracle"))]
+#[derive(Debug)]
 enum BackendExecutionResult {
     Completion {
         completion: ObservedCompletion,
@@ -1008,6 +1021,7 @@ enum BackendExecutionResult {
     },
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 impl BackendExecutionResult {
     const fn disposition(&self) -> ExecutionDisposition {
         match self {
@@ -1110,6 +1124,7 @@ fn take_captured_output(output: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
     std::mem::take(&mut *events)
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 const fn execution_failure_phase(backend: DifferentialBackend) -> FailurePhase {
     match backend {
         DifferentialBackend::WasmAot => FailurePhase::WasmRuntimeOrBackend,
@@ -1120,6 +1135,7 @@ const fn execution_failure_phase(backend: DifferentialBackend) -> FailurePhase {
 /// Differential corpus programs are product probes, not Test262 harness
 /// programs. Keep the authority choice at this boundary so replay cannot gain
 /// conformance-only globals as an incidental engine-test convenience.
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn compile_options_for_case(case: &DifferentialCase) -> CompileOptions {
     CompileOptions {
         filename: Some(case.filename.clone()),
@@ -1152,6 +1168,7 @@ fn observe_engine_error(
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn compare_executions(
     case: &DifferentialCase,
     wasm_execution: BackendExecution,
@@ -1218,6 +1235,7 @@ fn compare_executions(
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn obeys_output_policy(
     policy: OutputComparisonPolicy,
     wasm: &OutputEventsObservation,
@@ -1235,6 +1253,7 @@ fn obeys_output_policy(
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn project_backend_execution(
     protocol: DifferentialProtocol,
     execution: BackendExecution,
@@ -1287,6 +1306,7 @@ fn project_backend_execution(
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn project_primitive_completion(
     completion: ObservedCompletion,
     backend_note: String,
@@ -1316,6 +1336,7 @@ fn project_primitive_completion(
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 const fn compare_v1_dispositions(
     wasm: ExecutionDisposition,
     spec_exec: ExecutionDisposition,
@@ -1334,6 +1355,7 @@ const fn compare_v1_dispositions(
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn compare_v2_observations(
     wasm: &ExecutionObservation,
     spec_exec: &ExecutionObservation,
@@ -1385,6 +1407,7 @@ fn compare_v2_observations(
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn compare_v3_observations(
     wasm: &BackendObservation,
     spec_exec: &BackendObservation,
@@ -1451,6 +1474,7 @@ fn compare_v3_observations(
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn v2_execution_signature(execution: &ExecutionObservation) -> String {
     match execution {
         ExecutionObservation::PrimitiveCompletion { completion, .. } => format!(
@@ -1478,6 +1502,7 @@ fn v2_execution_signature(execution: &ExecutionObservation) -> String {
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn v3_mismatch_signature(
     case: &DifferentialCase,
     case_fingerprint: &CaseFingerprint,
@@ -1506,6 +1531,7 @@ fn v3_mismatch_signature(
     ))
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn v3_backend_observation_signature(observation: &BackendObservation) -> String {
     let mut hash = fnv_update(FNV_OFFSET_BASIS, b"lila-diff-v3-backend-observation");
     match &observation.execution {
@@ -1557,6 +1583,7 @@ fn v3_backend_observation_signature(observation: &BackendObservation) -> String 
     format!("fnv1a64-{hash:016x}")
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn primitive_value_signature(value: &PrimitiveValueObservation) -> String {
     match value {
         PrimitiveValueObservation::Undefined => "undefined".to_string(),
@@ -1581,8 +1608,10 @@ fn primitive_value_signature(value: &PrimitiveValueObservation) -> String {
     }
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn fnv_update(mut hash: u64, bytes: &[u8]) -> u64 {
     const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
     for byte in bytes {
@@ -1592,11 +1621,13 @@ fn fnv_update(mut hash: u64, bytes: &[u8]) -> u64 {
     hash
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn fnv_field(hash: u64, value: &[u8]) -> u64 {
     let hash = fnv_update(hash, &(value.len() as u64).to_le_bytes());
     fnv_update(hash, value)
 }
 
+#[cfg(any(test, feature = "spec-exec-oracle"))]
 fn case_fingerprint(case: &DifferentialCase) -> CaseFingerprint {
     let domain: &[u8] = match case.protocol {
         DifferentialProtocol::V1SelfCheckingNoOutput => b"lila-differential-case-v1",
@@ -1615,7 +1646,7 @@ fn case_fingerprint(case: &DifferentialCase) -> CaseFingerprint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lila_engine::ObservedNumber;
+    use lila_engine::{ObservedBigInt, ObservedNumber};
     use lila_ir::HostSurfacePolicy;
 
     const FOUNDATION_CASE_V1: &str =
@@ -1679,6 +1710,7 @@ mod tests {
         ]
     }
 
+    #[cfg(feature = "spec-exec-oracle")]
     fn module_loader_context_sources(specifier: &str) -> Vec<(&'static str, String)> {
         let mut runtime_sources = runtime_created_import_sources(specifier);
         let encoded_specifier =
@@ -2143,7 +2175,10 @@ mod tests {
             ObservedJsValue::Boolean(true),
             ObservedJsValue::Number(ObservedNumber::from_bits(0x7ff0_0000_0000_0001)),
             ObservedJsValue::String(vec![0xd800].into_boxed_slice()),
-            ObservedJsValue::BigInt("-9007199254740993".to_string().into_boxed_str()),
+            ObservedJsValue::BigInt(
+                ObservedBigInt::parse_canonical_decimal("-9007199254740993".into())
+                    .expect("expected BigInt should be canonical"),
+            ),
         ];
         for value in values {
             let report = compare_executions(
@@ -2246,14 +2281,16 @@ mod tests {
             completed(
                 DifferentialBackend::WasmAot,
                 ObservedCompletion::Normal(ObservedJsValue::BigInt(
-                    "-9007199254740993".to_string().into_boxed_str(),
+                    ObservedBigInt::parse_canonical_decimal("-9007199254740993".into())
+                        .expect("expected BigInt should be canonical"),
                 )),
                 "wasm bigint",
             ),
             completed(
                 DifferentialBackend::SpecExec,
                 ObservedCompletion::Normal(ObservedJsValue::BigInt(
-                    "-9007199254740993".to_string().into_boxed_str(),
+                    ObservedBigInt::parse_canonical_decimal("-9007199254740993".into())
+                        .expect("expected BigInt should be canonical"),
                 )),
                 "spec bigint",
             ),

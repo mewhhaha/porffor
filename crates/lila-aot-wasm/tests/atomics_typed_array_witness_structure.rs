@@ -2,6 +2,8 @@ const ATOMICS_SOURCE: &str = include_str!("../src/builtins/atomics.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/binary_data.rs");
 const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_atomics_typed_array_buffer_witness.js");
+const TYPE_ERROR_CLI_FIXTURE: &str =
+    include_str!("../../lila-cli/tests/fixtures/wasm_atomics_type_error_realm.js");
 
 const PRIVATE_STATE_WIRING: &str = r#"
         self.emit_load_typed_array_private_state(
@@ -83,6 +85,56 @@ fn owners() -> [(&'static str, &'static str); 4] {
     ]
 }
 
+fn type_error_owners() -> [(&'static str, &'static str, usize); 6] {
+    [
+        (
+            "Atomics.pause",
+            owner_body("fn emit_atomics_pause(", "fn emit_atomics_notify("),
+            1,
+        ),
+        (
+            "Atomics.notify",
+            owner_body(
+                "fn emit_atomics_notify(",
+                "fn emit_atomics_require_agent_can_suspend(",
+            ),
+            3,
+        ),
+        (
+            "Atomics wait suspension check",
+            owner_body(
+                "fn emit_atomics_require_agent_can_suspend(",
+                "fn emit_atomics_wait_return_string(",
+            ),
+            1,
+        ),
+        (
+            "Atomics.waitAsync",
+            owner_body(
+                "fn emit_atomics_wait_async(&mut self,",
+                "fn emit_atomics_wait_async_timeout_checkpoint(",
+            ),
+            3,
+        ),
+        (
+            "Atomics.wait",
+            owner_body(
+                "fn emit_atomics_wait(&mut self,",
+                "fn emit_atomics_integer_operation(",
+            ),
+            3,
+        ),
+        (
+            "Atomics integer operations",
+            owner_body(
+                "fn emit_atomics_integer_operation(",
+                "fn emit_atomics_friendly_element_kind_i32(",
+            ),
+            2,
+        ),
+    ]
+}
+
 fn without_whitespace(source: &str) -> String {
     source.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
@@ -119,11 +171,6 @@ fn four_atomic_access_owners_use_one_validated_typed_array_witness() {
                 1,
                 "pre-coercion backing pointer snapshot",
             ),
-            (
-                "HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET",
-                1,
-                "element-kind load",
-            ),
         ] {
             assert_eq!(
                 body.matches(needle).count(),
@@ -131,6 +178,19 @@ fn four_atomic_access_owners_use_one_validated_typed_array_witness() {
                 "{label} must have exactly {expected} {role}"
             );
         }
+
+        let direct_element_kind_loads = usize::from(label == "Atomics.notify");
+        assert_eq!(
+            body.matches("HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET").count(),
+            direct_element_kind_loads,
+            "{label} direct element-kind load count"
+        );
+        assert_eq!(
+            body.matches("emit_validate_atomics_integer_element_kind(")
+                .count(),
+            usize::from(label != "Atomics.notify"),
+            "{label} validated element-kind authority count"
+        );
 
         for forbidden in [
             "emit_typed_array_current_byte_length(",
@@ -156,8 +216,13 @@ fn four_atomic_access_owners_use_one_validated_typed_array_witness() {
         );
         let view =
             unique_normalized_position(&normalized, VIEW_WIRING, &format!("{label} view wiring"));
+        let element_kind_marker = if label == "Atomics.notify" {
+            "HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET"
+        } else {
+            "emit_validate_atomics_integer_element_kind("
+        };
         let element_kind = normalized
-            .find("HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET")
+            .find(element_kind_marker)
             .unwrap_or_else(|| panic!("missing {label} element-kind validation"));
         let data_pointer = normalized
             .find("emit_load_array_buffer_data(buffer_payload_local,data_ptr_local,function)")
@@ -180,6 +245,12 @@ fn four_atomic_access_owners_use_one_validated_typed_array_witness() {
 #[test]
 fn atomics_bounds_use_the_witness_element_length_after_index_coercion() {
     for (label, body) in owners() {
+        assert_eq!(
+            body.matches("emit_throw_current_function_realm_range_error(")
+                .count(),
+            1,
+            "{label} must route its positive index bound through the executing builtin Realm"
+        );
         assert_eq!(
             body.matches(
                 "emit_value_to_number_payload(index_tag_local, index_payload_local, function)"
@@ -207,6 +278,10 @@ fn atomics_bounds_use_the_witness_element_length_after_index_coercion() {
         );
 
         let normalized = without_whitespace(body);
+        assert!(
+            !normalized.contains("emit_throw_runtime_error(RANGE_ERROR_NAME,"),
+            "{label} must not use the entry-global RangeError emitter"
+        );
         let witness =
             unique_normalized_position(&normalized, WITNESS_WIRING, &format!("{label} witness"));
         let to_number = normalized
@@ -221,7 +296,7 @@ fn atomics_bounds_use_the_witness_element_length_after_index_coercion() {
             &format!("{label} element bound"),
         );
         let range_error = normalized
-            .find("emit_throw_runtime_error(RANGE_ERROR_NAME,")
+            .find("emit_throw_current_function_realm_range_error(")
             .unwrap_or_else(|| panic!("missing {label} range error"));
         let later_coercion_marker = match label {
             "Atomics.notify" => {
@@ -229,7 +304,7 @@ fn atomics_bounds_use_the_witness_element_length_after_index_coercion() {
             }
             "Atomics.waitAsync" | "Atomics.wait" => "emit_to_bigint_u64_word_from_value_locals(",
             "Atomics integer operations" => {
-                "emit_atomics_bigint_element_kind_i32(element_kind_local,function)"
+                "emit_validated_atomics_bigint_element_kind_i32(&element_kind,function)"
             }
             _ => unreachable!("closed Atomics owner census"),
         };
@@ -245,6 +320,43 @@ fn atomics_bounds_use_the_witness_element_length_after_index_coercion() {
             "{label} must snapshot validated length before index coercion, apply its RangeError bound and only then coerce later arguments"
         );
     }
+}
+
+#[test]
+fn atomics_algorithm_type_errors_use_the_executing_builtin_realm() {
+    let mut direct_routes = 0;
+    for (label, body, expected) in type_error_owners() {
+        assert_eq!(
+            body.matches("emit_throw_current_function_realm_type_error(")
+                .count(),
+            expected,
+            "{label} current-Realm TypeError count"
+        );
+        assert!(
+            !without_whitespace(body).contains("emit_throw_runtime_error(TYPE_ERROR_NAME,"),
+            "{label} must not use the entry-global TypeError emitter"
+        );
+        direct_routes += expected;
+    }
+    let validation_helper = owner_body(
+        "fn emit_validate_atomics_integer_element_kind(",
+        "fn emit_atomics_builtin(",
+    );
+    assert_eq!(
+        validation_helper
+            .matches("emit_throw_current_function_realm_type_error(")
+            .count(),
+        1,
+        "the validated element-kind authority must own one current-Realm TypeError emitter"
+    );
+    assert_eq!(
+        direct_routes
+            + ATOMICS_SOURCE
+                .matches("self.emit_validate_atomics_integer_element_kind(")
+                .count(),
+        16,
+        "closed Atomics TypeError route census"
+    );
 }
 
 #[test]
@@ -273,6 +385,26 @@ fn focused_cli_fixture_pins_atomic_witness_error_and_length_policy() {
     ] {
         assert!(
             CLI_FIXTURE.contains(marker),
+            "missing CLI control: {marker}"
+        );
+    }
+}
+
+#[test]
+fn focused_cli_fixture_pins_representative_atomics_type_error_branches() {
+    assert!(CLI_TESTS.contains("fn run_wasm_backend_preserves_atomics_type_error_branches()"));
+    assert!(CLI_TESTS.contains("wasm_atomics_type_error_realm.js"));
+    for marker in [
+        "Atomics.pause invalid iteration",
+        "Atomics.notify invalid receiver",
+        "Atomics.notify invalid element kind",
+        "Atomics.waitAsync non-shared buffer",
+        "Atomics.wait non-shared buffer",
+        "Atomics integer operation invalid element kind",
+        "Atomics integer operation detached buffer",
+    ] {
+        assert!(
+            TYPE_ERROR_CLI_FIXTURE.contains(marker),
             "missing CLI control: {marker}"
         );
     }

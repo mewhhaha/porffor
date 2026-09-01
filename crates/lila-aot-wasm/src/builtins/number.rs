@@ -1,7 +1,6 @@
 use super::super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum NumberBuiltin {
+enum NumberBuiltin {
     Constructor,
     IsInteger,
     IsSafeInteger,
@@ -15,7 +14,6 @@ pub(super) enum NumberBuiltin {
     PrototypeValueOf,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NumberPrototypeOperation {
     ToExponential,
     ToFixed,
@@ -26,10 +24,7 @@ enum NumberPrototypeOperation {
 }
 
 impl<'a> FunctionBuilder<'a> {
-    fn emit_number_constructor_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
+    fn emit_number_constructor_result(&mut self, function: &mut Function) -> Result<(), EmitError> {
         let arg_payload_local = self.reserve_temp_local();
         let arg_tag_local = self.reserve_temp_local();
         let primitive_payload_local = self.reserve_temp_local();
@@ -178,13 +173,90 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_number_builtin(
+    pub(super) fn emit_number_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::Constructor, function)
+    }
+
+    pub(super) fn emit_number_is_integer_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::IsInteger, function)
+    }
+
+    pub(super) fn emit_number_is_safe_integer_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::IsSafeInteger, function)
+    }
+
+    pub(super) fn emit_number_is_finite_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::IsFinite, function)
+    }
+
+    pub(super) fn emit_number_is_nan_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::IsNaN, function)
+    }
+
+    pub(super) fn emit_number_prototype_to_exponential_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::PrototypeToExponential, function)
+    }
+
+    pub(super) fn emit_number_prototype_to_fixed_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::PrototypeToFixed, function)
+    }
+
+    pub(super) fn emit_number_prototype_to_precision_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::PrototypeToPrecision, function)
+    }
+
+    pub(super) fn emit_number_prototype_to_string_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::PrototypeToString, function)
+    }
+
+    pub(super) fn emit_number_prototype_to_locale_string_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::PrototypeToLocaleString, function)
+    }
+
+    pub(super) fn emit_number_prototype_value_of_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_number_builtin(NumberBuiltin::PrototypeValueOf, function)
+    }
+
+    fn emit_number_builtin(
         &mut self,
         builtin: NumberBuiltin,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match builtin {
-            NumberBuiltin::Constructor => self.emit_number_constructor_builtin(function)?,
+            NumberBuiltin::Constructor => self.emit_number_constructor_result(function)?,
             NumberBuiltin::IsInteger => {
                 let arg_payload_local = self.reserve_temp_local();
                 let arg_tag_local = self.reserve_temp_local();

@@ -77,26 +77,23 @@ impl IrDiagnosticKind {
 
 /// One compile-time rejection or gap report.
 ///
-/// `phase` and `error_type` are **not** fields; they are functions of `kind`,
-/// and `kind` is a function of `code`. What used to be a four-field product held
-/// consistent by there happening to be exactly four constructors is now one
-/// stored discriminant plus payload.
+/// The private payload is the only stored classification authority. A coded
+/// rejection, an unclassified compiler gap, a typed capability gap, and a
+/// lowering failure are distinct variants, so no constructor or later mutation
+/// can pair a code or feature with the wrong kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IrDiagnostic {
-    pub kind: IrDiagnosticKind,
-    /// **Private, and that is the invariant.** The only writer is
-    /// [`IrDiagnostic::rejected`], which derives `kind` from this value. A
-    /// struct literal anywhere else in the workspace is `error[E0451]` (private
-    /// field `code`), so a fifth constructor cannot be written except beside the
-    /// other four, in this file, where the derivation lives.
-    ///
-    /// `None` means "not a spec rejection": an `Unsupported` or `Lowering`
-    /// report. It is deliberately not an `EarlyErrorCode` variant — a code that
-    /// named the absence of a code would let `code: Some(_)` mean "no code".
-    code: Option<EarlyErrorCode>,
-    unsupported_feature: Option<UnsupportedFeature>,
+    payload: IrDiagnosticPayload,
     pub span: Option<SourceSpan>,
     pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IrDiagnosticPayload {
+    Rejected(EarlyErrorCode),
+    Unsupported,
+    UnsupportedFeature(UnsupportedFeature),
+    Lowering,
 }
 
 impl IrDiagnostic {
@@ -116,9 +113,7 @@ impl IrDiagnostic {
         span: Option<SourceSpan>,
     ) -> Self {
         Self {
-            kind: rejection_kind(code),
-            code: Some(code),
-            unsupported_feature: None,
+            payload: IrDiagnosticPayload::Rejected(code),
             span,
             message: message.into(),
         }
@@ -143,9 +138,7 @@ impl IrDiagnostic {
 
     pub fn unsupported(message: impl Into<String>) -> Self {
         Self {
-            kind: IrDiagnosticKind::Unsupported,
-            code: None,
-            unsupported_feature: None,
+            payload: IrDiagnosticPayload::Unsupported,
             span: None,
             message: message.into(),
         }
@@ -155,9 +148,9 @@ impl IrDiagnostic {
     /// human-readable diagnostic text.
     pub fn unsupported_dynamic_source(gap: DynamicSourceGap) -> Self {
         Self {
-            kind: IrDiagnosticKind::Unsupported,
-            code: None,
-            unsupported_feature: Some(UnsupportedFeature::DynamicSource(gap)),
+            payload: IrDiagnosticPayload::UnsupportedFeature(UnsupportedFeature::DynamicSource(
+                gap,
+            )),
             span: None,
             message: format!(
                 "unsupported in lila wasm-aot first slice: feature `{}` ({}) requires {}",
@@ -170,11 +163,20 @@ impl IrDiagnostic {
 
     pub fn lowering(message: impl Into<String>) -> Self {
         Self {
-            kind: IrDiagnosticKind::Lowering,
-            code: None,
-            unsupported_feature: None,
+            payload: IrDiagnosticPayload::Lowering,
             span: None,
             message: message.into(),
+        }
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> IrDiagnosticKind {
+        match &self.payload {
+            IrDiagnosticPayload::Rejected(code) => rejection_kind(*code),
+            IrDiagnosticPayload::Unsupported | IrDiagnosticPayload::UnsupportedFeature(_) => {
+                IrDiagnosticKind::Unsupported
+            }
+            IrDiagnosticPayload::Lowering => IrDiagnosticKind::Lowering,
         }
     }
 
@@ -185,23 +187,33 @@ impl IrDiagnostic {
     /// code into `IrDiagnosticKind` later.
     #[must_use]
     pub const fn code(&self) -> Option<EarlyErrorCode> {
-        self.code
+        match &self.payload {
+            IrDiagnosticPayload::Rejected(code) => Some(*code),
+            IrDiagnosticPayload::Unsupported
+            | IrDiagnosticPayload::UnsupportedFeature(_)
+            | IrDiagnosticPayload::Lowering => None,
+        }
     }
 
     /// The closed compiler capability, when this unsupported diagnostic has
     /// migrated away from string-based accounting.
     #[must_use]
     pub const fn unsupported_feature(&self) -> Option<UnsupportedFeature> {
-        self.unsupported_feature
+        match &self.payload {
+            IrDiagnosticPayload::UnsupportedFeature(feature) => Some(*feature),
+            IrDiagnosticPayload::Rejected(_)
+            | IrDiagnosticPayload::Unsupported
+            | IrDiagnosticPayload::Lowering => None,
+        }
     }
 
     #[must_use]
     pub const fn phase(&self) -> IrDiagnosticPhase {
-        self.kind.phase()
+        self.kind().phase()
     }
 
     #[must_use]
     pub const fn error_type(&self) -> Option<NativeErrorKind> {
-        self.kind.error_type()
+        self.kind().error_type()
     }
 }

@@ -1,7 +1,14 @@
 const JSON_SOURCE: &str = include_str!("../src/builtins/json.rs");
+const JSON_STATIC_REVIVER_SOURCE: &str = include_str!("../src/builtins/json/static_reviver.rs");
+const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
+const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/language_numerics.rs");
 const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_json_parse_dynamic_reviver_frame.js");
+const CONTRACT: &str = include_str!("../../../docs/rust-rewrite/contracts/json-reviver-frame.md");
+const PARSE_CONTRACT: &str =
+    include_str!("../../../docs/rust-rewrite/contracts/json-parse-frame-state.md");
+const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn unique_bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     assert_eq!(source.matches(start).count(), 1, "unique start `{start}`");
@@ -203,15 +210,225 @@ fn unique_normalized_position(source: &str, snippet: &str, label: &str) -> usize
 }
 
 #[test]
+fn static_reviver_has_one_private_child_owner() {
+    assert_eq!(JSON_SOURCE.matches("\nmod static_reviver;\n").count(), 1);
+    assert!(!JSON_SOURCE.contains("\npub mod static_reviver;\n"));
+    assert!(!JSON_SOURCE.contains("\npub(crate) mod static_reviver;\n"));
+    assert!(!JSON_SOURCE.contains("\nmod static_reviver {\n"));
+    assert!(JSON_STATIC_REVIVER_SOURCE.starts_with(
+        "use super::*;\n\nenum JsonStaticPropertyKey<'a> {\n    String(&'a str),\n    ArrayIndex(usize),\n}"
+    ));
+    assert!(!JSON_STATIC_REVIVER_SOURCE.contains("#[derive"));
+
+    assert_eq!(
+        JSON_STATIC_REVIVER_SOURCE
+            .matches("enum JsonStaticPropertyKey<'a> {")
+            .count(),
+        1
+    );
+    assert!(!JSON_SOURCE.contains("enum JsonStaticPropertyKey<'a> {"));
+    assert_eq!(
+        JSON_STATIC_REVIVER_SOURCE
+            .lines()
+            .map(str::trim_start)
+            .filter(|line| line.starts_with("struct ") || line.starts_with("enum "))
+            .count(),
+        1
+    );
+    assert!(!JSON_STATIC_REVIVER_SOURCE.contains("pub struct "));
+    assert!(!JSON_STATIC_REVIVER_SOURCE.contains("pub enum "));
+    assert_eq!(
+        JSON_STATIC_REVIVER_SOURCE
+            .matches("key: &JsonStaticPropertyKey<'_>,")
+            .count(),
+        3
+    );
+    assert_eq!(
+        JSON_STATIC_REVIVER_SOURCE
+            .matches("&JsonStaticPropertyKey::")
+            .count(),
+        3
+    );
+    for capability in [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Default",
+        "PartialEq",
+        "Eq",
+        "Hash",
+        "PartialOrd",
+        "Ord",
+    ] {
+        assert!(!JSON_STATIC_REVIVER_SOURCE
+            .contains(&format!("impl {capability} for JsonStaticPropertyKey")));
+    }
+
+    let internalize = unique_bounded(
+        JSON_STATIC_REVIVER_SOURCE,
+        "    fn emit_json_static_internalize_property(",
+        "    fn emit_json_static_maybe_internalize_dynamic_value(",
+    );
+    for borrowed_projection in [
+        "key: &JsonStaticPropertyKey<'_>,",
+        "self.emit_json_static_key_payload(key, key_payload_local, function);",
+        "match key {",
+        "self.emit_json_static_apply_reviver(",
+    ] {
+        assert!(internalize.contains(borrowed_projection));
+    }
+
+    for definition in [
+        "fn json_static_primitive_source(",
+        "    fn json_static_value_to_expr(",
+        "    pub(crate) fn compile_json_static_reviver_to_locals(",
+        "    fn emit_json_static_internalize_property(",
+        "    fn emit_json_static_maybe_internalize_dynamic_value(",
+        "    fn emit_json_static_internalize_dynamic_property(",
+        "    fn emit_json_static_is_array_like(",
+        "    fn emit_json_static_apply_reviver(",
+        "    fn emit_json_static_current_matches_value_i32(",
+        "    fn emit_json_apply_reviver_with_source(",
+        "    fn json_static_object_property_order(",
+        "    fn json_static_array_index_key(",
+        "    fn emit_json_static_key_payload(",
+    ] {
+        assert_eq!(
+            JSON_STATIC_REVIVER_SOURCE.matches(definition).count(),
+            1,
+            "child must own exactly one `{definition}`"
+        );
+    }
+    assert_eq!(JSON_STATIC_REVIVER_SOURCE.matches("fn ").count(), 13);
+    assert_eq!(
+        JSON_STATIC_REVIVER_SOURCE
+            .lines()
+            .filter(|line| line.starts_with("    pub(crate) fn "))
+            .count(),
+        1
+    );
+    assert!(!JSON_STATIC_REVIVER_SOURCE.contains("pub(super) fn "));
+    assert!(!JSON_STATIC_REVIVER_SOURCE.contains("\npub fn "));
+
+    for moved_owner in [
+        "fn json_static_primitive_source(",
+        "fn json_static_value_to_expr(",
+        "fn compile_json_static_reviver_to_locals(",
+        "fn emit_json_static_internalize_property(",
+        "fn emit_json_static_maybe_internalize_dynamic_value(",
+        "fn emit_json_static_internalize_dynamic_property(",
+        "fn emit_json_static_is_array_like(",
+        "fn emit_json_static_apply_reviver(",
+        "fn emit_json_static_current_matches_value_i32(",
+        "fn emit_json_apply_reviver_with_source(",
+        "fn json_static_object_property_order(",
+        "fn json_static_array_index_key(",
+        "fn emit_json_static_key_payload(",
+    ] {
+        assert!(
+            !JSON_SOURCE.contains(moved_owner),
+            "parent must not retain `{moved_owner}`"
+        );
+    }
+
+    assert_eq!(
+        EXPRESSIONS_SOURCE
+            .matches("compile_json_static_reviver_to_locals(")
+            .count(),
+        2
+    );
+    assert_eq!(
+        JSON_SOURCE
+            .matches("    fn emit_json_apply_reviver_result(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        JSON_SOURCE
+            .matches("    fn emit_json_create_data_property(")
+            .count(),
+        1
+    );
+    assert!(!JSON_STATIC_REVIVER_SOURCE.contains("fn emit_json_apply_reviver_result("));
+    assert!(!JSON_STATIC_REVIVER_SOURCE.contains("fn emit_json_create_data_property("));
+    for retained_parent_domain in ["JsonReviverFrameState", "JsonReviverPropertyRole"] {
+        assert!(JSON_SOURCE.contains(retained_parent_domain));
+        assert!(!JSON_STATIC_REVIVER_SOURCE
+            .contains(&format!("json_wire_domain!({retained_parent_domain}")));
+    }
+
+    for evidence in [CONTRACT, TASK] {
+        let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(words.contains("Batch AN"));
+        assert!(words.contains("capability-free `JsonStaticPropertyKey`"));
+    }
+}
+
+#[test]
+fn static_reviver_ir_and_emitter_preserve_all_call_operands_in_source_order() {
+    let variant = unique_bounded(IR_SOURCE, "    JsonParseStaticReviver {", "    Construct {");
+    assert_before(variant, "callee: Box<TypedExpr>,", "input: Box<TypedExpr>,");
+    assert_before(
+        variant,
+        "input: Box<TypedExpr>,",
+        "value: JsonStaticValueIr,",
+    );
+    assert_before(
+        variant,
+        "value: JsonStaticValueIr,",
+        "reviver: Box<TypedExpr>,",
+    );
+
+    let emitter = braced_rust_function(
+        JSON_STATIC_REVIVER_SOURCE,
+        "    pub(crate) fn compile_json_static_reviver_to_locals(",
+    );
+    let callee_evaluation = emitter
+        .find("        self.compile_expr_to_locals(\n            callee,")
+        .expect("callee evaluation");
+    let input_evaluation = emitter
+        .find("        self.compile_expr_to_locals(\n            input,")
+        .expect("input evaluation");
+    let reviver_evaluation = emitter
+        .find("        self.compile_expr_to_locals(reviver,")
+        .expect("reviver evaluation");
+    let value_materialization = emitter
+        .find("        let value_expr = Self::json_static_value_to_expr(value);")
+        .expect("static parse value materialization");
+    let throw_propagations = emitter
+        .match_indices("        self.emit_propagate_throw_from_locals_if_needed(")
+        .map(|(offset, _)| offset)
+        .collect::<Vec<_>>();
+    assert_eq!(throw_propagations.len(), 3);
+    assert!(
+        callee_evaluation < throw_propagations[0]
+            && throw_propagations[0] < input_evaluation
+            && input_evaluation < throw_propagations[1]
+            && throw_propagations[1] < reviver_evaluation
+            && reviver_evaluation < throw_propagations[2]
+            && throw_propagations[2] < value_materialization
+    );
+
+    let normalized_expressions = without_whitespace(EXPRESSIONS_SOURCE);
+    let call_site = without_whitespace(
+        "ExprIr::JsonParseStaticReviver { callee, input, value, reviver, } => {\
+         self.compile_json_static_reviver_to_locals(\
+         callee, input, value, reviver,",
+    );
+    assert_eq!(normalized_expressions.matches(&call_site).count(), 2);
+}
+
+#[test]
 fn reviver_frame_wire_domains_fix_four_states_and_two_property_roles() {
     let wire_domain = unique_bounded(
         JSON_SOURCE,
         "macro_rules! json_wire_domain {",
         "json_wire_domain!(JsonReviverFrameState {",
     );
+    assert!(!wire_domain.contains("#[derive"));
     for proof in [
         "const ALL: &'static [Self] = &[$(Self::$variant),+];",
-        "const fn word(self) -> u64 {",
+        "const fn word(&self) -> u64 {",
         "$(Self::$variant => $word),+",
         "assert!(all[index].word() == index as u64);",
     ] {
@@ -239,12 +456,40 @@ fn reviver_frame_wire_domains_fix_four_states_and_two_property_roles() {
     let roles = unique_bounded(
         JSON_SOURCE,
         "json_wire_domain!(JsonReviverPropertyRole {",
-        "const JSON_PARSE_ARRAY_FIRST_OR_END",
+        "json_wire_domain!(JsonParseFrameState {",
     );
     for role in ["Nested = 0,", "Root = 1,"] {
         assert_eq!(roles.matches(role).count(), 1, "role word `{role}`");
     }
     assert_eq!(roles.matches(" = ").count(), 2, "exact role domain");
+
+    for domain in [
+        "JsonReviverFrameState",
+        "JsonReviverPropertyRole",
+        "JsonParseFrameState",
+    ] {
+        for capability in [
+            "Clone",
+            "Copy",
+            "Debug",
+            "Default",
+            "PartialEq",
+            "Eq",
+            "Hash",
+            "PartialOrd",
+            "Ord",
+        ] {
+            assert!(!JSON_SOURCE.contains(&format!("impl {capability} for {domain}")));
+        }
+    }
+    assert!(!JSON_SOURCE.contains("JsonReviverFrameState::ALL.iter().copied()"));
+    assert!(!JSON_SOURCE.contains("JsonReviverPropertyRole::ALL.iter().copied()"));
+
+    for evidence in [CONTRACT, PARSE_CONTRACT, TASK] {
+        let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(words.contains("Batch AM"));
+        assert!(words.contains("capability-free JSON wire domains"));
+    }
 }
 
 #[test]
@@ -319,8 +564,8 @@ fn reviver_frames_persist_typed_words_and_trap_invalid_dispatch_values() {
         );
     }
     for dispatch in [
-        "for state in JsonReviverFrameState::ALL.iter().copied() {",
-        "for role in JsonReviverPropertyRole::ALL.iter().copied() {",
+        "for state in JsonReviverFrameState::ALL.iter() {",
+        "for role in JsonReviverPropertyRole::ALL.iter() {",
     ] {
         assert_eq!(
             dynamic_walk.matches(dispatch).count(),
@@ -354,12 +599,12 @@ fn reviver_frames_persist_typed_words_and_trap_invalid_dispatch_values() {
     assert_before(
         dynamic_walk,
         "(JSON_REVIVER_FRAME_STATE_OFFSET, state_local),",
-        "for state in JsonReviverFrameState::ALL.iter().copied() {",
+        "for state in JsonReviverFrameState::ALL.iter() {",
     );
     assert_before(
         dynamic_walk,
         "(JSON_REVIVER_FRAME_ROLE_OFFSET, role_local),",
-        "for role in JsonReviverPropertyRole::ALL.iter().copied() {",
+        "for role in JsonReviverPropertyRole::ALL.iter() {",
     );
 }
 
@@ -368,7 +613,10 @@ fn static_and_dynamic_revivers_share_one_post_call_result_owner() {
     assert_eq!(
         JSON_SOURCE
             .matches("emit_json_apply_reviver_result(")
-            .count(),
+            .count()
+            + JSON_STATIC_REVIVER_SOURCE
+                .matches("emit_json_apply_reviver_result(")
+                .count(),
         3,
         "one definition and exactly two callers"
     );
@@ -380,7 +628,7 @@ fn static_and_dynamic_revivers_share_one_post_call_result_owner() {
     );
     assert_eq!(
         result_owner
-            .matches("role: JsonReviverPropertyRole,")
+            .matches("role: &JsonReviverPropertyRole,")
             .count(),
         1
     );
@@ -410,10 +658,24 @@ fn static_and_dynamic_revivers_share_one_post_call_result_owner() {
         );
     }
 
+    let static_branch_owner = unique_bounded(
+        JSON_STATIC_REVIVER_SOURCE,
+        "    fn emit_json_static_apply_reviver(",
+        "    fn emit_json_static_current_matches_value_i32(",
+    );
+    assert!(static_branch_owner.contains("role: &JsonReviverPropertyRole,"));
+    assert_eq!(
+        static_branch_owner
+            .matches("emit_json_apply_reviver_with_source(")
+            .count(),
+        3,
+        "the source-present, source-ineligible and source-absent branches borrow one role"
+    );
+
     let static_caller = unique_bounded(
-        JSON_SOURCE,
+        JSON_STATIC_REVIVER_SOURCE,
         "    fn emit_json_apply_reviver_with_source(",
-        "    /// Applies the result of a completed reviver call.",
+        "    fn json_static_object_property_order(",
     );
     assert_eq!(
         static_caller
@@ -421,6 +683,8 @@ fn static_and_dynamic_revivers_share_one_post_call_result_owner() {
             .count(),
         1
     );
+    assert!(static_caller.contains("role: &JsonReviverPropertyRole,"));
+    assert!(static_caller.contains("            role,"));
     assert_before(
         static_caller,
         "self.emit_indirect_call_from_locals(",

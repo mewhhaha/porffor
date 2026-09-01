@@ -34,6 +34,16 @@ read-only decoder, fresh-start journal behavior, CLI help/smoke, fake suites,
 focused real-suite path, identity guard, workspace checks, and the complete
 engine/CLI inventories are green in the final verification batch.
 
+The reusable Lila CLI capture boundary also closes its output-ending policy:
+private `CliOutputEnding::{None, Newline}` replaces the raw newline boolean
+shared by stdout and stderr. The plain-print producer and four line-ending
+producers are exact, while both sinks exhaustively own their byte emission and
+retain lock-before-write order. The bounded recursive structure guard pins the
+two rows, no capabilities, five producers and both semantic projections; this
+checkpoint changes no CLI bytes or command behavior. Its structure target
+passes `3/3`, the exact help/output witness passes `1/1`, independent dry
+review is clean, and `cargo xc` plus repository checks are green.
+
 The pre-migration inventory is frozen against commit
 `7ac4ee8a80e4e58b3dfb1adfece974f9f0a19e27` in
 `docs/rust-rewrite/lila-identity-migration.md`. Its machine-readable mapping is

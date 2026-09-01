@@ -70,9 +70,13 @@ MethodDefinition(value)
 GetterDefinition(value)
 ```
 
-Exhaustive projections derive the stored kind, optional receiver, and optional
-value. There is no public tuple-field construction, `Default`, raw-kind
-constructor, or three-axis writer left for a caller to misuse.
+`PrivateElementEntryLocals` is one owned row moved into the private-element
+entry writer. It has no `Clone`, `Copy`, `Debug`, equality, or `Default`
+capability. Its kind, receiver, and value are borrowed exhaustive projections;
+only the raw `u32` locals are copied. The exact 13 lexical mentions comprise
+the declaration, its implementation, five product producers, five focused
+test rows, and the owned consumer. There is no public tuple-field construction,
+raw-kind constructor, or three-axis writer left for a caller to misuse.
 
 Definition lookup accepts the narrower
 `PrivateElementDefinitionKind::{Setter, Method, Getter}` domain. Receiver-only
@@ -104,17 +108,26 @@ remain unchanged.
 5. Read and write accept only field or brand rows from receiver lookup.
 6. Adding a legal row requires updating exhaustive kind/receiver/value
    projections; omission is a compile error.
+7. The five product producers converge on one owned writer, which performs one
+   Realm-list publication only after the complete row has been stored and then
+   releases its three row locals in reverse order.
 
 ## Verification boundary
 
-A focused Rust test fixes the wire words and the receiver/value projections.
-Existing CLI fixtures already exercise every legal row, paired accessors,
-static private callables, wrong-direction access, abrupt getters, duplicate
-installation, and non-extensible receivers. This retyping adds no duplicate
-JavaScript fixture.
+A focused Rust unit fixes the five test rows, wire words, and receiver/value
+projections. A Rust-lexical structure guard fixes the capability and mention
+census, all three projection tables, the five producer mappings, the owned
+consumer order, shape assertions, sole publication tail, and reverse releases.
+Existing CLI fixtures exercise shared callable rows, duplicate installation,
+and non-extensible receivers. This retyping adds no duplicate JavaScript
+fixture. The embedded row unit passes `1/1`, the focused structure target
+passes `5/5`, and those three exact CLI witnesses pass `3/3`. Broader workspace
+and Test262 verification remain centralized.
 
-Cargo and Test262 verification remain deferred to the centralized batch after
-the active low-memory matrix releases the build/runtime lease.
+Independent review is clean after the guard was strengthened to the complete
+five producer wrappers and complete writer body. The coordinated workspace
+formatter, `cargo xc`, diff, module-boundary, and task-plan checks pass; broader
+Test262 verification remains deferred.
 
 ## Nonclaims
 

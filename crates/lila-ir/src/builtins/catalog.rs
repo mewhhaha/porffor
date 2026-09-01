@@ -70,7 +70,7 @@ standard_builtin_catalog! {
     FunctionPrototypeApply {
         function: FunctionOrdinal(2) => BUILTIN_FUNCTION_PROTOTYPE_APPLY_FUNCTION_ID,
         debug: "Function.prototype.apply",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "apply",
     }
@@ -109,112 +109,112 @@ standard_builtin_catalog! {
     ObjectGroupBy {
         function: FunctionOrdinal(7) => BUILTIN_OBJECT_GROUP_BY_FUNCTION_ID,
         debug: "Object.groupBy",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "groupBy",
     }
     ObjectFromEntries {
         function: FunctionOrdinal(8) => BUILTIN_OBJECT_FROM_ENTRIES_FUNCTION_ID,
         debug: "Object.fromEntries",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "fromEntries",
     }
     ObjectAssign {
         function: FunctionOrdinal(9) => BUILTIN_OBJECT_ASSIGN_FUNCTION_ID,
         debug: "Object.assign",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "assign",
     }
     ObjectCreate {
         function: FunctionOrdinal(10) => BUILTIN_OBJECT_CREATE_FUNCTION_ID,
         debug: "Object.create",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "create",
     }
     ObjectGetPrototypeOf {
         function: FunctionOrdinal(11) => BUILTIN_OBJECT_GET_PROTOTYPE_OF_FUNCTION_ID,
         debug: "Object.getPrototypeOf",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getPrototypeOf",
     }
     ObjectSetPrototypeOf {
         function: FunctionOrdinal(12) => BUILTIN_OBJECT_SET_PROTOTYPE_OF_FUNCTION_ID,
         debug: "Object.setPrototypeOf",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "setPrototypeOf",
     }
     ObjectDefineProperty {
         function: FunctionOrdinal(13) => BUILTIN_OBJECT_DEFINE_PROPERTY_FUNCTION_ID,
         debug: "Object.defineProperty",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "defineProperty",
     }
     ObjectDefineProperties {
         function: FunctionOrdinal(14) => BUILTIN_OBJECT_DEFINE_PROPERTIES_FUNCTION_ID,
         debug: "Object.defineProperties",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "defineProperties",
     }
     ObjectGetOwnPropertyDescriptor {
         function: FunctionOrdinal(15) => BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
         debug: "Object.getOwnPropertyDescriptor",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getOwnPropertyDescriptor",
     }
     ObjectGetOwnPropertyDescriptors {
         function: FunctionOrdinal(16) => BUILTIN_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS_FUNCTION_ID,
         debug: "Object.getOwnPropertyDescriptors",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getOwnPropertyDescriptors",
     }
     ObjectGetOwnPropertyNames {
         function: FunctionOrdinal(17) => BUILTIN_OBJECT_GET_OWN_PROPERTY_NAMES_FUNCTION_ID,
         debug: "Object.getOwnPropertyNames",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getOwnPropertyNames",
     }
     ObjectGetOwnPropertySymbols {
         function: FunctionOrdinal(18) => BUILTIN_OBJECT_GET_OWN_PROPERTY_SYMBOLS_FUNCTION_ID,
         debug: "Object.getOwnPropertySymbols",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getOwnPropertySymbols",
     }
     ObjectKeys {
         function: FunctionOrdinal(19) => BUILTIN_OBJECT_KEYS_FUNCTION_ID,
         debug: "Object.keys",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "keys",
     }
     ObjectValues {
         function: FunctionOrdinal(20) => BUILTIN_OBJECT_VALUES_FUNCTION_ID,
         debug: "Object.values",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "values",
     }
     ObjectEntries {
         function: FunctionOrdinal(21) => BUILTIN_OBJECT_ENTRIES_FUNCTION_ID,
         debug: "Object.entries",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "entries",
     }
     ObjectHasOwn {
         function: FunctionOrdinal(22) => BUILTIN_OBJECT_HAS_OWN_FUNCTION_ID,
         debug: "Object.hasOwn",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "hasOwn",
     }
@@ -228,105 +228,105 @@ standard_builtin_catalog! {
     ObjectIsSealed {
         function: FunctionOrdinal(24) => BUILTIN_OBJECT_IS_SEALED_FUNCTION_ID,
         debug: "Object.isSealed",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "isSealed",
     }
     ObjectIsFrozen {
         function: FunctionOrdinal(25) => BUILTIN_OBJECT_IS_FROZEN_FUNCTION_ID,
         debug: "Object.isFrozen",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "isFrozen",
     }
     ObjectSeal {
         function: FunctionOrdinal(26) => BUILTIN_OBJECT_SEAL_FUNCTION_ID,
         debug: "Object.seal",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "seal",
     }
     ObjectFreeze {
         function: FunctionOrdinal(27) => BUILTIN_OBJECT_FREEZE_FUNCTION_ID,
         debug: "Object.freeze",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "freeze",
     }
     ObjectIsExtensible {
         function: FunctionOrdinal(28) => BUILTIN_OBJECT_IS_EXTENSIBLE_FUNCTION_ID,
         debug: "Object.isExtensible",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "isExtensible",
     }
     ObjectPreventExtensions {
         function: FunctionOrdinal(29) => BUILTIN_OBJECT_PREVENT_EXTENSIONS_FUNCTION_ID,
         debug: "Object.preventExtensions",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "preventExtensions",
     }
     ObjectPrototypeHasOwnProperty {
         function: FunctionOrdinal(30) => BUILTIN_OBJECT_PROTOTYPE_HAS_OWN_PROPERTY_FUNCTION_ID,
         debug: "Object.prototype.hasOwnProperty",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "hasOwnProperty",
     }
     ObjectPrototypeLookupGetter {
         function: FunctionOrdinal(31) => BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID,
         debug: "Object.prototype.__lookupGetter__",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "__lookupGetter__",
     }
     ObjectPrototypeLookupSetter {
         function: FunctionOrdinal(32) => BUILTIN_OBJECT_PROTOTYPE_LOOKUP_SETTER_FUNCTION_ID,
         debug: "Object.prototype.__lookupSetter__",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "__lookupSetter__",
     }
     ObjectPrototypeProtoGetter {
         function: FunctionOrdinal(33) => BUILTIN_OBJECT_PROTOTYPE_PROTO_GETTER_FUNCTION_ID,
         debug: "get Object.prototype.__proto__",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "get __proto__",
     }
     ObjectPrototypeProtoSetter {
         function: FunctionOrdinal(34) => BUILTIN_OBJECT_PROTOTYPE_PROTO_SETTER_FUNCTION_ID,
         debug: "set Object.prototype.__proto__",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "set __proto__",
     }
     ObjectPrototypePropertyIsEnumerable {
         function: FunctionOrdinal(35) => BUILTIN_OBJECT_PROTOTYPE_PROPERTY_IS_ENUMERABLE_FUNCTION_ID,
         debug: "Object.prototype.propertyIsEnumerable",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "propertyIsEnumerable",
     }
     ObjectPrototypeIsPrototypeOf {
         function: FunctionOrdinal(36) => BUILTIN_OBJECT_PROTOTYPE_IS_PROTOTYPE_OF_FUNCTION_ID,
         debug: "Object.prototype.isPrototypeOf",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "isPrototypeOf",
     }
     ObjectPrototypeToString {
         function: FunctionOrdinal(37) => BUILTIN_OBJECT_PROTOTYPE_TO_STRING_FUNCTION_ID,
         debug: "Object.prototype.toString",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "toString",
     }
     ObjectPrototypeToLocaleString {
         function: FunctionOrdinal(38) => BUILTIN_OBJECT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Object.prototype.toLocaleString",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "toLocaleString",
     }
@@ -363,91 +363,91 @@ standard_builtin_catalog! {
     ReflectConstruct {
         function: FunctionOrdinal(43) => BUILTIN_REFLECT_CONSTRUCT_FUNCTION_ID,
         debug: "Reflect.construct",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "construct",
     }
     ReflectApply {
         function: FunctionOrdinal(44) => BUILTIN_REFLECT_APPLY_FUNCTION_ID,
         debug: "Reflect.apply",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "apply",
     }
     ReflectGet {
         function: FunctionOrdinal(45) => BUILTIN_REFLECT_GET_FUNCTION_ID,
         debug: "Reflect.get",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "get",
     }
     ReflectGetPrototypeOf {
         function: FunctionOrdinal(46) => BUILTIN_REFLECT_GET_PROTOTYPE_OF_FUNCTION_ID,
         debug: "Reflect.getPrototypeOf",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getPrototypeOf",
     }
     ReflectGetOwnPropertyDescriptor {
         function: FunctionOrdinal(47) => BUILTIN_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_FUNCTION_ID,
         debug: "Reflect.getOwnPropertyDescriptor",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getOwnPropertyDescriptor",
     }
     ReflectSet {
         function: FunctionOrdinal(48) => BUILTIN_REFLECT_SET_FUNCTION_ID,
         debug: "Reflect.set",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "set",
     }
     ReflectHas {
         function: FunctionOrdinal(49) => BUILTIN_REFLECT_HAS_FUNCTION_ID,
         debug: "Reflect.has",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "has",
     }
     ReflectDefineProperty {
         function: FunctionOrdinal(50) => BUILTIN_REFLECT_DEFINE_PROPERTY_FUNCTION_ID,
         debug: "Reflect.defineProperty",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "defineProperty",
     }
     ReflectDeleteProperty {
         function: FunctionOrdinal(51) => BUILTIN_REFLECT_DELETE_PROPERTY_FUNCTION_ID,
         debug: "Reflect.deleteProperty",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "deleteProperty",
     }
     ReflectIsExtensible {
         function: FunctionOrdinal(52) => BUILTIN_REFLECT_IS_EXTENSIBLE_FUNCTION_ID,
         debug: "Reflect.isExtensible",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "isExtensible",
     }
     ReflectPreventExtensions {
         function: FunctionOrdinal(53) => BUILTIN_REFLECT_PREVENT_EXTENSIONS_FUNCTION_ID,
         debug: "Reflect.preventExtensions",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "preventExtensions",
     }
     ReflectSetPrototypeOf {
         function: FunctionOrdinal(54) => BUILTIN_REFLECT_SET_PROTOTYPE_OF_FUNCTION_ID,
         debug: "Reflect.setPrototypeOf",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "setPrototypeOf",
     }
     ReflectOwnKeys {
         function: FunctionOrdinal(55) => BUILTIN_REFLECT_OWN_KEYS_FUNCTION_ID,
         debug: "Reflect.ownKeys",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "ownKeys",
     }
@@ -463,7 +463,7 @@ standard_builtin_catalog! {
     ArrayFrom {
         function: FunctionOrdinal(57) => BUILTIN_ARRAY_FROM_FUNCTION_ID,
         debug: "Array.from",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "from",
     }
@@ -533,14 +533,14 @@ standard_builtin_catalog! {
     ArrayPrototypeSplice {
         function: FunctionOrdinal(67) => BUILTIN_ARRAY_PROTOTYPE_SPLICE_FUNCTION_ID,
         debug: "Array.prototype.splice",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "splice",
     }
     ArrayPrototypeSort {
         function: FunctionOrdinal(68) => BUILTIN_ARRAY_PROTOTYPE_SORT_FUNCTION_ID,
         debug: "Array.prototype.sort",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE, INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "sort",
     }
@@ -561,7 +561,7 @@ standard_builtin_catalog! {
     ArrayPrototypeFlatMap {
         function: FunctionOrdinal(71) => BUILTIN_ARRAY_PROTOTYPE_FLAT_MAP_FUNCTION_ID,
         debug: "Array.prototype.flatMap",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "flatMap",
     }
@@ -589,7 +589,7 @@ standard_builtin_catalog! {
     ArrayPrototypeToSorted {
         function: FunctionOrdinal(75) => BUILTIN_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID,
         debug: "Array.prototype.toSorted",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "toSorted",
     }
@@ -603,14 +603,14 @@ standard_builtin_catalog! {
     ArrayPrototypeReverse {
         function: FunctionOrdinal(77) => BUILTIN_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID,
         debug: "Array.prototype.reverse",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "reverse",
     }
     ArrayPrototypeCopyWithin {
         function: FunctionOrdinal(78) => BUILTIN_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID,
         debug: "Array.prototype.copyWithin",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "copyWithin",
     }
@@ -638,112 +638,112 @@ standard_builtin_catalog! {
     ArrayPrototypeFind {
         function: FunctionOrdinal(82) => BUILTIN_ARRAY_PROTOTYPE_FIND_FUNCTION_ID,
         debug: "Array.prototype.find",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "find",
     }
     ArrayPrototypeFindIndex {
         function: FunctionOrdinal(83) => BUILTIN_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID,
         debug: "Array.prototype.findIndex",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "findIndex",
     }
     ArrayPrototypeFindLast {
         function: FunctionOrdinal(84) => BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID,
         debug: "Array.prototype.findLast",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "findLast",
     }
     ArrayPrototypeFindLastIndex {
         function: FunctionOrdinal(85) => BUILTIN_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID,
         debug: "Array.prototype.findLastIndex",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "findLastIndex",
     }
     ArrayPrototypeEvery {
         function: FunctionOrdinal(86) => BUILTIN_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID,
         debug: "Array.prototype.every",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "every",
     }
     ArrayPrototypeSome {
         function: FunctionOrdinal(87) => BUILTIN_ARRAY_PROTOTYPE_SOME_FUNCTION_ID,
         debug: "Array.prototype.some",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "some",
     }
     ArrayPrototypeForEach {
         function: FunctionOrdinal(88) => BUILTIN_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID,
         debug: "Array.prototype.forEach",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "forEach",
     }
     ArrayPrototypeFilter {
         function: FunctionOrdinal(89) => BUILTIN_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID,
         debug: "Array.prototype.filter",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "filter",
     }
     ArrayPrototypeMap {
         function: FunctionOrdinal(90) => BUILTIN_ARRAY_PROTOTYPE_MAP_FUNCTION_ID,
         debug: "Array.prototype.map",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "map",
     }
     ArrayPrototypeReduce {
         function: FunctionOrdinal(91) => BUILTIN_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID,
         debug: "Array.prototype.reduce",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "reduce",
     }
     ArrayPrototypeReduceRight {
         function: FunctionOrdinal(92) => BUILTIN_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID,
         debug: "Array.prototype.reduceRight",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "reduceRight",
     }
     ArrayPrototypePop {
         function: FunctionOrdinal(93) => BUILTIN_ARRAY_PROTOTYPE_POP_FUNCTION_ID,
         debug: "Array.prototype.pop",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "pop",
     }
     ArrayPrototypePush {
         function: FunctionOrdinal(94) => BUILTIN_ARRAY_PROTOTYPE_PUSH_FUNCTION_ID,
         debug: "Array.prototype.push",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "push",
     }
     ArrayPrototypeShift {
         function: FunctionOrdinal(95) => BUILTIN_ARRAY_PROTOTYPE_SHIFT_FUNCTION_ID,
         debug: "Array.prototype.shift",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "shift",
     }
     ArrayPrototypeUnshift {
         function: FunctionOrdinal(96) => BUILTIN_ARRAY_PROTOTYPE_UNSHIFT_FUNCTION_ID,
         debug: "Array.prototype.unshift",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "unshift",
     }
     ArrayPrototypeFill {
         function: FunctionOrdinal(97) => BUILTIN_ARRAY_PROTOTYPE_FILL_FUNCTION_ID,
         debug: "Array.prototype.fill",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "fill",
     }
@@ -792,49 +792,49 @@ standard_builtin_catalog! {
     GeneratorPrototypeNext {
         function: FunctionOrdinal(104) => BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
         debug: "Generator.prototype.next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     GeneratorPrototypeReturn {
         function: FunctionOrdinal(105) => BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID,
         debug: "Generator.prototype.return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     GeneratorPrototypeThrow {
         function: FunctionOrdinal(106) => BUILTIN_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID,
         debug: "Generator.prototype.throw",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "throw",
     }
     AsyncGeneratorPrototypeNext {
         function: FunctionOrdinal(107) => BUILTIN_ASYNC_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID,
         debug: "AsyncGenerator.prototype.next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     AsyncGeneratorPrototypeReturn {
         function: FunctionOrdinal(108) => BUILTIN_ASYNC_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID,
         debug: "AsyncGenerator.prototype.return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     AsyncGeneratorPrototypeThrow {
         function: FunctionOrdinal(109) => BUILTIN_ASYNC_GENERATOR_PROTOTYPE_THROW_FUNCTION_ID,
         debug: "AsyncGenerator.prototype.throw",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "throw",
     }
     AsyncIteratorPrototypeAsyncDispose {
         function: FunctionOrdinal(110) => BUILTIN_ASYNC_ITERATOR_PROTOTYPE_ASYNC_DISPOSE_FUNCTION_ID,
         debug: "AsyncIterator.prototype[Symbol.asyncDispose]",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "[Symbol.asyncDispose]",
     }
@@ -864,217 +864,217 @@ standard_builtin_catalog! {
     IteratorFrom {
         function: FunctionOrdinal(114) => BUILTIN_ITERATOR_FROM_FUNCTION_ID,
         debug: "Iterator.from",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "from",
     }
     IteratorConcat {
         function: FunctionOrdinal(115) => BUILTIN_ITERATOR_CONCAT_FUNCTION_ID,
         debug: "Iterator.concat",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "concat",
     }
     IteratorConcatNext {
         function: FunctionOrdinal(116) => BUILTIN_ITERATOR_CONCAT_NEXT_FUNCTION_ID,
         debug: "Iterator concat helper next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorConcatReturn {
         function: FunctionOrdinal(117) => BUILTIN_ITERATOR_CONCAT_RETURN_FUNCTION_ID,
         debug: "Iterator concat helper return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     IteratorZip {
         function: FunctionOrdinal(118) => BUILTIN_ITERATOR_ZIP_FUNCTION_ID,
         debug: "Iterator.zip",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "zip",
     }
     IteratorZipKeyed {
         function: FunctionOrdinal(119) => BUILTIN_ITERATOR_ZIP_KEYED_FUNCTION_ID,
         debug: "Iterator.zipKeyed",
-        flags: [STATIC_METHOD],
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "zipKeyed",
     }
     IteratorZipNext {
         function: FunctionOrdinal(120) => BUILTIN_ITERATOR_ZIP_NEXT_FUNCTION_ID,
         debug: "Iterator zip helper next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorZipReturn {
         function: FunctionOrdinal(121) => BUILTIN_ITERATOR_ZIP_RETURN_FUNCTION_ID,
         debug: "Iterator zip helper return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     IteratorHelperNext {
         function: FunctionOrdinal(122) => BUILTIN_ITERATOR_HELPER_NEXT_FUNCTION_ID,
         debug: "%IteratorHelperPrototype%.next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorHelperReturn {
         function: FunctionOrdinal(123) => BUILTIN_ITERATOR_HELPER_RETURN_FUNCTION_ID,
         debug: "%IteratorHelperPrototype%.return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     IteratorPrototypeToArray {
         function: FunctionOrdinal(124) => BUILTIN_ITERATOR_PROTOTYPE_TO_ARRAY_FUNCTION_ID,
         debug: "Iterator.prototype.toArray",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "toArray",
     }
     IteratorPrototypeForEach {
         function: FunctionOrdinal(125) => BUILTIN_ITERATOR_PROTOTYPE_FOR_EACH_FUNCTION_ID,
         debug: "Iterator.prototype.forEach",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "forEach",
     }
     IteratorPrototypeEvery {
         function: FunctionOrdinal(126) => BUILTIN_ITERATOR_PROTOTYPE_EVERY_FUNCTION_ID,
         debug: "Iterator.prototype.every",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "every",
     }
     IteratorPrototypeSome {
         function: FunctionOrdinal(127) => BUILTIN_ITERATOR_PROTOTYPE_SOME_FUNCTION_ID,
         debug: "Iterator.prototype.some",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "some",
     }
     IteratorPrototypeFind {
         function: FunctionOrdinal(128) => BUILTIN_ITERATOR_PROTOTYPE_FIND_FUNCTION_ID,
         debug: "Iterator.prototype.find",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "find",
     }
     IteratorPrototypeReduce {
         function: FunctionOrdinal(129) => BUILTIN_ITERATOR_PROTOTYPE_REDUCE_FUNCTION_ID,
         debug: "Iterator.prototype.reduce",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "reduce",
     }
     IteratorPrototypeMap {
         function: FunctionOrdinal(130) => BUILTIN_ITERATOR_PROTOTYPE_MAP_FUNCTION_ID,
         debug: "Iterator.prototype.map",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "map",
     }
     IteratorMapNext {
         function: FunctionOrdinal(131) => BUILTIN_ITERATOR_MAP_NEXT_FUNCTION_ID,
         debug: "Iterator map helper next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorMapReturn {
         function: FunctionOrdinal(132) => BUILTIN_ITERATOR_MAP_RETURN_FUNCTION_ID,
         debug: "Iterator map helper return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     IteratorPrototypeFilter {
         function: FunctionOrdinal(133) => BUILTIN_ITERATOR_PROTOTYPE_FILTER_FUNCTION_ID,
         debug: "Iterator.prototype.filter",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "filter",
     }
     IteratorFilterNext {
         function: FunctionOrdinal(134) => BUILTIN_ITERATOR_FILTER_NEXT_FUNCTION_ID,
         debug: "Iterator filter helper next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorFilterReturn {
         function: FunctionOrdinal(135) => BUILTIN_ITERATOR_FILTER_RETURN_FUNCTION_ID,
         debug: "Iterator filter helper return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     IteratorPrototypeFlatMap {
         function: FunctionOrdinal(136) => BUILTIN_ITERATOR_PROTOTYPE_FLAT_MAP_FUNCTION_ID,
         debug: "Iterator.prototype.flatMap",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "flatMap",
     }
     IteratorFlatMapNext {
         function: FunctionOrdinal(137) => BUILTIN_ITERATOR_FLAT_MAP_NEXT_FUNCTION_ID,
         debug: "Iterator flatMap helper next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorFlatMapReturn {
         function: FunctionOrdinal(138) => BUILTIN_ITERATOR_FLAT_MAP_RETURN_FUNCTION_ID,
         debug: "Iterator flatMap helper return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     IteratorPrototypeTake {
         function: FunctionOrdinal(139) => BUILTIN_ITERATOR_PROTOTYPE_TAKE_FUNCTION_ID,
         debug: "Iterator.prototype.take",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "take",
     }
     IteratorTakeNext {
         function: FunctionOrdinal(140) => BUILTIN_ITERATOR_TAKE_NEXT_FUNCTION_ID,
         debug: "Iterator take helper next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorTakeReturn {
         function: FunctionOrdinal(141) => BUILTIN_ITERATOR_TAKE_RETURN_FUNCTION_ID,
         debug: "Iterator take helper return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
     IteratorPrototypeDrop {
         function: FunctionOrdinal(142) => BUILTIN_ITERATOR_PROTOTYPE_DROP_FUNCTION_ID,
         debug: "Iterator.prototype.drop",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "drop",
     }
     IteratorDropNext {
         function: FunctionOrdinal(143) => BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID,
         debug: "Iterator drop helper next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorDropReturn {
         function: FunctionOrdinal(144) => BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID,
         debug: "Iterator drop helper return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
@@ -1095,7 +1095,7 @@ standard_builtin_catalog! {
     IteratorPrototypeSymbolDispose {
         function: FunctionOrdinal(147) => BUILTIN_ITERATOR_PROTOTYPE_SYMBOL_DISPOSE_FUNCTION_ID,
         debug: "Iterator.prototype[Symbol.dispose]",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "[Symbol.dispose]",
     }
@@ -1116,14 +1116,14 @@ standard_builtin_catalog! {
     IteratorFromWrapperNext {
         function: FunctionOrdinal(150) => BUILTIN_ITERATOR_FROM_WRAPPER_NEXT_FUNCTION_ID,
         debug: "%WrapForValidIteratorPrototype%.next",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "next",
     }
     IteratorFromWrapperReturn {
         function: FunctionOrdinal(151) => BUILTIN_ITERATOR_FROM_WRAPPER_RETURN_FUNCTION_ID,
         debug: "%WrapForValidIteratorPrototype%.return",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
     }
@@ -1353,7 +1353,7 @@ standard_builtin_catalog! {
     TypedArrayPrototypeCopyWithin {
         function: FunctionOrdinal(183) => BUILTIN_TYPED_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID,
         debug: "TypedArray.prototype.copyWithin",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "copyWithin",
     }
@@ -1381,77 +1381,77 @@ standard_builtin_catalog! {
     TypedArrayPrototypeFind {
         function: FunctionOrdinal(187) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_FUNCTION_ID,
         debug: "TypedArray.prototype.find",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "find",
     }
     TypedArrayPrototypeFindIndex {
         function: FunctionOrdinal(188) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_INDEX_FUNCTION_ID,
         debug: "TypedArray.prototype.findIndex",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "findIndex",
     }
     TypedArrayPrototypeFindLast {
         function: FunctionOrdinal(189) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_FUNCTION_ID,
         debug: "TypedArray.prototype.findLast",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "findLast",
     }
     TypedArrayPrototypeFindLastIndex {
         function: FunctionOrdinal(190) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FIND_LAST_INDEX_FUNCTION_ID,
         debug: "TypedArray.prototype.findLastIndex",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "findLastIndex",
     }
     TypedArrayPrototypeEvery {
         function: FunctionOrdinal(191) => BUILTIN_TYPED_ARRAY_PROTOTYPE_EVERY_FUNCTION_ID,
         debug: "TypedArray.prototype.every",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "every",
     }
     TypedArrayPrototypeSome {
         function: FunctionOrdinal(192) => BUILTIN_TYPED_ARRAY_PROTOTYPE_SOME_FUNCTION_ID,
         debug: "TypedArray.prototype.some",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "some",
     }
     TypedArrayPrototypeMap {
         function: FunctionOrdinal(193) => BUILTIN_TYPED_ARRAY_PROTOTYPE_MAP_FUNCTION_ID,
         debug: "TypedArray.prototype.map",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "map",
     }
     TypedArrayPrototypeFilter {
         function: FunctionOrdinal(194) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FILTER_FUNCTION_ID,
         debug: "TypedArray.prototype.filter",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "filter",
     }
     TypedArrayPrototypeForEach {
         function: FunctionOrdinal(195) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FOR_EACH_FUNCTION_ID,
         debug: "TypedArray.prototype.forEach",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "forEach",
     }
     TypedArrayPrototypeReduce {
         function: FunctionOrdinal(196) => BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_FUNCTION_ID,
         debug: "TypedArray.prototype.reduce",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "reduce",
     }
     TypedArrayPrototypeReduceRight {
         function: FunctionOrdinal(197) => BUILTIN_TYPED_ARRAY_PROTOTYPE_REDUCE_RIGHT_FUNCTION_ID,
         debug: "TypedArray.prototype.reduceRight",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "reduceRight",
     }
@@ -1507,21 +1507,21 @@ standard_builtin_catalog! {
     TypedArrayPrototypeSet {
         function: FunctionOrdinal(205) => BUILTIN_TYPED_ARRAY_PROTOTYPE_SET_FUNCTION_ID,
         debug: "TypedArray.prototype.set",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "set",
     }
     TypedArrayPrototypeReverse {
         function: FunctionOrdinal(206) => BUILTIN_TYPED_ARRAY_PROTOTYPE_REVERSE_FUNCTION_ID,
         debug: "TypedArray.prototype.reverse",
-        flags: [],
+        flags: [INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "reverse",
     }
     TypedArrayPrototypeSort {
         function: FunctionOrdinal(207) => BUILTIN_TYPED_ARRAY_PROTOTYPE_SORT_FUNCTION_ID,
         debug: "TypedArray.prototype.sort",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE, INDEXED_RECEIVER_MUTATION],
         installer: None,
         native: "sort",
     }
@@ -1535,7 +1535,7 @@ standard_builtin_catalog! {
     TypedArrayPrototypeToSorted {
         function: FunctionOrdinal(209) => BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_SORTED_FUNCTION_ID,
         debug: "TypedArray.prototype.toSorted",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "toSorted",
     }
@@ -1549,7 +1549,7 @@ standard_builtin_catalog! {
     TypedArrayFrom {
         function: FunctionOrdinal(211) => BUILTIN_TYPED_ARRAY_FROM_FUNCTION_ID,
         debug: "TypedArray.from",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "from",
     }
@@ -3716,7 +3716,7 @@ standard_builtin_catalog! {
     RegExpPrototypeSymbolReplace {
         function: FunctionOrdinal(520) => BUILTIN_REGEXP_PROTOTYPE_SYMBOL_REPLACE_FUNCTION_ID,
         debug: "RegExp.prototype[Symbol.replace]",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "[Symbol.replace]",
     }
@@ -3744,14 +3744,14 @@ standard_builtin_catalog! {
     JsonParse {
         function: FunctionOrdinal(524) => BUILTIN_JSON_PARSE_FUNCTION_ID,
         debug: "JSON.parse",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "parse",
     }
     JsonStringify {
         function: FunctionOrdinal(525) => BUILTIN_JSON_STRINGIFY_FUNCTION_ID,
         debug: "JSON.stringify",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "stringify",
     }
@@ -4609,7 +4609,7 @@ standard_builtin_catalog! {
     StringPrototypeReplace {
         function: FunctionOrdinal(637) => BUILTIN_STRING_PROTOTYPE_REPLACE_FUNCTION_ID,
         debug: "String.prototype.replace",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         string: "replace",
         native: "replace",
@@ -4617,7 +4617,7 @@ standard_builtin_catalog! {
     StringPrototypeReplaceAll {
         function: FunctionOrdinal(638) => BUILTIN_STRING_PROTOTYPE_REPLACE_ALL_FUNCTION_ID,
         debug: "String.prototype.replaceAll",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         string: "replaceAll",
         native: "replaceAll",
@@ -4834,42 +4834,42 @@ standard_builtin_catalog! {
         global: GlobalOrdinal(28),
         global_name: PROMISE_NAME,
         debug: PROMISE_NAME,
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE],
         installer: Promise,
         native: PROMISE_NAME,
     }
     PromisePrototypeThen {
         function: FunctionOrdinal(666) => BUILTIN_PROMISE_PROTOTYPE_THEN_FUNCTION_ID,
         debug: "Promise.prototype.then",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "then",
     }
     PromisePrototypeCatch {
         function: FunctionOrdinal(667) => BUILTIN_PROMISE_PROTOTYPE_CATCH_FUNCTION_ID,
         debug: "Promise.prototype.catch",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "catch",
     }
     PromisePrototypeFinally {
         function: FunctionOrdinal(668) => BUILTIN_PROMISE_PROTOTYPE_FINALLY_FUNCTION_ID,
         debug: "Promise.prototype.finally",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "finally",
     }
     PromiseThenFinally {
         function: FunctionOrdinal(669) => BUILTIN_PROMISE_THEN_FINALLY_FUNCTION_ID,
         debug: "Promise Then Finally Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
     PromiseCatchFinally {
         function: FunctionOrdinal(670) => BUILTIN_PROMISE_CATCH_FINALLY_FUNCTION_ID,
         debug: "Promise Catch Finally Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
@@ -4897,119 +4897,119 @@ standard_builtin_catalog! {
     PromiseResolve {
         function: FunctionOrdinal(674) => BUILTIN_PROMISE_STATIC_RESOLVE_FUNCTION_ID,
         debug: "Promise.resolve",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "resolve",
     }
     PromiseWithResolvers {
         function: FunctionOrdinal(675) => BUILTIN_PROMISE_STATIC_WITH_RESOLVERS_FUNCTION_ID,
         debug: "Promise.withResolvers",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "withResolvers",
     }
     PromiseTry {
         function: FunctionOrdinal(676) => BUILTIN_PROMISE_STATIC_TRY_FUNCTION_ID,
         debug: "Promise.try",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "try",
     }
     PromiseReject {
         function: FunctionOrdinal(677) => BUILTIN_PROMISE_STATIC_REJECT_FUNCTION_ID,
         debug: "Promise.reject",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "reject",
     }
     PromiseAll {
         function: FunctionOrdinal(678) => BUILTIN_PROMISE_STATIC_ALL_FUNCTION_ID,
         debug: "Promise.all",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "all",
     }
     PromiseAllSettled {
         function: FunctionOrdinal(679) => BUILTIN_PROMISE_STATIC_ALL_SETTLED_FUNCTION_ID,
         debug: "Promise.allSettled",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "allSettled",
     }
     PromiseAllKeyed {
         function: FunctionOrdinal(680) => BUILTIN_PROMISE_STATIC_ALL_KEYED_FUNCTION_ID,
         debug: "Promise.allKeyed",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "allKeyed",
     }
     PromiseAllSettledKeyed {
         function: FunctionOrdinal(681) => BUILTIN_PROMISE_STATIC_ALL_SETTLED_KEYED_FUNCTION_ID,
         debug: "Promise.allSettledKeyed",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "allSettledKeyed",
     }
     PromiseAny {
         function: FunctionOrdinal(682) => BUILTIN_PROMISE_STATIC_ANY_FUNCTION_ID,
         debug: "Promise.any",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "any",
     }
     PromiseRace {
         function: FunctionOrdinal(683) => BUILTIN_PROMISE_STATIC_RACE_FUNCTION_ID,
         debug: "Promise.race",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "race",
     }
     PromiseAllResolveElement {
         function: FunctionOrdinal(684) => BUILTIN_PROMISE_ALL_RESOLVE_ELEMENT_FUNCTION_ID,
         debug: "Promise.all Resolve Element Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
     PromiseAllSettledResolveElement {
         function: FunctionOrdinal(685) => BUILTIN_PROMISE_ALL_SETTLED_RESOLVE_ELEMENT_FUNCTION_ID,
         debug: "Promise.allSettled Resolve Element Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
     PromiseAllSettledRejectElement {
         function: FunctionOrdinal(686) => BUILTIN_PROMISE_ALL_SETTLED_REJECT_ELEMENT_FUNCTION_ID,
         debug: "Promise.allSettled Reject Element Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
     PromiseAnyRejectElement {
         function: FunctionOrdinal(687) => BUILTIN_PROMISE_ANY_REJECT_ELEMENT_FUNCTION_ID,
         debug: "Promise.any Reject Element Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
     PromiseAllKeyedResolveElement {
         function: FunctionOrdinal(688) => BUILTIN_PROMISE_ALL_KEYED_RESOLVE_ELEMENT_FUNCTION_ID,
         debug: "Promise.allKeyed Resolve Element Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
     PromiseAllSettledKeyedResolveElement {
         function: FunctionOrdinal(689) => BUILTIN_PROMISE_ALL_SETTLED_KEYED_RESOLVE_ELEMENT_FUNCTION_ID,
         debug: "Promise.allSettledKeyed Resolve Element Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
     PromiseAllSettledKeyedRejectElement {
         function: FunctionOrdinal(690) => BUILTIN_PROMISE_ALL_SETTLED_KEYED_REJECT_ELEMENT_FUNCTION_ID,
         debug: "Promise.allSettledKeyed Reject Element Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
@@ -5023,7 +5023,7 @@ standard_builtin_catalog! {
     PromiseResolveFunction {
         function: FunctionOrdinal(692) => BUILTIN_PROMISE_RESOLVE_FUNCTION_ID,
         debug: "Promise Resolve Function",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "",
     }
@@ -5039,7 +5039,7 @@ standard_builtin_catalog! {
         global: GlobalOrdinal(29),
         global_name: MAP_NAME,
         debug: MAP_NAME,
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE],
         installer: Map,
         native: MAP_NAME,
     }
@@ -5053,7 +5053,7 @@ standard_builtin_catalog! {
     MapGroupBy {
         function: FunctionOrdinal(696) => BUILTIN_MAP_GROUP_BY_FUNCTION_ID,
         debug: "Map.groupBy",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "groupBy",
     }
@@ -5074,7 +5074,7 @@ standard_builtin_catalog! {
     MapPrototypeForEach {
         function: FunctionOrdinal(699) => BUILTIN_MAP_PROTOTYPE_FOR_EACH_FUNCTION_ID,
         debug: "Map.prototype.forEach",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "forEach",
     }
@@ -5123,7 +5123,7 @@ standard_builtin_catalog! {
     MapPrototypeGetOrInsertComputed {
         function: FunctionOrdinal(706) => BUILTIN_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID,
         debug: "Map.prototype.getOrInsertComputed",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getOrInsertComputed",
     }
@@ -5153,7 +5153,7 @@ standard_builtin_catalog! {
         global: GlobalOrdinal(30),
         global_name: WEAK_MAP_NAME,
         debug: WEAK_MAP_NAME,
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE],
         installer: WeakMap,
         native: WEAK_MAP_NAME,
     }
@@ -5181,7 +5181,7 @@ standard_builtin_catalog! {
     WeakMapPrototypeGetOrInsertComputed {
         function: FunctionOrdinal(714) => BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID,
         debug: "WeakMap.prototype.getOrInsertComputed",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "getOrInsertComputed",
     }
@@ -5204,7 +5204,7 @@ standard_builtin_catalog! {
         global: GlobalOrdinal(31),
         global_name: WEAK_SET_NAME,
         debug: WEAK_SET_NAME,
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE],
         installer: WeakSet,
         native: WEAK_SET_NAME,
     }
@@ -5308,7 +5308,7 @@ standard_builtin_catalog! {
     AsyncDisposableStackPrototypeDisposeAsync {
         function: FunctionOrdinal(731) => BUILTIN_ASYNC_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_ASYNC_FUNCTION_ID,
         debug: "AsyncDisposableStack.prototype.disposeAsync",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "disposeAsync",
     }
@@ -5338,7 +5338,7 @@ standard_builtin_catalog! {
         global: GlobalOrdinal(35),
         global_name: SET_NAME,
         debug: SET_NAME,
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE],
         installer: Set,
         native: SET_NAME,
     }
@@ -5373,56 +5373,56 @@ standard_builtin_catalog! {
     SetPrototypeDifference {
         function: FunctionOrdinal(740) => BUILTIN_SET_PROTOTYPE_DIFFERENCE_FUNCTION_ID,
         debug: "Set.prototype.difference",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "difference",
     }
     SetPrototypeForEach {
         function: FunctionOrdinal(741) => BUILTIN_SET_PROTOTYPE_FOR_EACH_FUNCTION_ID,
         debug: "Set.prototype.forEach",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "forEach",
     }
     SetPrototypeIntersection {
         function: FunctionOrdinal(742) => BUILTIN_SET_PROTOTYPE_INTERSECTION_FUNCTION_ID,
         debug: "Set.prototype.intersection",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "intersection",
     }
     SetPrototypeIsDisjointFrom {
         function: FunctionOrdinal(743) => BUILTIN_SET_PROTOTYPE_IS_DISJOINT_FROM_FUNCTION_ID,
         debug: "Set.prototype.isDisjointFrom",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "isDisjointFrom",
     }
     SetPrototypeIsSubsetOf {
         function: FunctionOrdinal(744) => BUILTIN_SET_PROTOTYPE_IS_SUBSET_OF_FUNCTION_ID,
         debug: "Set.prototype.isSubsetOf",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "isSubsetOf",
     }
     SetPrototypeIsSupersetOf {
         function: FunctionOrdinal(745) => BUILTIN_SET_PROTOTYPE_IS_SUPERSET_OF_FUNCTION_ID,
         debug: "Set.prototype.isSupersetOf",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "isSupersetOf",
     }
     SetPrototypeSymmetricDifference {
         function: FunctionOrdinal(746) => BUILTIN_SET_PROTOTYPE_SYMMETRIC_DIFFERENCE_FUNCTION_ID,
         debug: "Set.prototype.symmetricDifference",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "symmetricDifference",
     }
     SetPrototypeUnion {
         function: FunctionOrdinal(747) => BUILTIN_SET_PROTOTYPE_UNION_FUNCTION_ID,
         debug: "Set.prototype.union",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "union",
     }
@@ -5610,14 +5610,14 @@ standard_builtin_catalog! {
     ThrowTypeError {
         function: FunctionOrdinal(771) => BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID,
         debug: "%ThrowTypeError%",
-        flags: [],
+        flags: [ALWAYS_THROWS],
         installer: None,
         native: "",
     }
     BoundFunctionInvoker {
         function: FunctionOrdinal(772) => BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID,
         debug: "[[BoundFunctionInvoke]]",
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE],
         installer: None,
     }
     Escape {
@@ -5714,7 +5714,7 @@ standard_builtin_catalog! {
     DisposableStackPrototypeDispose {
         function: FunctionOrdinal(784) => BUILTIN_DISPOSABLE_STACK_PROTOTYPE_DISPOSE_FUNCTION_ID,
         debug: "DisposableStack.prototype.dispose",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "dispose",
     }
@@ -5739,6 +5739,13 @@ standard_builtin_catalog! {
         installer: None,
         native: "[Symbol.hasInstance]",
     }
+    TypedArrayConstructor {
+        function: FunctionOrdinal(788) => BUILTIN_TYPED_ARRAY_CONSTRUCTOR_FUNCTION_ID,
+        debug: "%TypedArray%",
+        flags: [CONSTRUCTABLE, ALWAYS_THROWS],
+        installer: None,
+        native: TYPED_ARRAY_NAME,
+    }
 }
 
 impl StandardBuiltinId {
@@ -5752,6 +5759,24 @@ impl StandardBuiltinId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_array_intrinsic_has_one_hidden_constructable_identity() {
+        let builtin = StandardBuiltinId::TypedArrayConstructor;
+        let function_id = builtin.function_id();
+
+        assert_eq!(function_id, BUILTIN_TYPED_ARRAY_CONSTRUCTOR_FUNCTION_ID);
+        assert_eq!(
+            StandardBuiltinId::from_function_id(&function_id),
+            Some(builtin)
+        );
+        assert_eq!(builtin.global_name(), None);
+        assert_eq!(builtin.native_function_name(), Some(TYPED_ARRAY_NAME));
+        assert!(builtin.constructable());
+        assert!(builtin.always_throws());
+        assert!(StandardBuiltinId::all_functions().contains(&builtin));
+        assert!(!StandardBuiltinId::all_globals().contains(&builtin));
+    }
 
     #[test]
     fn disposable_stack_surface_has_one_closed_builtin_identity_per_algorithm() {
@@ -5793,6 +5818,145 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![StandardBuiltinId::MathRandom]
         );
+    }
+
+    #[test]
+    fn object_and_reflect_proxy_capable_builtins_declare_synchronous_user_code() {
+        for builtin in [
+            StandardBuiltinId::ObjectAssign,
+            StandardBuiltinId::ObjectCreate,
+            StandardBuiltinId::ObjectGetPrototypeOf,
+            StandardBuiltinId::ObjectSetPrototypeOf,
+            StandardBuiltinId::ObjectDefineProperty,
+            StandardBuiltinId::ObjectDefineProperties,
+            StandardBuiltinId::ObjectGetOwnPropertyDescriptor,
+            StandardBuiltinId::ObjectGetOwnPropertyDescriptors,
+            StandardBuiltinId::ObjectGetOwnPropertyNames,
+            StandardBuiltinId::ObjectGetOwnPropertySymbols,
+            StandardBuiltinId::ObjectKeys,
+            StandardBuiltinId::ObjectValues,
+            StandardBuiltinId::ObjectEntries,
+            StandardBuiltinId::ObjectHasOwn,
+            StandardBuiltinId::ObjectIsSealed,
+            StandardBuiltinId::ObjectIsFrozen,
+            StandardBuiltinId::ObjectSeal,
+            StandardBuiltinId::ObjectFreeze,
+            StandardBuiltinId::ObjectIsExtensible,
+            StandardBuiltinId::ObjectPreventExtensions,
+            StandardBuiltinId::ObjectPrototypeHasOwnProperty,
+            StandardBuiltinId::ObjectPrototypeLookupGetter,
+            StandardBuiltinId::ObjectPrototypeLookupSetter,
+            StandardBuiltinId::ObjectPrototypeProtoGetter,
+            StandardBuiltinId::ObjectPrototypeProtoSetter,
+            StandardBuiltinId::ObjectPrototypePropertyIsEnumerable,
+            StandardBuiltinId::ObjectPrototypeIsPrototypeOf,
+            StandardBuiltinId::ObjectPrototypeToString,
+            StandardBuiltinId::ObjectPrototypeToLocaleString,
+            StandardBuiltinId::ReflectConstruct,
+            StandardBuiltinId::ReflectApply,
+            StandardBuiltinId::ReflectGet,
+            StandardBuiltinId::ReflectGetPrototypeOf,
+            StandardBuiltinId::ReflectGetOwnPropertyDescriptor,
+            StandardBuiltinId::ReflectSet,
+            StandardBuiltinId::ReflectHas,
+            StandardBuiltinId::ReflectDefineProperty,
+            StandardBuiltinId::ReflectDeleteProperty,
+            StandardBuiltinId::ReflectIsExtensible,
+            StandardBuiltinId::ReflectPreventExtensions,
+            StandardBuiltinId::ReflectSetPrototypeOf,
+            StandardBuiltinId::ReflectOwnKeys,
+        ] {
+            assert!(
+                builtin.may_run_user_code_synchronously(),
+                "{} must account for proxy traps",
+                builtin.debug_name()
+            );
+        }
+
+        for builtin in [
+            StandardBuiltinId::ObjectConstructor,
+            StandardBuiltinId::ObjectIs,
+            StandardBuiltinId::ObjectPrototypeValueOf,
+        ] {
+            assert!(
+                !builtin.may_run_user_code_synchronously(),
+                "{} cannot dispatch a proxy trap",
+                builtin.debug_name()
+            );
+        }
+    }
+
+    #[test]
+    fn promise_synchronous_user_code_catalog_is_a_closed_partition() {
+        use StandardBuiltinId as Builtin;
+
+        let synchronous_user_code = std::collections::BTreeSet::from([
+            Builtin::PromiseConstructor,
+            Builtin::PromisePrototypeThen,
+            Builtin::PromisePrototypeCatch,
+            Builtin::PromisePrototypeFinally,
+            Builtin::PromiseThenFinally,
+            Builtin::PromiseCatchFinally,
+            Builtin::PromiseResolve,
+            Builtin::PromiseWithResolvers,
+            Builtin::PromiseTry,
+            Builtin::PromiseReject,
+            Builtin::PromiseAll,
+            Builtin::PromiseAllSettled,
+            Builtin::PromiseAllKeyed,
+            Builtin::PromiseAllSettledKeyed,
+            Builtin::PromiseAny,
+            Builtin::PromiseRace,
+            Builtin::PromiseAllResolveElement,
+            Builtin::PromiseAllSettledResolveElement,
+            Builtin::PromiseAllSettledRejectElement,
+            Builtin::PromiseAnyRejectElement,
+            Builtin::PromiseAllKeyedResolveElement,
+            Builtin::PromiseAllSettledKeyedResolveElement,
+            Builtin::PromiseAllSettledKeyedRejectElement,
+            Builtin::PromiseResolveFunction,
+        ]);
+        let synchronous_pure = std::collections::BTreeSet::from([
+            Builtin::PromiseValueThunk,
+            Builtin::PromiseThrower,
+            Builtin::PromiseSpeciesGetter,
+            Builtin::PromiseCapabilityExecutor,
+            Builtin::PromiseRejectFunction,
+        ]);
+        assert!(synchronous_user_code.is_disjoint(&synchronous_pure));
+
+        let classified = synchronous_user_code
+            .union(&synchronous_pure)
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        let declared = StandardBuiltinId::all_functions()
+            .iter()
+            .copied()
+            .filter(|builtin| {
+                builtin
+                    .function_id()
+                    .starts_with(BUILTIN_PROMISE_FUNCTION_ID)
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            declared, classified,
+            "every Promise builtin needs a caller-flow classification"
+        );
+
+        for builtin in synchronous_user_code {
+            assert!(
+                builtin.may_run_user_code_synchronously(),
+                "{} can synchronously invoke user code",
+                builtin.debug_name()
+            );
+        }
+        for builtin in synchronous_pure {
+            assert!(
+                !builtin.may_run_user_code_synchronously(),
+                "{} is synchronously pure",
+                builtin.debug_name()
+            );
+        }
     }
 
     #[test]

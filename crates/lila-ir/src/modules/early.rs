@@ -214,7 +214,7 @@ mod tests {
 
         let diagnostics = module_early_errors(&record);
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostics[0].kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostics[0].phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostics[0].code(),
@@ -567,7 +567,7 @@ mod tests {
             let error = classified_parse_error(boa_message);
             let diagnostic = module_parse_failure_diagnostic(&error);
             assert_eq!(
-                diagnostic.kind,
+                diagnostic.kind(),
                 IrDiagnosticKind::EarlyError,
                 "{boa_message}"
             );
@@ -594,7 +594,7 @@ mod tests {
         .expect_err("module code is strict, so duplicate formal parameters should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -613,7 +613,7 @@ mod tests {
         .expect_err("duplicate BoundNames in a catch parameter should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -633,7 +633,11 @@ mod tests {
                 .expect_err("catch parameter/body declaration conflict should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(
+                diagnostic.kind(),
+                IrDiagnosticKind::EarlyError,
+                "{source:?}"
+            );
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
             assert_eq!(
                 diagnostic.code(),
@@ -658,7 +662,7 @@ mod tests {
         .expect_err("a class may not contain two ordinary constructors");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -684,7 +688,11 @@ mod tests {
                 .expect_err("the class-owned SuperCall condition should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(
+                diagnostic.kind(),
+                IrDiagnosticKind::EarlyError,
+                "{source:?}"
+            );
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
             assert_eq!(diagnostic.code(), Some(code), "{source:?}");
             assert_eq!(
@@ -706,7 +714,7 @@ mod tests {
             .expect_err("a class field initializer may not contain SuperCall");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -726,7 +734,7 @@ mod tests {
             .expect_err("FunctionExpression parameters may not contain SuperProperty");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -746,7 +754,7 @@ mod tests {
             .expect_err("FunctionDeclaration parameters may not contain SuperProperty");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -760,13 +768,73 @@ mod tests {
     }
 
     #[test]
+    fn async_function_declaration_super_module_parse_maps_to_an_early_syntax_error() {
+        let source = "export async function invalid(value = super.value) {}";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("AsyncFunctionDeclaration parameters may not contain SuperProperty");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::AsyncFunctionDeclarationContainsSuper)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the AsyncFunctionDeclaration rejection must retain its source span");
+        assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
+    fn generator_declaration_super_module_parse_maps_to_an_early_syntax_error() {
+        let source = "export default function*(value = super.value) {}";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("GeneratorDeclaration parameters may not contain SuperProperty");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::GeneratorDeclarationContainsSuper)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the GeneratorDeclaration rejection must retain its source span");
+        assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
+    fn async_generator_declaration_super_module_parse_maps_to_an_early_syntax_error() {
+        let source = "export default async function*(value = super.value) {}";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("AsyncGeneratorDeclaration parameters may not contain SuperProperty");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the AsyncGeneratorDeclaration rejection must retain its source span");
+        assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
     fn async_function_expression_super_module_parse_maps_to_an_early_syntax_error() {
         let source = "export const invalid = async function(value = super.value) {};";
         let error = lila_front::parse(source, lila_front::ParseOptions::module())
             .expect_err("AsyncFunctionExpression parameters may not contain SuperProperty");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -786,7 +854,7 @@ mod tests {
             .expect_err("GeneratorExpression parameters may not contain SuperProperty");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -800,6 +868,26 @@ mod tests {
     }
 
     #[test]
+    fn async_generator_expression_super_module_parse_maps_to_an_early_syntax_error() {
+        let source = "export const invalid = async function*(value = super.value) {};";
+        let error = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect_err("AsyncGeneratorExpression parameters may not contain SuperProperty");
+        let diagnostic = module_parse_failure_diagnostic(&error);
+
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
+        assert_eq!(
+            diagnostic.code(),
+            Some(EarlyErrorCode::AsyncGeneratorExpressionContainsSuper)
+        );
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        let span = diagnostic
+            .span
+            .expect("the AsyncGeneratorExpression rejection must retain its source span");
+        assert!(span.start < span.end, "{source:?}: {diagnostic:?}");
+    }
+
+    #[test]
     fn class_constructor_generator_module_parse_maps_to_an_early_syntax_error() {
         let error = lila_front::parse(
             "class C { async *constructor() {} }",
@@ -808,7 +896,7 @@ mod tests {
         .expect_err("a non-static class constructor may not be a generator method");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -842,7 +930,11 @@ mod tests {
                 .expect_err("a forbidden class constructor form should fail before evaluation");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(
+                diagnostic.kind(),
+                IrDiagnosticKind::EarlyError,
+                "{source:?}"
+            );
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
             assert_eq!(diagnostic.code(), Some(code), "{source:?}");
             assert_eq!(
@@ -863,7 +955,7 @@ mod tests {
         .expect_err("a class may not declare the same private name twice");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -889,7 +981,11 @@ mod tests {
                 .expect_err("a forbidden literal class-field name should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError, "{source:?}");
+            assert_eq!(
+                diagnostic.kind(),
+                IrDiagnosticKind::EarlyError,
+                "{source:?}"
+            );
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early, "{source:?}");
             assert_eq!(diagnostic.code(), Some(code), "{source:?}");
             assert_eq!(
@@ -907,7 +1003,7 @@ mod tests {
             .expect_err("Module code is strict without a directive");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -926,7 +1022,7 @@ mod tests {
         .expect_err("lexical arguments use in a class static block should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -945,7 +1041,7 @@ mod tests {
         .expect_err("an AwaitExpression in a class static block should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -964,7 +1060,7 @@ mod tests {
         .expect_err("a literal public static prototype method should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -992,7 +1088,7 @@ mod tests {
         .expect_err("lexical arguments use in a class field should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1029,7 +1125,7 @@ mod tests {
         .expect_err("a retained ObjectLiteral CoverInitializedName should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1048,7 +1144,7 @@ mod tests {
         .expect_err("a retained optional-chain tagged template should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1070,7 +1166,7 @@ mod tests {
         .expect_err("a retained for-head/body declaration conflict should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1092,7 +1188,7 @@ mod tests {
         .expect_err("a retained duplicate ForDeclaration BoundName should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1115,7 +1211,7 @@ mod tests {
                 .expect_err("a Module lexical BoundName equal to let should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1139,7 +1235,7 @@ mod tests {
         .expect_err("a repeated static import-attribute key should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1160,7 +1256,7 @@ mod tests {
                 .expect_err("top-level Module super should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1189,7 +1285,7 @@ mod tests {
             .expect_err("top-level Module new.target should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1228,7 +1324,7 @@ mod tests {
                 .expect_err("a retained Module for-in using declaration should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1250,7 +1346,7 @@ mod tests {
                 .expect_err("a retained Module switch-clause using declaration should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1272,7 +1368,7 @@ mod tests {
                 .expect_err("a retained generator declaration parameter yield should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1291,7 +1387,7 @@ mod tests {
             .expect_err("a retained generator expression parameter yield should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1309,7 +1405,7 @@ mod tests {
             .expect_err("a retained async generator expression parameter yield should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1327,7 +1423,7 @@ mod tests {
             .expect_err("a retained async generator expression parameter await should fail");
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1348,7 +1444,7 @@ mod tests {
                 .expect_err("a retained async declaration parameter await should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1380,7 +1476,7 @@ mod tests {
                 .expect_err("a retained generator-method parameter Contains error should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1416,7 +1512,7 @@ mod tests {
                 .expect_err("a retained arrow parameter Contains error should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1444,7 +1540,7 @@ mod tests {
                 .expect_err("a retained async callable parameter await should fail");
             let diagnostic = module_parse_failure_diagnostic(&error);
 
-            assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+            assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
             assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
             assert_eq!(
                 diagnostic.code(),
@@ -1464,7 +1560,7 @@ mod tests {
         );
         let diagnostic = module_parse_failure_diagnostic(&error);
 
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::EarlyError);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::EarlyError);
         assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Early);
         assert_eq!(
             diagnostic.code(),
@@ -1505,7 +1601,7 @@ mod tests {
         // compiler gap up as a spec claim.
         let error = lila_front::ParseError::malformed("unexpected token ')'", None);
         let diagnostic = module_parse_failure_diagnostic(&error);
-        assert_eq!(diagnostic.kind, IrDiagnosticKind::Unsupported);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::Unsupported);
         assert_eq!(diagnostic.code(), None);
         assert_eq!(diagnostic.error_type(), None);
     }

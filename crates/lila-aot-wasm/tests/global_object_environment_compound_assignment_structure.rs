@@ -281,7 +281,7 @@ fn lowering_routes_the_closed_eager_domain_through_the_global_plan() {
         "\n}\n\n#[cfg(test)]",
     );
     for marker in [
-        "info.value_info = unknown_runtime_value_info();",
+        "info.value_info.widen_for_possible_replacement();",
         "if info.configurable",
         "info.proven_present = false;",
         "EagerCompoundAssignmentBindings::allocate(",

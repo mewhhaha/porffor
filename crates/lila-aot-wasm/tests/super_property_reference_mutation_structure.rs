@@ -3,8 +3,11 @@ const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const SUPER_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/super_property_mutation.rs");
+const ASSIGNMENT_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const EARLY_ERRORS_SOURCE: &str = include_str!("../../lila-ir/src/early_errors.rs");
 const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
+const SUPER_PROPERTY_MUTATION_SOURCE: &str =
+    include_str!("../src/expressions/super_property_mutation.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const MATERIALIZER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs");
@@ -28,6 +31,98 @@ fn ordered(source: &str, markers: &[&str]) {
             .unwrap_or_else(|| panic!("missing ordered marker {marker}"));
         cursor += next + marker.len();
     }
+}
+
+#[test]
+fn aot_mutation_lifecycle_has_one_private_file_owner_and_closed_callers() {
+    assert_eq!(
+        EXPRESSIONS_SOURCE
+            .matches("\nmod super_property_mutation;\n")
+            .count(),
+        1
+    );
+    assert!(!EXPRESSIONS_SOURCE.contains("\npub mod super_property_mutation;\n"));
+    assert!(!EXPRESSIONS_SOURCE.contains("\nmod super_property_mutation {\n"));
+    assert!(SUPER_PROPERTY_MUTATION_SOURCE.starts_with("use super::*;\n\n"));
+
+    for state in [
+        "EvaluatedRawSuperPropertyReferenceLocals",
+        "CoercedSuperPropertyReferenceLocals",
+    ] {
+        assert_eq!(
+            SUPER_PROPERTY_MUTATION_SOURCE.matches(state).count(),
+            5,
+            "closed carrier census for `{state}`"
+        );
+        assert!(
+            !EXPRESSIONS_SOURCE.contains(state),
+            "parent retained `{state}`"
+        );
+    }
+    assert_eq!(
+        SUPER_PROPERTY_MUTATION_SOURCE
+            .lines()
+            .map(str::trim_start)
+            .filter(|line| {
+                line.starts_with("struct ")
+                    || line.starts_with("enum ")
+                    || line.starts_with("pub struct ")
+                    || line.starts_with("pub enum ")
+                    || line.starts_with("pub(") && line.contains(" struct ")
+                    || line.starts_with("pub(") && line.contains(" enum ")
+            })
+            .collect::<Vec<_>>(),
+        [
+            "struct EvaluatedRawSuperPropertyReferenceLocals {",
+            "struct CoercedSuperPropertyReferenceLocals {",
+        ]
+    );
+
+    for (transition, expected_count) in [
+        ("evaluate_raw_super_property_reference(", 2),
+        ("emit_get_value_from_raw_super_property_reference(", 2),
+        ("emit_put_value_from_coerced_super_property_reference(", 3),
+    ] {
+        assert_eq!(
+            SUPER_PROPERTY_MUTATION_SOURCE.matches(transition).count(),
+            expected_count,
+            "closed transition census for `{transition}`"
+        );
+        assert!(
+            !EXPRESSIONS_SOURCE.contains(transition),
+            "parent retained `{transition}`"
+        );
+    }
+    assert_eq!(
+        SUPER_PROPERTY_MUTATION_SOURCE
+            .matches("pub(super) fn compile_super_property_mutation_to_locals(")
+            .count(),
+        1
+    );
+    assert!(!SUPER_PROPERTY_MUTATION_SOURCE
+        .contains("pub(crate) fn compile_super_property_mutation_to_locals("));
+    assert_eq!(
+        EXPRESSIONS_SOURCE
+            .matches(".compile_super_property_mutation_to_locals(")
+            .count(),
+        2
+    );
+
+    assert_eq!(
+        SUPER_PROPERTY_MUTATION_SOURCE
+            .lines()
+            .map(str::trim_start)
+            .filter(
+                |line| line.starts_with("fn ") || line.starts_with("pub") && line.contains(" fn ")
+            )
+            .collect::<Vec<_>>(),
+        [
+            "fn evaluate_raw_super_property_reference(",
+            "fn emit_get_value_from_raw_super_property_reference(",
+            "fn emit_put_value_from_coerced_super_property_reference(",
+            "pub(super) fn compile_super_property_mutation_to_locals(",
+        ]
+    );
 }
 
 #[test]
@@ -60,7 +155,7 @@ fn ir_owns_one_closed_super_reference_mutation() {
     assert!(operations.contains("NumericUpdate {"));
     assert!(operations.contains("op: NumericUpdateOp"));
     assert!(operations.contains("return_mode: UpdateReturnMode"));
-    assert!(operations.contains("value_kind: ValueKind"));
+    assert!(operations.contains("value_kind: NumericUpdateValueKind"));
     assert!(operations.contains("EagerCompound {"));
     assert!(operations.contains("old_value_binding: String"));
     assert!(operations.contains("result: Box<TypedExpr>"));
@@ -133,13 +228,16 @@ fn lowering_intercepts_super_before_generic_update_and_keeps_rhs_in_the_fused_op
     ordered(
         property_update,
         &[
-            "if let PropertyAccess::Super(super_access) = access",
-            "return self.lower_super_property_numeric_update(op, super_access);",
-            "let read = self.lower_property_access(access);",
+            "match access {",
+            "PropertyAccess::Simple(access) =>",
+            "self.lower_ordinary_property_numeric_update(op, access)",
+            "PropertyAccess::Super(access) => self.lower_super_property_numeric_update(op, access)",
+            "PropertyAccess::Private(_) => self.unsupported_expr(\"private field update target\")",
         ],
     );
+    assert!(!property_update.contains("_ =>"));
     assert!(
-        LOWERING_SOURCE
+        ASSIGNMENT_LOWERING_SOURCE
             .matches(".lower_super_property_eager_compound_assignment(")
             .count()
             >= 2
@@ -148,15 +246,15 @@ fn lowering_intercepts_super_before_generic_update_and_keeps_rhs_in_the_fused_op
 
 #[test]
 fn aot_typestate_forces_one_key_coercion_get_and_putvalue() {
-    assert!(EXPRESSIONS_SOURCE.contains(
+    assert!(SUPER_PROPERTY_MUTATION_SOURCE.contains(
         "#[derive(Debug)]\n#[must_use = \"a raw Super Property Reference must be consumed by GetValue\"]\nstruct EvaluatedRawSuperPropertyReferenceLocals"
     ));
-    assert!(EXPRESSIONS_SOURCE.contains(
+    assert!(SUPER_PROPERTY_MUTATION_SOURCE.contains(
         "#[derive(Debug)]\n#[must_use = \"a coerced Super Property Reference must be consumed by PutValue\"]\nstruct CoercedSuperPropertyReferenceLocals"
     ));
 
     let evaluate = bounded(
-        EXPRESSIONS_SOURCE,
+        SUPER_PROPERTY_MUTATION_SOURCE,
         "fn evaluate_raw_super_property_reference(",
         "fn emit_get_value_from_raw_super_property_reference(",
     );
@@ -173,7 +271,7 @@ fn aot_typestate_forces_one_key_coercion_get_and_putvalue() {
     assert!(!evaluate.contains("emit_value_to_property_key_locals"));
 
     let get_value = bounded(
-        EXPRESSIONS_SOURCE,
+        SUPER_PROPERTY_MUTATION_SOURCE,
         "fn emit_get_value_from_raw_super_property_reference(",
         "fn emit_put_value_from_coerced_super_property_reference(",
     );
@@ -195,7 +293,7 @@ fn aot_typestate_forces_one_key_coercion_get_and_putvalue() {
     assert!(!get_value.contains("emit_load_super_base"));
 
     let put_value = bounded(
-        EXPRESSIONS_SOURCE,
+        SUPER_PROPERTY_MUTATION_SOURCE,
         "fn emit_put_value_from_coerced_super_property_reference(",
         "fn compile_super_property_mutation_to_locals(",
     );
@@ -221,9 +319,9 @@ fn aot_typestate_forces_one_key_coercion_get_and_putvalue() {
 #[test]
 fn fused_consumer_publishes_results_only_after_putvalue() {
     let body = bounded(
-        EXPRESSIONS_SOURCE,
-        "fn compile_super_property_mutation_to_locals(",
-        "pub(crate) fn compile_expr_payload(",
+        SUPER_PROPERTY_MUTATION_SOURCE,
+        "pub(super) fn compile_super_property_mutation_to_locals(",
+        "\n    }\n}\n",
     );
     ordered(
         body,
@@ -304,20 +402,21 @@ fn fused_consumer_publishes_results_only_after_putvalue() {
 fn exhaustive_consumers_and_exact_evidence_inventory_remain_visible() {
     for source in [
         IR_SOURCE,
-        LOWERING_SOURCE,
         SUPER_LOWERING_SOURCE,
         REFERENCE_SOURCE,
         EARLY_ERRORS_SOURCE,
         EXPRESSIONS_SOURCE,
+        SUPER_PROPERTY_MUTATION_SOURCE,
         PLANNING_SOURCE,
         DATA_SOURCE,
     ] {
         assert!(source.contains("SuperPropertyMutation"));
     }
+    assert!(!LOWERING_SOURCE.contains("SuperPropertyMutation"));
     for source in [
         REFERENCE_SOURCE,
         EARLY_ERRORS_SOURCE,
-        EXPRESSIONS_SOURCE,
+        SUPER_PROPERTY_MUTATION_SOURCE,
         PLANNING_SOURCE,
         DATA_SOURCE,
     ] {

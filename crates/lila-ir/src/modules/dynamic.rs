@@ -209,13 +209,39 @@ pub struct DynamicComponentIr {
     /// Host-normalized key of the target. Diagnostics and `import.meta` use
     /// it; the runtime string is *not* matched against it, because the runtime
     /// string is the specifier as written.
-    pub key: ModuleKey,
+    key: ModuleKey,
     /// Full occurrence whose phase-free key the host resolved.
-    pub request: ModuleRequestIr,
+    request: ModuleRequestIr,
     /// Module that wrote the call site.
-    pub referrer: ModuleUnitId,
+    referrer: ModuleUnitId,
     /// Module `specifier` resolves to.
-    pub module: ModuleUnitId,
+    module: ModuleUnitId,
+}
+
+impl DynamicComponentIr {
+    /// Host-normalized identity of the resolved target.
+    #[must_use]
+    pub const fn target_key(&self) -> &ModuleKey {
+        &self.key
+    }
+
+    /// Full phaseful request written by the referrer.
+    #[must_use]
+    pub const fn request(&self) -> &ModuleRequestIr {
+        &self.request
+    }
+
+    /// Module containing the dynamic-import occurrence.
+    #[must_use]
+    pub const fn referrer(&self) -> ModuleUnitId {
+        self.referrer
+    }
+
+    /// Unit selected by host resolution for this occurrence.
+    #[must_use]
+    pub const fn target(&self) -> ModuleUnitId {
+        self.module
+    }
 }
 
 /// Discovers every statically knowable `import()` target in the loaded graph.
@@ -276,9 +302,9 @@ impl ModuleGraphIr {
         request: &ModuleRequestIr,
     ) -> Option<&DynamicComponentIr> {
         let referrer = referrer?;
-        self.components
+        self.dynamic_components()
             .iter()
-            .find(|component| component.referrer == referrer && &component.request == request)
+            .find(|component| component.referrer() == referrer && component.request() == request)
     }
 
     /// Modules a `import.source()` call site can hand out a module source object
@@ -289,10 +315,10 @@ impl ModuleGraphIr {
     /// `import.source("m")` still gets one declared.
     #[must_use]
     pub fn dynamic_source_modules(&self) -> BTreeSet<ModuleUnitId> {
-        self.components
+        self.dynamic_components()
             .iter()
-            .filter(|component| component.request.phase() == ImportPhaseIr::Source)
-            .map(|component| component.module)
+            .filter(|component| component.request().phase() == ImportPhaseIr::Source)
+            .map(DynamicComponentIr::target)
             .collect()
     }
 }
@@ -326,7 +352,12 @@ pub(crate) fn lower_import_call(
     // Always a Promise object, on every path including the rejecting one, so
     // the kind is a singleton and the backend emits the value directly.
     Ok(TypedExpr::from_info(
-        ValueInfo::new(ValueKind::Object),
+        ValueInfo {
+            kind: ValueKind::Object,
+            possible_kinds: KindSet::from_kind(ValueKind::Object),
+            heap_shape: None,
+            function_targets: FunctionTargetKnowledge::none(),
+        },
         ExprIr::DynamicImport {
             specifier: Box::new(specifier),
             options: options.map(Box::new),
@@ -410,6 +441,11 @@ pub fn source_writes_dynamic_import(source: &str) -> bool {
 /// module declares a top-level name starting with this prefix.
 pub const LINKER_NAME_PREFIX: &str = "$lila$module$";
 
+enum DynamicImportDispatcherReference {
+    ModuleLocal,
+    ScriptEntryExport,
+}
+
 /// Merged-scope name of the `import()` dispatcher `unit`'s call sites call.
 ///
 /// One per *referrer and phase*, not one per target: two modules may both write
@@ -455,11 +491,11 @@ fn exported_dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String 
 /// * source — the module source object, which is not a namespace at all: the
 ///   module is loaded and parsed but never instantiated.
 fn component_resolution_cell(component: &DynamicComponentIr) -> MergedName {
-    match component.request.phase() {
+    match component.request().phase() {
         ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {
-            MergedName::minted(component.module, UnitCellRole::Namespace)
+            MergedName::minted(component.target(), UnitCellRole::Namespace)
         }
-        ImportPhaseIr::Source => MergedName::minted(component.module, UnitCellRole::ModuleSource),
+        ImportPhaseIr::Source => MergedName::minted(component.target(), UnitCellRole::ModuleSource),
     }
 }
 
@@ -559,14 +595,14 @@ impl ModuleGraphIr {
              attributeKeys[insertionIndex] = sortKey; attributeValues[insertionIndex] = \
              sortValue; sortIndex++; } } }",
         );
-        for component in self.components.iter().filter(|component| {
-            component.referrer == referrer && component.request.phase() == phase
+        for component in self.dynamic_components().iter().filter(|component| {
+            component.referrer() == referrer && component.request().phase() == phase
         }) {
             text.push_str(" if (key === ");
-            text.push_str(&js_string_literal(component.request.specifier()));
+            text.push_str(&js_string_literal(component.request().specifier()));
             text.push_str(" && attributeKeys.length === ");
-            text.push_str(&component.request.attributes().len().to_string());
-            for (index, attribute) in component.request.attributes().iter().enumerate() {
+            text.push_str(&component.request().attributes().len().to_string());
+            for (index, attribute) in component.request().attributes().iter().enumerate() {
                 text.push_str(" && attributeKeys[");
                 text.push_str(&index.to_string());
                 text.push_str("] === ");
@@ -628,7 +664,7 @@ impl ModuleGraphIr {
         unit: ModuleUnitId,
         source: &str,
     ) -> Result<String, String> {
-        self.rewrite_calls(unit, false, source)
+        self.rewrite_calls(unit, DynamicImportDispatcherReference::ModuleLocal, source)
     }
 
     /// [`Self::rewrite_dynamic_import_calls`] for the Script entry of a script
@@ -642,7 +678,11 @@ impl ModuleGraphIr {
     /// # Panics
     /// Panics if the graph has no entry unit.
     pub fn rewrite_script_entry_import_calls(&self, source: &str) -> Result<String, String> {
-        self.rewrite_calls(self.entry, true, source)
+        self.rewrite_calls(
+            self.entry,
+            DynamicImportDispatcherReference::ScriptEntryExport,
+            source,
+        )
     }
 
     /// `(exported name, dispatcher name)` for every phase the Script entry
@@ -675,7 +715,7 @@ impl ModuleGraphIr {
     fn rewrite_calls(
         &self,
         unit: ModuleUnitId,
-        exported: bool,
+        dispatcher_reference: DynamicImportDispatcherReference,
         source: &str,
     ) -> Result<String, String> {
         let sites = ImportCallScanner::new(source).run()?;
@@ -730,10 +770,11 @@ impl ModuleGraphIr {
         let mut cursor = 0usize;
         for site in sites {
             rewritten.push_str(&source[cursor..site.start]);
-            let name = if exported {
-                exported_dispatcher_name(unit, site.phase)
-            } else {
-                dispatcher_name(unit, site.phase)
+            let name = match dispatcher_reference {
+                DynamicImportDispatcherReference::ModuleLocal => dispatcher_name(unit, site.phase),
+                DynamicImportDispatcherReference::ScriptEntryExport => {
+                    exported_dispatcher_name(unit, site.phase)
+                }
             };
             rewritten.push_str(&name);
             cursor = site.end;
@@ -808,8 +849,13 @@ impl ModuleGraphIr {
             && self
                 .resolutions
                 .values()
-                .chain(self.components.iter().map(|component| &component.module))
-                .any(|target| *target == self.entry)
+                .copied()
+                .chain(
+                    self.dynamic_components()
+                        .iter()
+                        .map(|component| component.target()),
+                )
+                .any(|target| target == self.entry)
         {
             diagnostics.push(IrDiagnostic::unsupported(format!(
                 "unsupported in lila wasm-aot: script {} is also imported as a module of its \
@@ -859,10 +905,10 @@ impl ModuleGraphIr {
         // expose and asking for a namespace it must not have would report every
         // such module as unlinkable.
         let mut observed: BTreeSet<ModuleUnitId> = self
-            .components
+            .dynamic_components()
             .iter()
-            .filter(|entry| entry.request.phase() != ImportPhaseIr::Source)
-            .map(|entry| entry.module)
+            .filter(|entry| entry.request().phase() != ImportPhaseIr::Source)
+            .map(DynamicComponentIr::target)
             .collect();
         let mut pending: Vec<ModuleUnitId> = observed.iter().copied().collect();
         while let Some(module) = pending.pop() {
@@ -925,7 +971,6 @@ fn js_string_literal(value: &str) -> String {
 }
 
 /// What a `/` means at the current position.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlashMeaning {
     /// The previous significant token can end an expression, so `/` divides.
     Divide,
@@ -995,11 +1040,18 @@ impl<'a> ImportCallScanner<'a> {
                 b'/' if self.bytes.get(self.index + 1) == Some(&b'*') => {
                     self.skip_block_comment()?;
                 }
-                b'/' if self.slash == SlashMeaning::Regexp => {
-                    self.skip_regexp()?;
-                    self.slash = SlashMeaning::Divide;
-                    self.previous_was_dot = false;
-                }
+                b'/' => match &self.slash {
+                    SlashMeaning::Regexp => {
+                        self.skip_regexp()?;
+                        self.slash = SlashMeaning::Divide;
+                        self.previous_was_dot = false;
+                    }
+                    SlashMeaning::Divide => {
+                        self.slash = SlashMeaning::Regexp;
+                        self.previous_was_dot = false;
+                        self.index += self.char_len_at(self.index);
+                    }
+                },
                 b'\'' | b'"' => {
                     self.index = self.string_end(self.index, byte)?;
                     self.slash = SlashMeaning::Divide;
@@ -1560,8 +1612,11 @@ mod tests {
             ],
         );
         let graph = graph_of(&sources);
-        assert_eq!(graph.components.len(), 2);
-        assert_ne!(graph.components[0].request, graph.components[1].request);
+        assert_eq!(graph.dynamic_components().len(), 2);
+        assert_ne!(
+            graph.dynamic_components()[0].request(),
+            graph.dynamic_components()[1].request()
+        );
 
         let prelude = graph.dynamic_import_prelude();
         assert!(
@@ -1635,6 +1690,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_script_entry_call_site_is_rewritten_to_the_exported_dispatcher() {
+        let source = "import(\"./a.mjs\").then(f);";
+        let sources = sources_of(&[("d", source)], 0, Vec::new());
+        let graph = graph_of(&sources);
+        assert_eq!(
+            graph
+                .rewrite_script_entry_import_calls(source)
+                .expect("rewrite should succeed"),
+            "$lila$module$import$0$call(\"./a.mjs\").then(f);"
+        );
+    }
+
     /// The call site is an expression, so it is not confined to nesting depth
     /// zero the way a declaration is.
     #[test]
@@ -1685,6 +1753,19 @@ mod tests {
                 .rewrite_dynamic_import_calls(0, source)
                 .expect("rewrite should succeed"),
             source
+        );
+    }
+
+    #[test]
+    fn division_slash_does_not_consume_the_following_import_call_as_a_regexp() {
+        let source = "const quotient = dividend / divisor;\nimport(\"m\");";
+        let sources = sources_of(&[("d", source)], 0, Vec::new());
+        let graph = graph_of(&sources);
+        assert_eq!(
+            graph
+                .rewrite_dynamic_import_calls(0, source)
+                .expect("rewrite should succeed"),
+            "const quotient = dividend / divisor;\n$lila$module$import$0(\"m\");"
         );
     }
 

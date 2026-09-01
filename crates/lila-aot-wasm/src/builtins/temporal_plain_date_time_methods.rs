@@ -15,36 +15,33 @@
 
 use super::super::*;
 use super::temporal_options::{
-    ShowCalendarName, TemporalOverflow, TemporalRoundingMode, TemporalUnit, TemporalUnitSlot,
+    ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow, TemporalRoundingMode,
+    TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
 };
 use super::temporal_plain_date::TemporalEraLocals;
 use super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
 use super::temporal_plain_time_methods::{TEMPORAL_PRECISION_AUTO, TEMPORAL_PRECISION_MINUTE};
 
-/// Which `Temporal.PlainDateTime.prototype` difference member is being
-/// emitted. The direction is part of the settings plan because `since`
-/// negates the requested rounding mode before it computes the same underlying
-/// difference as `until`.
+/// Which `add` or `subtract` operation a plain Temporal builtin emits.
+///
+/// The four plain Temporal types share this domain so every standard-builtin
+/// producer must name the direction and every arithmetic emitter must handle
+/// both directions.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum PlainDateTimeDifference {
-    Until,
-    Since,
+pub(super) enum TemporalPlainArithmeticOperation {
+    Add,
+    Subtract,
 }
 
-impl PlainDateTimeDifference {
-    const fn settings_plan(self) -> TemporalDateTimeDifferenceSettingsPlan {
-        match self {
-            Self::Until => TemporalDateTimeDifferenceSettingsPlan::PlainUntil,
-            Self::Since => TemporalDateTimeDifferenceSettingsPlan::PlainSince,
-        }
-    }
-
-    const fn negates_result(self) -> bool {
-        match self {
-            Self::Until => false,
-            Self::Since => true,
-        }
-    }
+/// Which `until` or `since` operation a plain Temporal builtin emits.
+///
+/// The four plain Temporal types share this domain because the operation owns
+/// both rounding-mode negation and final-result negation. Naming it once keeps
+/// those two choices from being transposed independently.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum TemporalPlainDifferenceOperation {
+    Until,
+    Since,
 }
 
 /// The three compile-time consumers of the shared DateTime difference-settings
@@ -140,6 +137,16 @@ enum TemporalDateTimeFieldRead {
     /// either is read at all, and they fold into `year` in the resolver rather
     /// than occupying a slot.
     EraPair,
+}
+
+enum TemporalPlainDateTimeFieldReadMode {
+    Conversion,
+    With,
+}
+
+pub(super) enum TemporalPlainDateTimeComponent {
+    PlainDate,
+    PlainTime,
 }
 
 impl TemporalDateTimeFieldKey {
@@ -721,7 +728,7 @@ impl<'a> FunctionBuilder<'a> {
         month_code_payload_local: u32,
         month_code_present_local: u32,
         any_present_local: u32,
-        read_calendar: bool,
+        mode: TemporalPlainDateTimeFieldReadMode,
         function: &mut Function,
     ) -> Result<TemporalEraLocals, EmitError> {
         let mut era_slots = Some(self.reserve_temporal_era_slots());
@@ -734,26 +741,29 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(any_present_local));
-        if read_calendar {
-            function.instruction(&Instruction::I64Const(self.strings.payload("calendar")));
-            function.instruction(&Instruction::LocalSet(property_key_local));
-            self.emit_object_read(
-                argument_payload_local,
-                argument_tag_local,
-                argument_payload_local,
-                argument_tag_local,
-                property_key_local,
-                calendar_payload_local,
-                calendar_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
-            self.emit_temporal_to_temporal_calendar_identifier(
-                calendar_payload_local,
-                calendar_tag_local,
-                "Temporal.PlainDateTime calendar must be a string",
-                function,
-            )?;
+        match mode {
+            TemporalPlainDateTimeFieldReadMode::Conversion => {
+                function.instruction(&Instruction::I64Const(self.strings.payload("calendar")));
+                function.instruction(&Instruction::LocalSet(property_key_local));
+                self.emit_object_read(
+                    argument_payload_local,
+                    argument_tag_local,
+                    argument_payload_local,
+                    argument_tag_local,
+                    property_key_local,
+                    calendar_payload_local,
+                    calendar_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_temporal_to_temporal_calendar_identifier(
+                    calendar_payload_local,
+                    calendar_tag_local,
+                    "Temporal.PlainDateTime calendar must be a string",
+                    function,
+                )?;
+            }
+            TemporalPlainDateTimeFieldReadMode::With => {}
         }
 
         for key in TemporalDateTimeFieldKey::ALL {
@@ -884,13 +894,11 @@ impl<'a> FunctionBuilder<'a> {
     /// (cloned), a branded `Temporal.PlainDate` (at midnight), any other object
     /// (read as a property bag) or an ISO string.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn emit_to_temporal_date_time(
+    pub(super) fn emit_to_temporal_date_time(
         &mut self,
         argument_payload_local: u32,
         argument_tag_local: u32,
-        options_payload_local: u32,
-        options_tag_local: u32,
-        read_options: bool,
+        overflow_options: TemporalConversionOverflowOptions,
         field_locals: &[u32; 9],
         calendar_payload_local: u32,
         function: &mut Function,
@@ -943,13 +951,17 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         );
-        if read_options {
-            self.emit_temporal_plain_date_time_overflow_option(
-                options_payload_local,
-                options_tag_local,
+        match overflow_options {
+            TemporalConversionOverflowOptions::Read {
+                payload_local,
+                tag_local,
+            } => self.emit_temporal_plain_date_time_overflow_option(
+                payload_local,
+                tag_local,
                 overflow_local,
                 function,
-            )?;
+            )?,
+            TemporalConversionOverflowOptions::Omit => {}
         }
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(handled_local));
@@ -991,13 +1003,17 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.load_i64_to_local_from_offset(record_local, offset, local, function);
         }
-        if read_options {
-            self.emit_temporal_plain_date_time_overflow_option(
-                options_payload_local,
-                options_tag_local,
+        match overflow_options {
+            TemporalConversionOverflowOptions::Read {
+                payload_local,
+                tag_local,
+            } => self.emit_temporal_plain_date_time_overflow_option(
+                payload_local,
+                tag_local,
                 overflow_local,
                 function,
-            )?;
+            )?,
+            TemporalConversionOverflowOptions::Omit => {}
         }
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(handled_local));
@@ -1018,16 +1034,20 @@ impl<'a> FunctionBuilder<'a> {
             month_code_payload_local,
             month_code_present_local,
             any_present_local,
-            true,
+            TemporalPlainDateTimeFieldReadMode::Conversion,
             function,
         )?;
-        if read_options {
-            self.emit_temporal_plain_date_time_overflow_option(
-                options_payload_local,
-                options_tag_local,
+        match overflow_options {
+            TemporalConversionOverflowOptions::Read {
+                payload_local,
+                tag_local,
+            } => self.emit_temporal_plain_date_time_overflow_option(
+                payload_local,
+                tag_local,
                 overflow_local,
                 function,
-            )?;
+            )?,
+            TemporalConversionOverflowOptions::Omit => {}
         }
         let resolved_year = self.emit_temporal_resolve_era_to_year(
             era,
@@ -1093,13 +1113,17 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64DivS);
             function.instruction(&Instruction::LocalSet(record_local));
         }
-        if read_options {
-            self.emit_temporal_plain_date_time_overflow_option(
-                options_payload_local,
-                options_tag_local,
+        match overflow_options {
+            TemporalConversionOverflowOptions::Read {
+                payload_local,
+                tag_local,
+            } => self.emit_temporal_plain_date_time_overflow_option(
+                payload_local,
+                tag_local,
                 overflow_local,
                 function,
-            )?;
+            )?,
+            TemporalConversionOverflowOptions::Omit => {}
         }
         self.emit_temporal_reject_iso_date(
             field_locals[0],
@@ -1146,9 +1170,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_to_temporal_date_time(
             argument_payload_local,
             argument_tag_local,
-            options_payload_local,
-            options_tag_local,
-            true,
+            TemporalConversionOverflowOptions::Read {
+                payload_local: options_payload_local,
+                tag_local: options_tag_local,
+            },
             &field_locals,
             calendar_payload_local,
             function,
@@ -1213,17 +1238,11 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let argument_payload_local = self.reserve_temp_local();
         let argument_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let comparison_local = self.reserve_temp_local();
         let left_locals = self.reserve_temporal_plain_date_time_field_locals();
         let right_locals = self.reserve_temporal_plain_date_time_field_locals();
 
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
         for (index, locals) in [(0_usize, &left_locals), (1, &right_locals)] {
             self.emit_builtin_arg_to_locals(
                 index,
@@ -1234,9 +1253,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_to_temporal_date_time(
                 argument_payload_local,
                 argument_tag_local,
-                undefined_payload_local,
-                undefined_tag_local,
-                false,
+                TemporalConversionOverflowOptions::Omit,
                 locals,
                 calendar_payload_local,
                 function,
@@ -1260,8 +1277,6 @@ impl<'a> FunctionBuilder<'a> {
         for local in [
             comparison_local,
             calendar_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
             argument_tag_local,
             argument_payload_local,
         ] {
@@ -1277,8 +1292,6 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let argument_payload_local = self.reserve_temp_local();
         let argument_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let other_calendar_payload_local = self.reserve_temp_local();
         let comparison_local = self.reserve_temp_local();
@@ -1290,17 +1303,11 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_to_temporal_date_time(
             argument_payload_local,
             argument_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            false,
+            TemporalConversionOverflowOptions::Omit,
             &other_locals,
             other_calendar_payload_local,
             function,
@@ -1333,8 +1340,6 @@ impl<'a> FunctionBuilder<'a> {
             comparison_local,
             other_calendar_payload_local,
             calendar_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
             argument_tag_local,
             argument_payload_local,
         ] {
@@ -1390,21 +1395,26 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        // `RejectTemporalLikeObject`: a bag that names a calendar or a time
-        // zone is a caller mistake, not a partial date-time.
+        // `RejectTemporalLikeObject` reads both keys with `Get`, not with a
+        // `HasProperty` probe, and Test262's `with/order-of-operations.js`
+        // observes the two reads.
         for property in ["calendar", "timeZone"] {
             function.instruction(&Instruction::I64Const(self.strings.payload(property)));
             function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_own_property_present(
+            self.emit_object_read(
+                argument_payload_local,
+                argument_tag_local,
                 argument_payload_local,
                 argument_tag_local,
                 key_local,
                 present_local,
+                calendar_tag_local,
                 function,
-            );
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
+            )?;
+            self.emit_return_current_completion_if_throw(function);
+            function.instruction(&Instruction::LocalGet(calendar_tag_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_type_error(
                 "Temporal.PlainDateTime.prototype.with does not accept calendar or timeZone",
@@ -1432,7 +1442,7 @@ impl<'a> FunctionBuilder<'a> {
             month_code_payload_local,
             month_code_present_local,
             any_present_local,
-            false,
+            TemporalPlainDateTimeFieldReadMode::With,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(any_present_local));
@@ -1535,8 +1545,6 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let argument_payload_local = self.reserve_temp_local();
         let argument_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let field_locals = self.reserve_temporal_plain_date_time_field_locals();
         let time_locals = self.reserve_temporal_plain_time_field_locals();
@@ -1547,10 +1555,6 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
         for local in time_locals.iter() {
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(*local));
@@ -1562,9 +1566,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_to_temporal_time(
             argument_payload_local,
             argument_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            false,
+            TemporalConversionOverflowOptions::Omit,
             &time_locals,
             function,
         )?;
@@ -1584,8 +1586,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temporal_plain_date_time_field_locals(field_locals);
         for local in [
             calendar_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
             argument_tag_local,
             argument_payload_local,
         ] {
@@ -1647,13 +1647,12 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Temporal proposal 5.3.x `toPlainDate` and `toPlainTime`.
-    pub(crate) fn emit_temporal_plain_date_time_to_component(
+    pub(super) fn emit_temporal_plain_date_time_to_component(
         &mut self,
-        time: bool,
+        component: TemporalPlainDateTimeComponent,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let calendar_payload_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
         let field_locals = self.reserve_temporal_plain_date_time_field_locals();
 
         self.emit_temporal_plain_date_time_fields_from_receiver(
@@ -1661,35 +1660,39 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         )?;
-        if time {
-            let time_locals = Self::temporal_plain_date_time_time_locals(&field_locals);
-            self.emit_alloc_temporal_plain_time(&time_locals, None, function)?;
-        } else {
-            function.instruction(&Instruction::GlobalGet(
-                TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(prototype_payload_local));
-            self.emit_alloc_temporal_plain_date(
-                field_locals[0],
-                field_locals[1],
-                field_locals[2],
-                calendar_payload_local,
-                prototype_payload_local,
-                function,
-            )?;
+        match component {
+            TemporalPlainDateTimeComponent::PlainDate => {
+                let prototype_payload_local = self.reserve_temp_local();
+                function.instruction(&Instruction::GlobalGet(
+                    TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX,
+                ));
+                function.instruction(&Instruction::LocalSet(prototype_payload_local));
+                self.emit_alloc_temporal_plain_date(
+                    field_locals[0],
+                    field_locals[1],
+                    field_locals[2],
+                    calendar_payload_local,
+                    prototype_payload_local,
+                    function,
+                )?;
+                self.release_temp_local(prototype_payload_local);
+            }
+            TemporalPlainDateTimeComponent::PlainTime => {
+                let time_locals = Self::temporal_plain_date_time_time_locals(&field_locals);
+                self.emit_alloc_temporal_plain_time(&time_locals, None, function)?;
+            }
         }
 
         self.release_temporal_plain_date_time_field_locals(field_locals);
-        self.release_temp_local(prototype_payload_local);
         self.release_temp_local(calendar_payload_local);
         Ok(())
     }
 
     /// Temporal proposal 5.3.x `add` and `subtract`, both through
     /// `AddDurationToDateTime`.
-    pub(crate) fn emit_temporal_plain_date_time_add_or_subtract(
+    pub(super) fn emit_temporal_plain_date_time_add_or_subtract(
         &mut self,
-        subtract: bool,
+        operation: TemporalPlainArithmeticOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let argument_payload_local = self.reserve_temp_local();
@@ -1724,12 +1727,15 @@ impl<'a> FunctionBuilder<'a> {
             overflow_local,
             function,
         )?;
-        if subtract {
-            for local in duration_locals.iter() {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalGet(*local));
-                function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(*local));
+        match operation {
+            TemporalPlainArithmeticOperation::Add => {}
+            TemporalPlainArithmeticOperation::Subtract => {
+                for local in duration_locals.iter() {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalGet(*local));
+                    function.instruction(&Instruction::I64Sub);
+                    function.instruction(&Instruction::LocalSet(*local));
+                }
             }
         }
 
@@ -2237,8 +2243,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_unit_option(
             argument_payload_local,
             argument_tag_local,
-            "smallestUnit",
-            false,
+            TemporalUnitOptionProperty::SmallestUnit,
             unit_local,
             function,
         )?;
@@ -2339,8 +2344,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_unit_option(
             options_payload_local,
             options_tag_local,
-            "largestUnit",
-            true,
+            TemporalUnitOptionProperty::LargestUnit,
             largest_unit_local,
             function,
         )?;
@@ -2380,8 +2384,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_unit_option(
             options_payload_local,
             options_tag_local,
-            "smallestUnit",
-            false,
+            TemporalUnitOptionProperty::SmallestUnit,
             smallest_unit_local,
             function,
         )?;
@@ -2619,17 +2622,15 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Temporal proposal 5.3.x `until` and `since`, both through
     /// `DifferencePlainDateTimeWithRounding`.
-    pub(crate) fn emit_temporal_plain_date_time_until_or_since(
+    pub(super) fn emit_temporal_plain_date_time_until_or_since(
         &mut self,
-        difference: PlainDateTimeDifference,
+        operation: TemporalPlainDifferenceOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let argument_payload_local = self.reserve_temp_local();
         let argument_tag_local = self.reserve_temp_local();
         let options_payload_local = self.reserve_temp_local();
         let options_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let other_calendar_payload_local = self.reserve_temp_local();
         let quantum_local = self.reserve_temp_local();
@@ -2656,18 +2657,12 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
         self.emit_to_temporal_date_time(
             argument_payload_local,
             argument_tag_local,
-            undefined_payload_local,
-            undefined_tag_local,
-            false,
+            TemporalConversionOverflowOptions::Omit,
             &other_locals,
             other_calendar_payload_local,
             function,
@@ -2682,10 +2677,18 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        let settings_plan = match operation {
+            TemporalPlainDifferenceOperation::Until => {
+                TemporalDateTimeDifferenceSettingsPlan::PlainUntil
+            }
+            TemporalPlainDifferenceOperation::Since => {
+                TemporalDateTimeDifferenceSettingsPlan::PlainSince
+            }
+        };
         let settings = self.emit_temporal_date_time_difference_settings(
             options_payload_local,
             options_tag_local,
-            difference.settings_plan(),
+            settings_plan,
             function,
         )?;
         let ResolvedTemporalDateTimeDifferenceSettings {
@@ -2916,18 +2919,21 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        if difference.negates_result() {
-            for local in [
-                years_local,
-                months_local,
-                weeks_local,
-                days_local,
-                total_local,
-            ] {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalGet(local));
-                function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(local));
+        match operation {
+            TemporalPlainDifferenceOperation::Until => {}
+            TemporalPlainDifferenceOperation::Since => {
+                for local in [
+                    years_local,
+                    months_local,
+                    weeks_local,
+                    days_local,
+                    total_local,
+                ] {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalGet(local));
+                    function.instruction(&Instruction::I64Sub);
+                    function.instruction(&Instruction::LocalSet(local));
+                }
             }
         }
         function.instruction(&Instruction::LocalGet(total_local));
@@ -2984,8 +2990,6 @@ impl<'a> FunctionBuilder<'a> {
             quantum_local,
             other_calendar_payload_local,
             calendar_payload_local,
-            undefined_tag_local,
-            undefined_payload_local,
             options_tag_local,
             options_payload_local,
             argument_tag_local,
@@ -3086,8 +3090,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_temporal_duration_unit_option(
                 options_payload_local,
                 options_tag_local,
-                "smallestUnit",
-                false,
+                TemporalUnitOptionProperty::SmallestUnit,
                 unit_local,
                 function,
             )?;

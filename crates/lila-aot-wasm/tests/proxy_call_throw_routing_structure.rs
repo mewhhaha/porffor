@@ -17,11 +17,20 @@ fn proxy_call_throw_routing_is_one_private_closed_domain() {
     assert!(!FUNCTIONS_SOURCE.contains("pub(crate) enum ProxyCallThrowRouting"));
     assert!(!FUNCTIONS_SOURCE.contains("pub(super) enum ProxyCallThrowRouting"));
 
-    let declaration = between(
-        FUNCTIONS_SOURCE,
-        "enum ProxyCallThrowRouting {",
-        "}\n\nimpl ProxyCallThrowRouting",
-    );
+    let preceding_declaration_line = FUNCTIONS_SOURCE
+        .split_once("enum ProxyCallThrowRouting {")
+        .expect("missing ProxyCallThrowRouting declaration")
+        .0
+        .rsplit_once('\n')
+        .map_or("", |(_, line)| line);
+    assert!(!preceding_declaration_line
+        .trim_start()
+        .starts_with("#[derive("));
+    for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq"] {
+        assert!(!FUNCTIONS_SOURCE.contains(&format!("impl {capability} for ProxyCallThrowRouting")));
+    }
+
+    let declaration = between(FUNCTIONS_SOURCE, "enum ProxyCallThrowRouting {", "\n}");
     let variants = declaration
         .lines()
         .map(str::trim)
@@ -38,6 +47,7 @@ fn proxy_call_throw_routing_is_one_private_closed_domain() {
         "impl ProxyCallThrowRouting {",
         "\n}\n\n/// A Wasm local proven",
     );
+    assert!(implementation.contains("const fn returns_current_function(&self) -> bool"));
     assert!(implementation.contains("match self {"));
     assert!(implementation.contains("Self::ReturnCurrentFunction => true,"));
     assert!(implementation.contains("Self::LeaveInCompletion => false,"));

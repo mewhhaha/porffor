@@ -1,4 +1,7 @@
 const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const INVOKE_SOURCE: &str =
+    include_str!("../src/builtins/object/object_to_locale_string_invoke.rs");
+const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 
 fn assert_before(source: &str, earlier: &str, later: &str) {
     let earlier_offset = source.find(earlier).expect("earlier operation");
@@ -9,8 +12,8 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
     );
 }
 
-fn function_between(start: &str, end: &str) -> &'static str {
-    OBJECT_SOURCE
+fn function_between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+    source
         .split_once(start)
         .unwrap_or_else(|| panic!("missing `{start}`"))
         .1
@@ -19,8 +22,8 @@ fn function_between(start: &str, end: &str) -> &'static str {
         .0
 }
 
-fn struct_fields(name: &str) -> Vec<&'static str> {
-    OBJECT_SOURCE
+fn struct_fields<'a>(source: &'a str, name: &str) -> Vec<&'a str> {
+    source
         .split_once(&format!("struct {name} {{"))
         .unwrap_or_else(|| panic!("missing `{name}`"))
         .1
@@ -34,9 +37,101 @@ fn struct_fields(name: &str) -> Vec<&'static str> {
 }
 
 #[test]
+fn invocation_family_has_one_private_file_owner_and_closed_callers() {
+    assert_eq!(
+        OBJECT_SOURCE
+            .matches("\nmod object_to_locale_string_invoke;\n")
+            .count(),
+        1
+    );
+    assert!(!OBJECT_SOURCE.contains("\npub mod object_to_locale_string_invoke;\n"));
+    assert!(!OBJECT_SOURCE.contains("\nmod object_to_locale_string_invoke {\n"));
+    assert!(INVOKE_SOURCE.starts_with("use super::*;\n\n"));
+
+    for state in [
+        "struct ObjectToLocaleStringGetVLocals {",
+        "struct ValidatedObjectToLocaleStringInvocationLocals {",
+    ] {
+        assert_eq!(INVOKE_SOURCE.matches(state).count(), 1, "{state}");
+        assert!(!OBJECT_SOURCE.contains(state), "parent retained `{state}`");
+    }
+    assert_eq!(
+        INVOKE_SOURCE
+            .lines()
+            .map(str::trim_start)
+            .filter(|line| {
+                line.starts_with("struct ")
+                    || line.starts_with("enum ")
+                    || line.starts_with("pub struct ")
+                    || line.starts_with("pub enum ")
+                    || line.starts_with("pub(") && line.contains(" struct ")
+                    || line.starts_with("pub(") && line.contains(" enum ")
+            })
+            .collect::<Vec<_>>(),
+        [
+            "struct ObjectToLocaleStringGetVLocals {",
+            "struct ValidatedObjectToLocaleStringInvocationLocals {",
+        ]
+    );
+
+    for helper in [
+        "emit_object_to_locale_string_get_v(",
+        "emit_validate_object_to_locale_string_invocation(",
+        "emit_call_validated_object_to_locale_string_invocation(",
+    ] {
+        assert_eq!(
+            INVOKE_SOURCE.matches(helper).count(),
+            2,
+            "one definition and one caller for `{helper}`"
+        );
+        assert!(
+            !OBJECT_SOURCE.contains(helper),
+            "parent retained `{helper}`"
+        );
+    }
+    assert_eq!(
+        INVOKE_SOURCE
+            .matches(
+                "pub(in crate::builtins) fn compile_object_prototype_to_locale_string_builtin("
+            )
+            .count(),
+        1
+    );
+    assert!(
+        !INVOKE_SOURCE.contains("pub(super) fn compile_object_prototype_to_locale_string_builtin(")
+    );
+    assert!(
+        !INVOKE_SOURCE.contains("pub(crate) fn compile_object_prototype_to_locale_string_builtin(")
+    );
+    assert!(!OBJECT_SOURCE.contains("compile_object_prototype_to_locale_string_builtin("));
+    assert_eq!(
+        STANDARD_SOURCE
+            .matches("self.compile_object_prototype_to_locale_string_builtin(function)?")
+            .count(),
+        1
+    );
+
+    assert_eq!(
+        INVOKE_SOURCE
+            .lines()
+            .map(str::trim_start)
+            .filter(
+                |line| line.starts_with("fn ") || line.starts_with("pub") && line.contains(" fn ")
+            )
+            .collect::<Vec<_>>(),
+        [
+            "fn emit_object_to_locale_string_get_v(",
+            "fn emit_validate_object_to_locale_string_invocation(",
+            "fn emit_call_validated_object_to_locale_string_invocation(",
+            "pub(in crate::builtins) fn compile_object_prototype_to_locale_string_builtin(",
+        ]
+    );
+}
+
+#[test]
 fn invoke_receiver_roles_and_validated_call_are_private_non_copy_states() {
     let receiver_name = "ObjectToLocaleStringGetVLocals";
-    let receiver_declaration = OBJECT_SOURCE
+    let receiver_declaration = INVOKE_SOURCE
         .split_once(&format!("struct {receiver_name} {{"))
         .expect("receiver roles")
         .0
@@ -46,9 +141,9 @@ fn invoke_receiver_roles_and_validated_call_are_private_non_copy_states() {
     assert!(receiver_declaration.contains("#[must_use"));
     assert!(!receiver_declaration.contains("derive"));
     assert!(!receiver_declaration.contains("pub"));
-    assert!(!OBJECT_SOURCE.contains("impl Copy for ObjectToLocaleStringGetVLocals"));
+    assert!(!INVOKE_SOURCE.contains("impl Copy for ObjectToLocaleStringGetVLocals"));
     assert_eq!(
-        struct_fields(receiver_name),
+        struct_fields(INVOKE_SOURCE, receiver_name),
         [
             "original_receiver: TaggedLocals,",
             "boxed_lookup: TaggedLocals,",
@@ -57,7 +152,7 @@ fn invoke_receiver_roles_and_validated_call_are_private_non_copy_states() {
     );
 
     let invocation_name = "ValidatedObjectToLocaleStringInvocationLocals";
-    let invocation_declaration = OBJECT_SOURCE
+    let invocation_declaration = INVOKE_SOURCE
         .split_once(&format!("struct {invocation_name} {{"))
         .expect("validated invocation")
         .0
@@ -67,9 +162,9 @@ fn invoke_receiver_roles_and_validated_call_are_private_non_copy_states() {
     assert!(invocation_declaration.contains("#[must_use"));
     assert!(!invocation_declaration.contains("derive"));
     assert!(!invocation_declaration.contains("pub"));
-    assert!(!OBJECT_SOURCE.contains("impl Copy for ValidatedObjectToLocaleStringInvocationLocals"));
+    assert!(!INVOKE_SOURCE.contains("impl Copy for ValidatedObjectToLocaleStringInvocationLocals"));
     assert_eq!(
-        struct_fields(invocation_name),
+        struct_fields(INVOKE_SOURCE, invocation_name),
         ["method: TaggedLocals,", "receiver: TaggedLocals,"]
     );
 }
@@ -77,6 +172,7 @@ fn invoke_receiver_roles_and_validated_call_are_private_non_copy_states() {
 #[test]
 fn get_v_validation_and_call_have_one_typed_role_mapping() {
     let get_v = function_between(
+        INVOKE_SOURCE,
         "fn emit_object_to_locale_string_get_v(",
         "fn emit_validate_object_to_locale_string_invocation(",
     );
@@ -98,6 +194,7 @@ fn get_v_validation_and_call_have_one_typed_role_mapping() {
     );
 
     let validator = function_between(
+        INVOKE_SOURCE,
         "fn emit_validate_object_to_locale_string_invocation(",
         "fn emit_call_validated_object_to_locale_string_invocation(",
     );
@@ -126,8 +223,9 @@ fn get_v_validation_and_call_have_one_typed_role_mapping() {
     );
 
     let consumer = function_between(
+        INVOKE_SOURCE,
         "fn emit_call_validated_object_to_locale_string_invocation(",
-        "pub(super) fn compile_object_prototype_to_locale_string_builtin(",
+        "pub(in crate::builtins) fn compile_object_prototype_to_locale_string_builtin(",
     );
     assert_eq!(
         consumer
@@ -154,8 +252,9 @@ fn get_v_validation_and_call_have_one_typed_role_mapping() {
 #[test]
 fn builtin_uses_current_realm_errors_and_only_the_typed_invoke_path() {
     let builtin = function_between(
-        "pub(super) fn compile_object_prototype_to_locale_string_builtin(",
-        "pub(super) fn compile_object_prototype_value_of_builtin(",
+        INVOKE_SOURCE,
+        "pub(in crate::builtins) fn compile_object_prototype_to_locale_string_builtin(",
+        "\n    }\n}\n",
     );
 
     assert_eq!(

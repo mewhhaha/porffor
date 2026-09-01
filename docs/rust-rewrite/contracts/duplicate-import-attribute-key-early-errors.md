@@ -15,18 +15,14 @@ module-request validation code.
 
 ## Measured parser boundary
 
-Pinned `boa_parser-0.21.1` has exactly two textual producers of the complete,
-case-sensitive message `duplicate import attribute key`:
-
-- `parser/statement/declaration/import.rs:336`, after parsing one static
-  `ImportDeclaration` attributes list;
-- `parser/statement/declaration/export.rs:284`, after parsing one static
-  `ExportDeclaration` attributes list.
-
-Both parsers intern identifier-name, keyword and string-literal keys before
-testing equality. Consequently `type` and `"type"` denote the same key and a
-list containing both must reject. Distinct keys and a trailing comma remain
-valid.
+Pinned `boa_parser-0.21.1` has one textual producer of the complete,
+case-sensitive message `duplicate import attribute key`, in the shared
+`parse_module_request_attributes` owner in
+`parser/statement/declaration/import.rs`. The static-import request parser and
+the typed re-export request parser both call that owner, so they intern
+identifier-name, keyword and string-literal keys and apply the same equality
+check. Consequently `type` and `"type"` denote the same key and a list
+containing both must reject. Distinct keys and a trailing comma remain valid.
 
 Boa renders each `Error::general` as the raw message followed by a source
 position. One classifier row therefore requires the anchored rendered prefix
@@ -88,12 +84,11 @@ duplicate exported name containing the same text remains
 export-from declaration and requires the typed code, `Early` phase,
 `SyntaxError` constructor and a source span.
 
-The source-level contract pins one reviewed message occurrence in each of the
-two known vendored producer files and the separate
-`DuplicateImportAttributeKeyIr` display prefix. The current tree-wide inventory
-contains no third producer, but those assertions do not scan the complete
-vendor tree. They are structural drift alarms, not a substitute for compilation
-or behavior tests.
+The source-level contract pins one reviewed message occurrence in the shared
+vendored attribute parser, none in the export parser, the typed re-export
+parser plus both export-from calls, and the separate
+`DuplicateImportAttributeKeyIr` display prefix. These assertions are structural
+drift alarms, not a substitute for compilation or behavior tests.
 
 ## Verification
 

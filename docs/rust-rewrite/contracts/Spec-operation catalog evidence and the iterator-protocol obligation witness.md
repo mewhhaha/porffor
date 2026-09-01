@@ -9,6 +9,18 @@ produced each count is given so the dry-runner can re-derive it.
 > encoding landed. §13 supersedes every claim it names — including parts of §2,
 > §3 A1/A3/A5/A6, §5 L1/L3/L4/L6, §6 mistake classes 1, 4, 7 and 8, §7, §10 and
 > §12. Do not cite §§1–12 without checking §13.
+>
+> **Read §18 for the current synchronous Array `for-of` state.** It supersedes
+> every earlier present-tense claim that `StatementIr::ForOfArray`,
+> `compile_for_of_array`, or the synchronous `ARRAY_INDEX_WALK` remains live.
+> Older counts and traces remain as historical evidence for why the shortcut
+> was removed.
+>
+> **Read §19 for the current synchronous String `for-of` state.** It supersedes
+> every earlier present-tense claim that `StatementIr::ForOfString`,
+> `compile_for_of_string`, `STRING_CODE_POINT_WALK`, `StringIteratorIntact`, or
+> `StringWalkIsCodePoint` remains live. Older counts and traces remain as
+> historical evidence for why the shortcut was removed.
 
 Owned area files:
 
@@ -1410,13 +1422,14 @@ matches with `Err(EmitError::unsupported(..))` and the catalog still reads
 the doc comment on `emitter_evidence` now says so.
 
 **L2 is rescoped**: the descriptor now gives each operation a closed
-`AbruptCapability`, and the backend has a const-checked private
-`MayThrowOperation` routing seam. That seam currently covers only `GetV` inside
-`GetMethod` and the `ToNumber` of the `Number.prototype.toFixed` argument; it
-does not prove the other arms. Closing L2 still requires making every arm's
-success value carry its capability *and* making `EmitError::unsupported`
-unconstructible inside a `SpecOperationIr` arm. A descriptive capability alone
-would leave the hole open.
+`AbruptCapability`, while named backend boundaries route `GetV` inside
+`GetMethod` and the `ToNumber` of the `Number.prototype.toFixed` argument. The
+former const-checked `MayThrowOperation` marker was later removed because its
+finisher parameters were ignored and mismatched constants still compiled. The
+named slices do not prove the other arms. Closing L2 still requires making
+every arm's success value carry its capability *and* making
+`EmitError::unsupported` unconstructible inside a `SpecOperationIr` arm. A
+descriptive capability alone would leave the hole open.
 
 ## 13.12 The "emitter must not read `protocol`" rule is now a type
 
@@ -1547,3 +1560,554 @@ site. This closes the callerless-public-surface residue without changing the 46
 catalog rows, any lowering decision or emitted Wasm. No Cargo or Test262 command
 ran in this follow-up; the central verifier owns `cargo check -p lila-ir` and
 the rustdoc gate.
+
+## 16. `ArraySpeciesCreate` backend-evidence checkpoint (2026-08-29)
+
+This section supersedes the older three-status and `29 + 5 + 12` catalog
+censuses in this document. It does not change the iterator-obligation evidence.
+
+### 16.1 A dedicated backend operation can now carry implementation evidence
+
+The macro-backed `BackendSpecOperation` domain records operations implemented
+by a dedicated backend function rather than by the expression-shaped
+`SpecOperationIr` emitter or a statement-shaped `EmissionSite`. It includes
+`ArraySpeciesCreate`. The same macro rows generate the enum,
+`ALL`, and the complete operation descriptor, so adding a member without a
+name, family, operand domain, normal result, and abrupt capability is not
+representable.
+
+`BackendEmitterEvidence` has a private field and no public constructor.
+`BackendSpecOperation::emitter_evidence` is its only producer.
+`OperationLoweringStatus::SharedBackendEmitter` carries that evidence, and
+`RowSource::DerivedFromBackendOperation` records its catalog origin. The
+backend's exhaustive `backend_spec_operations_are_backed` match joins
+`BackendSpecOperation::ArraySpeciesCreate` to
+`FunctionBuilder::emit_array_species_create`. A renamed emitter or a new
+backend operation without a join therefore fails to build.
+
+The canonical `ArraySpeciesCreate` descriptor takes a value and an integer,
+may throw, and has normal result `Object`. It must not say `Array`: a custom
+`@@species` constructor may return an arbitrary object.
+
+The current catalog census remains 46 rows:
+
+- 29 expression rows backed by `SpecOperationIr` and `EmitterEvidence`;
+- 2 backend rows backed by `BackendSpecOperation` and
+  `BackendEmitterEvidence`;
+- 5 statement-emission rows backed by `EmissionSite`;
+- 10 tracked gaps.
+
+Const assertion J4 pins `29 + 2 + 5 + 10 = 46`. Moving
+`ArraySpeciesCreate` out of `TRACKED_GAP_ROWS` without adding its backend-derived
+row, or changing any of the four domains without restating the census, fails at
+compile time.
+
+### 16.2 The promotion does not claim universal species ownership
+
+`emit_array_species_create` contains the complete shared implementation and is
+reachable from the product path. Its only callers are
+`Array.prototype.slice` and `Array.prototype.splice`.
+
+The exact current `builtins/array.rs` census is 9 direct
+`Symbol.species` reads. One is inside `emit_array_species_create`. Eight remain
+outside it:
+
+- five live local `ArraySpeciesCreate` copies in `flat`, `concat`, `flatMap`,
+  `map`, and `filter`;
+- three distinct `TypedArraySpeciesCreate` paths in typed-array `slice`, `map`,
+  and `filter`.
+
+Those eight sites are not one homogeneous set of duplicate
+`ArraySpeciesCreate` implementations. This checkpoint claims neither a single
+species owner nor a universal caller migration. `SpeciesConstructor` remains a
+tracked gap. `Completion` and `UpdateEmpty` also remain tracked gaps rather
+than being promoted on the strength of their callerless Rust models.
+
+Array `every` and `some` no longer contain their constant-false species copies
+or the later unused result Array allocation and construction path. Their
+bounded source guard, not the runtime non-observation fixture, distinguishes
+that emitted-Wasm cleanup from the prior behavior.
+
+### 16.3 Verification status
+
+At the central checkpoint, `cargo check -p lila-aot-wasm` is green with only
+the pre-existing vendored parser warning. The catalog-evidence and neighboring
+splice structure targets pass `10/10`, the filtered IR operation units pass
+`53/53`, and the Array slice core/species/Proxy CLI controls pass `3/3`.
+Formatting, module-boundary, task-plan, exact-shortcut and diff checks are
+green, with the shortcut inventory unchanged at 240 entries. This checkpoint
+makes no Test262 result, published status count, or conformance-gain claim.
+The two bounded Array-species and quantifier structure targets pass `10/10`.
+The constructor/species non-observation fixture and four neighboring
+Array/TypedArray core and resizable-buffer controls pass `5/5`.
+
+## 17. `ToPropertyDescriptor` backend-evidence checkpoint (2026-08-29)
+
+This section extends §16's backend-operation domain with its second member. It
+does not change the iterator-obligation evidence or the species boundary.
+
+### 17.1 The catalog row states the conversion's typed contract
+
+`BackendSpecOperation::ToPropertyDescriptor` is generated by the same closed
+macro as `ArraySpeciesCreate`. Its descriptor belongs to the Object family,
+takes one `Value`, returns a `PropertyDescriptor`, and `MayThrow`:
+
+```text
+Value -> PropertyDescriptor / MayThrow
+```
+
+`BackendSpecOperation::emitter_evidence` supplies its unforgeable
+`BackendEmitterEvidence`; `OperationLoweringStatus::SharedBackendEmitter` and
+`RowSource::DerivedFromBackendOperation` carry that proof into the catalog.
+The backend's exhaustive `backend_spec_operations_are_backed` match joins the
+variant to `FunctionBuilder::emit_to_property_descriptor`. Adding another
+backend operation without a corresponding real-function join therefore fails
+to build.
+
+The catalog remains 46 rows:
+
+- 29 expression rows backed by `SpecOperationIr` and `EmitterEvidence`;
+- 2 backend rows backed by `BackendSpecOperation` and
+  `BackendEmitterEvidence`;
+- 5 statement-emission rows backed by `EmissionSite`;
+- 10 tracked gaps.
+
+Const assertion J4 pins `29 + 2 + 5 + 10 = 46`. `ToPropertyDescriptor` is no
+longer a gap row; the total did not change because its backend-derived row
+replaced that gap.
+
+### 17.2 The reserved carrier makes the local lifecycle explicit
+
+There is exactly one `FunctionBuilder::emit_to_property_descriptor` definition
+and exactly two direct source call sites. They belong to the Object static
+builtins `Object.defineProperty` and `Object.defineProperties`. Each call is
+immediately paired with `emit_from_present_property_descriptor`; there is no
+third shared-converter or shared-materializer caller.
+
+The converter reserves a presence, payload, and tag local for each of the six
+descriptor fields, plus two field-key scratch locals. It releases the scratch
+pair after validation and returns the remaining locals inside
+`ReservedPropertyDescriptorLocals`. That crate-visible token is `#[must_use]`,
+has a private descriptor field, derives no capabilities, and has no manual
+`Clone` or `Copy` implementation. Its `ValidatedDescriptor` uses the private
+`ReservedPropertyDescriptorCarrier`, so callers cannot extract, duplicate, or
+forge the owned local set.
+
+`emit_from_present_property_descriptor` takes the token by value. It allocates
+the ordinary descriptor object, emits only fields whose presence says they
+exist, releases its own field-key scratch local, and consumes the validated
+descriptor with `into_partial()`. It then releases the six field groups in
+reverse reservation order—`set`, `get`, `configurable`, `enumerable`,
+`writable`, `value`—and releases each run-time group as tag, payload, then
+presence. A successful caller therefore cannot retain or release the same
+reserved descriptor locals a second time.
+
+### 17.3 The present-only materializer is not `FromPropertyDescriptor`
+
+The consuming materializer handles the present descriptor needed by those two
+Object static builtins. It does not implement the general
+`FromPropertyDescriptor` operation, including its `Undefined` result branch,
+so `FromPropertyDescriptor` remains a `TrackedGapReason::NoImplementation`
+catalog row.
+
+Nor does the backend row claim universal descriptor-path migration.
+`Reflect.defineProperty` still open-codes the six ordered field observations,
+validation, and completed-descriptor object construction. Proxy
+`[[GetOwnProperty]]` and other descriptor paths retain their separate
+open-coded projections and materializers. Those paths may implement relevant
+behavior, but they do not consume `ReservedPropertyDescriptorLocals` and are
+not evidence for this catalog row or for `FromPropertyDescriptor`.
+
+### 17.4 Verification status
+
+At the 2026-08-29 checkpoint, the bounded evidence target passes `7/7`, the
+existing Object descriptor fixture passes `1/1`, the filtered IR operation
+units pass `53/53`, and `cargo check -p lila-aot-wasm` is green with only the
+pre-existing vendored parser warning. This section claims no broad Reflect or
+Proxy migration, no `FromPropertyDescriptor` promotion, no Test262 result, no
+published-status change, and no conformance gain.
+
+## 18. Synchronous Array `for-of` protocol checkpoint (2026-08-29)
+
+This section supersedes the earlier live-tree descriptions of the synchronous
+Array shortcut. The IR no longer has `StatementIr::ForOfArray`; the backend no
+longer has `compile_for_of_array`; and
+`IteratorProtocolWitness::ARRAY_INDEX_WALK` is gone. Direct synchronous Array
+heads now construct `StatementIr::ForOfIterator` with
+`ForOfIteratorHeadIr::Assignment`, `async_plan: None`, and
+`IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL`.
+
+The loop value on that generic path is `ValueKind::Dynamic` with every run-time
+kind possible. A source Array's inferred heap shape cannot constrain what a
+replaceable `@@iterator` yields. The focused fixture demonstrates the reason by
+replacing `Array.prototype[Symbol.iterator]`, yielding the String `"4"`, and
+requiring the loop body to produce `"41"` before `break` triggers one
+`IteratorClose` `return` call. Its two native-iterator cases require a length
+increase to extend iteration and a hole to resolve through an inherited indexed
+getter.
+
+This change closes the old direct-path L3 and L5 defects by deletion rather
+than by an intactness guard. The four iterator-operation catalog rows keep their
+existing `StatementEmission(SyncForOfIterator)` evidence, and the 46-row catalog
+census does not change.
+
+`cargo check -p lila-aot-wasm` passes. The two focused structure targets pass
+`3/3` and `4/4`, the IR `for_of` target passes `16/16`, the planner and two CLI
+targets each pass `1/1`, and the four pinned Array length-mutation leaves pass
+`8/8` Wasm-AOT executions with every failure bucket at zero. This checkpoint
+claims no semantic-golden result or published-status refresh.
+
+`ARRAY_INDEX_WALK_RESUMABLE` remains live. A synchronous `for-of` with a body
+that directly awaits inside a plain async function still becomes a
+`StatementIr::GeneratorLoop` through
+`lower_async_for_of_array_with_body_await`. That rewrite still assumes Array
+iterator intactness, stable length, direct indexed reads, and no iterator object.
+Migrating it to a resumable iterator record is separate required work.
+
+## 19. Synchronous String `for-of` protocol checkpoint (2026-08-29)
+
+This section supersedes the earlier live-tree descriptions of the synchronous
+String shortcut. The IR no longer has `StatementIr::ForOfString`; the backend
+no longer has `compile_for_of_string`; and
+`IteratorProtocolWitness::STRING_CODE_POINT_WALK` is gone together with
+`StringIteratorIntact` and `StringWalkIsCodePoint`. Ordinary direct synchronous
+String heads now construct `StatementIr::ForOfIterator` with
+`IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL`.
+
+The loop value on that generic path is `ValueKind::Dynamic` with every run-time
+kind possible. A source String cannot constrain what its replaceable
+`@@iterator` yields. GetIterator boxes the primitive for property lookup with
+the current function Realm's String prototype, but it keeps the original
+primitive as the accessor and iterator-method receiver.
+
+The focused fixture makes both mutable protocol points observable. A strict
+`String.prototype[Symbol.iterator]` accessor returns a custom iterator whose
+Number value makes the loop compute `5`; `break` must then call `return` once.
+A separate `%StringIteratorPrototype%.next` replacement must supply the value
+seen by an ordinary String loop. Each mutation restores the saved complete
+property descriptor in `finally`.
+
+This deletion retires the old direct-path L3 assumption instead of adding an
+intactness guard. The four iterator-operation catalog rows retain their
+existing `StatementEmission(SyncForOfIterator)` evidence, and the 46-row
+catalog census does not change.
+
+`cargo check -p lila-aot-wasm` passes. The String structure target passes `3/3`,
+affected companion structures pass `19/19`, the IR `for_of` target passes
+`17/17`, and the CLI witness passes `1/1`. The three pinned native String
+controls pass `6/6` Wasm-AOT executions with every failure bucket at zero. This
+checkpoint claims no semantic-golden, published-status, or broad conformance
+result. It also does not claim complete Realm ownership for the generic loop's
+iterator-protocol TypeErrors.
+
+A synchronous String `for-of` with a body that directly awaits inside a plain
+async function now uses the activation-backed synchronous Iterator Record
+described in §20. The replacement no longer classifies the source as an Array.
+
+## 20. Plain-async synchronous `for-of` protocol checkpoint (2026-08-29)
+
+This section supersedes §18's live `ARRAY_INDEX_WALK_RESUMABLE` paragraph,
+§19's directly awaiting String nonclaim, and §13.5 wherever it describes the
+Array index rewrite as current source.
+
+The IR now has a dedicated `StatementIr::AsyncFunctionForOfIterator` for one
+direct body `await` inside a plain async function. Its required
+`AsyncFunctionForOfIteratorPlanIr` has private fields and a crate-private
+constructor. The plan owns the assignment binding, typed Iterator Record,
+head and per-iteration environments, body statements before/at/after the
+await, and ordered entry/resume/exit states. Construction rejects any split
+statement other than `AsyncAwait`, mismatched suspend/resume states, exit-state
+overflow, and a captured head TDZ. A captured lexical loop binding becomes
+`ResumableLoopIterationEnvironmentIr::FreshPerIteration`.
+
+Lowering allocates the iterator, next-method, and done roles through their
+typed suspension-owned allocators. It records the yielded value as fully
+`Dynamic`, with no heap shape or function targets, and no longer tests whether
+the source is an Array. The former `AsyncForOfArrayWalkForm`,
+`lower_async_for_of_array_with_body_await`, Array length/index synthesis, and
+`ARRAY_INDEX_WALK_RESUMABLE` are deleted.
+
+`RESUMABLE_SYNC_ITERATOR_PROTOCOL` discharges the four iterator obligations by
+emission at `ResumableSyncForOfIterator`. The exhaustive backend join names
+`compile_async_function_for_of_iterator` as that site's real function. Its
+entry path performs `GetIterator` and caches `next` in the activation-owned
+record. Resume paths reload that record. The planner budgets the emitter's
+persistent locals additively with the maximum of iterable temporaries, every
+body segment, and `FOR_OF_ITERATOR_HELPER_TEMP_LOCALS`; a nested child cannot
+hide the persistent record below the old fixed local floor.
+
+The runtime oracles distinguish all close boundaries. Natural exhaustion does
+not call `return`. An await rejection closes once and preserves the original
+Throw if close throws. A Return after the await closes once and is replaced by
+a close error. Abrupt `next`, `done`, and `value` evaluation does not close.
+The acquisition fixture reads Array `@@iterator` and the iterator's `next`
+property once across two body awaits, accepts String values from a Number
+Array, and runs a replaced synchronous String iterator through the same path.
+It also observes a bare identifier assignment head receiving both custom
+iterable values on both sides of the body await.
+The existing six-closure oracle keeps each captured lexical binding distinct
+after all iterations finish.
+
+`cargo check -p lila-aot-wasm` passes. The five focused structure targets pass
+`19/19`, the `lila-ir` `for_of` target passes `18/18`, and the four exact CLI
+oracles pass `4/4`. All four fixtures pass `node --check`, and the two pinned
+`Array.fromAsync` leaves pass `4/4` Wasm-AOT executions with every failure and
+non-success bucket at zero. The complete 95-file `Array.fromAsync` leaf,
+semantic golden, and published-status refresh were not run. The admitted form remains one plain
+async function, one direct body `await`, and a simple single-name declaration
+or bare identifier assignment head. Direct `break` and `continue`, pattern and
+property heads, captured head TDZ, iterable suspension, async-generator owners,
+and `for await` remain separate paths or explicit rejections.
+
+## 21. Shared IteratorClose error-Realm checkpoint (2026-08-29)
+
+The shared `emit_iterator_close` backend owner now creates both
+algorithm-generated TypeErrors in the current function Realm. Its 67 external
+entry routes are 16 direct, 48 preserving-current-Throw, and 3
+preserving-saved-Throw routes. The preserving wrappers still restore the
+incoming Throw. Entry code with `current_env_local == 0` still uses the main
+Realm fallback.
+
+This does not change the `IteratorClose` catalog row or the 46-row catalog
+census. At this close-only checkpoint, ordinary direct `for-of` acquisition
+and stepping errors remained a separate migration. The focused structure
+target passes `4/4`, the exact created-Realm CLI test passes `1/1`, the
+affected close sweep passes `6/6`, and the two direct `for-of` Test262 leaves
+pass `4/4` with every failure and non-success bucket at zero. Section 22
+supersedes that historical nonclaim. The exact close invariant, nonclaim, and
+commands live in
+[`iterator-close-error-realm.md`](./iterator-close-error-realm.md).
+
+## 22. Direct synchronous `for-of` protocol-error Realm checkpoint (2026-08-29)
+
+All three direct synchronous `for-of` execution owners now route their five
+iterator acquisition and stepping TypeErrors through one closed body-Realm
+projection, for 15 checks in total. Ordinary direct
+`compile_for_of_iterator` and direct async-disposable
+`compile_async_disposable_for_of_iterator` own five inline checks each.
+Resumable plain-async `compile_async_function_for_of_iterator` delegates its
+five checks to `emit_get_iterator_from_value_locals` and
+`emit_sync_iterator_step_value`.
+
+Each route selects `SyncIteratorConsumer::ForOf`. The exhaustive
+`SyncIteratorProtocolError` projection owns the diagnostic and Realm choice;
+no direct owner bypasses it. A standard-builtin body selects the trusted
+self-backed current-function emitter. Main, user, host, and runtime-helper
+bodies select the main-Realm emitter, so a nonzero lexical environment is
+never read as function Realm metadata.
+The five checks are a nullish source, a non-callable iterator method, a
+primitive iterator-method result, a non-callable `next`, and a primitive
+`next` result. The first two share the `NotIterable` error variant and message,
+so five checks map through four error variants. Primitive property lookup in
+both inline owners, including the async-disposable path, also boxes through the
+current function Realm.
+
+`crates/lila-cli/tests/fixtures/wasm_for_of_protocol_type_errors.js` exercises
+all five errors and a valid control through an entry-Realm user function. That
+fixture pins observable diagnostics, but it cannot distinguish the current
+function Realm from the main Realm. A Realm-distinguishing witness would
+require the compiled loop-owning user function itself to be defined in a
+created Realm. Wasm AOT intentionally does not dynamically compile `eval`,
+`Function`, or a cross-Realm Function constructor, so this runtime case
+remains a stated limitation rather than an inferred pass.
+
+This checkpoint does not absorb the two TypeErrors owned by shared
+IteratorClose. At the time it did not cover `compile_async_for_of_iterator`,
+Array destructuring, ArrayAccumulation, or `Math.sumPrecise`. Section 26
+supersedes that synchronous-consumer nonclaim. It does not change user-thrown
+accessor or callee completions, assignment or disposal errors. The later
+callable-Proxy follow-up makes the ordinary direct owner use general
+`IsCallable` and Proxy-aware `Call` for `@@iterator` and cached `next`, matching
+the already-correct direct async-disposable and resumable owners. Its bounded
+Rust guard forbids Function-tag gates and Function-only calls while pinning
+both receivers and propagation-before-validation order. The source-free
+fixture covers callable, throwing, non-callable, and revoked Proxy methods,
+once-only `next` lookup, and no close on abrupt stepping. Proxy Call
+completions propagate unchanged. Entry-Realm revoked proxies do not prove a
+cross-Realm Proxy-internal TypeError result. This follow-up adds no operation
+row or typed protocol error; the catalog census remains
+`29 + 2 + 5 + 10 = 46`.
+
+The focused and affected structure targets pass `37/37`, the exact error
+fixture and four success-path CLI controls pass `5/5`, and the four pinned
+direct leaves pass all `8/8` Wasm-AOT executions with every failure and
+non-success bucket at zero. The invariant details and exact commands are recorded in
+[`direct-synchronous-for-of-protocol-error-realm.md`](./direct-synchronous-for-of-protocol-error-realm.md).
+
+The callable-Proxy/body-Realm follow-up passes the five directly affected
+structure targets at `23/23`, five exact CLI controls at `5/5`, and eight
+unchanged iterator/Proxy leaves at `16/16`, with every failure and non-success
+bucket zero. It changes no catalog row, producer count, or shortcut entry.
+
+## 23. Plain-async synchronous `for-of` member-head checkpoint (2026-08-29)
+
+The property-head nonclaim in §20 is superseded for static, computed, and
+private member References whose operands do not suspend. This does not add a
+catalog row, witness, emission site, backend statement, or second iterator
+owner. Lowering already stores IteratorValue in the activation-owned
+`$forof.access` binding and lowers the member write as `PropertyWrite` or
+`PrivateWrite`. That prefix now remains admitted when the body has one direct
+await.
+
+`AsyncFunctionForOfIteratorPlanIr::before_await` owns the prefix. The backend
+executes it only in the entry state, inside the IteratorClose frame, after a
+successful iterator step and before the body await. The next iteration
+re-evaluates public bases and computed keys; async resumption does not repeat
+the write. Base, key, setter, and private-brand failures therefore close, and
+the existing preserving-Throw close path retains the original error when
+`return` also throws. Capture analysis now scans member bases and computed keys
+used only in the loop head.
+
+`wasm_plain_async_sync_for_of_member_heads.js` covers static and computed
+writes, changing targets and keys, assignment-before-await, no resumed write,
+public setter failure, successful private assignment, wrong-brand failure,
+IteratorClose counts, and Throw precedence. `cargo fmt --all -- --check` and
+the relevant all-target compile pass. The IR `for_of` filter passes `21/21`,
+the rejection matrix passes `1/1`, six focused and affected structure targets
+pass `25/25`, and the exact member-head and retained capture CLI tests pass
+`2/2`. The fixture passes `node --check`.
+Patterns, resource heads, `super`, suspending member operands, direct
+`break`/`continue`, nonlinear body suspension, captured head TDZ, suspending
+iterables, async generators, and `for await` remain nonclaims. No pinned
+Test262 leaf combines a member-reference head with this directly awaiting
+plain-async body shape. The exact contract is
+[`plain-async-synchronous-for-of-member-heads.md`](./plain-async-synchronous-for-of-member-heads.md).
+
+## 24. Plain-async synchronous `for-of` nonlexical-pattern checkpoint (2026-08-29)
+
+The pattern-head nonclaim in §§20 and 23 is superseded for assignment patterns
+and `var` binding patterns. This changes neither the 46-row catalog nor its
+four iterator rows: `RESUMABLE_SYNC_ITERATOR_PROTOCOL` and
+`EmissionSite::ResumableSyncForOfIterator` still own the surrounding
+GetIterator, IteratorStep, IteratorValue, and IteratorClose operations.
+
+Lowering stores IteratorValue in the activation-owned `$forof` binding. The
+ordinary typed Array/Object destructuring prefix then runs once in
+`AsyncFunctionForOfIteratorPlanIr::before_await`, after a successful step,
+inside the close frame, and before the body suspension. `var` BoundNames use
+the async activation. Assignment References are fully prepared and consumed
+by the prefix. Capture analysis now handles top-level object assignment
+patterns plus both recursive nesting directions, including computed source
+keys, defaults, identifier and public/private member targets, and rest
+targets.
+
+`wasm_plain_async_sync_for_of_nonlexical_pattern_heads.js` covers Array and
+Object `var` patterns across await, defaults, rest, computed/reference/getter
+order, once-only effects, and an abrupt nested Array pattern whose inner and
+outer `return` methods both throw. The original pattern Throw survives both
+close attempts, and the loop body and await remain unentered.
+
+The relevant all-target compile and formatting check pass. The IR `for_of`
+filter and exact rejection witness pass `24/24` and `1/1`; six focused and
+affected structure targets pass `25/25`; and the new plus three retained CLI
+oracles pass `4/4`. The fixture passes `node --check` and its Node semantic
+baseline.
+
+At this checkpoint, `let` and `const` pattern heads remained explicitly
+rejected rather than partially entering activation storage. Section 25
+supersedes that historical limit with a complete fresh-environment and TDZ
+model. Resource patterns, a captured TDZ for the older single-name
+declaration, suspending head expressions, nonlinear body suspension, async
+generators, and `for await` remain nonclaims. The pinned checkout has no
+executable Test262 leaf combining a synchronous pattern head with a directly
+awaiting plain-async body, so no Test262 result is attributed. The exact
+boundary is
+[`plain-async-synchronous-for-of-nonlexical-pattern-heads.md`](./plain-async-synchronous-for-of-nonlexical-pattern-heads.md).
+
+## 25. Plain-async synchronous `for-of` lexical-pattern checkpoint (2026-08-29)
+
+The remaining pattern-head nonclaim in §§20, 23, and 24 is superseded for
+`let` and `const` array and object binding patterns. This adds no catalog row,
+iterator witness, emission site, or second backend owner. The existing
+`RESUMABLE_SYNC_ITERATOR_PROTOCOL` and
+`EmissionSite::ResumableSyncForOfIterator` still own GetIterator,
+IteratorStep, IteratorValue, and IteratorClose.
+
+The private `AsyncFunctionForOfIteratorHeadIr` is a closed source-head input.
+Its lexical-pattern case carries the source mode, an unspellable IteratorValue
+entry local, the exact iteration-storage and TDZ-placeholder names, and the
+BindingInitialization prefix. `AsyncFunctionForOfIteratorPlanIr` validates
+that witness and derives the public closed storage lifetime:
+`Activation`, `IterationEnvironment`, or `EntryLocal`. Invalid modes,
+duplicate names or slots, incomplete name sets, out-of-range layouts,
+assignment targets, and empty patterns claiming an iteration environment are
+construction errors.
+
+Capture analysis materializes every lexical BoundName before slot and
+capture-hop finalization. Lowering predeclares all final iteration storage as
+uninitialized before lowering any default or computed key. After every
+successful outer step, the backend creates and publishes the complete fresh
+Environment Record, initializes its cells to TDZ, opens the outer close frame,
+writes IteratorValue to the entry local, and executes BindingInitialization.
+The environment remains active across the body await and is left before
+IteratorClose. Empty array and object patterns still perform their semantic
+destructuring operations.
+
+`wasm_plain_async_sync_for_of_lexical_pattern_heads.js` covers nested patterns,
+defaults and rest, retained before- and after-await closures, uncaptured direct
+reads, mutable `let`, forward and captured-head TDZ, post-await `const`
+assignment, empty patterns, and inner plus outer preserving-Throw close
+precedence. The all-target compile and formatting check pass. The IR `for_of`
+filter and exact rejection witness pass `27/27` and `1/1`; the main structure
+target and five companions pass `6/6` and `22/22`, for `28/28`; and the exact
+lexical oracle plus four retained CLI controls pass `5/5`. The fixture passes
+`node --check` and its Node semantic baseline.
+
+Resource patterns, suspension in the iterable or pattern, direct
+`break`/`continue`, nonlinear body suspension, async generators, and `for
+await` remain nonclaims. The pinned checkout has no executable Test262 leaf
+combining a lexical binding-pattern head with this directly awaiting
+plain-async synchronous loop, so no Test262 result is attributed. The exact
+boundary is
+[`plain-async-synchronous-for-of-lexical-pattern-heads.md`](./plain-async-synchronous-for-of-lexical-pattern-heads.md).
+
+## 26. Synchronous iterator consumer current-Realm checkpoint (2026-08-29)
+
+The synchronous iterator diagnostic selector is now the private, non-`Copy`
+`SyncIteratorConsumer::{ArrayDestructuring, ArrayAccumulation, ForOf,
+MathSumPrecise}` domain. `SyncIteratorProtocolError` still has four variants.
+Their exhaustive product has 16 diagnostic rows, including separate
+destructuring and `array spread` messages. The confirmed source census is 17
+typed projector calls and 35 error identifiers: the declaration, typed
+projector parameter, 17 producers, and 16 mapping rows. This changes no
+spec-operation catalog row or witness, so the catalog remains
+`29 + 2 + 5 + 10 = 46`.
+
+Consumer selection no longer chooses a Realm. Shared acquisition boxes every
+non-nullish primitive source through the current function Realm. The 16
+algorithm-created protocol errors use a separate exhaustive builder
+Realm-source projection: standard builtins may read their trusted self-backed
+current environment, while main, user, host, and runtime-helper bodies select
+the main-Realm TypeError emitter. User-thrown accessor, Proxy,
+iterator-method, `next`, `done`, and
+`value` completions propagate unchanged.
+
+Array destructuring keeps its custom step owner. It now receives the typed
+consumer and produces `NextNotCallable` before the call and
+`NextResultNotObject` after call-completion propagation. It then reads `done`
+and reads `value` only for a value-bearing element. Array-literal spread uses
+the separate `ArrayAccumulation` consumer and the shared no-close step helper.
+Its abrupt `next`, `done`, and `value` paths do not call `return`, matching the
+2026
+[`IteratorStepValue`](https://tc39.es/ecma262/2026/multipage/abstract-operations.html#sec-iteratorstepvalue)
+and
+[`ArrayAccumulation`](https://tc39.es/ecma262/2026/multipage/ecmascript-language-expressions.html#sec-runtime-semantics-arrayaccumulation)
+control shape.
+
+The destructuring and ArrayAccumulation fixtures pin exact diagnostics,
+completion identity, ordering, no-close behavior, and primitive String
+prototype lookup. Both run the syntax-owning function in the entry Realm. They
+cannot distinguish current-function Realm allocation from the main Realm
+fallback. Doing so would require dynamically compiling the syntax-owning user
+function in a created Realm, which is outside the Wasm-AOT dynamic-source
+contract. No cross-Realm runtime result is inferred.
+
+This checkpoint does not claim that a fresh Array literal or Array-rest result
+uses the current function Realm's `%Array.prototype%`. Those allocation-Realm
+questions remain separate work. The all-target compile and formatting check
+pass. Nine structure targets pass `42/42`, seven exact Wasm-AOT CLI witnesses
+pass `7/7`, and nine pinned Array-spread/destructuring leaves pass all `18/18`
+sloppy/strict executions with every failure bucket at zero. No semantic golden,
+published-status refresh, complete Test262 prefix, or broad workspace suite was
+run. The complete invariant and commands are in
+[`sync-iterator-consumer-capability.md`](./sync-iterator-consumer-capability.md).

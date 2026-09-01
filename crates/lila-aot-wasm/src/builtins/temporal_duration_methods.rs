@@ -10,8 +10,14 @@ use super::temporal_duration::{
     TEMPORAL_DURATION_ALPHABETICAL_FIELDS, TEMPORAL_DURATION_FIELD_NAMES,
 };
 use super::temporal_options::{
-    TemporalRoundingMode, TemporalTimeUnit, TemporalUnit, TemporalUnitSlot, TEMPORAL_UNIT_SECONDS,
+    TemporalRoundingMode, TemporalTimeUnit, TemporalUnit, TemporalUnitOptionProperty,
+    TemporalUnitSlot, TEMPORAL_UNIT_SECONDS,
 };
+
+enum TemporalDurationArithmeticOperation {
+    Add,
+    Subtract,
+}
 
 impl<'a> FunctionBuilder<'a> {
     /// `GetOptionsObject`: `undefined` stays `undefined`, an Object passes
@@ -107,14 +113,13 @@ impl<'a> FunctionBuilder<'a> {
 
     /// `GetTemporalUnitValuedOption`. Leaves a unit code in `output_local`:
     /// `TemporalUnitSlot::Unset.code()` when the property is absent, `TemporalUnitSlot::Auto.code()`
-    /// for `"auto"` when `allow_auto`, `TemporalUnitSlot::Invalid.code()` for a string
-    /// that names no unit.
+    /// for `"auto"` when the property permits it, `TemporalUnitSlot::Invalid.code()` for a
+    /// string that names no unit.
     pub(crate) fn emit_temporal_duration_unit_option(
         &mut self,
         options_payload_local: u32,
         options_tag_local: u32,
-        name: &str,
-        allow_auto: bool,
+        property: TemporalUnitOptionProperty,
         output_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -125,7 +130,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_option_get(
             options_payload_local,
             options_tag_local,
-            name,
+            property.name(),
             value_payload_local,
             value_tag_local,
             function,
@@ -141,7 +146,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::I64Const(TemporalUnitSlot::Invalid.code()));
         function.instruction(&Instruction::LocalSet(output_local));
-        if allow_auto {
+        if property.allows_auto() {
             self.emit_temporal_string_matches(value_payload_local, "auto", scratch_local, function);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
@@ -933,9 +938,26 @@ impl<'a> FunctionBuilder<'a> {
     /// Temporal proposal 7.3.18/7.3.19: `add` and `subtract`. Both refuse
     /// calendar units, because balancing years or months needs a reference
     /// point.
-    pub(crate) fn emit_temporal_duration_add_or_subtract(
+    pub(crate) fn emit_temporal_duration_add(
         &mut self,
-        subtract: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_duration_arithmetic(TemporalDurationArithmeticOperation::Add, function)
+    }
+
+    pub(crate) fn emit_temporal_duration_subtract(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_duration_arithmetic(
+            TemporalDurationArithmeticOperation::Subtract,
+            function,
+        )
+    }
+
+    fn emit_temporal_duration_arithmetic(
+        &mut self,
+        operation: TemporalDurationArithmeticOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let argument_payload_local = self.reserve_temp_local();
@@ -957,12 +979,15 @@ impl<'a> FunctionBuilder<'a> {
             &other_locals,
             function,
         )?;
-        if subtract {
-            for local in other_locals.iter() {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalGet(*local));
-                function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::LocalSet(*local));
+        match operation {
+            TemporalDurationArithmeticOperation::Add => {}
+            TemporalDurationArithmeticOperation::Subtract => {
+                for local in other_locals.iter() {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalGet(*local));
+                    function.instruction(&Instruction::I64Sub);
+                    function.instruction(&Instruction::LocalSet(*local));
+                }
             }
         }
         self.emit_temporal_duration_reject_calendar_units(&field_locals, function)?;
@@ -1634,8 +1659,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_unit_option(
             options_payload_local,
             options_tag_local,
-            "largestUnit",
-            true,
+            TemporalUnitOptionProperty::LargestUnit,
             largest_local,
             function,
         )?;
@@ -1664,8 +1688,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_unit_option(
             options_payload_local,
             options_tag_local,
-            "smallestUnit",
-            false,
+            TemporalUnitOptionProperty::SmallestUnit,
             smallest_local,
             function,
         )?;
@@ -1986,8 +2009,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_unit_option(
             argument_payload_local,
             argument_tag_local,
-            "unit",
-            false,
+            TemporalUnitOptionProperty::Unit,
             unit_local,
             function,
         )?;
@@ -2241,8 +2263,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_temporal_duration_unit_option(
                 options_payload_local,
                 options_tag_local,
-                "smallestUnit",
-                false,
+                TemporalUnitOptionProperty::SmallestUnit,
                 smallest_local,
                 function,
             )?;

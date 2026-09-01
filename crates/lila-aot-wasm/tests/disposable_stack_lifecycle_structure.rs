@@ -1,4 +1,10 @@
-const BODY_SOURCE: &str = include_str!("../src/builtins/disposable_stack.rs");
+const PARENT_SOURCE: &str = include_str!("../src/builtins/disposable_stack.rs");
+const CAPABILITY_TRANSFER_SOURCE: &str =
+    include_str!("../src/builtins/disposable_stack/capability_transfer.rs");
+const BODY_SOURCE: &str = concat!(
+    include_str!("../src/builtins/disposable_stack.rs"),
+    include_str!("../src/builtins/disposable_stack/capability_transfer.rs")
+);
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
 const INSTALLER_SOURCE: &str = include_str!("../src/intrinsics/resource_management.rs");
@@ -193,17 +199,17 @@ fn registration_validates_before_the_only_entry_publication_path() {
     }
     assert_before(
         use_body,
-        "DisposableStack.prototype.use value is not disposable",
+        "DisposableStackTypeError::UseValueNotDisposable",
         "emit_disposable_stack_push_entry(",
     );
     assert_before(
         adopt_body,
-        "DisposableStack.prototype.adopt onDispose is not callable",
+        "DisposableStackTypeError::AdoptCallbackNotCallable",
         "emit_disposable_stack_push_entry(",
     );
     assert_before(
         defer_body,
-        "DisposableStack.prototype.defer onDispose is not callable",
+        "DisposableStackTypeError::DeferCallbackNotCallable",
         "emit_disposable_stack_push_entry(",
     );
 
@@ -215,7 +221,7 @@ fn registration_validates_before_the_only_entry_publication_path() {
     assert_before(
         get_method,
         "emit_is_callable_i32(method_tag_local, method_payload_local, function)?",
-        "DisposableStack.prototype.use dispose method is not callable",
+        "DisposableStackTypeError::DisposeMethodNotCallable",
     );
 
     let push = bounded(
@@ -250,13 +256,44 @@ fn registration_validates_before_the_only_entry_publication_path() {
 #[test]
 fn move_is_a_single_consuming_capability_transfer() {
     let transfer_type = bounded(
-        BODY_SOURCE,
+        CAPABILITY_TRANSFER_SOURCE,
         "#[must_use = \"a transferred DisposableStack capability must be installed exactly once\"]",
-        "#[must_use = \"an active DisposableStack disposal must be consumed by its LIFO walker\"]",
+        "impl<'a> FunctionBuilder<'a> {",
     );
-    assert!(transfer_type.contains("struct TransferredDisposableStackCapabilityLocals"));
-    assert!(!transfer_type.contains("derive(Clone"));
-    assert!(!transfer_type.contains("derive(Copy"));
+    assert!(transfer_type.contains("pub(super) struct TransferredDisposableStackCapabilityLocals"));
+    for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq"] {
+        assert!(!transfer_type.contains(capability));
+    }
+    assert!(!CAPABILITY_TRANSFER_SOURCE.lines().any(|line| {
+        line.trim_start().starts_with("impl ")
+            && line.contains(" for TransferredDisposableStackCapabilityLocals")
+    }));
+    assert!(!PARENT_SOURCE.contains("TransferredDisposableStackCapabilityLocals"));
+    assert!(!PARENT_SOURCE.contains("capability_transfer::"));
+    assert_eq!(
+        BODY_SOURCE
+            .matches("TransferredDisposableStackCapabilityLocals")
+            .count(),
+        4,
+        "the carrier must have one declaration, return, construction and consuming parameter"
+    );
+    for field in ["entries_ptr", "entries_len", "entries_cap"] {
+        assert_eq!(
+            CAPABILITY_TRANSFER_SOURCE.matches(field).count(),
+            6,
+            "each raw transfer field must remain child-owned from capture through release"
+        );
+    }
+    for operation in [
+        "emit_take_disposable_stack_capability(",
+        "emit_install_transferred_disposable_stack_capability(",
+    ] {
+        assert_eq!(
+            BODY_SOURCE.matches(operation).count(),
+            2,
+            "each transfer operation must have one child definition and one parent call"
+        );
+    }
 
     let move_body = bounded(
         BODY_SOURCE,
@@ -285,9 +322,9 @@ fn move_is_a_single_consuming_capability_transfer() {
     }
 
     let take = bounded(
-        BODY_SOURCE,
-        "    fn emit_take_disposable_stack_capability(",
-        "    fn emit_install_transferred_disposable_stack_capability(",
+        CAPABILITY_TRANSFER_SOURCE,
+        "    pub(super) fn emit_take_disposable_stack_capability(",
+        "    pub(super) fn emit_install_transferred_disposable_stack_capability(",
     );
     let first_mutation = take
         .find("self.store_i64_const_at_offset(source_record_local, offset, 0, function)")
@@ -306,9 +343,9 @@ fn move_is_a_single_consuming_capability_transfer() {
     );
 
     let install = bounded(
-        BODY_SOURCE,
-        "    fn emit_install_transferred_disposable_stack_capability(",
-        "    /// The Pending -> Disposed transition precedes every callback.",
+        CAPABILITY_TRANSFER_SOURCE,
+        "    pub(super) fn emit_install_transferred_disposable_stack_capability(",
+        "\n    }\n}",
     );
     assert!(install.contains("transfer: TransferredDisposableStackCapabilityLocals"));
     assert!(install.contains(") -> PendingDisposableStackRecordLocal"));

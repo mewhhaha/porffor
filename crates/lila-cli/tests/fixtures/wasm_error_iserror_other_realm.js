@@ -15,5 +15,6 @@ function check(label, value) {
   check("SyntaxError", Error.isError(new other.SyntaxError())),
   check("TypeError", Error.isError(new other.TypeError())),
   check("URIError", Error.isError(new other.URIError())),
-  check("AggregateError", Error.isError(new other.AggregateError([])))
+  check("AggregateError", Error.isError(new other.AggregateError([]))),
+  check("SuppressedError", Error.isError(new other.SuppressedError()))
 ].join(",");

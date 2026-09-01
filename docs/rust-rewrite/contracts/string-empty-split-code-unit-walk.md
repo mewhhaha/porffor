@@ -47,8 +47,15 @@ LIFO releases. Because Wasm instructions and the established string helpers
 still accept raw local handles, the module projects `.0` throughout its loop and
 length work.
 
+None of the three local domains implements `Clone` or `Copy`.
+`emit_one_unit_payload` borrows the index and one-unit width, so the loop owner
+retains the same index for advancement and retains both handles for the final
+LIFO release. Changing that boundary back to by-value use cannot compile unless
+someone also broadens an ownership capability. The structure gate rejects both
+changes.
+
 The compiler-enforced boundary is narrower and load-bearing:
-`emit_one_unit_payload` accepts `UnitIndexLocal` and `OneUnitLocal`, not a raw
+`emit_one_unit_payload` accepts `&UnitIndexLocal` and `&OneUnitLocal`, not a raw
 byte-index handle or `UnitLengthLocal`. Passing either wrong domain to the
 one-result materialization step therefore does not type-check. These are
 emitter-side types only; the encoded Wasm locals remain `i64` values identified
@@ -95,8 +102,7 @@ Unicode normalization or case data, String iterators, the complete String API,
 the pinned String tree, or T18. It removes no Test262 materializer and changes
 no published conformance count.
 
-Static freeze gates are exact-file `rustfmt --check`, fixture syntax checking,
-focused source inspection, `git diff --check`, and local-lifetime review. Cargo,
-fixture execution, focused pinned split leaves and the broad T18 verification
-ladder remain deferred until the frozen patch is independently reviewed and
-the active current-pin matrix releases the shared runtime.
+The focused ownership structure target passes `4/4`. Runtime behavior is
+source-equivalent and the existing empty-separator fixture was not rerun for
+this ownership-only change. Broad Cargo, pinned split leaves and the complete
+T18 verification ladder remain deferred.

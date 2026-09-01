@@ -87,6 +87,17 @@ so a call without `new` can recover the active intrinsic identity. The
 constructor's public `prototype` data and internal function inheritance remain
 the corresponding native prototype and created-realm `Error` constructor.
 
+The internal inheritance decision is also owned by the closed kind. `Error`
+emits no internal-prototype override, while one exhaustive arm names all six
+NativeError kinds and stores the created-realm `Error` constructor with a
+Function tag. `ErrorMessageConstructorKind` remains `Copy` for its fixed arrays
+and value mappings but deliberately has no `PartialEq` or `Eq`; this decision
+cannot be reconstructed with equality and a default branch. The bounded source
+guard pins the exact seven rows and inheritance match, and pins inheritance
+after function materialization and self-backing but before realm-slot and
+public-prototype publication. The emitted store bodies and their order are
+unchanged.
+
 ## Durable regression
 
 The CLI fixture covers all six NativeErrors and checks:
@@ -107,11 +118,17 @@ created-realm publication, self-backing, sole shared Get, per-kind active
 selection, ALL-derived direct-return dispatch, absence of the old wrapper call,
 and tagged witness allocation.
 
-## Deferred gates
+## Verification
 
-This batch is frozen with source-format, syntax and diff checks only while the
-low-RAM matrix owns compilation and Test262 resources. Once it releases them,
-verification must include:
+The created-realm inheritance structure target and the focused CLI realm
+fixture each pass `1/1`. The six exact `built-ins/NativeErrors/*/proto.js`
+leaves pass all `12/12` sloppy/strict Wasm-AOT executions with every failure
+bucket at zero. The older broad structural unit also passes after its stale
+`%TypeError.prototype%` expectation was aligned with the existing
+`TypeError.prototype` diagnostic spelling shared by the heap and module
+registries. No runtime layout or behavior changed.
+
+The remaining broad verification gates include:
 
 ```sh
 cargo test -p lila-aot-wasm error_message_constructors_are_realm_typed_direct_and_tagged --quiet
@@ -125,13 +142,12 @@ cargo test -p lila-cli run_wasm_backend_uses_new_target_realms_for_native_error_
 ./target/debug/lila test262 run built-ins/NativeErrors --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
-The final current-SHA evidence remains the complete T24 ladder and full
-low-RAM Wasm-AOT publication run.
+The complete T24 ladder and full low-RAM Wasm-AOT publication run remain
+deferred.
 
 ## Non-claims
 
 This seam does not migrate `AggregateError` or `SuppressedError`, change
 runtime-created throw helpers, add `stack`, alter Error descriptors, close
 cross-realm thrown-error identities, complete the NativeErrors tree, complete
-T24, refresh snapshots or update README status. No runtime or current-SHA
-conformance result is claimed until the deferred gates actually run.
+T24, refresh published snapshots or update README status.

@@ -66,7 +66,7 @@ fn typed_array_iterator_boundaries_share_the_live_buffer_witness() {
 fn validated_witness_errors_use_the_current_function_realm() {
     let validation = bounded(
         BINARY_DATA_SOURCE,
-        "match use_ {\n            TypedArrayWitnessUse::ValidatedMethodEntry { .. } => {",
+        "match &use_ {\n            TypedArrayWitnessUse::ValidatedMethodEntry { .. } => {",
         "            TypedArrayWitnessUse::ArrayLikeLengthSnapshot { .. }",
     );
     assert_eq!(

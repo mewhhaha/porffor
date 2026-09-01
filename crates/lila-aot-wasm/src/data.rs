@@ -10,12 +10,12 @@ use lila_ir::ArrayAccumulationElementIr;
 use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
     StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
-    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT,
-    REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
-    REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
-    REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT,
-    REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
+    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REALM_EVAL_SCRIPT_METHOD_NAME,
+    REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
+    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
+    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
+    REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
 };
 use std::sync::OnceLock;
 
@@ -46,7 +46,7 @@ pub(crate) const UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE: &str =
 /// points (`emit_throw_runtime_error`, `_to_active_handler`,
 /// `_with_prototype_local` and the four `emit_throw_current_function_realm_*`
 /// wrappers) was walked transitively through the `&str` parameters they forward
-/// through, giving 908 reachable message literals; the 131 below plus the two
+/// through, giving 908 reachable message literals; the 137 below plus the two
 /// typed RegExp matcher failures are the ones absent from both this file and
 /// `builtins::intl_date_time_format_pool_strings()`.
 ///
@@ -74,6 +74,7 @@ pub(crate) const UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE: &str =
 /// belong to this lane; this table is the honest intermediate.
 pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     REALM_EVAL_SCRIPT_ESCAPE_MESSAGE,
+    "%TypedArray% cannot be called or constructed directly",
     "Atomics.wait cannot suspend the current agent",
     "BigInt division by zero",
     "BigInt shift result exceeds the engine resource limit",
@@ -403,62 +404,8 @@ pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
 /// the two must not drift apart.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED: u64 = 2;
 
-/// The closed domain the three `RUNTIME_REGEXP_ENTRY_KIND_*` words spell.
-///
-/// # Why this exists on top of [`RuntimeRegExpEntry`]
-///
-/// [`RuntimeRegExpEntry`] closes the **writer**: a fourth outcome is
-/// `error[E0004]` at `append_runtime_regexp_program_table`. That bought nothing
-/// on the **reader** side, which compared a raw `u64` against two of the three
-/// constants. A fourth `RUNTIME_REGEXP_ENTRY_KIND_FOO = 3` would have compiled
-/// cleanly next to its siblings and fallen through both comparisons in
-/// `emit_runtime_regexp_program_slots` as a miss — reinstating, one level down,
-/// the exact silent-skip class this table exists to remove.
-///
-/// So the *decision* the emitter makes is stated here, once, as an exhaustive
-/// match ([`Self::throws_syntax_error`]), and the emitter builds its comparison
-/// chain by iterating [`Self::ALL`]. Adding a variant is then a compile error at
-/// two exhaustive matches in this file, and the emitted comparison follows
-/// automatically rather than being one more transcription.
-///
-/// Residual, stated rather than papered over: [`Self::ALL`] is hand-written.
-/// The compiler cannot enumerate a Rust enum, so the trigger to extend it is
-/// the `error[E0004]` a new variant produces at the two matches below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuntimeRegExpEntryKind {
-    Program,
-    Rejected,
-    Unsupported,
-}
-
-impl RuntimeRegExpEntryKind {
-    /// Every kind. See the type's doc for why this is hand-written and what
-    /// forces it to be kept honest.
-    pub(crate) const ALL: [Self; 3] = [Self::Program, Self::Rejected, Self::Unsupported];
-
-    /// The discriminant word written into
-    /// [`RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD`].
-    pub(crate) const fn word(self) -> u64 {
-        match self {
-            Self::Program => RUNTIME_REGEXP_ENTRY_KIND_PROGRAM,
-            Self::Rejected => RUNTIME_REGEXP_ENTRY_KIND_REJECTED,
-            Self::Unsupported => RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED,
-        }
-    }
-
-    /// Does a run-time hit on a row of this kind throw `SyntaxError`?
-    ///
-    /// This is the whole policy, and it is deliberately not `!= Program`:
-    /// `Unsupported` means the pattern is legal ECMAScript that Lila cannot
-    /// compile yet, so it must behave exactly like a total miss and let the
-    /// runtime fallback matcher have its turn.
-    pub(crate) const fn throws_syntax_error(self) -> bool {
-        match self {
-            Self::Program | Self::Unsupported => false,
-            Self::Rejected => true,
-        }
-    }
-}
+mod runtime_regexp_entry_kind;
+pub(crate) use runtime_regexp_entry_kind::RuntimeRegExpEntryKind;
 
 /// What the AOT-built runtime RegExp program table says about one
 /// `(source, flags)` pair.
@@ -835,6 +782,7 @@ impl StringPool {
             "[object BigInt]",
             "[object Error]",
             "[object Date]",
+            "[object RegExp]",
             "from",
             "find",
             "findIndex",
@@ -873,8 +821,11 @@ impl StringPool {
             "toString",
             "$IsHTMLDDA",
             "Symbol.iterator",
+            "array spread value is not iterable",
+            "array spread iterator method must return object",
+            "array spread iterator next must be callable",
+            "array spread iterator next result must be object",
             "for-of target is not iterable",
-            "for-of iterator method must be callable",
             "for-of iterator method must return object",
             "for-of iterator next must be callable",
             "for-of iterator next result must be object",
@@ -893,8 +844,6 @@ impl StringPool {
             "$ArrayIterator.kind",
             "$StringIterator.string",
             "$StringIterator.index",
-            LILA_STATIC_GENERATOR_VALUES_METHOD,
-            LILA_STATIC_GENERATOR_ITERATOR_SLOT,
             "$RegExpStringIterator.regexp",
             "$RegExpStringIterator.string",
             "$RegExpStringIterator.global",
@@ -1795,9 +1744,9 @@ impl StringPool {
             "Number.prototype.toString radix out of range",
             "BigInt.prototype.toString radix out of range",
             "Number.prototype.toFixed fraction digits out of range",
+            "Number.prototype.toExponential fraction digits out of range",
             "Number.prototype.toPrecision precision out of range",
             "Cannot convert a Symbol value to a number",
-            "1000000000000000128",
             "4294967295",
             "Array.prototype.pop receiver is not array",
             "Array.prototype.push receiver is not array",
@@ -2163,9 +2112,6 @@ impl StringPool {
         for index in 0..=31 {
             pool.intern_string(&index.to_string());
         }
-        for (_, _, value) in NUMBER_TO_PRECISION_CASES {
-            pool.intern_string(value);
-        }
         for binding in script.global_bindings.iter() {
             pool.intern_string(&binding.name);
         }
@@ -2173,6 +2119,11 @@ impl StringPool {
             pool.intern_string(&meta.name);
             pool.intern_string(meta.runtime_name());
             pool.intern_string(&meta.to_string_value);
+        }
+        if script.host_builtins.contains(&HostBuiltinId::CreateRealm) {
+            // Created-Realm record keys are host-authored, so user-source
+            // collection cannot discover them.
+            pool.intern_string(REALM_EVAL_SCRIPT_METHOD_NAME);
         }
         for builtin in StandardBuiltinId::all_functions() {
             pool.intern_string(&format!(
@@ -2900,8 +2851,8 @@ impl StringPool {
         if compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeNormalize)
             || compiled_standard_builtins.contains(&StandardBuiltinId::StringPrototypeLocaleCompare)
         {
-            for form in ["NFC", "NFD", "NFKC", "NFKD"] {
-                pool.intern_string(form);
+            for form in StringNormalizationForm::ALL {
+                pool.intern_string(form.spelling());
             }
             pool.intern_string("String.prototype.normalize receiver is null or undefined");
             pool.intern_string("String.prototype.normalize form must be NFC, NFD, NFKC, or NFKD");
@@ -3349,6 +3300,17 @@ impl StringPool {
                     self.collect_statement(statement);
                 }
             }
+            StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+                self.collect_expr(iterable);
+                for statement in plan
+                    .before_await()
+                    .iter()
+                    .chain(std::iter::once(plan.await_statement()))
+                    .chain(plan.after_await())
+                {
+                    self.collect_statement(statement);
+                }
+            }
             StatementIr::GeneratorIf {
                 condition,
                 then_before_yield,
@@ -3371,9 +3333,7 @@ impl StringPool {
                     self.collect_statement(statement);
                 }
             }
-            StatementIr::ForOfArray { iterable, body, .. }
-            | StatementIr::ForOfString { iterable, body, .. }
-            | StatementIr::ForInArray {
+            StatementIr::ForInArray {
                 target: iterable,
                 body,
                 ..
@@ -3690,7 +3650,8 @@ impl StringPool {
                 self.intern_string(name);
                 self.collect_expr(value);
             }
-            ExprIr::UnaryNumber { expr: value, .. }
+            ExprIr::UnaryPlus { expr: value }
+            | ExprIr::UnaryMinusNumeric { expr: value }
             | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
             | ExprIr::LogicalNot { expr: value }
             | ExprIr::Void { expr: value }
@@ -3981,13 +3942,17 @@ impl StringPool {
                 // method name on the callee in *both* of its shapes, so the
                 // structural test answers without needing inference at all.
                 let resolved_regexp_callee = matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
-                    || callee.function_targets.iter().any(|target| {
-                        matches!(
-                            target.as_str(),
-                            BUILTIN_REGEXP_FUNCTION_ID
-                                | BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID
-                        )
-                    });
+                    || callee
+                        .function_targets
+                        .known_targets()
+                        .iter()
+                        .any(|target| {
+                            matches!(
+                                target.as_str(),
+                                BUILTIN_REGEXP_FUNCTION_ID
+                                    | BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID
+                            )
+                        });
                 if static_regexp_compilation.is_none() && resolved_regexp_callee {
                     self.needs_runtime_regexp_programs = true;
                 }
@@ -4025,10 +3990,17 @@ impl StringPool {
                     self.collect_expr(arg);
                 }
             }
-            ExprIr::JsonParseStaticReviver { value, reviver } => {
+            ExprIr::JsonParseStaticReviver {
+                callee,
+                input,
+                value,
+                reviver,
+            } => {
                 self.uses_heap = true;
-                self.collect_json_static_value(value);
+                self.collect_expr(callee);
+                self.collect_expr(input);
                 self.collect_expr(reviver);
+                self.collect_json_static_value(value);
                 self.intern_string("");
                 self.intern_string("source");
             }
@@ -4040,7 +4012,10 @@ impl StringPool {
                 self.uses_heap = true;
                 if static_regexp_compilation.is_none()
                     && (matches!(callee.expr, ExprIr::GlobalPropertyRead { ref name } if name == "RegExp")
-                        || callee.function_targets.contains(BUILTIN_REGEXP_FUNCTION_ID))
+                        || callee
+                            .function_targets
+                            .known_targets()
+                            .contains(BUILTIN_REGEXP_FUNCTION_ID))
                 {
                     self.needs_runtime_regexp_programs = true;
                     // Same reasoning as the `CallIndirect` arm above: `new
@@ -5009,6 +4984,33 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
 
     let mut state = vec![0; program.instructions.len()];
     (0..program.instructions.len()).any(|pc| visit(pc, &program.instructions, &mut state))
+}
+
+#[cfg(test)]
+mod host_created_realm_property_name_pool_tests {
+    use super::*;
+    use lila_front::{parse, ParseOptions};
+    use lila_ir::{lower_with_host_surface_policy, HostSurfacePolicy};
+
+    #[test]
+    fn create_realm_pools_its_host_published_eval_script_name() {
+        const SOURCE: &str = "__lilaCreateRealm();";
+        assert!(!SOURCE.contains(REALM_EVAL_SCRIPT_METHOD_NAME));
+
+        let parsed = parse(SOURCE, ParseOptions::script()).expect("script should parse");
+        let script = lower_with_host_surface_policy(&parsed, HostSurfacePolicy::Test262)
+            .script
+            .expect("script should lower");
+        assert!(script.host_builtins.contains(&HostBuiltinId::CreateRealm));
+
+        let pool = StringPool::collect(&script, &BTreeMap::new(), &[]);
+        let payload = pool.payload(REALM_EVAL_SCRIPT_METHOD_NAME);
+        let length = (payload as u64 & 0xFFFF_FFFF) as usize;
+        assert_eq!(
+            length,
+            StringPool::runtime_bytes_for_string(REALM_EVAL_SCRIPT_METHOD_NAME).len()
+        );
+    }
 }
 
 #[cfg(test)]

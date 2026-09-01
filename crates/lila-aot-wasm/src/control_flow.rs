@@ -1,17 +1,25 @@
 use super::*;
-use crate::emit::{async_generator_for_await_is_transparent_yield, ControlTarget};
+use crate::emit::{
+    async_generator_for_await_is_transparent_yield, ControlTarget, NumericErrorRealmSource,
+};
 use crate::generator_delegation::AsyncGeneratorDelegationKind;
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncDisposableFinalizerPlanIr, AsyncDisposableForInitIr,
     AsyncDisposableForOfHeadIr, AsyncDisposableResourcesIr, AsyncDisposableScopeExecutionIr,
     AsyncForOfIteratorPlanIr, AsyncFunctionAsyncDisposableCapabilityIr,
-    AsyncFunctionAsyncDisposableForOfCapabilityIr, AsyncFunctionSyncDisposableCapabilityIr,
+    AsyncFunctionAsyncDisposableForOfCapabilityIr, AsyncFunctionForOfIteratorPlanIr,
+    AsyncFunctionForOfIteratorValueStorageIr, AsyncFunctionSyncDisposableCapabilityIr,
     AsyncGeneratorAsyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
     AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
-    ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
-    ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
-    SyncDisposableResourcesIr, SyncDisposableScopeExecutionIr,
+    IdentifierWriteReferenceIr, ObjectDestructuringPatternIr,
+    PlainGeneratorSyncDisposableCapabilityIr, ResumableLoopIterationEnvironmentIr,
+    SyncDisposableForOfHeadIr, SyncDisposableResourceIr, SyncDisposableResourcesIr,
+    SyncDisposableScopeExecutionIr,
 };
+
+mod async_function_for_of_iterator;
+mod for_await_iterator_symbol;
+use for_await_iterator_symbol::ForAwaitIteratorSymbol;
 
 #[must_use = "a captured using-scope completion must be restored and dispatched"]
 struct PendingSyncDisposeCompletionLocals {
@@ -272,7 +280,7 @@ enum SyncForOfIterationLifecycleLocals<'a> {
     },
 }
 
-#[derive(Clone, Copy)]
+#[must_use = "a sync disposal continuation must be consumed after completion restoration"]
 enum SyncDisposeCompletionContinuation {
     Dispatch,
     DispatchAsyncFunction,
@@ -369,7 +377,6 @@ fn iteration_environment_owns_binding(
         })
 }
 
-#[derive(Clone, Copy)]
 pub(crate) struct SyncIteratorLocals {
     pub(crate) iterator_payload: u32,
     pub(crate) iterator_tag: u32,
@@ -384,21 +391,34 @@ pub(crate) struct SyncIteratorLocals {
     pub(crate) value_tag: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SyncIteratorErrorPolicy {
-    LegacyMainRealm,
+#[must_use = "reserved synchronous iterator locals must be released"]
+pub(crate) struct ReservedSyncIteratorLocals {
+    locals: SyncIteratorLocals,
+}
+
+impl std::ops::Deref for ReservedSyncIteratorLocals {
+    type Target = SyncIteratorLocals;
+
+    fn deref(&self) -> &Self::Target {
+        &self.locals
+    }
+}
+
+pub(crate) enum SyncIteratorConsumer {
+    ArrayDestructuring,
+    ArrayAccumulation,
+    ForOf,
     MathSumPrecise,
 }
 
 /// Whether `Iterator.prototype.flatMap` has installed the mapped inner
 /// iterator when an abrupt completion closes the outer iterator.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use = "flatMap inner installation state must be consumed by outer-close finalization"]
 pub(crate) enum IteratorFlatMapInnerState {
     NotInstalled,
     Active,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SyncIteratorProtocolError {
     NotIterable,
     MethodResultNotObject,
@@ -406,7 +426,6 @@ enum SyncIteratorProtocolError {
     NextResultNotObject,
 }
 
-#[derive(Clone, Copy)]
 struct DestructuringIteratorLocals {
     iterator_payload: u32,
     iterator_tag: u32,
@@ -433,44 +452,37 @@ struct DestructuringIteratorLocals {
 ///
 /// Ordinary async functions strictly decode their two-way resume completion.
 /// Async generators retain their separate five-way resume-kind domain.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "a for-await activation layout must be consumed by all suspension policies"]
 enum ForAwaitActivationLayout {
     AsyncFunction,
     AsyncGenerator,
 }
 
 impl ForAwaitActivationLayout {
-    const fn resume_state_offset(self) -> u64 {
+    const fn resume_state_offset(&self) -> u64 {
         match self {
             Self::AsyncFunction => HEAP_ASYNC_RESUME_STATE_OFFSET,
             Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_STATE_OFFSET,
         }
     }
 
-    const fn resume_payload_offset(self) -> u64 {
+    const fn resume_payload_offset(&self) -> u64 {
         match self {
             Self::AsyncFunction => HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
             Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_PAYLOAD_OFFSET,
         }
     }
 
-    const fn resume_tag_offset(self) -> u64 {
+    const fn resume_tag_offset(&self) -> u64 {
         match self {
             Self::AsyncFunction => HEAP_ASYNC_RESUME_TAG_OFFSET,
             Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
         }
     }
-
-    const fn is_async_generator(self) -> bool {
-        match self {
-            Self::AsyncFunction => false,
-            Self::AsyncGenerator => true,
-        }
-    }
 }
 
 impl DestructuringIteratorLocals {
-    fn protocol(self) -> SyncIteratorLocals {
+    fn protocol(&self) -> SyncIteratorLocals {
         SyncIteratorLocals {
             iterator_payload: self.iterator_payload,
             iterator_tag: self.iterator_tag,
@@ -487,33 +499,41 @@ impl DestructuringIteratorLocals {
     }
 }
 
-#[derive(Clone, Copy)]
 enum DestructuringIteratorStepKind {
     Elision,
     Value,
 }
 
-enum PreparedDestructuringTarget {
-    Direct,
+#[must_use = "a prepared destructuring target must be consumed by its write"]
+enum PreparedDestructuringTarget<'a> {
+    Binding {
+        mode: BindingMode,
+        name: &'a str,
+    },
+    AssignmentIdentifier(&'a IdentifierWriteReferenceIr),
     Property {
-        target: TypedExpr,
+        target: &'a TypedExpr,
         target_payload: u32,
         target_tag: u32,
-        key: DestructuringPropertyKeyIr,
-        key_payload: Option<u32>,
-        key_tag: Option<u32>,
-        /// Carried through from
-        /// [`lila_ir::DestructuringTargetIr::AssignmentProperty`] so the
-        /// write-back can install it. `put_destructuring_target` matches the
-        /// target with `..` and reads the prepared value instead, so the
-        /// strictness the write uses is the one `prepare_destructuring_target`
-        /// saw on the *same* element.
+        key: PreparedDestructuringPropertyKey<'a>,
         strictness: Strictness,
     },
     Private {
         target_payload: u32,
         target_tag: u32,
         private_name_id: PrivateNameId,
+    },
+    NestedArray(&'a ArrayDestructuringPatternIr),
+    NestedObject(&'a ObjectDestructuringPatternIr),
+}
+
+#[must_use = "a prepared destructuring property key must be consumed by its write"]
+enum PreparedDestructuringPropertyKey<'a> {
+    Static(&'a str),
+    Computed {
+        raw_key: &'a TypedExpr,
+        payload_local: u32,
+        tag_local: u32,
     },
 }
 
@@ -1449,12 +1469,16 @@ impl<'a> FunctionBuilder<'a> {
                 .iter()
                 .find_map(Self::async_statement_entry_state),
             // Labels do not own a resumable region. Forward only a direct
-            // labelled await-using loop (including a chain of labels): blindly
+            // labelled resumable loop (including a chain of labels): blindly
             // scanning a labelled block would schedule code after an earlier
             // labelled break at an unreachable child's exit state.
             StatementIr::Labelled { statement, .. } => {
-                Self::labelled_async_disposable_for_finalizer(statement)
-                    .map(AsyncDisposableFinalizerPlanIr::entry_state)
+                Self::labelled_async_function_for_of_plan(statement)
+                    .map(AsyncFunctionForOfIteratorPlanIr::entry_state)
+                    .or_else(|| {
+                        Self::labelled_async_disposable_for_finalizer(statement)
+                            .map(AsyncDisposableFinalizerPlanIr::entry_state)
+                    })
             }
             StatementIr::TryCatch {
                 async_plan: Some(plan),
@@ -1476,6 +1500,7 @@ impl<'a> FunctionBuilder<'a> {
                     },
                 ..
             } => Some(plan.entry_state),
+            StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan.entry_state()),
             StatementIr::ForOfIterator {
                 head: ForOfIteratorHeadIr::AsyncDisposable(head),
                 ..
@@ -1525,8 +1550,12 @@ impl<'a> FunctionBuilder<'a> {
                 .rev()
                 .find_map(Self::async_statement_exit_state),
             StatementIr::Labelled { statement, .. } => {
-                Self::labelled_async_disposable_for_finalizer(statement)
-                    .map(AsyncDisposableFinalizerPlanIr::exit_state)
+                Self::labelled_async_function_for_of_plan(statement)
+                    .map(AsyncFunctionForOfIteratorPlanIr::exit_state)
+                    .or_else(|| {
+                        Self::labelled_async_disposable_for_finalizer(statement)
+                            .map(AsyncDisposableFinalizerPlanIr::exit_state)
+                    })
             }
             StatementIr::TryCatch {
                 async_plan: Some(plan),
@@ -1548,6 +1577,7 @@ impl<'a> FunctionBuilder<'a> {
                     },
                 ..
             } => Some(plan.exit_state),
+            StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan.exit_state()),
             StatementIr::ForOfIterator {
                 head: ForOfIteratorHeadIr::AsyncDisposable(head),
                 ..
@@ -1597,6 +1627,18 @@ impl<'a> FunctionBuilder<'a> {
                 head: ForOfIteratorHeadIr::AsyncDisposable(head),
                 ..
             } => Some(head.capability().finalizer()),
+            _ => None,
+        }
+    }
+
+    fn labelled_async_function_for_of_plan(
+        statement: &StatementIr,
+    ) -> Option<&AsyncFunctionForOfIteratorPlanIr> {
+        match statement {
+            StatementIr::Labelled { statement, .. } => {
+                Self::labelled_async_function_for_of_plan(statement)
+            }
+            StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan),
             _ => None,
         }
     }
@@ -3630,38 +3672,9 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            StatementIr::ForOfArray {
-                head,
-                iterable,
-                body,
-                lexical_environment,
-                ..
-            } => {
-                self.compile_for_of_array(
-                    head.mode,
-                    &head.name,
-                    iterable,
-                    body,
-                    lexical_environment.as_ref(),
-                    &[],
-                    function,
-                )?;
+            StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+                self.compile_async_function_for_of_iterator(iterable, plan, function)?;
             }
-            StatementIr::ForOfString {
-                head,
-                iterable,
-                body,
-                lexical_environment,
-                ..
-            } => self.compile_for_of_string(
-                head.mode,
-                &head.name,
-                iterable,
-                body,
-                lexical_environment.as_ref(),
-                &[],
-                function,
-            )?,
             StatementIr::ForOfIterator {
                 head,
                 iterable,
@@ -3987,38 +4000,6 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            StatementIr::ForOfArray {
-                head,
-                iterable,
-                body,
-                lexical_environment,
-                ..
-            } => {
-                self.compile_for_of_array(
-                    head.mode,
-                    &head.name,
-                    iterable,
-                    body,
-                    lexical_environment.as_ref(),
-                    labels,
-                    function,
-                )?;
-            }
-            StatementIr::ForOfString {
-                head,
-                iterable,
-                body,
-                lexical_environment,
-                ..
-            } => self.compile_for_of_string(
-                head.mode,
-                &head.name,
-                iterable,
-                body,
-                lexical_environment.as_ref(),
-                labels,
-                function,
-            )?,
             StatementIr::ForOfIterator {
                 head,
                 iterable,
@@ -4191,7 +4172,7 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         );
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.push_scope();
         self.compile_block_contents(catch_block, function)?;
         self.pop_scope();
@@ -4423,7 +4404,7 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         );
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.emit_set_generator_resume_state(activation_local, catch_entry_state, function);
         function.instruction(&Instruction::End);
 
@@ -4506,7 +4487,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_push_generator_pending_completion(function)?;
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.emit_set_generator_resume_state(activation_local, finally_entry_state, function);
         function.instruction(&Instruction::End);
 
@@ -4643,7 +4624,7 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         );
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.emit_set_generator_resume_state(activation_local, catch_entry_state, function);
         function.instruction(&Instruction::End);
 
@@ -4675,7 +4656,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_push_generator_pending_completion(function)?;
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.emit_set_generator_resume_state(activation_local, finally_entry_state, function);
         function.instruction(&Instruction::End);
 
@@ -4805,7 +4786,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.release_temp_local(thrown_tag_local);
         self.release_temp_local(thrown_payload_local);
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.emit_set_async_resume_state(activation_local, catch_entry_state, function);
         function.instruction(&Instruction::End);
 
@@ -4947,7 +4928,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.release_temp_local(thrown_tag_local);
         self.release_temp_local(thrown_payload_local);
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.emit_set_async_resume_state(activation_local, catch_entry_state, function);
         function.instruction(&Instruction::End);
 
@@ -4981,7 +4962,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_push_async_pending_completion(function)?;
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.emit_set_async_resume_state(activation_local, finally_entry_state, function);
         function.instruction(&Instruction::End);
 
@@ -5082,7 +5063,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_push_async_pending_completion(function)?;
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.emit_set_async_resume_state(activation_local, finally_entry_state, function);
         function.instruction(&Instruction::End);
 
@@ -5148,7 +5129,7 @@ impl<'a> FunctionBuilder<'a> {
             saved_aux_local,
             function,
         );
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.push_scope();
         self.compile_block_contents(finally_block, function)?;
         self.pop_scope();
@@ -5891,6 +5872,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_rejected_intrinsic_promise_from_error(
         &mut self,
+        realm: &AsyncExecutionRealmContext,
         error_payload_local: u32,
         error_tag_local: u32,
         promise_payload_local: u32,
@@ -5898,10 +5880,10 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let promise_record_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        let promise_allocation_context =
+            self.emit_async_execution_promise_allocation_context(realm, function);
         self.emit_alloc_promise_with_prototype(
-            self.scratch_local,
+            promise_allocation_context,
             promise_payload_local,
             promise_record_local,
             function,
@@ -6255,13 +6237,28 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalGet(self.result_tag_local));
                     function.instruction(&Instruction::LocalSet(new_error_tag_local));
                     self.set_completion_kind(CompletionKind::Normal, function);
+                    let realm = match owner {
+                        ActivationAsyncDisposeOwner::AsyncFunction(_)
+                        | ActivationAsyncDisposeOwner::AsyncFunctionForOf(_) => self
+                            .emit_async_function_execution_realm_context_from_activation(
+                                activation_local,
+                                function,
+                            ),
+                        ActivationAsyncDisposeOwner::AsyncGenerator(_) => self
+                            .emit_async_generator_execution_realm_context_from_activation(
+                                activation_local,
+                                function,
+                            ),
+                    };
                     self.emit_rejected_intrinsic_promise_from_error(
+                        &realm,
                         new_error_payload_local,
                         new_error_tag_local,
                         await_payload_local,
                         await_tag_local,
                         function,
                     )?;
+                    self.release_async_execution_realm_context(realm);
                     self.pop_control(ControlFrameKind::If);
                     function.instruction(&Instruction::End);
                 }
@@ -7379,7 +7376,7 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         );
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.push_scope();
         self.compile_block_contents(catch_block, function)?;
         self.pop_scope();
@@ -7398,7 +7395,7 @@ impl<'a> FunctionBuilder<'a> {
             saved_aux_local,
             function,
         );
-        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_statement_result(function, ValueKind::Undefined);
         self.push_scope();
         self.compile_block_contents(finally_block, function)?;
         self.pop_scope();
@@ -8359,324 +8356,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    pub(crate) fn compile_for_of_array(
-        &mut self,
-        mode: BindingMode,
-        name: &str,
-        iterable: &TypedExpr,
-        body: &StatementIr,
-        lexical_environment: Option<&ForInOfEnvironmentIr>,
-        labels: &[String],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let array_local = self.reserve_temp_local();
-        let array_tag_local = self.reserve_temp_local();
-        let len_payload_local = self.reserve_temp_local();
-        let len_tag_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
-        if let Some(environment) = lexical_environment {
-            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
-        }
-        self.compile_expr_to_locals(iterable, array_local, array_tag_local, function)?;
-        if let Some(environment) = lexical_environment {
-            self.emit_leave_for_in_of_tdz_scope(environment, function);
-        }
-
-        self.push_scope();
-        let storage_without_environment = if mode == BindingMode::Var {
-            Some(self.lookup_binding(name).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: unbound for-of var `{name}`"
-                ))
-            })?)
-        } else if !iteration_environment_owns_binding(lexical_environment, name) {
-            Some(self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic))
-        } else {
-            None
-        };
-        if mode == BindingMode::Var {
-            self.binding_scopes
-                .last_mut()
-                .expect("binding scope stack must exist")
-                .insert(
-                    name.to_string(),
-                    storage_without_environment.expect("for-of var storage must exist"),
-                );
-        }
-        self.emit_array_length(array_local, len_payload_local, len_tag_local, function);
-        function.instruction(&Instruction::LocalGet(len_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::LocalSet(len_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_statement_result(function, ValueKind::Undefined);
-        let break_frame = self.open_frame(ControlFrameKind::Block, function);
-        self.breakable_stack.push(break_frame);
-        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(len_payload_local));
-        function.instruction(&Instruction::I64GeU);
-        function.branch_if_to_label(break_frame.label);
-        self.emit_array_read(
-            array_local,
-            index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        );
-        if let Some(environment) =
-            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
-        {
-            self.emit_enter_lexical_environment(environment, function)?;
-        }
-        let storage = self
-            .lookup_current_scope_binding(name)
-            .or(storage_without_environment)
-            .expect("for-of lexical storage must be allocated before assignment");
-        self.write_binding_from_locals(storage, value_payload_local, value_tag_local, function);
-        self.mirror_binding_to_global_object(name, storage, function)?;
-        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
-        self.loop_stack.push(LoopTargets { continue_frame });
-        self.push_labels(labels, break_frame, Some(continue_frame));
-        self.compile_statement(body, function)?;
-        self.pop_labels(labels.len());
-        self.loop_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        if lexical_environment
-            .and_then(|environment| environment.iteration_environment.as_ref())
-            .is_some()
-        {
-            self.emit_leave_lexical_environment(function);
-        }
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.branch_to_label(loop_frame.label);
-        self.pop_control(ControlFrameKind::Loop);
-        function.instruction(&Instruction::End);
-        self.breakable_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.pop_scope();
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(len_tag_local);
-        self.release_temp_local(len_payload_local);
-        self.release_temp_local(array_tag_local);
-        self.release_temp_local(array_local);
-        Ok(())
-    }
-
-    pub(crate) fn compile_for_of_string(
-        &mut self,
-        mode: BindingMode,
-        name: &str,
-        iterable: &TypedExpr,
-        body: &StatementIr,
-        lexical_environment: Option<&ForInOfEnvironmentIr>,
-        labels: &[String],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let string_payload_local = self.reserve_temp_local();
-        let string_tag_local = self.reserve_temp_local();
-        let buffer_local = self.reserve_temp_local();
-        let byte_len_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let byte_local = self.reserve_temp_local();
-        let codepoint_local = self.reserve_temp_local();
-        let advance_local = self.reserve_temp_local();
-        let temp_local = self.reserve_temp_local();
-        let char_offset_local = self.reserve_temp_local();
-        let char_pos_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-
-        if let Some(environment) = lexical_environment {
-            self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?;
-        }
-        self.compile_expr_to_locals(iterable, string_payload_local, string_tag_local, function)?;
-        if let Some(environment) = lexical_environment {
-            self.emit_leave_for_in_of_tdz_scope(environment, function);
-        }
-
-        self.push_scope();
-        let storage_without_environment = if mode == BindingMode::Var {
-            Some(self.lookup_binding(name).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: unbound for-of var `{name}`"
-                ))
-            })?)
-        } else if !iteration_environment_owns_binding(lexical_environment, name) {
-            Some(self.allocate_binding(name.to_string(), mode, ValueKind::String))
-        } else {
-            None
-        };
-        if mode == BindingMode::Var {
-            self.binding_scopes
-                .last_mut()
-                .expect("binding scope stack must exist")
-                .insert(
-                    name.to_string(),
-                    storage_without_environment.expect("for-of var storage must exist"),
-                );
-        }
-        function.instruction(&Instruction::LocalGet(string_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of target is not iterable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            buffer_local,
-            byte_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        self.emit_statement_result(function, ValueKind::Undefined);
-        let break_frame = self.open_frame(ControlFrameKind::Block, function);
-        self.breakable_stack.push(break_frame);
-        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(byte_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.branch_if_to_label(break_frame.label);
-        self.emit_load_string_byte(buffer_local, index_local, byte_local, function);
-        self.emit_decode_utf8_scalar_at_index(
-            buffer_local,
-            index_local,
-            byte_len_local,
-            byte_local,
-            codepoint_local,
-            advance_local,
-            temp_local,
-            function,
-        );
-        self.emit_heap_alloc_const(4, function)?;
-        function.instruction(&Instruction::LocalSet(char_offset_local));
-        function.instruction(&Instruction::LocalGet(char_offset_local));
-        function.instruction(&Instruction::LocalSet(char_pos_local));
-        self.emit_store_utf8_codepoint(char_pos_local, codepoint_local, temp_local, function);
-        function.instruction(&Instruction::LocalGet(char_pos_local));
-        function.instruction(&Instruction::LocalGet(char_offset_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        self.emit_pack_string_payload(char_offset_local, byte_local, function);
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        if let Some(environment) =
-            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
-        {
-            self.emit_enter_lexical_environment(environment, function)?;
-        }
-        let storage = self
-            .lookup_current_scope_binding(name)
-            .or(storage_without_environment)
-            .expect("for-of lexical storage must be allocated before assignment");
-        self.write_binding_from_locals(storage, value_payload_local, string_tag_local, function);
-        self.mirror_binding_to_global_object(name, storage, function)?;
-        let continue_frame = self.open_frame(ControlFrameKind::Block, function);
-        self.loop_stack.push(LoopTargets { continue_frame });
-        self.push_labels(labels, break_frame, Some(continue_frame));
-        self.compile_statement(body, function)?;
-        self.pop_labels(labels.len());
-        self.loop_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        if lexical_environment
-            .and_then(|environment| environment.iteration_environment.as_ref())
-            .is_some()
-        {
-            self.emit_leave_lexical_environment(function);
-        }
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(advance_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.branch_to_label(loop_frame.label);
-        self.pop_control(ControlFrameKind::Loop);
-        function.instruction(&Instruction::End);
-        self.breakable_stack.pop();
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.pop_scope();
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(char_pos_local);
-        self.release_temp_local(char_offset_local);
-        self.release_temp_local(temp_local);
-        self.release_temp_local(advance_local);
-        self.release_temp_local(codepoint_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(byte_len_local);
-        self.release_temp_local(buffer_local);
-        self.release_temp_local(string_tag_local);
-        self.release_temp_local(string_payload_local);
-        Ok(())
-    }
-
-    /// Read a well-known-symbol method off a `for await (… of …)` head value.
-    ///
-    /// `PropertyKeyIr::StaticString("Symbol.asyncIterator")` is *not* the
-    /// well-known symbol: `compile_object_key_to_locals` lowers a static string
-    /// key to `strings.payload(name)` tagged `String`, so it looks up the
-    /// ordinary string property `"Symbol.asyncIterator"` and always misses.
-    /// A symbol key has to carry `PROPERTY_KEY_SYMBOL_MARKER`, which the
-    /// `StringExpr` path ORs in when the key expression is `Symbol`-kinded.
-    /// This mirrors `emit_generator_delegate_property_read`, the `yield*`
-    /// equivalent, and keeps primitive receivers (strings, numbers) working by
-    /// going through the dynamic read.
-    fn emit_for_await_well_known_symbol_read(
-        &mut self,
-        key: &str,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        debug_assert!(key.starts_with("Symbol."));
-        let target = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags()
-                    .without(ValueKind::Undefined)
-                    .without(ValueKind::Null),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::Undefined,
-        );
-        let symbol_key = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Symbol),
-            ExprIr::String(key.to_string()),
-        );
-        self.compile_property_read_from_locals(
-            &target,
-            &PropertyKeyIr::StringExpr(Box::new(symbol_key)),
-            target_payload_local,
-            target_tag_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )
-    }
-
     /// Leave `low <= state <= high` (unsigned) on the stack as an i32 boolean.
     ///
     /// The for-await emitter tests its plan states as spans rather than as
@@ -8706,7 +8385,7 @@ impl<'a> FunctionBuilder<'a> {
     /// rejection kind turns an awaited result into a throw completion.
     fn emit_load_for_await_resume_is_throw(
         &mut self,
-        layout: ForAwaitActivationLayout,
+        layout: &ForAwaitActivationLayout,
         activation_local: u32,
         is_throw_local: u32,
         function: &mut Function,
@@ -8822,7 +8501,6 @@ impl<'a> FunctionBuilder<'a> {
         let resume_state_offset = resume_layout.resume_state_offset();
         let resume_payload_offset = resume_layout.resume_payload_offset();
         let resume_tag_offset = resume_layout.resume_tag_offset();
-        let is_async_generator = resume_layout.is_async_generator();
         let state_local = self.reserve_temp_local();
         let iterable_payload_local = self.reserve_temp_local();
         let iterable_tag_local = self.reserve_temp_local();
@@ -8962,7 +8640,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_propagate_current_throw(function);
         } else {
             self.emit_for_await_well_known_symbol_read(
-                "Symbol.asyncIterator",
+                ForAwaitIteratorSymbol::AsyncIterator,
                 iterable_payload_local,
                 iterable_tag_local,
                 method_payload_local,
@@ -8979,7 +8657,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(done_tag_local));
         if !iterable_is_statically_nullish {
             self.emit_for_await_well_known_symbol_read(
-                "Symbol.iterator",
+                ForAwaitIteratorSymbol::Iterator,
                 iterable_payload_local,
                 iterable_tag_local,
                 method_payload_local,
@@ -9082,7 +8760,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         self.open_frame(ControlFrameKind::If, function);
         self.emit_load_for_await_resume_is_throw(
-            resume_layout,
+            &resume_layout,
             activation_local,
             resume_is_throw_local,
             function,
@@ -9187,7 +8865,7 @@ impl<'a> FunctionBuilder<'a> {
             self.open_frame(ControlFrameKind::If, function);
         }
         self.emit_load_for_await_resume_is_throw(
-            resume_layout,
+            &resume_layout,
             activation_local,
             resume_is_throw_local,
             function,
@@ -9644,14 +9322,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         self.open_frame(ControlFrameKind::If, function);
         let rejected_promise_record_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        let realm = match &resume_layout {
+            ForAwaitActivationLayout::AsyncFunction => self
+                .emit_async_function_execution_realm_context_from_activation(
+                    activation_local,
+                    function,
+                ),
+            ForAwaitActivationLayout::AsyncGenerator => self
+                .emit_async_generator_execution_realm_context_from_activation(
+                    activation_local,
+                    function,
+                ),
+        };
+        let promise_allocation_context =
+            self.emit_async_execution_promise_allocation_context(&realm, function);
         self.emit_alloc_promise_with_prototype(
-            self.scratch_local,
+            promise_allocation_context,
             continuation_payload_local,
             rejected_promise_record_local,
             function,
         )?;
+        self.release_async_execution_realm_context(realm);
         self.emit_settle_promise_record(
             rejected_promise_record_local,
             PromiseSettlement::Reject,
@@ -9688,30 +9379,31 @@ impl<'a> FunctionBuilder<'a> {
             u64::from(async_plan.close_resume_state),
             function,
         );
-        if is_async_generator {
-            self.emit_async_generator_await_reactions(
+        match &resume_layout {
+            ForAwaitActivationLayout::AsyncFunction => self.emit_async_await_reactions(
                 activation_local,
                 continuation_payload_local,
                 continuation_tag_local,
                 function,
-            )?;
-            self.emit_store_async_generator_body_status(
-                activation_local,
-                AsyncGeneratorBodyStatus::Await,
-                function,
-            );
-            self.emit_store_async_generator_execution_state(
-                activation_local,
-                AsyncGeneratorExecutionState::Executing,
-                function,
-            );
-        } else {
-            self.emit_async_await_reactions(
-                activation_local,
-                continuation_payload_local,
-                continuation_tag_local,
-                function,
-            )?;
+            )?,
+            ForAwaitActivationLayout::AsyncGenerator => {
+                self.emit_async_generator_await_reactions(
+                    activation_local,
+                    continuation_payload_local,
+                    continuation_tag_local,
+                    function,
+                )?;
+                self.emit_store_async_generator_body_status(
+                    activation_local,
+                    AsyncGeneratorBodyStatus::Await,
+                    function,
+                );
+                self.emit_store_async_generator_execution_state(
+                    activation_local,
+                    AsyncGeneratorExecutionState::Executing,
+                    function,
+                );
+            }
         }
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -9884,14 +9576,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         self.open_frame(ControlFrameKind::If, function);
         let rejected_promise_record_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        let realm = match &resume_layout {
+            ForAwaitActivationLayout::AsyncFunction => self
+                .emit_async_function_execution_realm_context_from_activation(
+                    activation_local,
+                    function,
+                ),
+            ForAwaitActivationLayout::AsyncGenerator => self
+                .emit_async_generator_execution_realm_context_from_activation(
+                    activation_local,
+                    function,
+                ),
+        };
+        let promise_allocation_context =
+            self.emit_async_execution_promise_allocation_context(&realm, function);
         self.emit_alloc_promise_with_prototype(
-            self.scratch_local,
+            promise_allocation_context,
             continuation_payload_local,
             rejected_promise_record_local,
             function,
         )?;
+        self.release_async_execution_realm_context(realm);
         self.emit_settle_promise_record(
             rejected_promise_record_local,
             PromiseSettlement::Reject,
@@ -9928,30 +9633,31 @@ impl<'a> FunctionBuilder<'a> {
             u64::from(async_plan.value_resume_state),
             function,
         );
-        if is_async_generator {
-            self.emit_async_generator_await_reactions(
+        match &resume_layout {
+            ForAwaitActivationLayout::AsyncFunction => self.emit_async_await_reactions(
                 activation_local,
                 continuation_payload_local,
                 continuation_tag_local,
                 function,
-            )?;
-            self.emit_store_async_generator_body_status(
-                activation_local,
-                AsyncGeneratorBodyStatus::Await,
-                function,
-            );
-            self.emit_store_async_generator_execution_state(
-                activation_local,
-                AsyncGeneratorExecutionState::Executing,
-                function,
-            );
-        } else {
-            self.emit_async_await_reactions(
-                activation_local,
-                continuation_payload_local,
-                continuation_tag_local,
-                function,
-            )?;
+            )?,
+            ForAwaitActivationLayout::AsyncGenerator => {
+                self.emit_async_generator_await_reactions(
+                    activation_local,
+                    continuation_payload_local,
+                    continuation_tag_local,
+                    function,
+                )?;
+                self.emit_store_async_generator_body_status(
+                    activation_local,
+                    AsyncGeneratorBodyStatus::Await,
+                    function,
+                );
+                self.emit_store_async_generator_execution_state(
+                    activation_local,
+                    AsyncGeneratorExecutionState::Executing,
+                    function,
+                );
+            }
         }
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -10054,6 +9760,7 @@ impl<'a> FunctionBuilder<'a> {
         let close_saved_completion_local = self.reserve_temp_local();
         let close_saved_aux_local = self.reserve_temp_local();
         let acquired = self.reserve_async_disposable_resource_locals(function);
+        let consumer = SyncIteratorConsumer::ForOf;
 
         self.emit_async_state_in_range(
             activation_local,
@@ -10124,11 +9831,9 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.compile_nullish_tagged_i32(iterable_tag_local, function)?;
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of target is not iterable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NotIterable,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -10137,7 +9842,7 @@ impl<'a> FunctionBuilder<'a> {
 
         let iterable_object_payload_local = self.reserve_temp_local();
         let iterable_object_tag_local = self.reserve_temp_local();
-        self.emit_value_to_object_locals(
+        self.emit_value_to_current_function_realm_object_locals(
             iterable_payload_local,
             iterable_tag_local,
             iterable_object_payload_local,
@@ -10168,11 +9873,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of iterator method must be callable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NotIterable,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -10192,11 +9895,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of iterator method must return object",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::MethodResultNotObject,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -10218,11 +9919,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of iterator next must be callable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NextNotCallable,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -10276,11 +9975,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NextResultNotObject,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -10579,6 +10276,7 @@ impl<'a> FunctionBuilder<'a> {
         let close_saved_tag_local = self.reserve_temp_local();
         let close_saved_completion_local = self.reserve_temp_local();
         let close_saved_aux_local = self.reserve_temp_local();
+        let consumer = SyncIteratorConsumer::ForOf;
 
         let lifecycle = match head {
             SyncForOfIteratorHead::Assignment(binding) => {
@@ -10635,17 +10333,15 @@ impl<'a> FunctionBuilder<'a> {
                 );
         }
         // GetIterator(obj) is `GetMethod(obj, @@iterator)` followed by a call, and
-        // GetMethod routes through ToObject. Only `undefined` and `null` fail that
-        // conversion, so every other primitive (strings, numbers, booleans,
-        // symbols, bigints) has to reach its wrapper prototype rather than being
+        // GetMethod routes through ToObject in the running function's Realm.
+        // Only `undefined` and `null` fail that conversion, so every other
+        // primitive has to reach that Realm's wrapper prototype rather than be
         // rejected here.
         self.compile_nullish_tagged_i32(iterable_tag_local, function)?;
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of target is not iterable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NotIterable,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -10654,7 +10350,7 @@ impl<'a> FunctionBuilder<'a> {
 
         let iterable_object_payload_local = self.reserve_temp_local();
         let iterable_object_tag_local = self.reserve_temp_local();
-        self.emit_value_to_object_locals(
+        self.emit_value_to_current_function_realm_object_locals(
             iterable_payload_local,
             iterable_tag_local,
             iterable_object_payload_local,
@@ -10684,25 +10380,23 @@ impl<'a> FunctionBuilder<'a> {
             method_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(method_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
+        self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of iterator method must be callable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NotIterable,
             function,
         )?;
         self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.emit_function_handle_call(
+        self.emit_function_or_proxy_call_leave_throw_completion(
             method_payload_local,
             method_tag_local,
-            Some((iterable_payload_local, Some(iterable_tag_local))),
+            iterable_payload_local,
+            iterable_tag_local,
             &[],
             iterator_payload_local,
             iterator_tag_local,
@@ -10716,11 +10410,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of iterator method must return object",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::MethodResultNotObject,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -10740,15 +10432,12 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_propagate_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(next_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
+        self.emit_is_callable_i32(next_tag_local, next_payload_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of iterator next must be callable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NextNotCallable,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -10760,10 +10449,11 @@ impl<'a> FunctionBuilder<'a> {
         self.breakable_stack.push(break_frame);
         let loop_frame = self.open_frame(ControlFrameKind::Loop, function);
 
-        self.emit_function_handle_call(
+        self.emit_function_or_proxy_call_leave_throw_completion(
             next_payload_local,
             next_tag_local,
-            Some((iterator_payload_local, Some(iterator_tag_local))),
+            iterator_payload_local,
+            iterator_tag_local,
             &[],
             result_payload_local,
             result_tag_local,
@@ -10773,11 +10463,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "for-of iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            &consumer,
+            SyncIteratorProtocolError::NextResultNotObject,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -11121,7 +10809,6 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
             self.put_destructuring_target(
-                &property.target,
                 prepared,
                 property_value_payload,
                 property_value_tag,
@@ -11141,7 +10828,6 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             self.put_destructuring_target(
-                rest,
                 prepared,
                 property_value_payload,
                 property_value_tag,
@@ -11424,6 +11110,7 @@ impl<'a> FunctionBuilder<'a> {
             close_saved_completion: self.reserve_temp_local(),
             close_saved_aux: self.reserve_temp_local(),
         };
+        let consumer = SyncIteratorConsumer::ArrayDestructuring;
 
         self.emit_get_iterator_from_value_locals(
             value_info,
@@ -11431,8 +11118,8 @@ impl<'a> FunctionBuilder<'a> {
             source_tag,
             method_payload,
             method_tag,
-            locals.protocol(),
-            SyncIteratorErrorPolicy::LegacyMainRealm,
+            &locals.protocol(),
+            &consumer,
             function,
         )?;
         function.instruction(&Instruction::I64Const(0));
@@ -11442,7 +11129,7 @@ impl<'a> FunctionBuilder<'a> {
         let abrupt_target = self.open_frame(ControlFrameKind::Block, function);
         self.finally_stack.push(abrupt_target);
         for element in &pattern.elements {
-            self.compile_array_destructuring_element(element, locals, function)?;
+            self.compile_array_destructuring_element(element, &locals, &consumer, function)?;
         }
         self.finally_stack.pop();
 
@@ -11520,23 +11207,26 @@ impl<'a> FunctionBuilder<'a> {
     /// Reserves the common GetIterator/IteratorStep/IteratorValue working set.
     /// The matching release method owns the reverse-order discipline so a new
     /// iterator consumer cannot silently corrupt the temp-local stack.
-    pub(crate) fn reserve_sync_iterator_locals(&mut self) -> SyncIteratorLocals {
-        SyncIteratorLocals {
-            iterator_payload: self.reserve_temp_local(),
-            iterator_tag: self.reserve_temp_local(),
-            next_payload: self.reserve_temp_local(),
-            next_tag: self.reserve_temp_local(),
-            key: self.reserve_temp_local(),
-            result_payload: self.reserve_temp_local(),
-            result_tag: self.reserve_temp_local(),
-            done_payload: self.reserve_temp_local(),
-            done_tag: self.reserve_temp_local(),
-            value_payload: self.reserve_temp_local(),
-            value_tag: self.reserve_temp_local(),
+    pub(crate) fn reserve_sync_iterator_locals(&mut self) -> ReservedSyncIteratorLocals {
+        ReservedSyncIteratorLocals {
+            locals: SyncIteratorLocals {
+                iterator_payload: self.reserve_temp_local(),
+                iterator_tag: self.reserve_temp_local(),
+                next_payload: self.reserve_temp_local(),
+                next_tag: self.reserve_temp_local(),
+                key: self.reserve_temp_local(),
+                result_payload: self.reserve_temp_local(),
+                result_tag: self.reserve_temp_local(),
+                done_payload: self.reserve_temp_local(),
+                done_tag: self.reserve_temp_local(),
+                value_payload: self.reserve_temp_local(),
+                value_tag: self.reserve_temp_local(),
+            },
         }
     }
 
-    pub(crate) fn release_sync_iterator_locals(&mut self, locals: SyncIteratorLocals) {
+    pub(crate) fn release_sync_iterator_locals(&mut self, reserved: ReservedSyncIteratorLocals) {
+        let ReservedSyncIteratorLocals { locals } = reserved;
         for local in [
             locals.value_tag,
             locals.value_payload,
@@ -11579,7 +11269,7 @@ impl<'a> FunctionBuilder<'a> {
                 kind: ValueKind::Arguments,
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::Identifier(source_name.to_string()),
         );
@@ -11588,7 +11278,7 @@ impl<'a> FunctionBuilder<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::PropertyRead {
                 target: Box::new(source),
@@ -11608,8 +11298,8 @@ impl<'a> FunctionBuilder<'a> {
         source_tag: u32,
         method_payload: u32,
         method_tag: u32,
-        locals: SyncIteratorLocals,
-        error_policy: SyncIteratorErrorPolicy,
+        locals: &SyncIteratorLocals,
+        consumer: &SyncIteratorConsumer,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         // The arguments exotic object resolves `@@iterator` through a dedicated
@@ -11631,7 +11321,7 @@ impl<'a> FunctionBuilder<'a> {
                 method_payload,
                 method_tag,
                 locals,
-                error_policy,
+                consumer,
                 function,
             );
         }
@@ -11645,7 +11335,7 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_nullish_tagged_i32(source_tag, function)?;
         self.open_frame(ControlFrameKind::If, function);
         self.emit_sync_iterator_protocol_type_error(
-            error_policy,
+            consumer,
             SyncIteratorProtocolError::NotIterable,
             function,
         )?;
@@ -11654,23 +11344,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         // Primitive sources (notably strings) resolve `@@iterator` through their
         // wrapper prototype; ToObject leaves objects, arrays and functions alone.
-        match error_policy {
-            SyncIteratorErrorPolicy::LegacyMainRealm => self.emit_value_to_object_locals(
-                source_payload,
-                source_tag,
-                source_object_payload,
-                source_object_tag,
-                function,
-            )?,
-            SyncIteratorErrorPolicy::MathSumPrecise => self
-                .emit_value_to_current_function_realm_object_locals(
-                    source_payload,
-                    source_tag,
-                    source_object_payload,
-                    source_object_tag,
-                    function,
-                )?,
-        }
+        self.emit_value_to_current_function_realm_object_locals(
+            source_payload,
+            source_tag,
+            source_object_payload,
+            source_object_tag,
+            function,
+        )?;
         let has_runtime_arguments_arm = value_info.possible_kinds.contains(ValueKind::Arguments);
         if has_runtime_arguments_arm {
             function.instruction(&Instruction::LocalGet(source_tag));
@@ -11712,7 +11392,7 @@ impl<'a> FunctionBuilder<'a> {
             method_payload,
             method_tag,
             locals,
-            error_policy,
+            consumer,
             function,
         )
     }
@@ -11728,8 +11408,8 @@ impl<'a> FunctionBuilder<'a> {
         source_tag: u32,
         method_payload: u32,
         method_tag: u32,
-        locals: SyncIteratorLocals,
-        error_policy: SyncIteratorErrorPolicy,
+        locals: &SyncIteratorLocals,
+        consumer: &SyncIteratorConsumer,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_propagate_throw_from_locals_if_needed(method_payload, method_tag, function)?;
@@ -11737,7 +11417,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
         self.emit_sync_iterator_protocol_type_error(
-            error_policy,
+            consumer,
             SyncIteratorProtocolError::NotIterable,
             function,
         )?;
@@ -11780,7 +11460,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
         self.emit_sync_iterator_protocol_type_error(
-            error_policy,
+            consumer,
             SyncIteratorProtocolError::MethodResultNotObject,
             function,
         )?;
@@ -11810,52 +11490,80 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_sync_iterator_protocol_type_error(
         &mut self,
-        policy: SyncIteratorErrorPolicy,
+        consumer: &SyncIteratorConsumer,
         error: SyncIteratorProtocolError,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let message = match (policy, error) {
-            (SyncIteratorErrorPolicy::LegacyMainRealm, SyncIteratorProtocolError::NotIterable) => {
+        let message = match (consumer, error) {
+            (SyncIteratorConsumer::ArrayDestructuring, SyncIteratorProtocolError::NotIterable) => {
                 "destructuring value is not iterable"
             }
             (
-                SyncIteratorErrorPolicy::LegacyMainRealm,
+                SyncIteratorConsumer::ArrayDestructuring,
                 SyncIteratorProtocolError::MethodResultNotObject,
             ) => "destructuring iterator method must return object",
             (
-                SyncIteratorErrorPolicy::LegacyMainRealm,
+                SyncIteratorConsumer::ArrayDestructuring,
                 SyncIteratorProtocolError::NextNotCallable,
-            ) => "value is not callable",
+            ) => "destructuring iterator next must be callable",
             (
-                SyncIteratorErrorPolicy::LegacyMainRealm,
+                SyncIteratorConsumer::ArrayDestructuring,
                 SyncIteratorProtocolError::NextResultNotObject,
-            ) => "iterator next result must be object",
-            (SyncIteratorErrorPolicy::MathSumPrecise, SyncIteratorProtocolError::NotIterable) => {
+            ) => "destructuring iterator next result must be object",
+            (SyncIteratorConsumer::ArrayAccumulation, SyncIteratorProtocolError::NotIterable) => {
+                "array spread value is not iterable"
+            }
+            (
+                SyncIteratorConsumer::ArrayAccumulation,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => "array spread iterator method must return object",
+            (
+                SyncIteratorConsumer::ArrayAccumulation,
+                SyncIteratorProtocolError::NextNotCallable,
+            ) => "array spread iterator next must be callable",
+            (
+                SyncIteratorConsumer::ArrayAccumulation,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => "array spread iterator next result must be object",
+            (SyncIteratorConsumer::ForOf, SyncIteratorProtocolError::NotIterable) => {
+                "for-of target is not iterable"
+            }
+            (SyncIteratorConsumer::ForOf, SyncIteratorProtocolError::MethodResultNotObject) => {
+                "for-of iterator method must return object"
+            }
+            (SyncIteratorConsumer::ForOf, SyncIteratorProtocolError::NextNotCallable) => {
+                "for-of iterator next must be callable"
+            }
+            (SyncIteratorConsumer::ForOf, SyncIteratorProtocolError::NextResultNotObject) => {
+                "for-of iterator next result must be object"
+            }
+            (SyncIteratorConsumer::MathSumPrecise, SyncIteratorProtocolError::NotIterable) => {
                 "Math.sumPrecise input is not iterable"
             }
             (
-                SyncIteratorErrorPolicy::MathSumPrecise,
+                SyncIteratorConsumer::MathSumPrecise,
                 SyncIteratorProtocolError::MethodResultNotObject,
             ) => "Math.sumPrecise iterator method must return an object",
+            (SyncIteratorConsumer::MathSumPrecise, SyncIteratorProtocolError::NextNotCallable) => {
+                "Math.sumPrecise iterator next method is not callable"
+            }
             (
-                SyncIteratorErrorPolicy::MathSumPrecise,
-                SyncIteratorProtocolError::NextNotCallable,
-            ) => "Math.sumPrecise iterator next method is not callable",
-            (
-                SyncIteratorErrorPolicy::MathSumPrecise,
+                SyncIteratorConsumer::MathSumPrecise,
                 SyncIteratorProtocolError::NextResultNotObject,
             ) => "Math.sumPrecise iterator next result must be an object",
         };
-        match policy {
-            SyncIteratorErrorPolicy::LegacyMainRealm => self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                message,
-                self.result_local,
-                self.result_tag_local,
-                function,
-            ),
-            SyncIteratorErrorPolicy::MathSumPrecise => self
+        match self.numeric_error_realm_source() {
+            NumericErrorRealmSource::StandardBuiltinEnvironment => self
                 .emit_throw_current_function_realm_type_error(
+                    message,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                ),
+            NumericErrorRealmSource::GlobalFallback
+            | NumericErrorRealmSource::NumericConversionHelperArgument => self
+                .emit_throw_runtime_error(
+                    TYPE_ERROR_NAME,
                     message,
                     self.result_local,
                     self.result_tag_local,
@@ -11867,7 +11575,8 @@ impl<'a> FunctionBuilder<'a> {
     fn compile_array_destructuring_element(
         &mut self,
         element: &ArrayDestructuringElementIr,
-        locals: DestructuringIteratorLocals,
+        locals: &DestructuringIteratorLocals,
+        consumer: &SyncIteratorConsumer,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match element {
@@ -11878,6 +11587,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_destructuring_iterator_step(
                     locals,
                     DestructuringIteratorStepKind::Elision,
+                    consumer,
                     function,
                 )?;
                 self.pop_control(ControlFrameKind::If);
@@ -11895,6 +11605,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_destructuring_iterator_step(
                     locals,
                     DestructuringIteratorStepKind::Value,
+                    consumer,
                     function,
                 )?;
                 self.pop_control(ControlFrameKind::If);
@@ -11919,7 +11630,6 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::End);
                 }
                 self.put_destructuring_target(
-                    target,
                     prepared,
                     locals.value_payload,
                     locals.value_tag,
@@ -11943,6 +11653,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_destructuring_iterator_step(
                     locals,
                     DestructuringIteratorStepKind::Value,
+                    consumer,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalGet(locals.done));
@@ -11972,7 +11683,6 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(rest_index);
                 self.release_temp_local(rest_payload);
                 self.put_destructuring_target(
-                    target,
                     prepared,
                     locals.value_payload,
                     locals.value_tag,
@@ -11985,12 +11695,24 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_destructuring_iterator_step(
         &mut self,
-        locals: DestructuringIteratorLocals,
+        locals: &DestructuringIteratorLocals,
         step_kind: DestructuringIteratorStepKind,
+        consumer: &SyncIteratorConsumer,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(locals.done));
+        self.emit_is_callable_i32(locals.next_tag, locals.next_payload, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_sync_iterator_protocol_type_error(
+            consumer,
+            SyncIteratorProtocolError::NextNotCallable,
+            function,
+        )?;
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(locals.next_tag));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -12029,11 +11751,9 @@ impl<'a> FunctionBuilder<'a> {
         self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(locals.done));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "destructuring iterator next result must be object",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_sync_iterator_protocol_type_error(
+            consumer,
+            SyncIteratorProtocolError::NextResultNotObject,
             function,
         )?;
         self.emit_propagate_current_throw(function);
@@ -12066,24 +11786,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(locals.value_tag));
         function.instruction(&Instruction::Else);
-        if matches!(step_kind, DestructuringIteratorStepKind::Value) {
-            function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-            function.instruction(&Instruction::LocalSet(locals.key));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(locals.done));
-            self.emit_object_read(
-                locals.result_payload,
-                locals.result_tag,
-                locals.result_payload,
-                locals.result_tag,
-                locals.key,
-                locals.value_payload,
-                locals.value_tag,
-                function,
-            )?;
-            self.emit_propagate_current_completion_if_throw(function);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(locals.done));
+        match step_kind {
+            DestructuringIteratorStepKind::Elision => {}
+            DestructuringIteratorStepKind::Value => {
+                function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+                function.instruction(&Instruction::LocalSet(locals.key));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(locals.done));
+                self.emit_object_read(
+                    locals.result_payload,
+                    locals.result_tag,
+                    locals.result_payload,
+                    locals.result_tag,
+                    locals.key,
+                    locals.value_payload,
+                    locals.value_tag,
+                    function,
+                )?;
+                self.emit_propagate_current_completion_if_throw(function);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(locals.done));
+            }
         }
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
@@ -12096,9 +11819,9 @@ impl<'a> FunctionBuilder<'a> {
     /// set for a completed iterator, and `value` is read only on the false arm.
     pub(crate) fn emit_sync_iterator_step_value(
         &mut self,
-        locals: SyncIteratorLocals,
+        locals: &SyncIteratorLocals,
         done: u32,
-        error_policy: SyncIteratorErrorPolicy,
+        consumer: &SyncIteratorConsumer,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::I64Const(1));
@@ -12107,7 +11830,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
         self.emit_sync_iterator_protocol_type_error(
-            error_policy,
+            consumer,
             SyncIteratorProtocolError::NextNotCallable,
             function,
         )?;
@@ -12149,7 +11872,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
         self.emit_sync_iterator_protocol_type_error(
-            error_policy,
+            consumer,
             SyncIteratorProtocolError::NextResultNotObject,
             function,
         )?;
@@ -12199,81 +11922,105 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn prepare_destructuring_target(
+    fn prepare_destructuring_target<'b>(
         &mut self,
-        target: &DestructuringTargetIr,
+        target: &'b DestructuringTargetIr,
         function: &mut Function,
-    ) -> Result<PreparedDestructuringTarget, EmitError> {
-        if let DestructuringTargetIr::AssignmentPrivate {
-            target,
-            private_name_id,
-        } = target
-        {
-            let target_payload = self.reserve_temp_local();
-            let target_tag = self.reserve_temp_local();
-            self.compile_expr_to_locals(target, target_payload, target_tag, function)?;
-            self.emit_propagate_throw_from_locals_if_needed(target_payload, target_tag, function)?;
-            return Ok(PreparedDestructuringTarget::Private {
-                target_payload,
-                target_tag,
-                private_name_id: *private_name_id,
-            });
-        }
-
-        let DestructuringTargetIr::AssignmentProperty {
-            target,
-            key,
-            strictness,
-        } = target
-        else {
-            return Ok(PreparedDestructuringTarget::Direct);
-        };
-
-        let target_payload = self.reserve_temp_local();
-        let target_tag = self.reserve_temp_local();
-        self.compile_expr_to_locals(target, target_payload, target_tag, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(target_payload, target_tag, function)?;
-        let (key_payload, key_tag) = match key {
-            DestructuringPropertyKeyIr::Static(_) => (None, None),
-            DestructuringPropertyKeyIr::Computed(key) => {
-                let key_payload = self.reserve_temp_local();
-                let key_tag = self.reserve_temp_local();
-                self.compile_expr_to_locals(key, key_payload, key_tag, function)?;
-                self.emit_propagate_throw_from_locals_if_needed(key_payload, key_tag, function)?;
-                (Some(key_payload), Some(key_tag))
+    ) -> Result<PreparedDestructuringTarget<'b>, EmitError> {
+        match target {
+            DestructuringTargetIr::Binding { mode, name } => {
+                Ok(PreparedDestructuringTarget::Binding { mode: *mode, name })
             }
-        };
-        Ok(PreparedDestructuringTarget::Property {
-            target: target.clone(),
-            target_payload,
-            target_tag,
-            key: key.clone(),
-            key_payload,
-            key_tag,
-            strictness: *strictness,
-        })
+            DestructuringTargetIr::AssignmentIdentifier(reference) => {
+                Ok(PreparedDestructuringTarget::AssignmentIdentifier(reference))
+            }
+            DestructuringTargetIr::AssignmentProperty {
+                target,
+                key,
+                strictness,
+            } => {
+                let target_payload = self.reserve_temp_local();
+                let target_tag = self.reserve_temp_local();
+                self.compile_expr_to_locals(target, target_payload, target_tag, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    target_payload,
+                    target_tag,
+                    function,
+                )?;
+                let key = match key {
+                    DestructuringPropertyKeyIr::Static(name) => {
+                        PreparedDestructuringPropertyKey::Static(name)
+                    }
+                    DestructuringPropertyKeyIr::Computed(key) => {
+                        let payload_local = self.reserve_temp_local();
+                        let tag_local = self.reserve_temp_local();
+                        self.compile_expr_to_locals(key, payload_local, tag_local, function)?;
+                        self.emit_propagate_throw_from_locals_if_needed(
+                            payload_local,
+                            tag_local,
+                            function,
+                        )?;
+                        PreparedDestructuringPropertyKey::Computed {
+                            raw_key: key,
+                            payload_local,
+                            tag_local,
+                        }
+                    }
+                };
+                Ok(PreparedDestructuringTarget::Property {
+                    target,
+                    target_payload,
+                    target_tag,
+                    key,
+                    strictness: *strictness,
+                })
+            }
+            DestructuringTargetIr::AssignmentPrivate {
+                target,
+                private_name_id,
+            } => {
+                let target_payload = self.reserve_temp_local();
+                let target_tag = self.reserve_temp_local();
+                self.compile_expr_to_locals(target, target_payload, target_tag, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    target_payload,
+                    target_tag,
+                    function,
+                )?;
+                Ok(PreparedDestructuringTarget::Private {
+                    target_payload,
+                    target_tag,
+                    private_name_id: *private_name_id,
+                })
+            }
+            DestructuringTargetIr::NestedArray(pattern) => {
+                Ok(PreparedDestructuringTarget::NestedArray(pattern))
+            }
+            DestructuringTargetIr::NestedObject(pattern) => {
+                Ok(PreparedDestructuringTarget::NestedObject(pattern))
+            }
+        }
     }
 
     fn put_destructuring_target(
         &mut self,
-        target: &DestructuringTargetIr,
-        prepared: PreparedDestructuringTarget,
+        prepared: PreparedDestructuringTarget<'_>,
         value_payload: u32,
         value_tag: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        match target {
-            DestructuringTargetIr::Binding { mode, name } => {
+        match prepared {
+            PreparedDestructuringTarget::Binding { mode, name } => {
                 let storage = self
                     .lookup_current_scope_binding(name)
                     .or_else(|| self.lookup_binding(name))
                     .unwrap_or_else(|| {
-                        self.allocate_binding(name.clone(), *mode, ValueKind::Dynamic)
+                        self.allocate_binding(name.to_string(), mode, ValueKind::Dynamic)
                     });
                 self.write_binding_from_locals(storage, value_payload, value_tag, function);
                 self.mirror_binding_to_global_object(name, storage, function)?;
             }
-            DestructuringTargetIr::AssignmentIdentifier(reference) => {
+            PreparedDestructuringTarget::AssignmentIdentifier(reference) => {
                 match reference.write_disposition() {
                     IdentifierWriteDisposition::MutableBinding { storage_name } => {
                         let storage = self.lookup_binding(storage_name).ok_or_else(|| {
@@ -12323,19 +12070,13 @@ impl<'a> FunctionBuilder<'a> {
                     }
                 }
             }
-            DestructuringTargetIr::AssignmentProperty { .. } => {
-                let PreparedDestructuringTarget::Property {
-                    target,
-                    target_payload,
-                    target_tag,
-                    key,
-                    key_payload,
-                    key_tag,
-                    strictness,
-                } = prepared
-                else {
-                    unreachable!("property destructuring target must be prepared")
-                };
+            PreparedDestructuringTarget::Property {
+                target,
+                target_payload,
+                target_tag,
+                key,
+                strictness,
+            } => {
                 let target_name = "$array.destructure.target";
                 let value_name = "$array.destructure.value";
                 let key_name = "$array.destructure.key";
@@ -12358,12 +12099,17 @@ impl<'a> FunctionBuilder<'a> {
                         payload_local: value_payload,
                     },
                 );
-                if let (Some(key_payload), Some(key_tag)) = (key_payload, key_tag) {
+                if let PreparedDestructuringPropertyKey::Computed {
+                    payload_local,
+                    tag_local,
+                    ..
+                } = &key
+                {
                     scope.insert(
                         key_name.to_string(),
                         BindingStorage::Dynamic {
-                            tag_local: key_tag,
-                            payload_local: key_payload,
+                            tag_local: *tag_local,
+                            payload_local: *payload_local,
                         },
                     );
                 }
@@ -12371,11 +12117,13 @@ impl<'a> FunctionBuilder<'a> {
                     target.value_info(),
                     ExprIr::Identifier(target_name.to_string()),
                 );
-                let property_key = match key {
-                    DestructuringPropertyKeyIr::Static(name) => PropertyKeyIr::StaticString(name),
-                    DestructuringPropertyKeyIr::Computed(key) => {
+                let property_key = match &key {
+                    PreparedDestructuringPropertyKey::Static(name) => {
+                        PropertyKeyIr::StaticString((*name).to_string())
+                    }
+                    PreparedDestructuringPropertyKey::Computed { raw_key, .. } => {
                         let raw_key = TypedExpr::from_info(
-                            key.value_info(),
+                            raw_key.value_info(),
                             ExprIr::Identifier(key_name.to_string()),
                         );
                         PropertyKeyIr::StringExpr(Box::new(TypedExpr::spec_to_property_key(
@@ -12388,7 +12136,7 @@ impl<'a> FunctionBuilder<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                     ExprIr::Identifier(value_name.to_string()),
                 );
@@ -12408,24 +12156,25 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 self.emit_propagate_current_completion_if_throw(function);
                 self.pop_scope();
-                if let Some(key_tag) = key_tag {
-                    self.release_temp_local(key_tag);
-                }
-                if let Some(key_payload) = key_payload {
-                    self.release_temp_local(key_payload);
+                match key {
+                    PreparedDestructuringPropertyKey::Static(_) => {}
+                    PreparedDestructuringPropertyKey::Computed {
+                        payload_local,
+                        tag_local,
+                        ..
+                    } => {
+                        self.release_temp_local(tag_local);
+                        self.release_temp_local(payload_local);
+                    }
                 }
                 self.release_temp_local(target_tag);
                 self.release_temp_local(target_payload);
             }
-            DestructuringTargetIr::AssignmentPrivate { .. } => {
-                let PreparedDestructuringTarget::Private {
-                    target_payload,
-                    target_tag,
-                    private_name_id,
-                } = prepared
-                else {
-                    unreachable!("private destructuring target must be prepared")
-                };
+            PreparedDestructuringTarget::Private {
+                target_payload,
+                target_tag,
+                private_name_id,
+            } => {
                 self.emit_private_write_from_locals(
                     target_payload,
                     target_tag,
@@ -12437,13 +12186,13 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(target_tag);
                 self.release_temp_local(target_payload);
             }
-            DestructuringTargetIr::NestedArray(pattern) => {
+            PreparedDestructuringTarget::NestedArray(pattern) => {
                 self.compile_array_destructure_from_value_locals(
                     ValueInfo {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                     value_payload,
                     value_tag,
@@ -12451,7 +12200,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            DestructuringTargetIr::NestedObject(pattern) => {
+            PreparedDestructuringTarget::NestedObject(pattern) => {
                 self.compile_object_destructure_from_value_locals(
                     value_payload,
                     value_tag,
@@ -12532,8 +12281,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_callable_i32(return_tag_local, return_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "IteratorClose return method must be callable",
             self.result_local,
             self.result_tag_local,
@@ -12573,8 +12321,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(result_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "IteratorClose return result must be object",
             self.result_local,
             self.result_tag_local,
@@ -12585,54 +12332,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_exhaust_static_generator_iterator_if_marked(
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            function,
-        )?;
-        Ok(())
-    }
-
-    pub(crate) fn emit_exhaust_static_generator_iterator_if_marked(
-        &mut self,
-        iterator_payload_local: u32,
-        iterator_tag_local: u32,
-        key_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let marker_present_local = self.reserve_temp_local();
-        let marker_payload_local = self.reserve_temp_local();
-        let marker_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(LILA_STATIC_GENERATOR_ITERATOR_SLOT),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_own_data_field_read(
-            iterator_payload_local,
-            iterator_tag_local,
-            key_local,
-            marker_present_local,
-            marker_payload_local,
-            marker_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(marker_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_define_bool_data(
-            iterator_payload_local,
-            "$ArrayIterator.done",
-            true,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(marker_tag_local);
-        self.release_temp_local(marker_payload_local);
-        self.release_temp_local(marker_present_local);
         Ok(())
     }
 

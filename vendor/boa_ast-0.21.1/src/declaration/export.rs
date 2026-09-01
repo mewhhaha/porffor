@@ -9,7 +9,7 @@
 //! [spec]: https://tc39.es/ecma262/#sec-exports
 //! [mdn]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/export
 
-use super::{ModuleRequest, ModuleSpecifier, VarDeclaration};
+use super::{ImportAttribute, ImportPhase, ModuleRequest, ModuleSpecifier, VarDeclaration};
 use crate::{
     Declaration, Expression,
     function::{
@@ -20,6 +20,72 @@ use crate::{
 };
 use boa_interner::Sym;
 use std::ops::ControlFlow;
+
+/// An evaluation-phase module request owned by a re-export.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReExportRequest {
+    request: ModuleRequest,
+}
+
+impl ReExportRequest {
+    /// Creates a re-export request from its phase-free syntax.
+    #[inline]
+    #[must_use]
+    pub fn new(specifier: ModuleSpecifier, attributes: Box<[ImportAttribute]>) -> Self {
+        Self {
+            request: ModuleRequest::with_phase_and_attributes(
+                specifier,
+                ImportPhase::Evaluation,
+                attributes,
+            ),
+        }
+    }
+
+    /// Gets the evaluation-phase module request.
+    #[inline]
+    #[must_use]
+    pub const fn module_request(&self) -> &ModuleRequest {
+        &self.request
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ReExportRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let request = <ModuleRequest as serde::Deserialize>::deserialize(deserializer)?;
+        if request.phase() != ImportPhase::Evaluation {
+            return Err(serde::de::Error::custom(format!(
+                "re-export module request phase must be evaluation, got {:?}",
+                request.phase()
+            )));
+        }
+        Ok(Self::new(
+            request.specifier(),
+            request.attributes().to_vec().into_boxed_slice(),
+        ))
+    }
+}
+
+impl VisitWith for ReExportRequest {
+    fn visit_with<'a, V>(&'a self, visitor: &mut V) -> ControlFlow<V::BreakTy>
+    where
+        V: Visitor<'a>,
+    {
+        self.request.visit_with(visitor)
+    }
+
+    fn visit_with_mut<'a, V>(&'a mut self, visitor: &mut V) -> ControlFlow<V::BreakTy>
+    where
+        V: VisitorMut<'a>,
+    {
+        self.request.visit_with_mut(visitor)
+    }
+}
 
 /// The kind of re-export in an [`ExportDeclaration`].
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -85,8 +151,8 @@ pub enum ExportDeclaration {
     ReExport {
         /// The kind of reexport declared.
         kind: ReExportKind,
-        /// Reexported module specifier.
-        specifier: ModuleSpecifier,
+        /// The requested module.
+        request: ReExportRequest,
     },
     /// List of exports.
     List(Box<[ExportSpecifier]>),
@@ -114,8 +180,8 @@ impl VisitWith for ExportDeclaration {
         V: Visitor<'a>,
     {
         match self {
-            Self::ReExport { specifier, kind } => {
-                visitor.visit_module_specifier(specifier)?;
+            Self::ReExport { request, kind } => {
+                request.visit_with(visitor)?;
                 visitor.visit_re_export_kind(kind)
             }
             Self::List(list) => {
@@ -144,8 +210,8 @@ impl VisitWith for ExportDeclaration {
         V: VisitorMut<'a>,
     {
         match self {
-            Self::ReExport { specifier, kind } => {
-                visitor.visit_module_specifier_mut(specifier)?;
+            Self::ReExport { request, kind } => {
+                request.visit_with_mut(visitor)?;
                 visitor.visit_re_export_kind_mut(kind)
             }
             Self::List(list) => {

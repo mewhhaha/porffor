@@ -47,10 +47,9 @@ obligations are first split apart, which is what
 4. **Absent, Present and Runtime are three states, not two.** `Present` means
    "the field is there and the compiler knows it"; `Runtime` means "presence is
    decided when the program runs". Collapsing them re-creates mistake class M2
-   and M5′. Note the asymmetry that is **not** yet typed: every 10.1.6.3 step-4
-   arm treats `Present` like `Absent`, which is sound only for the internal
-   defines that chose the value as well as the presence. Open ledger row
-   **LN10**.
+   and M5′. `DescriptorCompatibilityPredicate` exhaustively projects those
+   states to `Never`, `Always` and `AtRuntime`, so a known-present field can no
+   longer silently skip 10.1.6.3 compatibility checks.
 5. **`[[Writable]]` is not an attribute in the kind-agnostic sense.** The
    kind-agnostic word builders take `AttributeBit`, whose two inhabitants are
    `[[Enumerable]]` and `[[Configurable]]` — 10.1.6.3 steps 6.b and 7's
@@ -65,12 +64,20 @@ obligations are first split apart, which is what
 
 ## What remains runtime-checked
 
-`LN1`–`LN10` in the full contract, plus the lane's own additions, are recorded in
+The still-open ledger rows in the full contract, plus the lane's own additions, are recorded in
 `target/lane-notes/The Property Descriptor lattice: one closed 6.2.6 type and one derived ValidateAndApplyPropertyDescriptor, replacing a raw u64 bitfield re-derived at eight sites-theory-integration.md`,
 which also carries the per-site retrofit instructions for the files this lane
 does not own.
 
 ## Current retrofit status
+
+The historical LN3 positional adapter is retired. The ordinary-object
+`Object.defineProperty` branches now construct the closed
+`ObjectDefinePropertyDescriptorLocals::{Data, Accessor}` domain and call
+`emit_object_define_entry_validated` directly. Each branch's opposite side is
+unrepresentable, so it uses ordinary `validate()`; the sole Wasm
+`from_runtime_checked()` obligation is the six-field Arguments `callee`
+boundary documented in `object-define-property-descriptor-roles.md`.
 
 The contract's historical LN6 routing is now closed for array named
 properties. `emit_array_define_named_data_descriptor` and
@@ -108,12 +115,17 @@ word without a Rust type error; conversion to the Wasm `i64` encoding occurs
 only where the instruction is emitted.
 
 This does not close T10 or the rest of the ledger. Array application paths and
-remaining arguments/exotic emitters still contain derived word operations, and LN10's
-`Presence::Present` step-4 exemption remains explicit in the ordinary and
-array-named consumers. The full contract's note-routed LN6 text is kept as the
+remaining arguments/exotic emitters still contain derived word operations.
+LN10 is closed: ordinary, Array-index and Array named-property compatibility
+consume the same private `DescriptorCompatibilityPredicate`, and static kind
+changes use its `Always` case. The full contract's note-routed LN6 text is kept as the
 historical design record; its current-state supersession is recorded in the
 appended integration section there. Arguments indexed descriptors are outside
 the Array-index lane, but now consume the same typed descriptor and stored
 compatibility authority through the separate exotic protocol in
 `arguments-index-descriptor-exotic.md`; its focused witnesses are Test262
 15.2.3.7-6-a-279 and 15.2.3.7-6-a-280.
+The LN10 structure target passes `6/6`, its focused CLI witness passes `1/1`,
+and seven selected `Object.defineProperty` leaves pass `14/14`. The following
+683-dump semantic golden passes `2/2` in 676.81 seconds, adds only that witness,
+removes none and preserves all 682 retained non-accounting summaries.

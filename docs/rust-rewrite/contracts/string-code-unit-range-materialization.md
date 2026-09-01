@@ -56,12 +56,12 @@ Realm's `TypeError`, not an entry-global error.
 
 ## Closed local domain
 
-The private `string_code_unit_range` module owns non-`Copy`, `#[must_use]`
-local types for the UTF-16 String length, normalized unit indexes, a range
-length, and the materializable range. Callers provide only the evaluated
-tagged receiver and builtin argument vector. The coordinator itself converts
-the receiver, derives its UTF-16 length, coerces and normalizes the arguments,
-and constructs the range.
+The private `builtins/string/string_code_unit_range.rs` module owns non-`Copy`,
+`#[must_use]` local types for the UTF-16 String length, normalized unit indexes,
+a range length, and the materializable range. Callers provide only the
+evaluated tagged receiver and builtin argument vector. The coordinator itself
+converts the receiver, derives its UTF-16 length, coerces and normalizes the
+arguments, and constructs the range.
 
 Only the materializable range token can reach the final extraction boundary.
 Its consuming materializer calls

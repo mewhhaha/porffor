@@ -152,6 +152,14 @@ into another binding cannot turn the fallback global object into false receiver
 evidence. Reflective and Proxy results likewise omit shapes whenever the
 operation cannot prove an ordinary object layout.
 
+A conditional receiver retains an immutable flattened set of leaf receiver
+facts alongside its merged runtime value. Every possible write invalidates each
+leaf and every shape that reaches it through properties, array elements, boxed
+primitive contents, or a prototype chain. Mutation authority is also derived
+per leaf, so two known ordinary-object alternatives cannot masquerade as an
+unknown global or intrinsic-prototype receiver merely because their distinct
+shapes do not merge.
+
 The RHS is lowered as a conditional transaction. Scopes, `var` bindings,
 current and constructing `this`, globals, prototype guards, accessor ledgers
 and exact caches are joined between the skipped and taken paths. A fact is

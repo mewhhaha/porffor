@@ -53,6 +53,19 @@ identity. The context carries a callable Function prototype by construction; an
 arbitrary `ValueKind` field is not a valid long-term representation of this
 invariant.
 
+Created-realm allocation derives one private
+`RealmFunctionInternalPrototypePolicy` from the function execution kind before
+allocating the function object. Ordinary functions use the created realm's
+Function prototype. Generator, async and async-generator functions fail
+explicitly until their distinct realm-local intrinsic prototypes exist. The
+policy derives no clone, copy, debug, equality or default capability; its four
+producer rows, focused unit observations and allocation gate are exhaustive.
+The structure guard pins the complete source census and keeps the specialized
+error before the allocation call without changing emitted Wasm or error text.
+Independent review is clean after the guard was expanded to exact-normalize the
+complete materializer. The coordinated workspace formatter, `cargo xc`, diff,
+module-boundary, and task-plan checks pass.
+
 `Function`'s own `prototype` data property is the same function value, tagged
 `Function`, with attributes `{ writable: false, enumerable: false,
 configurable: false }`. `%Function.prototype%`'s `constructor` property points
@@ -83,21 +96,29 @@ must not be approximated by this zero-return call body.
 
 ## Focused verification
 
-The 2026-08-21 batch checkpoint verified the compile-enforced seam, the entry
-and created-realm fixtures, the five exact current-pin cases, and the adjacent
-non-constructability boundary:
+The 2026-08-21 batch checkpoint verified the original compile-enforced seam,
+the entry and created-realm fixtures, the five exact current-pin cases, and the
+adjacent non-constructability boundary. The current capability closure used the
+same focused surface:
 
 ```sh
 cargo fmt --all -- --check
 cargo xc
 cargo test -p lila-aot-wasm --test callable_function_prototype_structure --quiet
-cargo test -p lila-aot-wasm realm_function_materialization --quiet
-cargo test -p lila-cli --test cli run_wasm_backend_uses_created_realm_builtin_function_prototypes --quiet
+cargo test -p lila-aot-wasm --test realm_function_internal_prototype_policy_structure --quiet
+cargo test -p lila-aot-wasm --lib functions::realm_function_materialization_tests::specialized_created_realm_function_prototypes_are_explicitly_unsupported -- --exact
+cargo test -p lila-cli --test cli functions::run_wasm_backend_uses_created_realm_builtin_function_prototypes -- --exact --test-threads=1
 ./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/S15.3.3.1_A1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
 ./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
 ./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A2 --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
 ./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A5.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
 ```
+
+The capability structure target passes `3/3`, its exact owner unit passes
+`1/1`, and the positive created-realm CLI fixture passes `1/1`. The adjacent
+callable-prototype structure target currently passes `7/8`; its remaining
+planning-root assertion observes zero occurrences where it expects one and is
+outside the policy declaration, mapping, unit and consumer changed here.
 
 The selected five files passed 10/10 strict and sloppy executions, and `A5`
 passed 2/2. All failure buckets were zero. This focused result does not replace

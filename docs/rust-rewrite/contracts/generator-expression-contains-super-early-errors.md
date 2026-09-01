@@ -61,10 +61,9 @@ No grammar, predicate, check order, accepted source or location behavior
 changes.
 
 After the repair, the unique message occurs once across pinned Boa Rust
-sources. `invalid super usage` drops from four to three raw literals: the fixed
-ScriptBody producer, the generic declaration default used by generator/async
-declarations, and the async-generator-expression producer. The ordinary and
-async function messages remain unique, and the method-owned `invalid super
+sources. Subsequent production-specific lanes leave `invalid super usage` at
+exactly one current-head owner, the fixed ScriptBody producer. All eight typed
+function messages remain unique, and the method-owned `invalid super
 call usage` census remains eleven.
 
 ## Typed and retained boundaries
@@ -75,17 +74,18 @@ The closed front domain and parse table grow from 68 to 69 entries. One
 single-owner assertion, table-wide disjointness and wire-name proofs, and
 `lila-ir`'s no-catch-all rejection-kind match make the addition structural.
 
-Classifier checks keep the prefix distinct from the generic and method-owned
+Classifier checks keep the prefix distinct from the remaining raw and method-owned
 messages and from the separately typed function-expression prefixes. A
 duplicate-export diagnostic containing the complete new prefix remains
 `ModuleDuplicateExport`, proving that user-controlled text cannot forge the
 code.
 
 A real exported initializer failure crosses
-`module_parse_failure_diagnostic`. A real dependency remains
-`ModuleSourceIr::Rejected`, exposes no module requests, and crosses
-`build_graph` with the same code, phase, error type and span. A valid
-parenthesized generator-expression dependency remains a parsed graph node.
+`module_parse_failure_diagnostic`. A real dependency remains a `ModuleSourceIr`
+whose retained parse is `ModuleParse::Rejected`, exposes no module requests,
+and crosses `build_graph` with the same code, phase, error type and span. A
+valid parenthesized generator-expression dependency remains a parsed graph
+node.
 
 ## Permanent behavior and precedence matrix
 
@@ -104,8 +104,9 @@ The parser's existing check order remains observable through typed diagnostics:
 - a Use Strict Directive with non-simple parameters precedes it; and
 - a formal parameter/body lexical declaration conflict precedes it.
 
-Adjacent generator declarations, async/async-generator declarations,
-async-generator expressions, and method producers remain
+AsyncFunctionDeclaration and async-generator-expression sources retain their
+separate typed codes. GeneratorDeclaration also has a separate typed code;
+AsyncGeneratorDeclaration has its own typed code; method producers remain
 `ParseCode::Malformed`.
 
 ## Durable source guard
@@ -118,10 +119,12 @@ The shared super-producer guard recursively requires:
   new message and retained `params_start_position` together;
 - the parameter `Contains YieldExpression` check before complete-node
   construction and the super branch after construction;
-- exactly three remaining generic raw messages, including the declaration
-  default and sole remaining expression producer;
+- exactly one async-generator-expression-specific message on its completed-node
+  `Contains Super` branch;
+- exactly one remaining generic raw message, owned by ScriptBody;
 - the existing ordinary/async function, class and method message censuses;
-- the declaration default/override boundary remains unchanged;
+- the required shared declaration hook plus all four declaration overrides
+  retain their production ownership;
 - ordinary/async-arrow traversal and ordinary callable/nested-class stopping
   behavior in pinned `boa_ast`; and
 - the sole parse/classifier product boundary.

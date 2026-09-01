@@ -82,6 +82,17 @@ as `Split` and `Jump`.
 
 ## Rust invariants
 
+- `OptionalAtomProgress::{MustAdvance, MayRemainAtSameIndex}` is private and
+  derives no cloning, copying or comparison capability. Forward and reverse
+  lowering each classify the atom once, after emitting every required
+  iteration, and consume that classification in the selected finite or
+  unbounded optional branch. A second consuming, by-value observation of the
+  same classification is therefore a Rust move error.
+- The type system cannot prevent borrowing or explicitly recomputing the
+  classification. The focused structure guard consequently forbids those
+  observations by owning the exact two-constructor, four-`MustAdvance`-arm and
+  four-`MayRemainAtSameIndex`-arm census and the complete ordered forward and
+  reverse quantifier bodies.
 - `QuantifierOptionalIterations::{Finite, Unbounded}` is exhaustive; infinity
   is not a sentinel integer.
 - `QuantifierPreference::{Greedy, Lazy}` is exhaustive; preference is not a
@@ -127,3 +138,15 @@ cargo test -p lila-cli --test cli regexp -- --nocapture
 
 The Test262 result is exactly `2/2`; broader RegExp and pinned-matrix
 publication remain later verification steps.
+
+The one-shot `OptionalAtomProgress` ownership hardening is source-equivalent:
+it changes no matcher-program instruction, branch or evaluation order. Its
+dedicated structure executable remains `5/5`, the exact IR unit is `1/1`, and
+the nullable-progress and retained quantifier CLI witnesses are each `1/1`.
+Formatting and scoped diff checks are green. Test262 was not rerun for this
+capability-only follow-up; the earlier exact `2/2` result above remains the
+behavioral record. Independent review confirmed the exact route census and
+both complete quantifier bodies. The coordinated workspace checkpoint passes
+`cargo fmt --all -- --check`, `cargo xc`, `git diff --check`, the
+module-boundary check and the task-plan check; the compile retains the
+repository's existing warnings.

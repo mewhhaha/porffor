@@ -17,6 +17,27 @@ sharding, matrix, resume, journal, comparison, or backlog joins.
 
 `TestExecutionMode` is the only parse-goal/strictness authority:
 
+Discovery first constructs the private, capability-free
+`TestExecutionPlan::{One, SloppyAndStrict}` domain. `One` owns an exact mode;
+`SloppyAndStrict` owns the only two-execution expansion and emits sloppy before
+strict. The plan is consumed once through an exhaustive match, so a future plan
+cannot inherit an empty, one-mode or two-mode fallback. Its flag parser also
+matches all six valid mode combinations explicitly after rejecting conflicting
+strictness flags.
+
+```console
+cargo test -p lila-test262 --test execution_identity_structure
+cargo test -p lila-test262 tests::execution_plan_exhaustively_maps_valid_flags_and_rejects_conflicts -- --exact --test-threads=1
+```
+
+The execution-identity structure target passes `4/4`, and the exact flag-plan
+unit witness passes `1/1`. Independent review confirmed the private capability
+closure, complete ownership census, exact flag bindings and tuple order, all six
+rows and sloppy-before-strict projection. Coordinated workspace verification
+passes `cargo fmt --all -- --check`, `cargo xc`, `git diff --check`, the module
+boundary check and the task-plan check; the compile retains the repository's
+existing warnings.
+
 | Frontmatter flags | execution plan |
 | --- | --- |
 | none of the mode flags | `sloppy-script`, then `strict-script` |
@@ -97,6 +118,36 @@ unknown backend spelling is schema corruption, never stale evidence. Once an
 envelope is accepted, filename/body hash disagreement, recorded-pin manifest
 recomputation failure, and case-evidence corruption are hard integrity errors
 rather than missing work.
+
+### Case-set admission ownership
+
+The private, capability-free
+`CaseSetRequirement::{UniqueSubset, Exact}` authority carries that distinction
+from each snapshot producer into the sole case-evidence validator. The
+validator consumes it once in an exhaustive match that jointly selects exact
+set enforcement and the corresponding `subset` or `exact copy` diagnostic.
+The policy therefore cannot be copied into a second decision, and a future
+variant cannot inherit either admission behavior or wording by default.
+
+Removing the former equality observation reduces the exact ownership census
+from 18 to 17 source mentions and from 14 to 13 production mentions. The 13
+production mentions comprise the declaration, three typed signatures, seven
+constructors and the two exhaustive projection arms. The seven constructors
+are five `Exact` and two `UniqueSubset` rows delivered through six contexts:
+completed shard, completed full run, resume-node identity, periodic resume
+checkpoint, single-case child and completed matrix node. The change preserves
+the existing set comparisons, error text and validation order.
+
+```console
+cargo test -p lila-test262 --test case_set_requirement_structure -- --test-threads=1
+cargo test -p lila-test262 --lib tests::direct_terminal_and_checkpoint_identity_are_exactly_bound -- --exact --test-threads=1
+cargo test -p lila-test262 --lib tests::case_evidence_contract_rejects_nested_failure_timeout_and_slow_id_drift -- --exact --test-threads=1
+```
+
+The focused structure target passes `4/4`, and both exact ownership and
+case-evidence witnesses pass `1/1`. This is a source-equivalent accounting
+invariant; it neither establishes complete aggregate evidence nor advances the
+T26 release gate.
 
 Attempt-journal schema 3 additionally requires unique worker slots, unique
 in-flight execution ids, non-zero strike counts, execution-id wire keys, the

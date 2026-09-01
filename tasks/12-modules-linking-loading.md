@@ -21,8 +21,7 @@ their activation route and obtain the same value from a bare strict call. The
 source-text bridge also carries only closed span-stable edits: erased Unicode
 module syntax cannot move later byte offsets, and an anonymous `export default`
 may be split across lines without losing the original line-terminator sequence.
-Those are foundations rather than completion: attributed re-exports, exact
-module namespace exotic
+Those are foundations rather than completion: exact module namespace exotic
 behavior, lazy dynamic target evaluation, all cyclic/deferred/async evaluation
 cases and the `language/module-code` current-pin closure remain unverified.
 
@@ -165,6 +164,48 @@ sequences within their own span, so this is not a source-column mapping claim.
 The invariant and regression shape live in
 `docs/rust-rewrite/contracts/module-syntax-span-stability.md`.
 
+The replacement admission boundary now also carries its three failure meanings
+as private, non-derived `SpanStableReplacementError` state. Its two invalid-span
+producers, one generated-line-terminator producer and three checked-width
+producers remain in their original order; the default-export rewriter maps all
+three rows exhaustively to the existing diagnostics. A recursive structure
+guard fixes the declaration, 13 source mentions, six producer conditions and
+exact three-row projection, while the existing focused owner unit rejects a
+generated line terminator. The dedicated structure target passes `3/3` and that
+exact owner unit passes `1/1`. Independent review confirmed the capability
+boundary, census, six ordered producers and diagnostic mapping. The coordinated
+workspace checkpoint passes `cargo fmt --all -- --check`, `cargo xc`,
+`git diff --check`, the module boundary check and the task-plan check; the
+compile retains the repository's existing warnings. This is a source-equivalent
+capability closure: it changes no module syntax, edit bytes, diagnostic text or
+emitted Wasm. The invariant lives in
+`docs/rust-rewrite/contracts/span-stable-replacement-error.md`.
+
+The source scanner's slash context is also closed as private
+`SlashMeaning::{Divide, Regexp}` state. Line and block comments remain ordered
+before one borrowed exhaustive slash dispatch: regexp context consumes the
+literal and enters divide context, while divide context consumes only the
+operator and reopens expression context. The exact nine divide-context and ten
+regexp-context producers and both transitions are pinned in structure, with
+owner regressions for regexp and division spellings plus line and block
+comments in both contexts. The guard also fixes every producer mapping,
+comment-state preservation and the module scanner's exact 23-mention domain
+beside the dynamic-source scanner's separate 18 mentions. Its three structure
+checks and all four focused owner units pass, and independent dry review is
+clean. The invariant lives in
+`docs/rust-rewrite/contracts/module-source-slash-meaning.md`.
+
+Dynamic-import component identity now has one construction authority.
+`DynamicComponentIr` keeps its target key, phaseful request, referrer and target
+fields private, and graph discovery constructs the only complete row from one
+host-resolution decision. `ModuleGraphIr` keeps the resulting vector private
+and exposes a read-only component slice, so callers cannot splice a request or
+target from another graph into an already-linked artifact. Named accessors
+preserve public inspection without reopening mutation. The invariant is
+recorded in
+`docs/rust-rewrite/contracts/dynamic-component-authority.md`; lazy target
+evaluation and real namespace exotic objects remain open.
+
 Dynamic-import targets are compiled into the same artifact, not separate Wasm
 modules, and dispatch through the artifact's generated dynamic-import registry.
 Target-body evaluation is not fully lazy yet: `StatementIr::ModuleUnitOnce` and
@@ -215,6 +256,39 @@ attributes, so attributed dynamic requests are retained and rejected honestly;
 embedders that implement a module type can resolve the same typed requests
 without changing compiler IR.
 
+At 2026-08-25, dynamic-import call-site rewriting no longer carries the
+module-local versus Script-entry-exported dispatcher choice as a Boolean.
+`DynamicImportDispatcherReference` is the private, non-`Clone`, non-`Copy`
+two-variant domain. Its six lexical mentions are the declaration, owned
+parameter, two producers and two consumer arms; the two public rewriters pin
+its variants and `rewrite_calls` has one exhaustive consuming projection. The
+strengthened lexical structure target records that complete ownership boundary
+and full rewrite-body fingerprint; it passes `4/4`. The exact module-local and
+Script-entry-export rewrite units each pass `1/1`. The original checkpoint's
+linker desugaring witness, workspace, golden and repository policy gates remain
+the wider semantic baseline; this derive-only follow-up is source-equivalent and
+adds no ABI, runtime-root or helper-count delta. A broader pinned Test262 module
+run was not rerun.
+
+The dynamic-import scanner's slash context is now the private, non-derived
+`SlashMeaning::{Divide, Regexp}` domain. Line and block comments remain ordered
+before one borrowed exhaustive dispatch: regexp context consumes the literal
+and enters divide context, while divide context consumes only the operator and
+reopens expression context. The structure boundary fixes the exact 20 owner
+mentions, nine divide-context and seven regexp-context producers, every mapping,
+both transitions and the separate module-source scanner census. The focused
+contract and evidence live in
+`docs/rust-rewrite/contracts/dynamic-import-slash-meaning.md`. This is a
+source-equivalent scanner invariant; it changes no rewritten source, module
+resolution, job order or emitted Wasm. The dedicated and neighboring structure
+targets pass `3/3` each, and the three existing focused module units plus the added
+division/rewrite witness pass `1/1` each. Scoped formatting, diff and task-plan
+checks are green. Independent review confirmed the complete scanner-body and
+lexical-state census. The coordinated workspace checkpoint passes
+`cargo fmt --all -- --check`, `cargo xc`, `git diff --check`, the module
+boundary check and the task-plan check; the compile retains the repository's
+existing warnings. Broader Test262 module verification was not rerun.
+
 ### Canonical request identity
 
 Module request attributes cross graph and host boundaries only as
@@ -238,11 +312,48 @@ last-write winner.
 The contract and public embedder regressions live in
 `docs/rust-rewrite/contracts/module-request-identity.md`.
 
-Boa 0.21.1 drops import attributes from re-export AST nodes, so attributed
-re-exports are still recorded as attribute-free requests. This seam does not
-claim support for them. It also does not add attribute support to the default
-filesystem host, which continues to reject attributed requests until their
-module type is implemented.
+### Module-entry source authority
+
+The entry source choice is now the closed `ModuleEntry` domain. `HostLoad`
+requires the host loader to provide the entry, while `InMemory` carries the
+exact embedder source beside the locator used for canonical identity and
+relative dependency resolution. The already-parsed module and Script
+handoffs accept only `entry_locator: &str` plus their typed parse product, so
+an in-memory override cannot coexist there and be silently ignored. The
+invariant and focused evidence live in
+`docs/rust-rewrite/contracts/module-entry-source-authority.md`.
+At 2026-08-27, the dedicated structure target passes `4/4`, the exact host and
+in-memory behavior witnesses pass `1/1` each, the focused module-loader set
+passes `14/14`, and `cargo check -p lila-engine` passes with the repository's
+existing warnings. Scoped Rust formatting and diff checks are green; the wider
+Test262 module suite was not rerun for this source-authority-only boundary.
+
+Attributed re-export requests retain their full typed request from the Boa AST
+through both Lila module-record passes. The public AST variant carries the
+private-field `ReExportRequest`, whose sole constructor accepts only a
+specifier and attributes and constructs an evaluation-phase `ModuleRequest`;
+custom deserialization rejects other phases. Imports and re-exports share one
+attribute parser, while the export parser has no phase parameter. Star,
+namespace and named forms preserve the exact attributes in requested modules
+and export entries. Canonical ordering lets an attributed import and re-export
+deduplicate by one request key, and an in-memory graph witness makes the
+host-resolution row's attributes load-bearing. The structural and semantic
+evidence lives in `docs/rust-rewrite/contracts/module-request-identity.md`.
+Boa's pre-existing attribute-order-sensitive `ModuleRequest` equality remains
+unchanged; Lila's canonical IR boundary is the ordering authority. The
+implementation and cheap static checks were completed on 2026-09-01. Product-path
+`cargo check -p lila-ir --lib` is green, as is a disposable external crate
+compiling the vendored `boa_ast` path with `serde` and `arbitrary` enabled; the
+repository-root `cargo check -p boa_ast` form is invalid because that vendored
+crate is not a workspace member. The full `lila-front` suite passes `152/152`,
+its duplicate-attribute focus passes `3/3`, the attributed record and graph
+witnesses pass `2/2`, and the surrounding record and graph groups pass `31/31`
+and `56/56`. The new structure target passes `4/4`; its six adjacent targets
+pass `20/20`. The exact export duplicate-key Test262 case passes `1/1`.
+Formatting, diff, module-boundary, task-plan and scoped source-audit gates are
+green. The default filesystem host still rejects attributed requests, and no
+positive attributed-module execution or broad attribute-directory result is
+claimed.
 
 ## Acceptance criteria
 

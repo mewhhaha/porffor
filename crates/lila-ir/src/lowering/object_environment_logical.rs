@@ -37,7 +37,6 @@ impl LocatedIdentifierLogicalAssignment {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LogicalAssignmentReachability {
     Definite,
     WithEnvironmentFallback,
@@ -66,8 +65,9 @@ impl<'a> ScriptLowerer<'a> {
         op: LogicalBinaryOp,
         rhs: TypedExpr,
     ) -> TypedExpr {
+        self.record_caller_flow_invalidation();
         if let Some(info) = self.global_properties.get_mut(&name) {
-            info.value_info = unknown_runtime_value_info();
+            info.value_info.widen_for_possible_replacement();
             info.proven_present = false;
         }
         let strictness = self.reference_strictness();
@@ -106,18 +106,22 @@ impl<'a> ScriptLowerer<'a> {
         let script_global_binding =
             self.is_script_global_var_name(&name) && !self.has_scope_binding(&name);
         let global_binding = binding.is_none() || script_global_binding;
-        if global_binding && reachability == LogicalAssignmentReachability::WithEnvironmentFallback
-        {
-            if let Some(binding) = &binding {
-                self.set_binding_value_info(&name, unknown_runtime_value_info());
-                debug_assert_eq!(binding.mode, BindingMode::Var);
+        if global_binding {
+            match &reachability {
+                LogicalAssignmentReachability::Definite => {}
+                LogicalAssignmentReachability::WithEnvironmentFallback => {
+                    if let Some(binding) = &binding {
+                        self.widen_binding_for_possible_replacement(&name);
+                        debug_assert_eq!(binding.mode, BindingMode::Var);
+                    }
+                    return self.lower_global_object_environment_logical_assignment(name, op, rhs);
+                }
             }
-            return self.lower_global_object_environment_logical_assignment(name, op, rhs);
         }
 
         let (lhs, write) = if !global_binding {
             let binding = binding.expect("a non-global located Reference must own a binding");
-            let lhs_info = match reachability {
+            let lhs_info = match &reachability {
                 LogicalAssignmentReachability::Definite => ValueInfo {
                     kind: binding.kind,
                     possible_kinds: binding.possible_kinds,
@@ -125,7 +129,14 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: binding.function_targets.clone(),
                 },
                 LogicalAssignmentReachability::WithEnvironmentFallback => {
-                    unknown_runtime_value_info()
+                    let mut value = ValueInfo {
+                        kind: binding.kind,
+                        possible_kinds: binding.possible_kinds,
+                        heap_shape: binding.heap_shape.clone(),
+                        function_targets: binding.function_targets.clone(),
+                    };
+                    value.widen_for_possible_replacement();
+                    value
                 }
             };
             let lhs =
@@ -133,12 +144,14 @@ impl<'a> ScriptLowerer<'a> {
             let write = if binding.mode == BindingMode::Const {
                 self.immutable_binding_write(&binding.storage_name, rhs)
             } else {
-                let result_info = match reachability {
+                let result_info = match &reachability {
                     LogicalAssignmentReachability::Definite => {
                         self.merge_value_infos(lhs.value_info(), rhs.value_info())
                     }
                     LogicalAssignmentReachability::WithEnvironmentFallback => {
-                        unknown_runtime_value_info()
+                        let mut value = self.merge_value_infos(lhs.value_info(), rhs.value_info());
+                        value.widen_for_possible_replacement();
+                        value
                     }
                 };
                 self.set_binding_value_info(&name, result_info);
@@ -171,7 +184,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.set_binding_value_info(&name, result_info.clone());
             }
             if let Some(info) = self.global_properties.get_mut(&name) {
-                info.value_info = unknown_runtime_value_info();
+                info.value_info.widen_for_possible_replacement();
                 info.proven_present = false;
             }
             let strictness = self.reference_strictness();
@@ -187,11 +200,15 @@ impl<'a> ScriptLowerer<'a> {
             (lhs, write)
         };
 
-        let result_info = match reachability {
+        let result_info = match &reachability {
             LogicalAssignmentReachability::Definite => {
                 self.merge_value_infos(lhs.value_info(), write.value_info())
             }
-            LogicalAssignmentReachability::WithEnvironmentFallback => unknown_runtime_value_info(),
+            LogicalAssignmentReachability::WithEnvironmentFallback => {
+                let mut value = self.merge_value_infos(lhs.value_info(), write.value_info());
+                value.widen_for_possible_replacement();
+                value
+            }
         };
         TypedExpr::from_info(
             result_info,

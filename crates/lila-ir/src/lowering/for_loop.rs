@@ -120,10 +120,12 @@ impl<'a> ScriptLowerer<'a> {
         }
         let after_init_vars = self.var_bindings.clone();
         let after_init_globals = self.global_properties.clone();
+        self.loop_depth += 1;
         let test = for_loop.condition().map(|expr| self.lower_expression(expr));
         let update = for_loop
             .final_expr()
             .map(|expr| self.lower_expression(expr));
+        self.loop_depth -= 1;
         let (body, body_kind) = self.lower_loop_body(for_loop.body());
         if let Some(pending) = pending_async_disposable_init {
             init = Some(ForInitIr::AsyncDisposable(

@@ -1,6 +1,151 @@
 use super::super::*;
-use crate::functions::{ErrorMessageConstructorKind, NonArrayRealmIntrinsicSlot};
+use super::atomics::ATOMICS_PUBLICATION_ORDER;
+use crate::functions::{
+    ErrorMessageConstructorKind, NonArrayRealmIntrinsicSlot, RealmFunctionMaterializationContext,
+    RealmRecordLocal,
+};
+use crate::intrinsics::promise::{
+    PROMISE_PROTOTYPE_METHOD_PUBLICATIONS, PROMISE_STATIC_METHOD_PUBLICATIONS,
+};
+use crate::objects::{
+    AccessorDescriptorLocals, AccessorGetterLocals, AccessorSetterLocals, TaggedLocals,
+};
+use lila_ir::{
+    FINALIZATION_REGISTRY_NAME, REALM_EVAL_SCRIPT_METHOD_NAME, WEAK_MAP_NAME, WEAK_REF_NAME,
+    WEAK_SET_NAME,
+};
 use lila_runtime::AgentHostOperation;
+
+mod created_realm_finalization_registry_intrinsics;
+mod created_realm_iterator_next;
+mod created_realm_weak_collection_intrinsics;
+mod created_realm_weak_ref_intrinsics;
+mod html_dda;
+
+use created_realm_iterator_next::{
+    CreatedRealmIteratorNextPublicationContext, CreatedRealmIteratorNextTarget,
+};
+
+enum CreatedRealmDataViewPropertyKind {
+    Accessor,
+    Method,
+}
+
+enum CreatedRealmDataViewPrototypePublication {
+    Callable {
+        builtin: StandardBuiltinId,
+        property_kind: CreatedRealmDataViewPropertyKind,
+    },
+    ToStringTag,
+}
+
+use CreatedRealmDataViewPropertyKind::{Accessor, Method};
+use CreatedRealmDataViewPrototypePublication::{Callable, ToStringTag};
+
+const CREATED_REALM_DATA_VIEW_PROTOTYPE_PUBLICATIONS: [CreatedRealmDataViewPrototypePublication;
+    26] = [
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeBufferGetter,
+        property_kind: Accessor,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeByteLengthGetter,
+        property_kind: Accessor,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeByteOffsetGetter,
+        property_kind: Accessor,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetUint8,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetUint8,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetInt8,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetInt8,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetUint16,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetUint16,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetInt16,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetInt16,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetUint32,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetUint32,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetInt32,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetInt32,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetFloat16,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetFloat16,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetFloat32,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetFloat32,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetFloat64,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetFloat64,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetBigInt64,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetBigInt64,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeGetBigUint64,
+        property_kind: Method,
+    },
+    Callable {
+        builtin: StandardBuiltinId::DataViewPrototypeSetBigUint64,
+        property_kind: Method,
+    },
+    ToStringTag,
+];
 
 fn created_realm_string_prototype_method_aliases(name: &str) -> &'static [&'static str] {
     match name {
@@ -979,58 +1124,6 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(arg_tag_local);
         self.release_temp_local(arg_payload_local);
-        Ok(())
-    }
-
-    /// Mint the `$262.IsHTMLDDA` exotic object (B.3.6 The [[IsHTMLDDA]]
-    /// Internal Slot).
-    ///
-    /// The returned value is an ordinary-looking function object whose flags
-    /// word carries `FUNCTION_FLAG_IS_HTMLDDA`; that flag is what
-    /// `emit_is_htmldda_function_i32` reads for the ToBoolean (B.3.6.1),
-    /// `typeof` (B.3.6.2) and IsLooselyEqual (B.3.6.3) overrides.
-    /// `emit_function_value_payload` also skips creating the `prototype` own
-    /// property for this meta, so `Object.defineProperty(obj, "prototype", ...)`
-    /// in `superclass-emulates-undefined.js` sees no pre-existing
-    /// non-configurable property.
-    pub(crate) fn compile_host_create_html_dda_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let html_dda_meta = self
-            .functions
-            .get(&HostBuiltinId::HTMLDDA.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing HTMLDDA host callable",
-                )
-            })?;
-        // The annexB tests install own properties on this object
-        // (`prototype`, `@@matchAll`, `@@replace`, `@@search`), so it has to be
-        // extensible. `emit_function_value_payload` zeroes `HEAP_CAP_OFFSET`
-        // — the very slot `emit_ordinary_is_extensible_i32` reads — whenever
-        // `length_name_configurable` is false, so the host-builtin meta must
-        // keep it true.
-        debug_assert!(
-            html_dda_meta.length_name_configurable,
-            "HTMLDDA host callable must stay extensible for Object.defineProperty",
-        );
-        self.emit_function_value_payload(&html_dda_meta, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        Ok(())
-    }
-
-    pub(crate) fn compile_host_html_dda_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
         Ok(())
     }
 
@@ -2389,6 +2482,17 @@ impl<'a> FunctionBuilder<'a> {
         ];
         let typed_array_method_metas = [
             (
+                "at",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeAt.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.at`",
+                        )
+                    })?,
+            ),
+            (
                 "includes",
                 self.functions
                     .get(&StandardBuiltinId::TypedArrayPrototypeIncludes.function_id())
@@ -2576,13 +2680,13 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
             (
-                "slice",
+                "fill",
                 self.functions
-                    .get(&StandardBuiltinId::TypedArrayPrototypeSlice.function_id())
+                    .get(&StandardBuiltinId::ArrayPrototypeFill.function_id())
                     .cloned()
                     .ok_or_else(|| {
                         EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.slice`",
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.fill`",
                         )
                     })?,
             ),
@@ -2609,6 +2713,94 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
             (
+                "slice",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeSlice.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.slice`",
+                        )
+                    })?,
+            ),
+            (
+                "set",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeSet.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.set`",
+                        )
+                    })?,
+            ),
+            (
+                "reverse",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeReverse.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.reverse`",
+                        )
+                    })?,
+            ),
+            (
+                "copyWithin",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeCopyWithin.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.copyWithin`",
+                        )
+                    })?,
+            ),
+            (
+                "sort",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeSort.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.sort`",
+                        )
+                    })?,
+            ),
+            (
+                "toReversed",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeToReversed.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.toReversed`",
+                        )
+                    })?,
+            ),
+            (
+                "toSorted",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeToSorted.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.toSorted`",
+                        )
+                    })?,
+            ),
+            (
+                "with",
+                self.functions
+                    .get(&StandardBuiltinId::TypedArrayPrototypeWith.function_id())
+                    .cloned()
+                    .ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.with`",
+                        )
+                    })?,
+            ),
+            (
                 "toLocaleString",
                 self.functions
                     .get(&StandardBuiltinId::TypedArrayPrototypeToLocaleString.function_id())
@@ -2620,6 +2812,15 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
         ];
+        let array_typed_array_to_string_meta = self
+            .functions
+            .get(&StandardBuiltinId::TypedArrayPrototypeToString.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Array.prototype.toString`",
+                )
+            })?;
         let number_meta = self
             .functions
             .get(&StandardBuiltinId::NumberConstructor.function_id())
@@ -3253,6 +3454,24 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `DataView`",
                 )
             })?;
+        let promise_meta = self
+            .functions
+            .get(&StandardBuiltinId::PromiseConstructor.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Promise`",
+                )
+            })?;
+        let promise_species_meta = self
+            .functions
+            .get(&StandardBuiltinId::PromiseSpeciesGetter.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Promise[Symbol.species]`",
+                )
+            })?;
         let aggregate_error_meta = self
             .functions
             .get(&StandardBuiltinId::AggregateErrorConstructor.function_id())
@@ -3413,15 +3632,6 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Map.prototype.entries`",
                 )
             })?;
-        let map_iterator_next_meta = self
-            .functions
-            .get(&StandardBuiltinId::MapIteratorNext.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Map Iterator.prototype.next`",
-                )
-            })?;
         let map_size_getter_meta = self
             .functions
             .get(&StandardBuiltinId::MapPrototypeSizeGetter.function_id())
@@ -3490,15 +3700,6 @@ impl<'a> FunctionBuilder<'a> {
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Set.prototype.entries`",
-                )
-            })?;
-        let set_iterator_next_meta = self
-            .functions
-            .get(&StandardBuiltinId::SetIteratorNext.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Set Iterator.prototype.next`",
                 )
             })?;
         let set_size_getter_meta = self
@@ -3803,15 +4004,6 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Error.isError`",
                 )
             })?;
-        let array_iterator_next_meta = self
-            .functions
-            .get(&StandardBuiltinId::ArrayIteratorNext.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Array Iterator.prototype.next`",
-                )
-            })?;
         let array_iterator_identity_meta = self
             .functions
             .get(&StandardBuiltinId::ArrayIteratorIdentity.function_id())
@@ -3819,15 +4011,6 @@ impl<'a> FunctionBuilder<'a> {
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Array Iterator.prototype[Symbol.iterator]`",
-                )
-            })?;
-        let string_iterator_next_meta = self
-            .functions
-            .get(&StandardBuiltinId::StringIteratorNext.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `String Iterator.prototype.next`",
                 )
             })?;
         let typed_array_buffer_getter_meta = self
@@ -3848,12 +4031,23 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `get TypedArray.prototype[Symbol.toStringTag]`",
                 )
             })?;
+        let realm_eval_script_meta = self
+            .functions
+            .get(&HostBuiltinId::RealmEvalScript.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `realm.evalScript`",
+                )
+            })?;
         let realm_local = self.reserve_temp_local();
         let realm_record_local = self.reserve_temp_local();
+        let realm_eval_script_local = self.reserve_temp_local();
         let global_local = self.reserve_temp_local();
         let reflect_object_local = self.reserve_temp_local();
         let math_object_local = self.reserve_temp_local();
         let json_object_local = self.reserve_temp_local();
+        let atomics_object_local = self.reserve_temp_local();
         let object_prototype_local = self.reserve_temp_local();
         let iterator_prototype_local = self.reserve_temp_local();
         let iterator_helper_prototype_local = self.reserve_temp_local();
@@ -3886,6 +4080,7 @@ impl<'a> FunctionBuilder<'a> {
         let set_prototype_local = self.reserve_temp_local();
         let regexp_prototype_local = self.reserve_temp_local();
         let date_prototype_local = self.reserve_temp_local();
+        let promise_prototype_local = self.reserve_temp_local();
         let function_constructor_local = self.reserve_temp_local();
         let object_constructor_local = self.reserve_temp_local();
         let iterator_constructor_local = self.reserve_temp_local();
@@ -3906,6 +4101,7 @@ impl<'a> FunctionBuilder<'a> {
         let set_constructor_local = self.reserve_temp_local();
         let regexp_constructor_local = self.reserve_temp_local();
         let date_constructor_local = self.reserve_temp_local();
+        let promise_constructor_local = self.reserve_temp_local();
         let error_constructor_locals =
             ErrorMessageConstructorKind::ALL.map(|_| self.reserve_temp_local());
         let mut typed_array_prototype_locals = Vec::new();
@@ -3946,6 +4142,7 @@ impl<'a> FunctionBuilder<'a> {
             object_prototype_local,
             function,
         )?;
+        self.emit_store_realm_function_prototype(&realm_functions, function);
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(iterator_prototype_local));
         self.emit_alloc_plain_object_with_prototype(
@@ -4006,6 +4203,14 @@ impl<'a> FunctionBuilder<'a> {
             realm_record_local,
             NonArrayRealmIntrinsicSlot::SetPrototype,
             set_prototype_local,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
+        function.instruction(&Instruction::LocalSet(promise_prototype_local));
+        self.emit_store_non_array_realm_intrinsic(
+            realm_record_local,
+            NonArrayRealmIntrinsicSlot::PromisePrototype,
+            promise_prototype_local,
             function,
         );
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
@@ -4267,6 +4472,48 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.release_temp_local(method_payload_local);
         }
+        let array_typed_array_to_string_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload_in_realm(
+            &array_typed_array_to_string_meta,
+            &realm_functions,
+            array_typed_array_to_string_payload_local,
+            function,
+        )?;
+        self.store_i64_local_at_offset(
+            array_typed_array_to_string_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            array_typed_array_to_string_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            array_typed_array_to_string_payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_define_realm_array_prototype_data_with_flags(
+            &array_prototype,
+            "toString",
+            array_typed_array_to_string_payload_local,
+            tag_local,
+            true,
+            false,
+            true,
+            function,
+        )?;
+        self.emit_object_define_local_data_with_flags(
+            typed_array_prototype_local,
+            "toString",
+            array_typed_array_to_string_payload_local,
+            tag_local,
+            true,
+            false,
+            true,
+            function,
+        )?;
+        self.release_temp_local(array_typed_array_to_string_payload_local);
         for (name, meta) in &object_prototype_method_metas {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(
@@ -4398,8 +4645,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_accessor(
             map_prototype_local,
             map_size_key_local,
-            Some((map_size_getter_payload_local, tag_local)),
-            None,
+            AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                map_size_getter_payload_local,
+                tag_local,
+            ))),
             function,
         )?;
         self.release_temp_local(map_size_getter_payload_local);
@@ -4504,8 +4753,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_accessor(
             set_prototype_local,
             set_size_key_local,
-            Some((set_size_getter_payload_local, tag_local)),
-            None,
+            AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                set_size_getter_payload_local,
+                tag_local,
+            ))),
             function,
         )?;
         self.release_temp_local(set_size_getter_payload_local);
@@ -4578,8 +4829,10 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_object_define_accessor(
                 regexp_prototype_local,
                 key_local,
-                Some((getter_payload_local, getter_tag_local)),
-                None,
+                AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                    getter_payload_local,
+                    getter_tag_local,
+                ))),
                 function,
             )?;
             self.release_temp_local(getter_tag_local);
@@ -4751,6 +5004,12 @@ impl<'a> FunctionBuilder<'a> {
                 type_error_prototype_local,
                 function,
             );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                range_error_prototype_local,
+                function,
+            );
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
             self.emit_object_define_local_data(
@@ -4798,8 +5057,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_accessor(
             typed_array_prototype_local,
             typed_array_buffer_key_local,
-            Some((typed_array_buffer_getter_payload_local, tag_local)),
-            None,
+            AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                typed_array_buffer_getter_payload_local,
+                tag_local,
+            ))),
             function,
         )?;
         self.release_temp_local(typed_array_buffer_getter_payload_local);
@@ -4829,8 +5090,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_accessor(
             typed_array_prototype_local,
             typed_array_to_string_tag_key_local,
-            Some((typed_array_to_string_tag_getter_payload_local, tag_local)),
-            None,
+            AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                typed_array_to_string_tag_getter_payload_local,
+                tag_local,
+            ))),
             function,
         )?;
         self.release_temp_local(typed_array_to_string_tag_getter_payload_local);
@@ -5191,6 +5454,287 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(method_payload_local);
         }
 
+        self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
+        function.instruction(&Instruction::LocalSet(atomics_object_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload(ATOMICS_NAME)));
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data_with_flags(
+            atomics_object_local,
+            "Symbol.toStringTag",
+            value_payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        for builtin in ATOMICS_PUBLICATION_ORDER {
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            let property_name = builtin.native_function_name().ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot first slice: missing native name for `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload_in_realm(
+                &meta,
+                &realm_functions,
+                method_payload_local,
+                function,
+            )?;
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                range_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_local_data(
+                atomics_object_local,
+                property_name,
+                method_payload_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+
+        self.emit_function_value_payload_in_realm(
+            &promise_meta,
+            &realm_functions,
+            promise_constructor_local,
+            function,
+        )?;
+        self.store_i64_local_at_offset(
+            promise_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            promise_constructor_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            promise_constructor_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            promise_constructor_local,
+            HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+            range_error_prototype_local,
+            function,
+        );
+        self.emit_set_function_prototype_data_with_flags(
+            promise_constructor_local,
+            promise_prototype_local,
+            false,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        self.emit_store_non_array_realm_intrinsic(
+            realm_record_local,
+            NonArrayRealmIntrinsicSlot::PromiseConstructor,
+            promise_constructor_local,
+            function,
+        );
+
+        for builtin in PROMISE_PROTOTYPE_METHOD_PUBLICATIONS {
+            let property_name = builtin.native_function_name().ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot first slice: missing native name for `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload_in_realm(
+                &meta,
+                &realm_functions,
+                method_payload_local,
+                function,
+            )?;
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                range_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_local_data(
+                promise_prototype_local,
+                property_name,
+                method_payload_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+        function.instruction(&Instruction::I64Const(self.strings.payload(PROMISE_NAME)));
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data_with_flags(
+            promise_prototype_local,
+            "Symbol.toStringTag",
+            value_payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+
+        for builtin in PROMISE_STATIC_METHOD_PUBLICATIONS {
+            let property_name = builtin.native_function_name().ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot first slice: missing native name for `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            let method_payload_local = self.reserve_temp_local();
+            self.emit_function_value_payload_in_realm(
+                &meta,
+                &realm_functions,
+                method_payload_local,
+                function,
+            )?;
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+                aggregate_error_prototype_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                range_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_local_data(
+                promise_constructor_local,
+                property_name,
+                method_payload_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_payload_local);
+        }
+        let promise_species_key_local = self.reserve_temp_local();
+        let promise_species_getter_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings.property_key_symbol_payload("Symbol.species"),
+        ));
+        function.instruction(&Instruction::LocalSet(promise_species_key_local));
+        self.emit_function_value_payload_in_realm(
+            &promise_species_meta,
+            &realm_functions,
+            promise_species_getter_local,
+            function,
+        )?;
+        self.store_i64_local_at_offset(
+            promise_species_getter_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            promise_species_getter_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            promise_species_getter_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            promise_species_getter_local,
+            HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+            range_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_accessor(
+            promise_constructor_local,
+            promise_species_key_local,
+            AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                promise_species_getter_local,
+                tag_local,
+            ))),
+            function,
+        )?;
+        self.release_temp_local(promise_species_getter_local);
+        self.release_temp_local(promise_species_key_local);
+
         self.emit_function_value_payload_in_realm(
             &iterator_meta,
             &realm_functions,
@@ -5543,8 +6087,16 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_accessor(
             iterator_prototype_local,
             iterator_accessor_key_local,
-            Some((iterator_getter_payload_local, iterator_getter_tag_local)),
-            Some((iterator_setter_payload_local, iterator_setter_tag_local)),
+            AccessorDescriptorLocals::GetterAndSetter {
+                getter: AccessorGetterLocals::new(TaggedLocals::new(
+                    iterator_getter_payload_local,
+                    iterator_getter_tag_local,
+                )),
+                setter: AccessorSetterLocals::new(TaggedLocals::new(
+                    iterator_setter_payload_local,
+                    iterator_setter_tag_local,
+                )),
+            },
             function,
         )?;
 
@@ -5624,8 +6176,16 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_accessor(
             iterator_prototype_local,
             iterator_accessor_key_local,
-            Some((iterator_getter_payload_local, iterator_getter_tag_local)),
-            Some((iterator_setter_payload_local, iterator_setter_tag_local)),
+            AccessorDescriptorLocals::GetterAndSetter {
+                getter: AccessorGetterLocals::new(TaggedLocals::new(
+                    iterator_getter_payload_local,
+                    iterator_getter_tag_local,
+                )),
+                setter: AccessorSetterLocals::new(TaggedLocals::new(
+                    iterator_setter_payload_local,
+                    iterator_setter_tag_local,
+                )),
+            },
             function,
         )?;
 
@@ -5706,122 +6266,100 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_accessor(
             array_constructor_local,
             species_key_local,
-            Some((species_getter_payload_local, species_getter_tag_local)),
-            None,
+            AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                species_getter_payload_local,
+                species_getter_tag_local,
+            ))),
             function,
         )?;
         self.release_temp_local(species_getter_tag_local);
         self.release_temp_local(species_getter_payload_local);
         self.release_temp_local(species_key_local);
-        for (name, meta) in [
-            ("next", &array_iterator_next_meta),
-            ("Symbol.iterator", &array_iterator_identity_meta),
-        ] {
-            let method_payload_local = self.reserve_temp_local();
-            self.emit_function_value_payload_in_realm(
-                meta,
-                &realm_functions,
-                method_payload_local,
-                function,
-            )?;
-            self.store_i64_local_at_offset(
-                method_payload_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                method_payload_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                method_payload_local,
-                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-                type_error_prototype_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            self.emit_object_define_local_data(
-                array_iterator_prototype_local,
-                name,
-                method_payload_local,
-                tag_local,
-                function,
-            )?;
-            self.release_temp_local(method_payload_local);
-        }
+        let iterator_next_publication_context = CreatedRealmIteratorNextPublicationContext::new(
+            &realm_functions,
+            type_error_prototype_local,
+            array_iterator_prototype_local,
+            string_iterator_prototype_local,
+            map_iterator_prototype_local,
+            set_iterator_prototype_local,
+        );
+        let array_iterator_next = self.emit_materialize_created_realm_iterator_next(
+            CreatedRealmIteratorNextTarget::Array,
+            &iterator_next_publication_context,
+            function,
+        )?;
+        self.emit_publish_created_realm_iterator_next(array_iterator_next, function)?;
+        let array_iterator_identity_payload_local = self.reserve_temp_local();
+        self.emit_function_value_payload_in_realm(
+            &array_iterator_identity_meta,
+            &realm_functions,
+            array_iterator_identity_payload_local,
+            function,
+        )?;
+        self.store_i64_local_at_offset(
+            array_iterator_identity_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            array_iterator_identity_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            array_iterator_identity_payload_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(
+            array_iterator_prototype_local,
+            "Symbol.iterator",
+            array_iterator_identity_payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(array_iterator_identity_payload_local);
         self.emit_object_define_string_data(
             array_iterator_prototype_local,
             "Symbol.toStringTag",
             "Array Iterator",
             function,
         )?;
-        let string_iterator_next_payload_local = self.reserve_temp_local();
-        self.emit_function_value_payload_in_realm(
-            &string_iterator_next_meta,
-            &realm_functions,
-            string_iterator_next_payload_local,
+        let string_iterator_next = self.emit_materialize_created_realm_iterator_next(
+            CreatedRealmIteratorNextTarget::String,
+            &iterator_next_publication_context,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_local_data(
-            string_iterator_prototype_local,
-            "next",
-            string_iterator_next_payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_publish_created_realm_iterator_next(string_iterator_next, function)?;
         self.emit_object_define_string_data(
             string_iterator_prototype_local,
             "Symbol.toStringTag",
             "String Iterator",
             function,
         )?;
-        self.release_temp_local(string_iterator_next_payload_local);
-        let map_iterator_next_payload_local = self.reserve_temp_local();
-        self.emit_function_value_payload_in_realm(
-            &map_iterator_next_meta,
-            &realm_functions,
-            map_iterator_next_payload_local,
+        let map_iterator_next = self.emit_materialize_created_realm_iterator_next(
+            CreatedRealmIteratorNextTarget::Map,
+            &iterator_next_publication_context,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_local_data(
-            map_iterator_prototype_local,
-            "next",
-            map_iterator_next_payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_publish_created_realm_iterator_next(map_iterator_next, function)?;
         self.emit_object_define_string_data(
             map_iterator_prototype_local,
             "Symbol.toStringTag",
             "Map Iterator",
             function,
         )?;
-        self.release_temp_local(map_iterator_next_payload_local);
-        let set_iterator_next_payload_local = self.reserve_temp_local();
-        self.emit_function_value_payload_in_realm(
-            &set_iterator_next_meta,
-            &realm_functions,
-            set_iterator_next_payload_local,
+        let set_iterator_next = self.emit_materialize_created_realm_iterator_next(
+            CreatedRealmIteratorNextTarget::Set,
+            &iterator_next_publication_context,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_local_data(
-            set_iterator_prototype_local,
-            "next",
-            set_iterator_next_payload_local,
-            tag_local,
-            function,
-        )?;
+        self.emit_publish_created_realm_iterator_next(set_iterator_next, function)?;
         self.emit_object_define_string_data(
             set_iterator_prototype_local,
             "Symbol.toStringTag",
             "Set Iterator",
             function,
         )?;
-        self.release_temp_local(set_iterator_next_payload_local);
 
         self.emit_function_value_payload_in_realm(
             &number_meta,
@@ -6338,8 +6876,10 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_object_define_accessor(
                 shared_array_buffer_prototype_local,
                 key_local,
-                Some((getter_payload_local, tag_local)),
-                None,
+                AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                    getter_payload_local,
+                    tag_local,
+                ))),
                 function,
             )?;
             self.release_temp_local(getter_payload_local);
@@ -6352,6 +6892,24 @@ impl<'a> FunctionBuilder<'a> {
             data_view_constructor_local,
             function,
         )?;
+        self.store_i64_local_at_offset(
+            data_view_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            data_view_constructor_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            data_view_constructor_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            data_view_constructor_local,
+            HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+            range_error_prototype_local,
+            function,
+        );
         self.store_i64_local_at_offset(
             data_view_constructor_local,
             HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
@@ -6382,15 +6940,137 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.emit_function_value_payload_in_realm(
-            &function_meta,
+        for publication in CREATED_REALM_DATA_VIEW_PROTOTYPE_PUBLICATIONS {
+            match publication {
+                Callable {
+                    builtin,
+                    property_kind,
+                } => {
+                    let meta = self
+                        .functions
+                        .get(&builtin.function_id())
+                        .cloned()
+                        .ok_or_else(|| {
+                            EmitError::unsupported(format!(
+                                "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                                builtin.debug_name()
+                            ))
+                        })?;
+                    let native_name = builtin.native_function_name().ok_or_else(|| {
+                        EmitError::unsupported(format!(
+                            "unsupported in lila wasm-aot first slice: missing native name for `{}`",
+                            builtin.debug_name()
+                        ))
+                    })?;
+                    let property_name = match &property_kind {
+                        Accessor => native_name.strip_prefix("get ").ok_or_else(|| {
+                            EmitError::unsupported(format!(
+                                "unsupported in lila wasm-aot first slice: DataView accessor `{}` lacks a getter name",
+                                builtin.debug_name()
+                            ))
+                        })?,
+                        Method => native_name,
+                    };
+                    let callable_payload_local = self.reserve_temp_local();
+                    self.emit_function_value_payload_in_realm(
+                        &meta,
+                        &realm_functions,
+                        callable_payload_local,
+                        function,
+                    )?;
+                    self.store_i64_local_at_offset(
+                        callable_payload_local,
+                        HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                        callable_payload_local,
+                        function,
+                    );
+                    self.store_i64_local_at_offset(
+                        callable_payload_local,
+                        HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                        type_error_prototype_local,
+                        function,
+                    );
+                    self.store_i64_local_at_offset(
+                        callable_payload_local,
+                        HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
+                        range_error_prototype_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    match &property_kind {
+                        Accessor => {
+                            let key_local = self.reserve_temp_local();
+                            function.instruction(&Instruction::I64Const(
+                                self.strings
+                                    .static_builtin_property_key_payload(property_name),
+                            ));
+                            function.instruction(&Instruction::LocalSet(key_local));
+                            self.emit_object_define_accessor(
+                                data_view_prototype_local,
+                                key_local,
+                                AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(
+                                    TaggedLocals::new(callable_payload_local, tag_local),
+                                )),
+                                function,
+                            )?;
+                            self.release_temp_local(key_local);
+                        }
+                        Method => {
+                            self.emit_object_define_local_data(
+                                data_view_prototype_local,
+                                property_name,
+                                callable_payload_local,
+                                tag_local,
+                                function,
+                            )?;
+                        }
+                    }
+                    self.release_temp_local(callable_payload_local);
+                }
+                ToStringTag => {
+                    function
+                        .instruction(&Instruction::I64Const(self.strings.payload(DATA_VIEW_NAME)));
+                    function.instruction(&Instruction::LocalSet(value_payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    self.emit_object_define_local_data_with_flags(
+                        data_view_prototype_local,
+                        "Symbol.toStringTag",
+                        value_payload_local,
+                        tag_local,
+                        false,
+                        false,
+                        true,
+                        function,
+                    )?;
+                }
+            }
+        }
+
+        self.emit_realm_typed_array_constructor_value_payload(
             &realm_functions,
             typed_array_constructor_local,
             function,
         )?;
-        self.emit_set_function_prototype_data(
+        self.store_i64_local_at_offset(
+            typed_array_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            typed_array_constructor_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            typed_array_constructor_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        self.emit_set_function_prototype_data_with_flags(
             typed_array_constructor_local,
             typed_array_prototype_local,
+            false,
+            false,
+            false,
             true,
             function,
         )?;
@@ -6572,6 +7252,12 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.store_i64_local_at_offset(
             proxy_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            proxy_constructor_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            proxy_constructor_local,
             HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
             type_error_prototype_local,
             function,
@@ -6646,6 +7332,12 @@ impl<'a> FunctionBuilder<'a> {
             revocable_payload_local,
             function,
         )?;
+        self.store_i64_local_at_offset(
+            revocable_payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            revocable_payload_local,
+            function,
+        );
         self.store_i64_local_at_offset(
             revocable_payload_local,
             HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
@@ -6796,6 +7488,29 @@ impl<'a> FunctionBuilder<'a> {
             true,
             function,
         )?;
+        let created_realm_finalization_registry = self
+            .emit_materialize_created_realm_finalization_registry_intrinsics(
+                realm_record,
+                &realm_functions,
+                object_prototype_local,
+                type_error_prototype_local,
+                function,
+            )?;
+        let created_realm_weak_ref = self.emit_materialize_created_realm_weak_ref_intrinsics(
+            realm_record,
+            &realm_functions,
+            object_prototype_local,
+            type_error_prototype_local,
+            function,
+        )?;
+        let created_realm_weak_collections = self
+            .emit_materialize_created_realm_weak_collection_intrinsics(
+                realm_record,
+                &realm_functions,
+                object_prototype_local,
+                type_error_prototype_local,
+                function,
+            )?;
 
         self.emit_function_value_payload_in_realm(
             &regexp_meta,
@@ -6914,19 +7629,27 @@ impl<'a> FunctionBuilder<'a> {
                 constructor_local,
                 function,
             );
-            if *kind != ErrorMessageConstructorKind::Error {
-                self.store_i64_local_at_offset(
-                    constructor_local,
-                    HEAP_PROTOTYPE_OFFSET,
-                    error_constructor_locals[ErrorMessageConstructorKind::Error.index()],
-                    function,
-                );
-                self.store_i64_const_at_offset(
-                    constructor_local,
-                    HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-                    ValueKind::Function.tag() as u64,
-                    function,
-                );
+            match kind {
+                ErrorMessageConstructorKind::Error => {}
+                ErrorMessageConstructorKind::EvalError
+                | ErrorMessageConstructorKind::RangeError
+                | ErrorMessageConstructorKind::ReferenceError
+                | ErrorMessageConstructorKind::SyntaxError
+                | ErrorMessageConstructorKind::TypeError
+                | ErrorMessageConstructorKind::URIError => {
+                    self.store_i64_local_at_offset(
+                        constructor_local,
+                        HEAP_PROTOTYPE_OFFSET,
+                        error_constructor_locals[ErrorMessageConstructorKind::Error.index()],
+                        function,
+                    );
+                    self.store_i64_const_at_offset(
+                        constructor_local,
+                        HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+                        ValueKind::Function.tag() as u64,
+                        function,
+                    );
+                }
             }
             self.store_i64_local_at_offset(
                 constructor_local,
@@ -7281,6 +8004,13 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_object_define_local_data(
             global_local,
+            PROMISE_NAME,
+            promise_constructor_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_object_define_local_data(
+            global_local,
             AGGREGATE_ERROR_NAME,
             aggregate_error_constructor_local,
             tag_local,
@@ -7312,6 +8042,21 @@ impl<'a> FunctionBuilder<'a> {
             MAP_NAME,
             map_constructor_local,
             tag_local,
+            function,
+        )?;
+        self.emit_publish_created_realm_weak_collection_intrinsics(
+            created_realm_weak_collections,
+            global_local,
+            function,
+        )?;
+        self.emit_publish_created_realm_weak_ref_intrinsics(
+            created_realm_weak_ref,
+            global_local,
+            function,
+        )?;
+        self.emit_publish_created_realm_finalization_registry_intrinsics(
+            created_realm_finalization_registry,
+            global_local,
             function,
         )?;
         self.emit_object_define_local_data(
@@ -7453,6 +8198,13 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
+        self.emit_object_define_local_data(
+            global_local,
+            ATOMICS_NAME,
+            atomics_object_local,
+            tag_local,
+            function,
+        )?;
 
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(realm_local));
@@ -7462,6 +8214,33 @@ impl<'a> FunctionBuilder<'a> {
             realm_local,
             "global",
             global_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_function_value_payload_in_realm(
+            &realm_eval_script_meta,
+            &realm_functions,
+            realm_eval_script_local,
+            function,
+        )?;
+        self.store_i64_local_at_offset(
+            realm_eval_script_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            realm_eval_script_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            realm_eval_script_local,
+            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+            type_error_prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(
+            realm_local,
+            REALM_EVAL_SCRIPT_METHOD_NAME,
+            realm_eval_script_local,
             tag_local,
             function,
         )?;
@@ -7480,6 +8259,7 @@ impl<'a> FunctionBuilder<'a> {
         for constructor_local in error_constructor_locals.into_iter().rev() {
             self.release_temp_local(constructor_local);
         }
+        self.release_temp_local(promise_constructor_local);
         self.release_temp_local(date_constructor_local);
         self.release_temp_local(regexp_constructor_local);
         self.release_temp_local(set_constructor_local);
@@ -7500,6 +8280,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(iterator_constructor_local);
         self.release_temp_local(object_constructor_local);
         self.release_temp_local(function_constructor_local);
+        self.release_temp_local(promise_prototype_local);
         self.release_temp_local(date_prototype_local);
         self.release_temp_local(regexp_prototype_local);
         self.release_temp_local(set_prototype_local);
@@ -7532,10 +8313,12 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(iterator_helper_prototype_local);
         self.release_temp_local(iterator_prototype_local);
         self.release_temp_local(object_prototype_local);
+        self.release_temp_local(atomics_object_local);
         self.release_temp_local(json_object_local);
         self.release_temp_local(math_object_local);
         self.release_temp_local(reflect_object_local);
         self.release_temp_local(global_local);
+        self.release_temp_local(realm_eval_script_local);
         self.release_temp_local(realm_record_local);
         self.release_temp_local(realm_local);
         Ok(())

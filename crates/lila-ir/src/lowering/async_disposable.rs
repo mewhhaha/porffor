@@ -329,7 +329,12 @@ impl ScriptLowerer<'_> {
             .expect("an admitted plain async owner must publish its current resume state");
         let binding_name = self.alloc_suspension_owned_binding(
             "async.function.for.await.dispose.capability.",
-            ValueInfo::new(ValueKind::Object),
+            ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            },
         );
         let mut resources = Vec::with_capacity(list.len());
         for variable in list {
@@ -341,13 +346,26 @@ impl ScriptLowerer<'_> {
                 .init()
                 .expect("await using initializers were validated before lowering");
             let init = self.lower_expression(initializer);
+            // AddDisposableResource performs the observable @@asyncDispose /
+            // @@dispose lookup before the following suffix is evaluated.
+            self.invalidate_unknown_user_code_effects();
             self.static_iterator_binding_values.remove(&name);
-            self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let storage_name = scoped_lexical_binding_storage_name(&name, identifier.span());
-            let initialized =
-                InitializedBinding::without_creation(name, BindingMode::Const, storage_name, init);
-            resources.push(initialized.into_async_disposable_resource(self));
+            let initialized = InitializedBinding::without_creation(
+                name.clone(),
+                BindingMode::Const,
+                storage_name,
+                init,
+            );
+            let resource = initialized.into_async_disposable_resource(self);
+            let binding = self.lookup_binding(&name).unwrap_or_else(|| {
+                panic!(
+                    "for-loop await-using binding `{name}` must be declared before clearing facts"
+                )
+            });
+            self.static_string_bindings.remove(&binding);
+            resources.push(resource);
         }
         let mut resources = resources.into_iter();
         let first = resources
@@ -399,7 +417,12 @@ impl ScriptLowerer<'_> {
             .expect("an admitted plain async owner must publish its current resume state");
         let capability_binding_name = self.alloc_suspension_owned_binding(
             "async.function.forof.await.dispose.capability.",
-            ValueInfo::new(ValueKind::Object),
+            ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            },
         );
         let record = IteratorRecordIr::new(
             self.alloc_iterator_slot(),
@@ -520,7 +543,12 @@ impl ScriptLowerer<'_> {
                     entry_state,
                     binding_name: self.alloc_suspension_owned_binding(
                         "async.function.async.dispose.capability.",
-                        ValueInfo::new(ValueKind::Object),
+                        ValueInfo {
+                            kind: ValueKind::Object,
+                            possible_kinds: KindSet::from_kind(ValueKind::Object),
+                            heap_shape: None,
+                            function_targets: FunctionTargetKnowledge::none(),
+                        },
                     ),
                 }
             }
@@ -529,7 +557,12 @@ impl ScriptLowerer<'_> {
                     entry_state,
                     binding_name: self.alloc_suspension_owned_binding(
                         "async.generator.await.dispose.capability.",
-                        ValueInfo::new(ValueKind::Object),
+                        ValueInfo {
+                            kind: ValueKind::Object,
+                            possible_kinds: KindSet::from_kind(ValueKind::Object),
+                            heap_shape: None,
+                            function_targets: FunctionTargetKnowledge::none(),
+                        },
                     ),
                 }
             }
@@ -550,7 +583,6 @@ impl ScriptLowerer<'_> {
                 .expect("await using initializers were validated before lowering");
             let init = self.lower_expression(initializer);
             self.static_iterator_binding_values.remove(&name);
-            self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let init = LoweredInitializer::evaluated(init);
             let initialized = match pending {
@@ -565,7 +597,12 @@ impl ScriptLowerer<'_> {
                     )
                 }
             };
-            resources.push(initialized.into_async_disposable_resource(self));
+            let resource = initialized.into_async_disposable_resource(self);
+            let binding = self.lookup_binding(&name).unwrap_or_else(|| {
+                panic!("await-using binding `{name}` must be declared before clearing facts")
+            });
+            self.static_string_bindings.remove(&binding);
+            resources.push(resource);
         }
 
         let mut resources = resources.into_iter();

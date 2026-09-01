@@ -2,10 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
+const STRING_TRIM_SOURCE: &str = include_str!("../src/operations/string_trim.rs");
+const BUILTINS_SOURCE: &str = include_str!("../src/builtins/mod.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const STRING_INTRINSICS_SOURCE: &str = include_str!("../src/intrinsics/string.rs");
 const HOST_BUILTINS_SOURCE: &str = include_str!("../src/builtins/host.rs");
+const CONTRACT: &str = include_str!("../../../docs/rust-rewrite/contracts/ecmascript-trim-mode.md");
+const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 const RAW_TRIM_HELPER: &str = "emit_ecmascript_trim_payload_from_locals";
 const START_TRIM_WRAPPER: &str = "emit_ecmascript_trim_start_payload_from_locals";
@@ -22,6 +26,180 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .0
 }
 
+fn bounded_inclusive<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+    let start_offset = source
+        .find(start)
+        .unwrap_or_else(|| panic!("missing start: {start}"));
+    let end_offset = source[start_offset..]
+        .find(end)
+        .unwrap_or_else(|| panic!("missing end after {start}: {end}"));
+    &source[start_offset..start_offset + end_offset]
+}
+
+fn quoted_literal_end(source: &str, quote_start: usize, quote: u8) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut offset = quote_start + 1;
+    let mut escaped = false;
+    while offset < bytes.len() {
+        let byte = bytes[offset];
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else if byte == quote {
+            return Some(offset + 1);
+        }
+        offset += 1;
+    }
+    None
+}
+
+fn character_literal_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let value_start = start + 1;
+    if value_start >= bytes.len() {
+        return None;
+    }
+    let value_end = if bytes[value_start] == b'\\' {
+        let mut offset = value_start + 1;
+        if offset >= bytes.len() {
+            return None;
+        }
+        if bytes[offset] == b'u' && bytes.get(offset + 1) == Some(&b'{') {
+            offset += 2;
+            while bytes.get(offset).is_some_and(|byte| *byte != b'}') {
+                offset += 1;
+            }
+            if bytes.get(offset) != Some(&b'}') {
+                return None;
+            }
+            offset + 1
+        } else if bytes[offset] == b'x'
+            && bytes
+                .get(offset + 1..offset + 3)
+                .is_some_and(|digits| digits.iter().all(u8::is_ascii_hexdigit))
+        {
+            offset + 3
+        } else {
+            offset + 1
+        }
+    } else {
+        value_start + source[value_start..].chars().next()?.len_utf8()
+    };
+    (bytes.get(value_end) == Some(&b'\'')).then_some(value_end + 1)
+}
+
+fn raw_literal_end(source: &str, start: usize, prefix_len: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut quote_start = start + prefix_len;
+    while bytes.get(quote_start) == Some(&b'#') {
+        quote_start += 1;
+    }
+    if bytes.get(quote_start) != Some(&b'"') {
+        return None;
+    }
+    let hashes = quote_start - start - prefix_len;
+    let mut offset = quote_start + 1;
+    while offset < bytes.len() {
+        if bytes[offset] == b'"'
+            && bytes
+                .get(offset + 1..offset + 1 + hashes)
+                .is_some_and(|suffix| suffix.iter().all(|byte| *byte == b'#'))
+        {
+            return Some(offset + 1 + hashes);
+        }
+        offset += 1;
+    }
+    None
+}
+
+fn literal_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    match bytes.get(start).copied()? {
+        b'"' => quoted_literal_end(source, start, b'"'),
+        b'\'' => character_literal_end(source, start),
+        b'b' if bytes.get(start + 1) == Some(&b'\'') => character_literal_end(source, start + 1),
+        b'b' | b'c' if bytes.get(start + 1) == Some(&b'"') => {
+            quoted_literal_end(source, start + 1, b'"')
+        }
+        b'r' => raw_literal_end(source, start, 1),
+        b'b' | b'c' if bytes.get(start + 1) == Some(&b'r') => raw_literal_end(source, start, 2),
+        _ => None,
+    }
+}
+
+struct NormalizedRust {
+    code: String,
+    identifiers: String,
+    routes: String,
+}
+
+fn normalize_rust(source: &str) -> NormalizedRust {
+    let bytes = source.as_bytes();
+    let mut code = String::new();
+    let mut identifiers = String::new();
+    let mut routes = String::new();
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some(end) = literal_end(source, offset) {
+            code.push_str(&source[offset..end]);
+            identifiers.push(' ');
+            routes.push('L');
+            offset = end;
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"//") {
+            identifiers.push(' ');
+            offset += 2;
+            while bytes.get(offset).is_some_and(|byte| *byte != b'\n') {
+                offset += 1;
+            }
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"/*") {
+            identifiers.push(' ');
+            offset += 2;
+            let mut depth = 1;
+            while offset < bytes.len() && depth != 0 {
+                if bytes.get(offset..offset + 2) == Some(b"/*") {
+                    depth += 1;
+                    offset += 2;
+                } else if bytes.get(offset..offset + 2) == Some(b"*/") {
+                    depth -= 1;
+                    offset += 2;
+                } else {
+                    offset += 1;
+                }
+            }
+            assert_eq!(depth, 0, "unterminated block comment in Rust source");
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"r#")
+            && source[offset + 2..]
+                .chars()
+                .next()
+                .is_some_and(|character| character == '_' || character.is_alphabetic())
+        {
+            offset += 2;
+            continue;
+        }
+        let character = source[offset..].chars().next().unwrap();
+        if character.is_whitespace() {
+            identifiers.push(' ');
+        } else {
+            code.push(character);
+            identifiers.push(character);
+            routes.push(character);
+        }
+        offset += character.len_utf8();
+    }
+    NormalizedRust {
+        code,
+        identifiers,
+        routes,
+    }
+}
+
 fn without_whitespace(source: &str) -> String {
     source.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
@@ -33,14 +211,34 @@ fn assert_normalized_once(source: &str, expected: &str, message: &str) {
 }
 
 fn identifier_occurrences(source: &str, identifier: &str) -> usize {
-    source
+    let normalized = normalize_rust(source);
+    let identifiers = &normalized.identifiers;
+    normalized
+        .identifiers
         .match_indices(identifier)
         .filter(|(index, _)| {
-            let before = source[..*index].chars().next_back();
-            let after = source[*index + identifier.len()..].chars().next();
+            let before = identifiers[..*index].chars().next_back();
+            let after = identifiers[*index + identifier.len()..].chars().next();
             let identifier_char = |ch: char| ch == '_' || ch.is_ascii_alphanumeric();
             before.is_none_or(|ch| !identifier_char(ch))
                 && after.is_none_or(|ch| !identifier_char(ch))
+        })
+        .count()
+}
+
+fn route_occurrences(source: &str, route: &str) -> usize {
+    let normalized = normalize_rust(source);
+    normalized
+        .routes
+        .match_indices(route)
+        .filter(|(index, _)| {
+            let routes = &normalized.routes;
+            let before = routes[..*index].chars().next_back();
+            let after = routes[*index + route.len()..].chars().next();
+            [before, after].into_iter().all(|edge| {
+                edge.map(|character| !character.is_alphanumeric() && character != '_')
+                    .unwrap_or(true)
+            })
         })
         .count()
 }
@@ -86,19 +284,85 @@ fn assert_wrapper_forwards_only(wrapper: &str, variant: &str, label: &str) {
 
 #[test]
 fn ecmascript_trim_mode_is_private_closed_and_exhaustive() {
-    let mode = bounded(OPERATIONS_SOURCE, "\nenum EcmaTrimMode {", "\n}");
+    let lexical_probe = r###"
+        EcmaTrimMode /* nested /* ignored */ comment */ :: r#Start;
+        // EcmaTrimMode::End
+        "EcmaTrimMode::Both";
+        r#"EcmaTrimMode::Both"#;
+        struct r#EcmaTrimMode;
+    "###;
+    let lexical_probe = normalize_rust(lexical_probe);
     assert_eq!(
-        without_whitespace(mode),
+        lexical_probe.routes,
+        "EcmaTrimMode::Start;L;L;structEcmaTrimMode;"
+    );
+    assert!(lexical_probe.code.contains("r#\"EcmaTrimMode::Both\"#"));
+    assert_eq!(
+        identifier_occurrences(&lexical_probe.identifiers, "EcmaTrimMode"),
+        2
+    );
+
+    assert_eq!(OPERATIONS_SOURCE.matches("mod string_trim;").count(), 1);
+    assert!(!OPERATIONS_SOURCE.contains("pub mod string_trim;"));
+    assert!(!OPERATIONS_SOURCE.contains("pub(crate) mod string_trim;"));
+    assert!(!OPERATIONS_SOURCE.contains("enum EcmaTrimMode"));
+    assert!(!OPERATIONS_SOURCE.contains(&format!("fn {RAW_TRIM_HELPER}(")));
+
+    let declaration_prefix = STRING_TRIM_SOURCE
+        .split_once("enum EcmaTrimMode {")
+        .expect("EcmaTrimMode declaration")
+        .0;
+    let whitespace_table_prefix = declaration_prefix
+        .split_once("const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8")
+        .expect("whitespace table before EcmaTrimMode")
+        .0;
+    assert_eq!(
+        normalize_rust(whitespace_table_prefix).routes,
+        "usesuper::*;"
+    );
+    let mode = bounded(STRING_TRIM_SOURCE, "\nenum EcmaTrimMode {", "\n}");
+    assert_eq!(
+        normalize_rust(mode).routes,
         "Start,End,Both,",
         "TrimString's where-domain must remain exactly start, end and start+end"
     );
-    assert!(OPERATIONS_SOURCE.contains("\nenum EcmaTrimMode {"));
-    assert!(!OPERATIONS_SOURCE.contains("\npub(crate) enum EcmaTrimMode {"));
-    assert!(!OPERATIONS_SOURCE.contains("\npub(super) enum EcmaTrimMode {"));
-    assert!(!OPERATIONS_SOURCE.contains("\npub enum EcmaTrimMode {"));
+    assert!(STRING_TRIM_SOURCE.contains("\nenum EcmaTrimMode {"));
+    assert!(!STRING_TRIM_SOURCE.contains("\npub(crate) enum EcmaTrimMode {"));
+    assert!(!STRING_TRIM_SOURCE.contains("\npub(super) enum EcmaTrimMode {"));
+    assert!(!STRING_TRIM_SOURCE.contains("\npub enum EcmaTrimMode {"));
+
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut sources = Vec::new();
+    collect_rust_sources(&source_root, &mut sources);
+    assert_eq!(
+        sources
+            .iter()
+            .map(|(_, source)| identifier_occurrences(source, "EcmaTrimMode"))
+            .sum::<usize>(),
+        11,
+        "the declaration, typed parameter, three wrappers and six exhaustive arms must be the complete source census"
+    );
+    for variant in ["Start", "End", "Both"] {
+        let route = format!("EcmaTrimMode::{variant}");
+        assert_eq!(
+            1 + sources
+                .iter()
+                .map(|(_, source)| route_occurrences(source, &route))
+                .sum::<usize>(),
+            4,
+            "{variant} must have one declaration row, one wrapper and one arm in each scan"
+        );
+    }
+    let all_routes = sources
+        .iter()
+        .map(|(_, source)| normalize_rust(source).routes)
+        .collect::<String>();
+    for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
+        assert!(!all_routes.contains(&format!("impl{capability}forEcmaTrimMode")));
+    }
 
     assert_eq!(
-        OPERATIONS_SOURCE
+        STRING_TRIM_SOURCE
             .matches(&format!("\n    fn {RAW_TRIM_HELPER}("))
             .count(),
         1,
@@ -110,32 +374,63 @@ fn ecmascript_trim_mode_is_private_closed_and_exhaustive() {
         format!("\n    pub fn {RAW_TRIM_HELPER}("),
     ] {
         assert!(
-            !OPERATIONS_SOURCE.contains(&public_spelling),
-            "the raw trim core must not escape operations.rs"
+            !STRING_TRIM_SOURCE.contains(&public_spelling),
+            "the raw trim core must not escape its private owner"
         );
     }
 
     let start_wrapper = bounded(
-        OPERATIONS_SOURCE,
+        STRING_TRIM_SOURCE,
         &format!("\n    pub(crate) fn {START_TRIM_WRAPPER}("),
         &format!("\n\n    pub(crate) fn {END_TRIM_WRAPPER}("),
     );
     let end_wrapper = bounded(
-        OPERATIONS_SOURCE,
+        STRING_TRIM_SOURCE,
         &format!("\n    pub(crate) fn {END_TRIM_WRAPPER}("),
         &format!("\n\n    pub(crate) fn {BOTH_TRIM_WRAPPER}("),
     );
     let both_wrapper = bounded(
-        OPERATIONS_SOURCE,
+        STRING_TRIM_SOURCE,
         &format!("\n    pub(crate) fn {BOTH_TRIM_WRAPPER}("),
         &format!("\n\n    fn {RAW_TRIM_HELPER}("),
     );
     assert_wrapper_forwards_only(start_wrapper, "Start", "start-only");
     assert_wrapper_forwards_only(end_wrapper, "End", "end-only");
     assert_wrapper_forwards_only(both_wrapper, "Both", "both-ends");
+    for (start, end, variant) in [
+        (
+            "    pub(crate) fn emit_ecmascript_trim_start_payload_from_locals(",
+            "    pub(crate) fn emit_ecmascript_trim_end_payload_from_locals(",
+            "Start",
+        ),
+        (
+            "    pub(crate) fn emit_ecmascript_trim_end_payload_from_locals(",
+            "    pub(crate) fn emit_ecmascript_trim_both_payload_from_locals(",
+            "End",
+        ),
+        (
+            "    pub(crate) fn emit_ecmascript_trim_both_payload_from_locals(",
+            "    fn emit_ecmascript_trim_payload_from_locals(",
+            "Both",
+        ),
+    ] {
+        let wrapper = bounded_inclusive(STRING_TRIM_SOURCE, start, end);
+        let method = match variant {
+            "Start" => START_TRIM_WRAPPER,
+            "End" => END_TRIM_WRAPPER,
+            "Both" => BOTH_TRIM_WRAPPER,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            normalize_rust(wrapper).routes,
+            format!(
+                "pub(crate)fn{method}(&mutself,string_payload_local:u32,function:&mutFunction,)->Result<(),EmitError>{{self.{RAW_TRIM_HELPER}(string_payload_local,EcmaTrimMode::{variant},function,)}}"
+            )
+        );
+    }
 
     let raw_signature = bounded(
-        OPERATIONS_SOURCE,
+        STRING_TRIM_SOURCE,
         &format!("\n    fn {RAW_TRIM_HELPER}"),
         ") -> Result<(), EmitError> {",
     );
@@ -153,147 +448,122 @@ fn ecmascript_trim_mode_is_private_closed_and_exhaustive() {
     );
 
     let raw_core = bounded(
-        OPERATIONS_SOURCE,
+        STRING_TRIM_SOURCE,
         &format!("\n    fn {RAW_TRIM_HELPER}("),
-        "\n    pub(crate) fn emit_copy_bytes(",
+        "\n    }\n}\n",
     );
     assert!(!raw_core.contains(": bool"));
     assert!(!raw_core.contains("trim_start"));
     assert!(!raw_core.contains("trim_end"));
     assert!(!raw_core.contains("if mode"));
     assert!(!raw_core.contains("matches!(mode"));
-    assert_eq!(
-        raw_core.matches("match mode {").count(),
-        2,
-        "the mode must be projected once for each boundary scan"
-    );
+    let normalized_raw_core = normalize_rust(raw_core).routes;
+    assert_eq!(normalized_raw_core.matches("match&mode{").count(), 1);
+    assert_eq!(normalized_raw_core.matches("matchmode{").count(), 1);
+    for forbidden in [
+        "matches!(mode",
+        "mode==",
+        "mode!=",
+        "_=>",
+        "Default::default",
+    ] {
+        assert!(!normalized_raw_core.contains(forbidden), "{forbidden}");
+    }
 
-    let projections = raw_core.split("match mode {").collect::<Vec<_>>();
-    assert_eq!(
-        projections.len(),
-        3,
-        "exactly two mode matches are required"
-    );
-    let start_projection = projections[1];
-    let final_slice = r#"
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64Sub);
+    let start_projection =
+        bounded_inclusive(raw_core, "        match &mode {", "        match mode {");
+    let expected_start_projection = r#"
+        match &mode {
+            EcmaTrimMode::Start | EcmaTrimMode::Both => {
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(start_local));
+                function.instruction(&Instruction::LocalGet(end_local));
+                function.instruction(&Instruction::I64GeU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(start_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(byte_local));
+                for bytes in ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8 {
+                    Self::emit_skip_utf8_whitespace_forward(
+                        function,
+                        end_local,
+                        start_local,
+                        byte_local,
+                        bytes,
+                    );
+                }
+                self.emit_is_ascii_whitespace_i32(byte_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(start_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(start_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
+            EcmaTrimMode::End => {}
+        }
     "#;
-    let end_projection = projections[2]
-        .split_once(final_slice)
-        .expect("the second projection must precede the unchanged final slice")
-        .0;
-
-    let normalized_start = without_whitespace(start_projection);
-    assert!(normalized_start.starts_with("EcmaTrimMode::Start|EcmaTrimMode::Both=>{"));
-    assert!(normalized_start.ends_with("}EcmaTrimMode::End=>{}}"));
-    assert_eq!(start_projection.matches("=>").count(), 2);
-    assert_eq!(start_projection.matches("EcmaTrimMode::Start").count(), 1);
-    assert_eq!(start_projection.matches("EcmaTrimMode::End").count(), 1);
-    assert_eq!(start_projection.matches("EcmaTrimMode::Both").count(), 1);
     assert_eq!(
-        start_projection
-            .matches("emit_skip_utf8_whitespace_forward(")
-            .count(),
-        1
-    );
-    assert!(!start_projection.contains("emit_skip_utf8_whitespace_backward("));
-    assert!(!start_projection.contains("_ =>"));
-    assert_normalized_once(
-        start_projection,
-        r#"
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        "#,
-        "the start scan must test start against end and load from start",
-    );
-    assert_normalized_once(
-        start_projection,
-        r#"
-        Self::emit_skip_utf8_whitespace_forward(
-            function,
-            end_local,
-            start_local,
-            byte_local,
-            bytes,
-        );
-        "#,
-        "the forward UTF-8 scan must receive end as its bound and start as its index",
-    );
-    assert_normalized_once(
-        start_projection,
-        r#"
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(start_local));
-        "#,
-        "the start scan must advance start by one ASCII byte",
+        normalize_rust(start_projection).routes,
+        normalize_rust(expected_start_projection).routes,
+        "the borrowed start scan must retain its complete body and order"
     );
 
-    let normalized_end = without_whitespace(end_projection);
-    assert!(normalized_end.starts_with("EcmaTrimMode::End|EcmaTrimMode::Both=>{"));
-    assert!(normalized_end.ends_with("}EcmaTrimMode::Start=>{}}"));
-    assert_eq!(end_projection.matches("=>").count(), 2);
-    assert_eq!(end_projection.matches("EcmaTrimMode::Start").count(), 1);
-    assert_eq!(end_projection.matches("EcmaTrimMode::End").count(), 1);
-    assert_eq!(end_projection.matches("EcmaTrimMode::Both").count(), 1);
+    let final_slice_start =
+        "        function.instruction(&Instruction::LocalGet(end_local));\n        function.instruction(&Instruction::LocalGet(start_local));\n        function.instruction(&Instruction::I64Sub);";
+    let end_projection = bounded_inclusive(raw_core, "        match mode {", final_slice_start);
+    let expected_end_projection = r#"
+        match mode {
+            EcmaTrimMode::End | EcmaTrimMode::Both => {
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(end_local));
+                function.instruction(&Instruction::LocalGet(start_local));
+                function.instruction(&Instruction::I64LeU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(end_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(byte_local));
+                for bytes in ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8 {
+                    Self::emit_skip_utf8_whitespace_backward(
+                        function,
+                        start_local,
+                        end_local,
+                        byte_local,
+                        bytes,
+                    );
+                }
+                self.emit_is_ascii_whitespace_i32(byte_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(index_local));
+                function.instruction(&Instruction::LocalSet(end_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
+            EcmaTrimMode::Start => {}
+        }
+    "#;
     assert_eq!(
-        end_projection
-            .matches("emit_skip_utf8_whitespace_backward(")
-            .count(),
-        1
+        normalize_rust(end_projection).routes,
+        normalize_rust(expected_end_projection).routes,
+        "the consuming end scan must retain its complete body and order"
     );
-    assert!(!end_projection.contains("emit_skip_utf8_whitespace_forward("));
-    assert!(!end_projection.contains("_ =>"));
-    assert_normalized_once(
-        end_projection,
-        r#"
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(end_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(byte_local));
-        "#,
-        "the end scan must test end against start and load from end minus one",
-    );
-    assert_normalized_once(
-        end_projection,
-        r#"
-        Self::emit_skip_utf8_whitespace_backward(
-            function,
-            start_local,
-            end_local,
-            byte_local,
-            bytes,
-        );
-        "#,
-        "the backward UTF-8 scan must receive start as its bound and end as its index",
-    );
-    assert_normalized_once(
-        end_projection,
-        r#"
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalSet(end_local));
-        "#,
-        "the end scan must publish its decremented index as the new end",
-    );
+    assert!(raw_core.find("match &mode {").unwrap() < raw_core.find("match mode {").unwrap());
+    assert!(raw_core.find("match mode {").unwrap() < raw_core.find(final_slice_start).unwrap());
 
     let forward_helper = bounded(
         OPERATIONS_SOURCE,
@@ -357,6 +627,61 @@ fn ecmascript_trim_mode_is_private_closed_and_exhaustive() {
         "#,
         "a backward UTF-8 match must retreat its end by the matched byte length",
     );
+}
+
+#[test]
+fn ecmascript_trim_whitespace_table_is_private_complete_and_single_owned() {
+    const TABLE_NAME: &str = "ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8";
+
+    assert!(!BUILTINS_SOURCE.contains(TABLE_NAME));
+    assert_eq!(
+        STRING_TRIM_SOURCE
+            .matches("const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [")
+            .count(),
+        1
+    );
+    for visibility in ["pub const", "pub(crate) const", "pub(super) const"] {
+        assert!(!STRING_TRIM_SOURCE.contains(&format!("{visibility} {TABLE_NAME}")));
+    }
+
+    let table = bounded(
+        STRING_TRIM_SOURCE,
+        "const ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8: [&[u8]; 19] = [",
+        "];",
+    );
+    assert_eq!(
+        normalize_rust(table).routes,
+        "&[0xC2,0xA0],&[0xE1,0x9A,0x80],&[0xE2,0x80,0x80],&[0xE2,0x80,0x81],&[0xE2,0x80,0x82],&[0xE2,0x80,0x83],&[0xE2,0x80,0x84],&[0xE2,0x80,0x85],&[0xE2,0x80,0x86],&[0xE2,0x80,0x87],&[0xE2,0x80,0x88],&[0xE2,0x80,0x89],&[0xE2,0x80,0x8A],&[0xE2,0x80,0xA8],&[0xE2,0x80,0xA9],&[0xE2,0x80,0xAF],&[0xE2,0x81,0x9F],&[0xE3,0x80,0x80],&[0xEF,0xBB,0xBF],"
+    );
+
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut sources = Vec::new();
+    collect_rust_sources(&source_root, &mut sources);
+    assert_eq!(
+        sources
+            .iter()
+            .map(|(_, source)| identifier_occurrences(source, TABLE_NAME))
+            .sum::<usize>(),
+        3
+    );
+    let owners = sources
+        .iter()
+        .filter(|(_, source)| identifier_occurrences(source, TABLE_NAME) != 0)
+        .map(|(path, _)| {
+            path.strip_prefix(&source_root)
+                .unwrap_or(path)
+                .to_path_buf()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(owners, vec![PathBuf::from("operations/string_trim.rs")]);
+
+    for evidence in [CONTRACT, TASK] {
+        assert!(evidence.contains("owner-private `ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8`"));
+        assert!(
+            evidence.contains("3b3f4cb67213c7881b83d193a979ff4ae654805c1e7c783c473d781eb5395bd8")
+        );
+        assert!(evidence.contains("no new String behavior"));
+    }
 }
 
 #[test]
@@ -729,7 +1054,7 @@ fn ecmascript_trim_mode_callers_aliases_and_order_are_exact() {
     let mut sources = Vec::new();
     collect_rust_sources(&source_root, &mut sources);
     for (path, source) in &sources {
-        let compact = without_whitespace(source);
+        let compact = normalize_rust(source).routes;
         assert!(
             !compact.contains("trim_start:bool")
                 && !compact.contains("trim_end:bool")
@@ -748,7 +1073,12 @@ fn ecmascript_trim_mode_callers_aliases_and_order_are_exact() {
     for (identifier, expected_count) in expected {
         let direct_calls = sources
             .iter()
-            .map(|(_, source)| source.matches(&format!("{identifier}(")).count())
+            .map(|(_, source)| {
+                normalize_rust(source)
+                    .routes
+                    .matches(&format!("{identifier}("))
+                    .count()
+            })
             .sum::<usize>();
         let bare_identifiers = sources
             .iter()
@@ -762,9 +1092,11 @@ fn ecmascript_trim_mode_callers_aliases_and_order_are_exact() {
             bare_identifiers, expected_count,
             "{identifier} must have no method-item alias, forwarding escape or hidden caller"
         );
-        assert!(sources
-            .iter()
-            .all(|(_, source)| { !source.contains(&format!("FunctionBuilder::{identifier}")) }));
+        assert!(sources.iter().all(|(_, source)| {
+            !normalize_rust(source)
+                .routes
+                .contains(&format!("FunctionBuilder::{identifier}"))
+        }));
     }
 
     let raw_files = sources
@@ -778,7 +1110,7 @@ fn ecmascript_trim_mode_callers_aliases_and_order_are_exact() {
         .collect::<Vec<_>>();
     assert_eq!(
         raw_files,
-        vec![PathBuf::from("operations.rs")],
-        "only operations.rs may name the private raw trim core"
+        vec![PathBuf::from("operations/string_trim.rs")],
+        "only the private string-trim owner may name the raw trim core"
     );
 }

@@ -3,9 +3,13 @@ mod assignment;
 mod async_disposable;
 mod break_continue;
 mod builtin_call_info;
+#[cfg(test)]
+mod builtin_call_info_tests;
 mod builtin_shapes;
+mod call_candidate_analysis;
 mod call_expression;
 mod class_definition;
+mod define_property_call;
 mod delete_expression;
 mod dynamic_source;
 mod for_in;
@@ -13,16 +17,19 @@ mod for_loop;
 mod for_of;
 mod function_definition;
 mod if_statement;
+mod invocation_effects;
 mod labelled_statement;
 mod new_expression;
 mod object_environment_logical;
 mod ordinary_property_compound;
 mod ordinary_property_logical;
 mod ordinary_property_update;
+mod promise_caller_flow;
 mod property_access;
 mod proxy_traps;
 mod statement;
 mod static_json_parse;
+mod static_string_binding_facts;
 mod super_property_mutation;
 mod switch_statement;
 mod throw_inference;
@@ -33,13 +40,19 @@ mod with_environment_compound;
 mod with_statement;
 
 use super::*;
+use crate::source_call_flow_proof::SourceCallFlowEffects;
 use async_disposable::LoweredStatementListItemIr;
+use call_candidate_analysis::{CallCandidateAnalysis, CallCandidateSource};
+use define_property_call::InvocationTargetProvenance;
 use dynamic_source::{
-    already_accounted_optional_calls, resolved_builtin_call_context, BuiltinCallContext,
-    OptionalCallSource, ResolvedDynamicSourceCall,
+    already_accounted_optional_calls, BuiltinCallContext, OptionalCallSource,
+    ResolvedDynamicSourceCall,
 };
+use invocation_effects::{AnalyzedInvocationEffects, InvocationCallerFlowEffects};
 use object_environment_logical::LogicalAssignmentReachability;
+use ordinary_property_compound::BuiltinGetterReceiverProvenance;
 use proxy_traps::{ProxyTrap, ProxyTrapSignature};
+use static_string_binding_facts::StaticStringBindingFacts;
 
 /// Reference Records (6.2.5). `Strictness` and `carried_strictness` arrive
 /// through the crate-root glob above; the rest of the module is `pub(crate)`
@@ -63,7 +76,7 @@ pub(crate) struct BindingInfo {
     pub(crate) kind: ValueKind,
     pub(crate) possible_kinds: KindSet,
     pub(crate) heap_shape: Option<Box<HeapShape>>,
-    pub(crate) function_targets: BTreeSet<FunctionId>,
+    pub(crate) function_targets: FunctionTargetKnowledge,
     /// ECMA-262 9.1.1.1: whether InitializeBinding (9.1.1.1.4) has run for this
     /// binding. Mandatory and undefaulted — see `binding_lifecycle::Initialization`.
     pub(crate) initialization: Initialization,
@@ -74,9 +87,23 @@ pub(crate) struct VarBindingInfo {
     pub(crate) kind: ValueKind,
     pub(crate) possible_kinds: KindSet,
     pub(crate) heap_shape: Option<Box<HeapShape>>,
-    pub(crate) function_targets: BTreeSet<FunctionId>,
+    pub(crate) function_targets: FunctionTargetKnowledge,
     pub(crate) is_script_global: bool,
     pub(crate) is_lexical_metadata: bool,
+}
+
+impl VarBindingInfo {
+    fn to_binding_info(&self, name: &str) -> BindingInfo {
+        BindingInfo {
+            mode: BindingMode::Var,
+            storage_name: name.to_string(),
+            kind: self.kind,
+            possible_kinds: self.possible_kinds,
+            heap_shape: self.heap_shape.clone(),
+            function_targets: self.function_targets.clone(),
+            initialization: Initialization::Initialized,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +112,7 @@ pub(crate) enum GlobalPropertySource {
     HostBuiltin,
     GlobalWrite,
     ImplicitGlobalWrite,
+    DefinitelyDeleted,
     Merged,
 }
 
@@ -121,6 +149,204 @@ impl PrototypeToStringState {
     }
 }
 
+/// Whether a function body's current execution path may still use heap shapes
+/// stored in whole-program function signatures.
+///
+/// Function signatures are analysis summaries shared by every nested lowerer.
+/// A property effect inside one function must invalidate later calls in that
+/// function, but the effect has not run merely because the body was lowered.
+/// Keeping that loss of evidence in the body-local flow state prevents an
+/// uncalled function from erasing unrelated summaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FunctionSignatureShapeEvidence {
+    Available,
+    Invalidated,
+}
+
+impl FunctionSignatureShapeEvidence {
+    fn join(self, other: Self) -> Self {
+        if self == Self::Available && other == Self::Available {
+            Self::Available
+        } else {
+            Self::Invalidated
+        }
+    }
+
+    fn apply(self, mut info: ValueInfo) -> ValueInfo {
+        if self == Self::Invalidated {
+            info.heap_shape = None;
+        }
+        info
+    }
+}
+
+/// Whether a function's result shape is a mutable heap summary or a recipe for
+/// a new result created by each invocation.
+///
+/// An arbitrary call can mutate an object returned by a source function, so a
+/// cached alias shape is only valid until the next unknown effect. A host such
+/// as CreateRealm instead creates a new realm record after that effect; losing
+/// its shape would confuse an earlier mutation with a future allocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FunctionReturnShape {
+    Unobserved,
+    Absent,
+    FlowSensitive(Box<HeapShape>),
+    RecreatedPerCall {
+        shape: Box<HeapShape>,
+        dependencies: FunctionReturnDependencies,
+    },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct FunctionReturnDependencies {
+    global_function_targets: BTreeMap<String, FunctionId>,
+}
+
+impl FunctionReturnDependencies {
+    fn with_global_function_target(
+        mut self,
+        name: String,
+        function_id: FunctionId,
+    ) -> Option<Self> {
+        if self
+            .global_function_targets
+            .get(&name)
+            .is_some_and(|existing| existing != &function_id)
+        {
+            return None;
+        }
+        self.global_function_targets.insert(name, function_id);
+        Some(self)
+    }
+
+    fn merged(&self, other: &Self) -> Option<Self> {
+        let mut merged = self.clone();
+        for (name, function_id) in &other.global_function_targets {
+            merged = merged.with_global_function_target(name.clone(), function_id.clone())?;
+        }
+        Some(merged)
+    }
+}
+
+impl FunctionReturnShape {
+    fn flow_sensitive(shape: Option<Box<HeapShape>>) -> Self {
+        shape.map_or(Self::Absent, Self::FlowSensitive)
+    }
+
+    fn recreated_per_call(shape: Box<HeapShape>) -> Self {
+        Self::RecreatedPerCall {
+            shape,
+            dependencies: FunctionReturnDependencies::default(),
+        }
+    }
+
+    fn recreated_per_call_with_dependencies(
+        shape: Box<HeapShape>,
+        dependencies: FunctionReturnDependencies,
+    ) -> Self {
+        Self::RecreatedPerCall {
+            shape,
+            dependencies,
+        }
+    }
+
+    fn cloned_shape(&self) -> Option<Box<HeapShape>> {
+        match self {
+            Self::Unobserved | Self::Absent => None,
+            Self::FlowSensitive(shape) | Self::RecreatedPerCall { shape, .. } => {
+                Some(shape.clone())
+            }
+        }
+    }
+
+    fn with_shape(&self, shape: Option<Box<HeapShape>>) -> Self {
+        let Some(shape) = shape else {
+            return Self::Absent;
+        };
+        match self {
+            Self::RecreatedPerCall { dependencies, .. } => {
+                Self::recreated_per_call_with_dependencies(shape, dependencies.clone())
+            }
+            Self::Unobserved | Self::Absent | Self::FlowSensitive(_) => Self::FlowSensitive(shape),
+        }
+    }
+
+    fn merged(left: &Self, right: &Self, shape: Option<Box<HeapShape>>) -> Self {
+        if matches!((left, right), (Self::Unobserved, Self::Unobserved)) {
+            return Self::Unobserved;
+        }
+        if matches!(left, Self::Unobserved) {
+            return right.with_shape(shape);
+        }
+        if matches!(right, Self::Unobserved) {
+            return left.with_shape(shape);
+        }
+        let Some(shape) = shape else {
+            return Self::Absent;
+        };
+        let dependencies = match (left, right) {
+            (
+                Self::RecreatedPerCall {
+                    dependencies: left, ..
+                },
+                Self::RecreatedPerCall {
+                    dependencies: right,
+                    ..
+                },
+            ) => left.merged(right),
+            (Self::Absent | Self::FlowSensitive(_), Self::Absent | Self::FlowSensitive(_))
+            | (Self::RecreatedPerCall { .. }, Self::FlowSensitive(_))
+            | (Self::FlowSensitive(_), Self::RecreatedPerCall { .. })
+            | (Self::RecreatedPerCall { .. }, Self::Absent)
+            | (Self::Absent, Self::RecreatedPerCall { .. }) => None,
+            (Self::Unobserved, _) | (_, Self::Unobserved) => {
+                unreachable!("unobserved return shapes were handled before merging")
+            }
+        };
+        match dependencies {
+            Some(dependencies) => Self::recreated_per_call_with_dependencies(shape, dependencies),
+            None => Self::FlowSensitive(shape),
+        }
+    }
+
+    fn invalidate_flow_sensitive(&mut self) {
+        match self {
+            Self::FlowSensitive(_) => *self = Self::Absent,
+            Self::Unobserved | Self::Absent | Self::RecreatedPerCall { .. } => {}
+        }
+    }
+
+    fn visit_flow_sensitive(
+        &mut self,
+        possible_kinds: KindSet,
+        function_targets: &FunctionTargetKnowledge,
+        visit: &mut impl FnMut(KindSet, &FunctionTargetKnowledge, &mut Option<Box<HeapShape>>),
+    ) {
+        match self {
+            Self::FlowSensitive(shape) => {
+                let mut visited_shape = Some(shape.clone());
+                visit(possible_kinds, function_targets, &mut visited_shape);
+                *self = Self::flow_sensitive(visited_shape);
+            }
+            Self::Unobserved | Self::Absent | Self::RecreatedPerCall { .. } => {}
+        }
+    }
+
+    fn recreated_dependencies(&self) -> Option<&FunctionReturnDependencies> {
+        match self {
+            Self::RecreatedPerCall { dependencies, .. } => Some(dependencies),
+            Self::Unobserved | Self::Absent | Self::FlowSensitive(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FunctionReturnObservation {
+    info: ValueInfo,
+    shape: FunctionReturnShape,
+}
+
 /// Flow-sensitive facts whose post-expression value depends on whether a
 /// short-circuit or conditional branch executes.
 #[derive(Clone)]
@@ -140,13 +366,14 @@ struct ConditionalFlowFacts {
     dynamically_installed_getters: BTreeSet<FunctionId>,
     dynamically_installed_setters: BTreeSet<FunctionId>,
     unknown_user_code_effects_observed: bool,
+    function_signature_shape_evidence: FunctionSignatureShapeEvidence,
     static_boolean_bindings: BTreeMap<String, bool>,
-    static_string_bindings: BTreeMap<String, String>,
+    static_string_bindings: StaticStringBindingFacts,
     static_to_string_regexp_object_bindings: BTreeSet<String>,
-    static_generator_sum_values: BTreeMap<String, Vec<f64>>,
-    static_generator_element_values: BTreeMap<String, Vec<TypedExpr>>,
     static_generator_call_overrides: BTreeMap<String, TypedExpr>,
     static_iterator_binding_values: BTreeMap<String, Vec<f64>>,
+    invalidated_static_binding_names: BTreeSet<String>,
+    boolean_alias_shapes_invalidated: bool,
 }
 
 fn equal_map_intersection<K, V>(left: &BTreeMap<K, V>, right: &BTreeMap<K, V>) -> BTreeMap<K, V>
@@ -231,7 +458,6 @@ impl NonGenericBuiltinMethod {
 
 /// The operator a compound or logical assignment applies to a property
 /// Reference.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PropertyUpdateOp {
     Arithmetic(ArithmeticOp),
     Bitwise(BitwiseOp),
@@ -293,7 +519,25 @@ fn unknown_runtime_value_info() -> ValueInfo {
         kind: ValueKind::Dynamic,
         possible_kinds: KindSet::all_runtime_tags(),
         heap_shape: None,
-        function_targets: BTreeSet::new(),
+        function_targets: FunctionTargetKnowledge::unknown(),
+    }
+}
+
+fn generated_capture_can_use_definition_time_facts(
+    mode: BindingMode,
+    execution_kind: ClassElementExecutionKind,
+) -> bool {
+    match (mode, execution_kind) {
+        (BindingMode::Const, _) => true,
+        (
+            BindingMode::Let | BindingMode::Var,
+            ClassElementExecutionKind::StaticFieldInitializer
+            | ClassElementExecutionKind::StaticBlock,
+        ) => true,
+        (
+            BindingMode::Let | BindingMode::Var,
+            ClassElementExecutionKind::None | ClassElementExecutionKind::InstanceFieldInitializer,
+        ) => false,
     }
 }
 
@@ -399,10 +643,34 @@ pub(crate) struct ClassLoweringContext {
 
 #[derive(Debug, Clone)]
 pub(crate) struct GeneratedFunctionOutput {
-    pub(crate) function_id: FunctionId,
     pub(crate) return_info: ValueInfo,
-    pub(crate) this_info: ValueInfo,
     pub(crate) construct_this_info: Option<ValueInfo>,
+}
+
+#[derive(Debug, Clone)]
+enum GeneratedClassElementFlow {
+    Deferred,
+    Executed(ExecutedClassElementPostState),
+}
+
+#[derive(Debug, Clone)]
+struct ExecutedClassElementPostState {
+    global_properties: BTreeMap<String, GlobalPropertyInfo>,
+    well_known_symbol_prototype_properties: BTreeMap<(String, WellKnownSymbol), ValueInfo>,
+    script_global_values: BTreeMap<String, ValueInfo>,
+    captured_parent_values: Vec<(String, ValueInfo)>,
+    invalidated_static_binding_names: BTreeSet<String>,
+    boolean_alias_shapes_invalidated: bool,
+    array_prototype_mutated: bool,
+    number_prototype_to_string_state: PrototypeToStringState,
+    number_prototype_match_is_string_match: bool,
+    number_prototype_split_is_string_split: bool,
+    boolean_prototype_to_string_state: PrototypeToStringState,
+    unknown_user_code_effects_observed: bool,
+    unknown_user_code_effects_introduced: bool,
+    intervening_effect_epoch: u64,
+    function_signature_shape_evidence: FunctionSignatureShapeEvidence,
+    source_call_flow_effects: SourceCallFlowEffects,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,6 +686,119 @@ impl RootThisBinding {
             ParseGoal::Module => Self::Undefined,
         }
     }
+}
+
+enum OptionalPropertyReadAnalysis {
+    ProvenEffectFree(ValueInfo),
+    MayRunUserCode(ValueInfo),
+}
+
+enum PreArgumentHeapShapeSnapshots<'a> {
+    NoHeapShapes,
+    OneHeapShape(&'a mut Option<Box<HeapShape>>),
+    TwoHeapShapes {
+        first: &'a mut Option<Box<HeapShape>>,
+        second: &'a mut Option<Box<HeapShape>>,
+    },
+}
+
+impl PreArgumentHeapShapeSnapshots<'_> {
+    fn invalidate(self) {
+        match self {
+            Self::NoHeapShapes => {}
+            Self::OneHeapShape(heap_shape) => *heap_shape = None,
+            Self::TwoHeapShapes { first, second } => {
+                *first = None;
+                *second = None;
+            }
+        }
+    }
+}
+
+#[must_use = "lowered call arguments must account for values captured before their evaluation"]
+struct LoweredCallArguments {
+    arguments: Vec<TypedExpr>,
+    invalidates_preceding_heap_shapes: bool,
+}
+
+impl LoweredCallArguments {
+    fn into_arguments(self, preceding: PreArgumentHeapShapeSnapshots<'_>) -> Vec<TypedExpr> {
+        if self.invalidates_preceding_heap_shapes {
+            preceding.invalidate();
+        }
+        self.arguments
+    }
+
+    fn into_arguments_without_predecessor(self) -> Vec<TypedExpr> {
+        self.into_arguments(PreArgumentHeapShapeSnapshots::NoHeapShapes)
+    }
+
+    fn into_arguments_after_expression(self, preceding: &mut TypedExpr) -> Vec<TypedExpr> {
+        self.into_arguments(PreArgumentHeapShapeSnapshots::OneHeapShape(
+            &mut preceding.heap_shape,
+        ))
+    }
+
+    fn into_arguments_after_value(self, preceding: &mut ValueInfo) -> Vec<TypedExpr> {
+        self.into_arguments(PreArgumentHeapShapeSnapshots::OneHeapShape(
+            &mut preceding.heap_shape,
+        ))
+    }
+
+    fn into_arguments_after_two_expressions(
+        self,
+        first: &mut TypedExpr,
+        second: &mut TypedExpr,
+    ) -> Vec<TypedExpr> {
+        self.into_arguments(PreArgumentHeapShapeSnapshots::TwoHeapShapes {
+            first: &mut first.heap_shape,
+            second: &mut second.heap_shape,
+        })
+    }
+
+    fn into_arguments_after_expression_and_value(
+        self,
+        expression: &mut TypedExpr,
+        value: &mut ValueInfo,
+    ) -> Vec<TypedExpr> {
+        self.into_arguments(PreArgumentHeapShapeSnapshots::TwoHeapShapes {
+            first: &mut expression.heap_shape,
+            second: &mut value.heap_shape,
+        })
+    }
+}
+
+struct OptionalChainAnalysisState {
+    current: ValueInfo,
+    property_receiver: Option<ValueInfo>,
+    short_circuit_reaches_result: bool,
+    invocation_effects: AnalyzedInvocationEffects,
+}
+
+impl OptionalChainAnalysisState {
+    fn from_target(target: &TypedExpr) -> Self {
+        Self {
+            current: target.value_info(),
+            property_receiver: None,
+            short_circuit_reaches_result: false,
+            invocation_effects: AnalyzedInvocationEffects::already_applied(),
+        }
+    }
+}
+
+enum InvocationThisObservation<'a> {
+    NotObserved,
+    ConstructorCallee(&'a mut TypedExpr),
+    Default,
+    Current,
+    ExplicitMethod {
+        receiver: &'a mut TypedExpr,
+        callee: &'a mut TypedExpr,
+    },
+    ExplicitValueMethod {
+        receiver: &'a mut ValueInfo,
+        callee: &'a mut TypedExpr,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -436,11 +817,28 @@ pub(crate) struct FunctionSignature {
     pub(crate) params: Vec<FunctionParamSignature>,
     pub(crate) return_kind: ValueKind,
     pub(crate) return_possible_kinds: KindSet,
-    pub(crate) return_shape: Option<Box<HeapShape>>,
-    pub(crate) return_targets: BTreeSet<FunctionId>,
+    return_shape: FunctionReturnShape,
+    pub(crate) return_targets: FunctionTargetKnowledge,
     pub(crate) constructor_instance: ValueInfo,
     pub(crate) this_info: ValueInfo,
     pub(crate) this_observed: bool,
+    source_call_flow_effects: SourceCallFlowEffects,
+}
+
+impl FunctionSignature {
+    fn return_info(&self) -> ValueInfo {
+        ValueInfo {
+            kind: self.return_kind,
+            possible_kinds: self.return_possible_kinds,
+            heap_shape: self.return_shape.cloned_shape(),
+            function_targets: self.return_targets.clone(),
+        }
+    }
+
+    fn merged_source_call_flow_effects(&self, observed: &Self) -> SourceCallFlowEffects {
+        self.source_call_flow_effects
+            .merge_observation(observed.source_call_flow_effects)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -448,7 +846,7 @@ pub(crate) struct FunctionParamSignature {
     pub(crate) kind: ValueKind,
     pub(crate) possible_kinds: KindSet,
     pub(crate) heap_shape: Option<Box<HeapShape>>,
-    pub(crate) function_targets: BTreeSet<FunctionId>,
+    pub(crate) function_targets: FunctionTargetKnowledge,
     pub(crate) observed: bool,
     pub(crate) has_default: bool,
     pub(crate) is_rest: bool,
@@ -748,6 +1146,12 @@ type ExactHelperContextId = String;
 type ExactCallbackContextKey = (FunctionId, ExactHelperContextId);
 type DirectCallContextKey = (FunctionId, ExactHelperContextId);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScriptGlobalCallObservationMode {
+    DormantSummary,
+    ExecutedFlow,
+}
+
 pub(crate) struct ScriptLowerer<'a> {
     interner: &'a Interner,
     analysis: &'a Analysis<'a>,
@@ -766,7 +1170,7 @@ pub(crate) struct ScriptLowerer<'a> {
     is_function_body: bool,
     current_function_id: Option<FunctionId>,
     current_param_names: Vec<String>,
-    current_return_info: Option<ValueInfo>,
+    current_return: Option<FunctionReturnObservation>,
     current_generator_resume_state: Option<u32>,
     current_async_resume_state: Option<u32>,
     current_resumable_plan: Option<ResumablePlanIr>,
@@ -792,6 +1196,9 @@ pub(crate) struct ScriptLowerer<'a> {
     nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
     /// Script-global facts learned before this lowerer was entered.
     known_nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
+    /// Live script-global values observed when a source function is called.
+    called_script_global_value_infos: BTreeMap<String, ValueInfo>,
+    script_global_call_observation_mode: ScriptGlobalCallObservationMode,
     array_prototype_mutated: bool,
     number_prototype_to_string_state: PrototypeToStringState,
     number_prototype_match_is_string_match: bool,
@@ -800,15 +1207,18 @@ pub(crate) struct ScriptLowerer<'a> {
     dynamically_installed_getters: BTreeSet<FunctionId>,
     dynamically_installed_setters: BTreeSet<FunctionId>,
     unknown_user_code_effects_observed: bool,
+    unknown_user_code_effects_introduced: bool,
+    function_signature_shape_evidence: FunctionSignatureShapeEvidence,
+    source_call_flow_effects: SourceCallFlowEffects,
     intervening_effect_epoch: u64,
     static_boolean_bindings: BTreeMap<String, bool>,
-    static_string_bindings: BTreeMap<String, String>,
+    static_string_bindings: StaticStringBindingFacts,
     static_to_string_regexp_object_bindings: BTreeSet<String>,
     sloppy_immutable_binding_storage_names: BTreeSet<String>,
-    static_generator_sum_values: BTreeMap<String, Vec<f64>>,
-    static_generator_element_values: BTreeMap<String, Vec<TypedExpr>>,
     static_generator_call_overrides: BTreeMap<String, TypedExpr>,
     static_iterator_binding_values: BTreeMap<String, Vec<f64>>,
+    invalidated_static_binding_names: BTreeSet<String>,
+    boolean_alias_shapes_invalidated: bool,
     top_level_this_uses: usize,
     used_host_builtins: BTreeSet<HostBuiltinId>,
     host_builtin_calls: usize,
@@ -907,23 +1317,6 @@ impl<'a> ScriptLowerer<'a> {
         key
     }
 
-    fn target_has_private_brand(
-        &self,
-        target: &TypedExpr,
-        private_name_id: PrivateNameId,
-    ) -> Option<bool> {
-        match target.heap_shape.as_deref()? {
-            HeapShape::Object(object) => Some(object.private_brands.contains(&private_name_id)),
-            // ArrayShape carries subclass brands as hidden brand properties,
-            // since unlike ObjectShape it has no dedicated brand set.
-            HeapShape::Array(array) => Some(
-                array
-                    .properties
-                    .contains_key(&private_brand_key(private_name_id)),
-            ),
-        }
-    }
-
     fn alloc_generated_function_id(&mut self, prefix: &str) -> FunctionId {
         let id = format!(
             "${prefix}.{}.{}",
@@ -957,7 +1350,8 @@ impl<'a> ScriptLowerer<'a> {
         name
     }
 
-    /// Allocates the `[[Iterator]]` slot of a `for await` Iterator Record.
+    /// Allocates the `[[Iterator]]` slot of an activation-backed Iterator
+    /// Record.
     ///
     /// The three slot allocators exist so that a slot can only be obtained from
     /// the allocation that names it. Wrapping three interchangeable `String`s
@@ -1105,7 +1499,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
                 initialization: Initialization::Uninitialized(UninitializedStorage::Allocated),
             },
         );
@@ -1170,7 +1564,7 @@ impl<'a> ScriptLowerer<'a> {
             is_function_body: false,
             current_function_id: None,
             current_param_names: Vec::new(),
-            current_return_info: None,
+            current_return: None,
             current_generator_resume_state: None,
             current_async_resume_state: None,
             current_resumable_plan: None,
@@ -1296,6 +1690,8 @@ impl<'a> ScriptLowerer<'a> {
             well_known_symbol_prototype_properties: BTreeMap::new(),
             nested_script_global_value_infos: BTreeMap::new(),
             known_nested_script_global_value_infos: BTreeMap::new(),
+            called_script_global_value_infos: BTreeMap::new(),
+            script_global_call_observation_mode: ScriptGlobalCallObservationMode::DormantSummary,
             // Array.prototype is mutable and can escape through dynamic code
             // such as Object.getPrototypeOf([]). Until specialization carries
             // a runtime/version guard, default to the generic observable path.
@@ -1307,15 +1703,18 @@ impl<'a> ScriptLowerer<'a> {
             dynamically_installed_getters: BTreeSet::new(),
             dynamically_installed_setters: BTreeSet::new(),
             unknown_user_code_effects_observed: false,
+            unknown_user_code_effects_introduced: false,
+            function_signature_shape_evidence: FunctionSignatureShapeEvidence::Available,
+            source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             intervening_effect_epoch: 0,
             static_boolean_bindings: BTreeMap::new(),
-            static_string_bindings: BTreeMap::new(),
+            static_string_bindings: StaticStringBindingFacts::default(),
             static_to_string_regexp_object_bindings: BTreeSet::new(),
             sloppy_immutable_binding_storage_names: BTreeSet::new(),
-            static_generator_sum_values: BTreeMap::new(),
-            static_generator_element_values: BTreeMap::new(),
             static_generator_call_overrides: BTreeMap::new(),
             static_iterator_binding_values: BTreeMap::new(),
+            invalidated_static_binding_names: BTreeSet::new(),
+            boolean_alias_shapes_invalidated: false,
             top_level_this_uses: 0,
             used_host_builtins: BTreeSet::new(),
             host_builtin_calls: 0,
@@ -1366,11 +1765,12 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Undefined,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         self.function_signatures.insert(
@@ -1386,11 +1786,12 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Undefined,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         self.function_signatures.insert(
@@ -1406,11 +1807,12 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Undefined,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         self.function_signatures.insert(
@@ -1426,11 +1828,12 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Boolean,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Boolean),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         self.function_signatures.insert(
@@ -1446,11 +1849,12 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Undefined,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         for (builtin, return_kind, return_possible_kinds) in [
@@ -1508,11 +1912,12 @@ impl<'a> ScriptLowerer<'a> {
                     params: Vec::new(),
                     return_kind,
                     return_possible_kinds,
-                    return_shape: None,
-                    return_targets: BTreeSet::new(),
+                    return_shape: FunctionReturnShape::Absent,
+                    return_targets: FunctionTargetKnowledge::none(),
                     constructor_instance: ValueInfo::undefined(),
                     this_info: self.global_this_info(),
                     this_observed: false,
+                    source_call_flow_effects: SourceCallFlowEffects::unobserved(),
                 },
             );
         }
@@ -1529,11 +1934,12 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Number,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Number),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         self.function_signatures.insert(
@@ -1549,11 +1955,12 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Number,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Number),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         self.function_signatures.insert(
@@ -1569,11 +1976,14 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Object,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Object),
-                return_shape: Some(Self::synthetic_realm_record_shape()),
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::recreated_per_call(
+                    Self::synthetic_realm_record_shape(),
+                ),
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         self.register_dynamic_source_intrinsic_signatures();
@@ -1590,11 +2000,14 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Function,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Function),
-                return_shape: Some(Self::function_heap_shape(false)),
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::flow_sensitive(Some(Self::function_heap_shape(
+                    false,
+                ))),
+                return_targets: FunctionTargetKnowledge::unknown(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         self.function_signatures.insert(
@@ -1610,11 +2023,12 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Null,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Null),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: self.global_this_info(),
                 this_observed: false,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
         for builtin in StandardBuiltinId::all_functions() {
@@ -1653,16 +2067,20 @@ impl<'a> ScriptLowerer<'a> {
                                 KindSet::all_runtime_tags()
                             },
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: if parameter.is_rest_param() {
+                                FunctionTargetKnowledge::none()
+                            } else {
+                                FunctionTargetKnowledge::unknown()
+                            },
                             observed: parameter.is_rest_param(),
                             has_default: parameter.init().is_some(),
                             is_rest: parameter.is_rest_param(),
                         })
                         .collect(),
-                    return_kind: ValueKind::Undefined,
-                    return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                    return_shape: None,
-                    return_targets: BTreeSet::new(),
+                    return_kind: ValueKind::Dynamic,
+                    return_possible_kinds: KindSet::all_runtime_tags(),
+                    return_shape: FunctionReturnShape::Unobserved,
+                    return_targets: FunctionTargetKnowledge::unknown(),
                     constructor_instance: if plan.protocol.is_constructable() {
                         Self::fresh_constructed_instance_info()
                     } else {
@@ -1676,6 +2094,7 @@ impl<'a> ScriptLowerer<'a> {
                         self.global_this_info()
                     },
                     this_observed: false,
+                    source_call_flow_effects: SourceCallFlowEffects::unobserved(),
                 },
             );
         }
@@ -1691,6 +2110,7 @@ impl<'a> ScriptLowerer<'a> {
         );
         prepass.function_signatures = self.function_signatures.clone();
         prepass.is_prepass = true;
+        prepass.script_global_call_observation_mode = ScriptGlobalCallObservationMode::ExecutedFlow;
         prepass.hoist_root_statement_items(script.statements().statements());
         // 16.1.7 step 17 on the global lexical Environment Record, which
         // `ScriptLowerer::new` already established — hence
@@ -1704,6 +2124,8 @@ impl<'a> ScriptLowerer<'a> {
             self.analysis.script_root_functions.as_slice(),
             prepass_scope,
         );
+        prepass.script_global_call_observation_mode =
+            ScriptGlobalCallObservationMode::DormantSummary;
         if let Some(root_scope) = prepass.scopes.first() {
             for (name, binding) in root_scope {
                 let Some(metadata) = prepass
@@ -1719,6 +2141,11 @@ impl<'a> ScriptLowerer<'a> {
                 metadata.function_targets = binding.function_targets.clone();
             }
         }
+        // Root effects have already invalidated every fact they can reach.
+        // Replaying the sticky "an unknown call occurred" marker inside each
+        // independently invoked function would instead invent an effect before
+        // that function's first statement and erase exact call-site shapes.
+        prepass.unknown_user_code_effects_observed = false;
         // Function bodies are skipped by the body prepass. Lower every planned
         // body once here so nested script-global writes are known before the
         // final function pass (whose order follows source order).
@@ -1730,15 +2157,17 @@ impl<'a> ScriptLowerer<'a> {
                 .expect("function plan must exist");
             let _ = prepass.lower_function(plan, None, None);
         }
+        // Carry analysis summaries out of the prepass, but keep the root-entry
+        // global facts. The final pass replays live effects in source order.
+        let known_script_global_values = prepass.known_script_global_values();
         self.function_signatures = prepass.function_signatures;
         self.exact_context_function_observations = prepass.exact_context_function_observations;
         self.exact_context_callback_observations = prepass.exact_context_callback_observations;
-        self.global_properties = prepass.global_properties;
         self.var_bindings = prepass.var_bindings;
-        self.nested_script_global_value_infos = prepass.nested_script_global_value_infos;
+        self.reset_script_global_var_flow_facts();
+        self.known_nested_script_global_value_infos = known_script_global_values;
         self.dynamically_installed_getters = prepass.dynamically_installed_getters;
         self.dynamically_installed_setters = prepass.dynamically_installed_setters;
-        self.unknown_user_code_effects_observed = prepass.unknown_user_code_effects_observed;
         self.prepare_root_function_bindings(self.analysis.script_root_functions.as_slice());
         self.hoist_root_statement_items(script.statements().statements());
         if lower_trace {
@@ -1889,6 +2318,7 @@ impl<'a> ScriptLowerer<'a> {
             pass.dynamically_installed_getters = self.dynamically_installed_getters.clone();
             pass.dynamically_installed_setters = self.dynamically_installed_setters.clone();
             pass.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
+            pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
             pass.static_boolean_bindings = self.static_boolean_bindings.clone();
             pass.static_string_bindings = self.static_string_bindings.clone();
             pass.static_to_string_regexp_object_bindings =
@@ -2063,6 +2493,7 @@ impl<'a> ScriptLowerer<'a> {
         pass.dynamically_installed_getters = self.dynamically_installed_getters.clone();
         pass.dynamically_installed_setters = self.dynamically_installed_setters.clone();
         pass.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
+        pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
         pass.static_boolean_bindings = self.static_boolean_bindings.clone();
         pass.static_string_bindings = self.static_string_bindings.clone();
         pass.static_to_string_regexp_object_bindings =
@@ -2092,34 +2523,46 @@ impl<'a> ScriptLowerer<'a> {
         self.merge_context_keyed_callback_observations(pass.exact_context_callback_observations);
     }
 
-    fn propagate_direct_call_context(&mut self, function_id: &FunctionId, args: &[ValueInfo]) {
+    fn propagate_direct_call_context(
+        &mut self,
+        function_id: &FunctionId,
+        args: &[ValueInfo],
+    ) -> Option<ValueInfo> {
         if !self.analysis.function_plans.contains_key(function_id) {
-            return;
+            return None;
         }
         if self.current_function_id.as_ref() == Some(function_id) {
-            return;
+            return None;
         }
         if self.active_direct_call_propagations.contains(function_id) {
-            return;
+            return None;
         }
         let Some(exact_signature) = self.function_signatures.get(function_id).cloned() else {
-            return;
+            return None;
         };
         let canonical_args = self.canonical_exact_context_arg_infos(args);
         let helper_context_id = Self::exact_helper_context_id(function_id, &canonical_args);
         let propagation_key = (function_id.clone(), helper_context_id.clone());
-        if !self
-            .completed_direct_call_propagations
-            .insert(propagation_key)
+        let context_is_reusable = !self.function_has_untracked_captures(function_id);
+        let capture_context_is_authoritative =
+            self.function_captures_current_script_activation(function_id);
+        if !capture_context_is_authoritative
+            && !self
+                .completed_direct_call_propagations
+                .insert(propagation_key)
         {
-            return;
+            return None;
         }
         let mut pass = ScriptLowerer::new(
             self.interner,
             self.analysis,
             self.source_text,
             self.root_this_binding,
-            function_id.clone(),
+            if capture_context_is_authoritative {
+                self.current_owner_id.clone()
+            } else {
+                function_id.clone()
+            },
             self.host_surface_policy,
         );
         pass.function_signatures = self.function_signatures.clone();
@@ -2133,11 +2576,15 @@ impl<'a> ScriptLowerer<'a> {
         pass.dynamically_installed_getters = self.dynamically_installed_getters.clone();
         pass.dynamically_installed_setters = self.dynamically_installed_setters.clone();
         pass.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
+        pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
         pass.static_boolean_bindings = self.static_boolean_bindings.clone();
         pass.static_string_bindings = self.static_string_bindings.clone();
         pass.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         pass.var_bindings = self.var_bindings.clone();
+        if capture_context_is_authoritative {
+            pass.scopes = self.scopes.clone();
+        }
         pass.exact_context_function_observations = self.exact_context_function_observations.clone();
         pass.exact_context_callback_observations = self.exact_context_callback_observations.clone();
         pass.exact_context_callback_specializations =
@@ -2149,15 +2596,20 @@ impl<'a> ScriptLowerer<'a> {
         pass.active_direct_call_propagations
             .insert(function_id.clone());
         pass.completed_direct_call_propagations = self.completed_direct_call_propagations.clone();
+        pass.script_global_call_observation_mode = self.script_global_call_observation_mode;
         let callback_targets = args
             .iter()
             .flat_map(|arg| {
-                arg.function_targets.iter().map(|callback_id| {
-                    (
-                        self.original_exact_function_id(callback_id),
-                        helper_context_id.clone(),
-                    )
-                })
+                arg.function_targets
+                    .exact_targets()
+                    .into_iter()
+                    .flatten()
+                    .map(|callback_id| {
+                        (
+                            self.original_exact_function_id(callback_id),
+                            helper_context_id.clone(),
+                        )
+                    })
             })
             .collect::<BTreeMap<_, _>>();
         let observed_exact_helper_callbacks =
@@ -2179,8 +2631,13 @@ impl<'a> ScriptLowerer<'a> {
             .get(function_id)
             .expect("function plan must exist");
         let _ = pass.lower_function(plan, None, None);
+        let observed_signature = pass.function_signatures.get(function_id).cloned();
+        self.merge_called_script_global_value_infos(&pass.called_script_global_value_infos);
         self.completed_direct_call_propagations = pass.completed_direct_call_propagations.clone();
-        if let Some(observed_signature) = pass.function_signatures.get(function_id).cloned() {
+        if context_is_reusable {
+            let observed_signature = observed_signature
+                .clone()
+                .expect("lowered source function must retain its signature");
             pass.exact_context_function_observations.insert(
                 (function_id.clone(), helper_context_id.clone()),
                 observed_signature,
@@ -2196,7 +2653,24 @@ impl<'a> ScriptLowerer<'a> {
             signature.params = exact_signature.params;
             signature.this_info = exact_signature.this_info;
             signature.this_observed = exact_signature.this_observed;
+            signature.source_call_flow_effects = exact_signature.source_call_flow_effects;
         }
+        if !capture_context_is_authoritative {
+            return None;
+        }
+
+        // The script activation is a singleton, so its live scope is
+        // authoritative for this call. Captures remain absent from the reusable
+        // context key, so never publish this observation for a later call.
+        observed_signature
+            .filter(|signature| {
+                !signature.this_observed
+                    || signature
+                        .return_targets
+                        .exact_targets()
+                        .is_some_and(BTreeSet::is_empty)
+            })
+            .map(|signature| self.function_call_return_info(&signature))
     }
 
     fn reset_omitted_signature_params_to_undefined(
@@ -2210,7 +2684,7 @@ impl<'a> ScriptLowerer<'a> {
             param.kind = ValueKind::Undefined;
             param.possible_kinds = KindSet::from_kind(ValueKind::Undefined);
             param.heap_shape = None;
-            param.function_targets.clear();
+            param.function_targets.replace_with_no_function();
             param.observed = true;
         }
     }
@@ -2240,9 +2714,10 @@ impl<'a> ScriptLowerer<'a> {
         if param.heap_shape != arg.heap_shape {
             param.heap_shape = None;
         }
-        param
+        param.function_targets = param
             .function_targets
-            .extend(arg.function_targets.iter().cloned());
+            .clone()
+            .join(arg.function_targets.clone());
     }
 
     fn set_signature_param_observation(param: &mut FunctionParamSignature, arg: &ValueInfo) {
@@ -2257,7 +2732,7 @@ impl<'a> ScriptLowerer<'a> {
         param.kind = ValueKind::Dynamic;
         param.possible_kinds = KindSet::all_runtime_tags();
         param.heap_shape = None;
-        param.function_targets.clear();
+        param.function_targets.replace_with_unknown();
         param.observed = false;
     }
 
@@ -2292,7 +2767,10 @@ impl<'a> ScriptLowerer<'a> {
         let Some(callback_arg) = args.first() else {
             return false;
         };
-        if callback_arg.kind != ValueKind::Function || callback_arg.function_targets.is_empty() {
+        let Some(callback_targets) = callback_arg.function_targets.exact_targets() else {
+            return false;
+        };
+        if callback_arg.kind != ValueKind::Function || callback_targets.is_empty() {
             return false;
         }
         let Some(constructor_arg) = args.get(1) else {
@@ -2306,13 +2784,18 @@ impl<'a> ScriptLowerer<'a> {
             if element.kind != ValueKind::Function {
                 return false;
             }
-            if !element.function_targets.iter().any(|function_id| {
-                StandardBuiltinId::from_function_id(function_id)
-                    .is_some_and(Self::is_typed_array_constructor)
-            }) {
+            let Some(element_targets) = element.function_targets.exact_targets() else {
+                return false;
+            };
+            if element_targets.is_empty()
+                || !element_targets.iter().all(|function_id| {
+                    StandardBuiltinId::from_function_id(function_id)
+                        .is_some_and(Self::is_typed_array_constructor)
+                })
+            {
                 return false;
             }
-            constructor_targets.extend(element.function_targets.iter().cloned());
+            constructor_targets.extend(element_targets.iter().cloned());
         }
         if constructor_targets.is_empty() {
             return false;
@@ -2321,17 +2804,17 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Function,
             possible_kinds: KindSet::from_kind(ValueKind::Function),
             heap_shape: None,
-            function_targets: constructor_targets,
+            function_targets: FunctionTargetKnowledge::exact_many(constructor_targets),
         };
         let factory_info = ValueInfo {
             kind: ValueKind::Function,
             possible_kinds: KindSet::from_kind(ValueKind::Function),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         };
         let callback_args = [constructor_info, factory_info];
         let helper_context_id = Self::exact_helper_context_id(function_id, args);
-        for callback_target in &callback_arg.function_targets {
+        for callback_target in callback_targets {
             self.observe_exact_callback_param_infos(
                 callback_target,
                 &helper_context_id,
@@ -2364,12 +2847,16 @@ impl<'a> ScriptLowerer<'a> {
         function_id: &FunctionId,
         context_key_override: Option<&ExactCallbackContextKey>,
     ) -> Option<FunctionSignature> {
+        if self.function_has_untracked_captures(function_id) {
+            return None;
+        }
         if let Some(context_key) = context_key_override {
             return self
                 .exact_context_function_observations
                 .get(context_key)
                 .or_else(|| self.exact_context_callback_observations.get(context_key))
-                .cloned();
+                .cloned()
+                .map(|signature| self.function_signature_with_current_flow_evidence(signature));
         }
         let mut function_observations = self
             .exact_context_function_observations
@@ -2381,7 +2868,7 @@ impl<'a> ScriptLowerer<'a> {
         if function_observations.len() == 1 {
             let exact = function_observations.pop().unwrap();
             if self.exact_signature_covers_aggregate_inputs(function_id, &exact) {
-                return Some(exact);
+                return Some(self.function_signature_with_current_flow_evidence(exact));
             }
             return None;
         }
@@ -2396,9 +2883,83 @@ impl<'a> ScriptLowerer<'a> {
             let exact = callback_observations.pop().unwrap();
             self.exact_signature_covers_aggregate_inputs(function_id, &exact)
                 .then_some(exact)
+                .map(|signature| self.function_signature_with_current_flow_evidence(signature))
         } else {
             None
         }
+    }
+
+    fn function_call_return_info(&self, signature: &FunctionSignature) -> ValueInfo {
+        let mut info = signature.return_info();
+        let shape_is_available = match &signature.return_shape {
+            FunctionReturnShape::Unobserved | FunctionReturnShape::Absent => false,
+            FunctionReturnShape::FlowSensitive(_) => {
+                self.function_signature_shape_evidence == FunctionSignatureShapeEvidence::Available
+            }
+            FunctionReturnShape::RecreatedPerCall { dependencies, .. } => dependencies
+                .global_function_targets
+                .iter()
+                .all(|(name, function_id)| self.global_function_target_matches(name, function_id)),
+        };
+        if !shape_is_available {
+            info.heap_shape = None;
+        }
+        info
+    }
+
+    fn canonical_function_target(&self, function_id: &FunctionId) -> FunctionId {
+        self.function_signatures
+            .get(function_id)
+            .map(|signature| signature.id.clone())
+            .unwrap_or_else(|| function_id.clone())
+    }
+
+    fn global_function_target_matches(&self, name: &str, expected: &FunctionId) -> bool {
+        let Some(property) = self.lookup_global_property_info(name) else {
+            return false;
+        };
+        let function_kind = KindSet::from_kind(ValueKind::Function);
+        property.proven_present
+            && property.value_info.possible_kinds == function_kind
+            && property
+                .value_info
+                .function_targets
+                .exact_targets()
+                .is_some_and(|targets| {
+                    !targets.is_empty()
+                        && targets
+                            .iter()
+                            .all(|observed| self.canonical_function_target(observed) == *expected)
+                })
+    }
+
+    fn function_construct_instance_info(&self, signature: &FunctionSignature) -> ValueInfo {
+        self.function_signature_shape_evidence
+            .apply(signature.constructor_instance.clone())
+    }
+
+    fn function_signature_for_current_flow(&self, function_id: &str) -> Option<FunctionSignature> {
+        self.function_signatures
+            .get(function_id)
+            .cloned()
+            .map(|signature| self.function_signature_with_current_flow_evidence(signature))
+    }
+
+    fn function_signature_with_current_flow_evidence(
+        &self,
+        mut signature: FunctionSignature,
+    ) -> FunctionSignature {
+        if self.function_signature_shape_evidence == FunctionSignatureShapeEvidence::Available {
+            return signature;
+        }
+
+        signature.return_shape.invalidate_flow_sensitive();
+        signature.constructor_instance.heap_shape = None;
+        signature.this_info.heap_shape = None;
+        for param in &mut signature.params {
+            param.heap_shape = None;
+        }
+        signature
     }
 
     fn exact_signature_covers_aggregate_inputs(
@@ -2417,6 +2978,70 @@ impl<'a> ScriptLowerer<'a> {
         let this_matches = !aggregate.this_observed
             || (exact.this_observed && aggregate.this_info == exact.this_info);
         params_match && this_matches
+    }
+
+    fn function_has_untracked_captures(&self, function_id: &FunctionId) -> bool {
+        self.analysis
+            .function_plans
+            .get(function_id)
+            .is_some_and(|plan| !plan.captures.is_empty())
+    }
+
+    fn function_captures_current_script_activation(&self, function_id: &FunctionId) -> bool {
+        if self.current_owner_id != SCRIPT_OWNER_ID {
+            return false;
+        }
+        let Some(script_activation_id) = self
+            .analysis
+            .owner_plans
+            .get(SCRIPT_OWNER_ID)
+            .map(|owner| owner.activation_environment_id)
+        else {
+            return false;
+        };
+        self.analysis
+            .function_plans
+            .get(function_id)
+            .is_some_and(|plan| {
+                !plan.captures.is_empty()
+                    && plan.captures.values().all(|capture| {
+                        capture.owner_id == SCRIPT_OWNER_ID
+                            && capture.environment_id == script_activation_id
+                    })
+            })
+    }
+
+    fn merge_signature_return_observations(
+        &self,
+        current: &FunctionSignature,
+        propagated: &FunctionSignature,
+    ) -> (ValueInfo, FunctionReturnShape) {
+        self.merge_signature_return_value_observation(
+            current,
+            propagated.return_info(),
+            &propagated.return_shape,
+        )
+    }
+
+    fn merge_signature_return_value_observation(
+        &self,
+        current: &FunctionSignature,
+        observed_info: ValueInfo,
+        observed_shape: &FunctionReturnShape,
+    ) -> (ValueInfo, FunctionReturnShape) {
+        if matches!(current.return_shape, FunctionReturnShape::Unobserved) {
+            return (observed_info, observed_shape.clone());
+        }
+        if matches!(observed_shape, FunctionReturnShape::Unobserved) {
+            return (current.return_info(), current.return_shape.clone());
+        }
+        let merged = self.merge_value_infos(current.return_info(), observed_info);
+        let shape = FunctionReturnShape::merged(
+            &current.return_shape,
+            observed_shape,
+            merged.heap_shape.clone(),
+        );
+        (merged, shape)
     }
 
     fn merge_exact_context_function_observation(
@@ -2447,20 +3072,10 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             current_signature.this_info.clone()
         };
-        let merged_return = self.merge_return_infos(
-            ValueInfo {
-                kind: current_signature.return_kind,
-                possible_kinds: current_signature.return_possible_kinds,
-                heap_shape: current_signature.return_shape.clone(),
-                function_targets: current_signature.return_targets.clone(),
-            },
-            ValueInfo {
-                kind: propagated_signature.return_kind,
-                possible_kinds: propagated_signature.return_possible_kinds,
-                heap_shape: propagated_signature.return_shape.clone(),
-                function_targets: propagated_signature.return_targets.clone(),
-            },
-        );
+        let (merged_return, merged_return_shape) =
+            self.merge_signature_return_observations(&current_signature, &propagated_signature);
+        let merged_source_call_flow_effects =
+            current_signature.merged_source_call_flow_effects(&propagated_signature);
         if let Some(signature) = self.exact_context_function_observations.get_mut(&key) {
             for (current_param, propagated_param) in signature
                 .params
@@ -2478,8 +3093,9 @@ impl<'a> ScriptLowerer<'a> {
             }
             signature.return_kind = merged_return.kind;
             signature.return_possible_kinds = merged_return.possible_kinds;
-            signature.return_shape = merged_return.heap_shape;
+            signature.return_shape = merged_return_shape;
             signature.return_targets = merged_return.function_targets;
+            signature.source_call_flow_effects = merged_source_call_flow_effects;
         }
     }
 
@@ -2506,20 +3122,10 @@ impl<'a> ScriptLowerer<'a> {
             } else {
                 current_signature.this_info.clone()
             };
-            let merged_return = self.merge_return_infos(
-                ValueInfo {
-                    kind: current_signature.return_kind,
-                    possible_kinds: current_signature.return_possible_kinds,
-                    heap_shape: current_signature.return_shape.clone(),
-                    function_targets: current_signature.return_targets.clone(),
-                },
-                ValueInfo {
-                    kind: propagated_signature.return_kind,
-                    possible_kinds: propagated_signature.return_possible_kinds,
-                    heap_shape: propagated_signature.return_shape.clone(),
-                    function_targets: propagated_signature.return_targets.clone(),
-                },
-            );
+            let (merged_return, merged_return_shape) =
+                self.merge_signature_return_observations(&current_signature, propagated_signature);
+            let merged_source_call_flow_effects =
+                current_signature.merged_source_call_flow_effects(propagated_signature);
 
             if let Some(signature) = self.function_signatures.get_mut(&function_id) {
                 for (current_param, propagated_param) in signature
@@ -2538,8 +3144,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 signature.return_kind = merged_return.kind;
                 signature.return_possible_kinds = merged_return.possible_kinds;
-                signature.return_shape = merged_return.heap_shape;
+                signature.return_shape = merged_return_shape;
                 signature.return_targets = merged_return.function_targets;
+                signature.source_call_flow_effects = merged_source_call_flow_effects;
             }
         }
     }
@@ -2594,20 +3201,10 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             current_signature.this_info.clone()
         };
-        let merged_return = self.merge_return_infos(
-            ValueInfo {
-                kind: current_signature.return_kind,
-                possible_kinds: current_signature.return_possible_kinds,
-                heap_shape: current_signature.return_shape.clone(),
-                function_targets: current_signature.return_targets.clone(),
-            },
-            ValueInfo {
-                kind: propagated_signature.return_kind,
-                possible_kinds: propagated_signature.return_possible_kinds,
-                heap_shape: propagated_signature.return_shape.clone(),
-                function_targets: propagated_signature.return_targets.clone(),
-            },
-        );
+        let (merged_return, merged_return_shape) =
+            self.merge_signature_return_observations(&current_signature, &propagated_signature);
+        let merged_source_call_flow_effects =
+            current_signature.merged_source_call_flow_effects(&propagated_signature);
         if let Some(signature) = self.exact_context_callback_observations.get_mut(&key) {
             for (current_param, propagated_param) in signature
                 .params
@@ -2625,8 +3222,9 @@ impl<'a> ScriptLowerer<'a> {
             }
             signature.return_kind = merged_return.kind;
             signature.return_possible_kinds = merged_return.possible_kinds;
-            signature.return_shape = merged_return.heap_shape;
+            signature.return_shape = merged_return_shape;
             signature.return_targets = merged_return.function_targets;
+            signature.source_call_flow_effects = merged_source_call_flow_effects;
         }
     }
 
@@ -2651,20 +3249,10 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             current_signature.this_info.clone()
         };
-        let merged_return = self.merge_return_infos(
-            ValueInfo {
-                kind: current_signature.return_kind,
-                possible_kinds: current_signature.return_possible_kinds,
-                heap_shape: current_signature.return_shape.clone(),
-                function_targets: current_signature.return_targets.clone(),
-            },
-            ValueInfo {
-                kind: propagated_signature.return_kind,
-                possible_kinds: propagated_signature.return_possible_kinds,
-                heap_shape: propagated_signature.return_shape.clone(),
-                function_targets: propagated_signature.return_targets.clone(),
-            },
-        );
+        let (merged_return, merged_return_shape) =
+            self.merge_signature_return_observations(&current_signature, &propagated_signature);
+        let merged_source_call_flow_effects =
+            current_signature.merged_source_call_flow_effects(&propagated_signature);
 
         if let Some(signature) = self.function_signatures.get_mut(function_id) {
             for (current_param, propagated_param) in signature
@@ -2683,8 +3271,9 @@ impl<'a> ScriptLowerer<'a> {
             }
             signature.return_kind = merged_return.kind;
             signature.return_possible_kinds = merged_return.possible_kinds;
-            signature.return_shape = merged_return.heap_shape;
+            signature.return_shape = merged_return_shape;
             signature.return_targets = merged_return.function_targets;
+            signature.source_call_flow_effects = merged_source_call_flow_effects;
         }
     }
 
@@ -2843,7 +3432,6 @@ impl<'a> ScriptLowerer<'a> {
         let mut lowered_items = Vec::new();
 
         self.prepare_annex_b_function_bindings();
-        self.prepare_static_generator_declarations(items);
         self.prepare_root_function_binding_ids(root_functions);
         lowered_items.extend(
             self.root_function_init_statements(root_functions)
@@ -2869,8 +3457,6 @@ impl<'a> ScriptLowerer<'a> {
                         Statement::Labelled(labelled)
                             if labelled_function_declaration(labelled).is_some()
                     ) => {}
-                StatementListItem::Declaration(declaration)
-                    if self.is_static_generator_declaration(declaration) => {}
                 _ => {
                     lowered_items.push(self.lower_statement_list_item(item, &mut scope));
                 }
@@ -3057,19 +3643,25 @@ impl<'a> ScriptLowerer<'a> {
         self.visible_function_names.clear();
         for (name, function_id) in root_functions {
             let bare_function_info = self.function_value_info(function_id);
-            let function_info = self
-                .lookup_global_property(name)
-                .filter(|info| {
-                    info.kind == ValueKind::Function && info.function_targets.contains(function_id)
-                })
-                .unwrap_or(bare_function_info);
+            let function_info = if self.current_owner_id == SCRIPT_OWNER_ID {
+                self.lookup_global_property(name)
+                    .filter(|info| {
+                        info.kind == ValueKind::Function
+                            && info.function_targets.exact_single_target() == Some(function_id)
+                    })
+                    .unwrap_or(bare_function_info)
+            } else {
+                bare_function_info
+            };
             self.visible_function_names
                 .insert(name.clone(), function_id.clone());
-            self.set_global_property_value_info_with_source(
-                name.clone(),
-                function_info.clone(),
-                GlobalPropertySource::GlobalWrite,
-            );
+            if self.current_owner_id == SCRIPT_OWNER_ID {
+                self.set_global_property_value_info_with_source(
+                    name.clone(),
+                    function_info.clone(),
+                    GlobalPropertySource::GlobalWrite,
+                );
+            }
             self.declare_binding(
                 name.clone(),
                 BindingInfo {
@@ -3078,7 +3670,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Function,
                     possible_kinds: KindSet::from_kind(ValueKind::Function),
                     heap_shape: function_info.heap_shape,
-                    function_targets: BTreeSet::from([function_id.clone()]),
+                    function_targets: FunctionTargetKnowledge::exact(function_id.clone()),
                     initialization: Initialization::Initialized,
                 },
             );
@@ -3100,20 +3692,6 @@ impl<'a> ScriptLowerer<'a> {
                 ),
             })
             .collect()
-    }
-
-    fn prepare_static_generator_declarations(&mut self, _items: &[StatementListItem]) {}
-
-    fn is_static_generator_declaration(&self, declaration: &Declaration) -> bool {
-        let Declaration::GeneratorDeclaration(generator) = declaration else {
-            return false;
-        };
-        let name = self
-            .interner
-            .resolve_expect(generator.name().sym())
-            .to_string();
-        self.static_generator_sum_values.contains_key(&name)
-            || self.static_generator_element_values.contains_key(&name)
     }
 
     fn is_registered_generator_declaration(&self, declaration: &Declaration) -> bool {
@@ -3179,9 +3757,6 @@ impl<'a> ScriptLowerer<'a> {
                         },
                         LoweredStatementListItemIr::AsyncDisposableScope,
                     ),
-                _ if self.is_static_generator_declaration(declaration.as_ref()) => {
-                    LoweredStatementListItemIr::statement(StatementIr::Empty, ValueKind::Undefined)
-                }
                 _ => {
                     let (statement, result_kind) = self.lower_declaration(declaration, scope);
                     LoweredStatementListItemIr::statement(statement, result_kind)
@@ -3409,7 +3984,8 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        self.static_string_bindings.get(&name).cloned()
+        let binding = self.lookup_binding(&name)?;
+        self.static_string_bindings.get(&binding).cloned()
     }
 
     fn static_to_string_returns_regexp_object_expr(&self, expr: &Expression) -> bool {
@@ -3769,11 +4345,8 @@ impl<'a> ScriptLowerer<'a> {
         self.lookup_global_property_info(name)
             .is_some_and(|property| {
                 property.proven_present
-                    && property.value_info.function_targets.len() == 1
-                    && property
-                        .value_info
-                        .function_targets
-                        .contains(&builtin.function_id())
+                    && property.value_info.function_targets.exact_single_target()
+                        == Some(&builtin.function_id())
             })
     }
 
@@ -3958,12 +4531,20 @@ impl<'a> ScriptLowerer<'a> {
                 .expect("using initializers were validated before lowering");
             let init = self.lower_expression(initializer);
             self.static_iterator_binding_values.remove(&name);
-            self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let storage_name = scoped_lexical_binding_storage_name(&name, identifier.span());
-            let initialized =
-                InitializedBinding::without_creation(name, BindingMode::Const, storage_name, init);
-            resources.push(initialized.into_sync_disposable_resource(self));
+            let initialized = InitializedBinding::without_creation(
+                name.clone(),
+                BindingMode::Const,
+                storage_name,
+                init,
+            );
+            let resource = initialized.into_sync_disposable_resource(self);
+            let binding = self.lookup_binding(&name).unwrap_or_else(|| {
+                panic!("for-loop using binding `{name}` must be declared before clearing facts")
+            });
+            self.static_string_bindings.remove(&binding);
+            resources.push(resource);
         }
 
         let mut resources = resources.into_iter();
@@ -4027,39 +4608,24 @@ impl<'a> ScriptLowerer<'a> {
         {
             self.array_prototype_mutated = true;
         }
-        let static_generator_values = variable
-            .init()
-            .and_then(|expression| self.static_generator_call_values_owned(expression));
-        let static_object_iterator_values = variable
+        let static_iterator_values = variable
             .init()
             .and_then(|expression| self.static_object_iterator_literal_values(expression));
         let static_to_string_regexp_object = variable
             .init()
             .is_some_and(|expression| self.static_to_string_returns_regexp_object_expr(expression));
-        let static_iterator_values = static_generator_values
-            .clone()
-            .or_else(|| static_object_iterator_values.clone());
-        let init = if let Some(values) = &static_generator_values {
-            self.array_iterator_from_static_generator_values(values)
-        } else {
-            variable
-                .init()
-                .map(|expression| self.lower_expression(expression))
-                .unwrap_or_else(TypedExpr::undefined)
-        };
+        let static_string_value = variable
+            .init()
+            .and_then(|expression| self.static_string_expression(expression));
+        let init = variable
+            .init()
+            .map(|expression| self.lower_expression(expression))
+            .unwrap_or_else(TypedExpr::undefined);
         if let Some(values) = static_iterator_values {
             self.static_iterator_binding_values
                 .insert(name.clone(), values);
         } else {
             self.static_iterator_binding_values.remove(&name);
-        }
-        if let Some(value) = variable
-            .init()
-            .and_then(|expression| self.static_string_expression(expression))
-        {
-            self.static_string_bindings.insert(name.clone(), value);
-        } else {
-            self.static_string_bindings.remove(&name);
         }
         if static_to_string_regexp_object {
             self.static_to_string_regexp_object_bindings
@@ -4081,6 +4647,14 @@ impl<'a> ScriptLowerer<'a> {
                 initialization: Initialization::Initialized,
             },
         );
+        let binding = self.lookup_binding(&name).unwrap_or_else(|| {
+            panic!("for-loop lexical binding `{name}` must be declared before installing facts")
+        });
+        if let Some(value) = static_string_value {
+            self.static_string_bindings.insert(&binding, value);
+        } else {
+            self.static_string_bindings.remove(&binding);
+        }
         Some(ForLexicalInitIr {
             mode,
             name: storage_name,
@@ -4109,7 +4683,6 @@ impl<'a> ScriptLowerer<'a> {
                     self.static_generator_call_overrides.remove(&name);
                     self.static_iterator_binding_values.remove(&name);
                     self.static_boolean_bindings.remove(&name);
-                    self.static_string_bindings.remove(&name);
                     self.static_to_string_regexp_object_bindings.remove(&name);
                     self.set_binding_value_info(
                         &name,
@@ -4117,7 +4690,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                         },
                     );
                     statements.push(StatementIr::Var(vec![VarDeclaratorIr {
@@ -4154,7 +4727,6 @@ impl<'a> ScriptLowerer<'a> {
                     self.static_generator_call_overrides.remove(&name);
                     self.static_iterator_binding_values.remove(&name);
                     self.static_boolean_bindings.remove(&name);
-                    self.static_string_bindings.remove(&name);
                     self.static_to_string_regexp_object_bindings.remove(&name);
                     self.set_binding_value_info(&name, value.value_info());
                     statements.push(StatementIr::Expression(
@@ -4187,7 +4759,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                         },
                     );
                     statements.push(StatementIr::Var(vec![VarDeclaratorIr {
@@ -4270,18 +4842,15 @@ impl<'a> ScriptLowerer<'a> {
         {
             self.array_prototype_mutated = true;
         }
-        let static_generator_values = variable
-            .init()
-            .and_then(|expression| self.static_generator_call_values_owned(expression));
-        let static_object_iterator_values = variable
+        let static_iterator_values = variable
             .init()
             .and_then(|expression| self.static_object_iterator_literal_values(expression));
         let static_to_string_regexp_object = variable
             .init()
             .is_some_and(|expression| self.static_to_string_returns_regexp_object_expr(expression));
-        let static_iterator_values = static_generator_values
-            .clone()
-            .or_else(|| static_object_iterator_values.clone());
+        let static_string_value = variable
+            .init()
+            .and_then(|expression| self.static_string_expression(expression));
         let init = if let Some(Expression::GeneratorExpression(generator)) = variable.init() {
             if generator_function_is_aot_supported(generator.body(), generator.parameters()) {
                 self.static_generator_call_overrides.remove(&name);
@@ -4298,11 +4867,6 @@ impl<'a> ScriptLowerer<'a> {
                 self.static_iterator_binding_values.remove(&name);
                 Some(self.lower_generator_expression(generator))
             }
-        } else if let Some(values) = &static_generator_values {
-            self.static_generator_call_overrides.remove(&name);
-            self.static_iterator_binding_values
-                .insert(name.clone(), values.clone());
-            Some(self.array_iterator_from_static_generator_values(values))
         } else {
             self.static_generator_call_overrides.remove(&name);
             if let Some(values) = static_iterator_values.clone() {
@@ -4321,11 +4885,6 @@ impl<'a> ScriptLowerer<'a> {
             } else {
                 self.static_boolean_bindings.remove(&name);
             }
-            if let Some(value) = self.static_string_expression(expression) {
-                self.static_string_bindings.insert(name.clone(), value);
-            } else {
-                self.static_string_bindings.remove(&name);
-            }
             if static_to_string_regexp_object {
                 self.static_to_string_regexp_object_bindings
                     .insert(name.clone());
@@ -4334,20 +4893,42 @@ impl<'a> ScriptLowerer<'a> {
             }
         } else {
             self.static_boolean_bindings.remove(&name);
-            self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
         }
+        let static_boolean_value = self.static_boolean_bindings.get(&name).copied();
+        let static_to_string_regexp_object =
+            self.static_to_string_regexp_object_bindings.contains(&name);
+        let static_generator_call = self.static_generator_call_overrides.get(&name).cloned();
+        let static_iterator_values = self.static_iterator_binding_values.get(&name).cloned();
         if let Some(init) = &init {
             self.set_binding_value_info(&name, init.value_info());
-            if let Some(expression) = variable.init() {
-                if let Some(value) = self.static_string_expression(expression) {
-                    self.static_string_bindings.insert(name.clone(), value);
-                }
-                if static_to_string_regexp_object {
-                    self.static_to_string_regexp_object_bindings
-                        .insert(name.clone());
-                }
+            let binding = self.lookup_binding(&name).unwrap_or_else(|| {
+                panic!(
+                    "var initializer target `{name}` must remain declared while installing facts"
+                )
+            });
+            if let Some(value) = static_boolean_value {
+                self.static_boolean_bindings.insert(name.clone(), value);
             }
+            if let Some(value) = static_string_value {
+                self.static_string_bindings.insert(&binding, value);
+            } else {
+                self.static_string_bindings.remove(&binding);
+            }
+            if static_to_string_regexp_object {
+                self.static_to_string_regexp_object_bindings
+                    .insert(name.clone());
+            }
+            if let Some(call) = static_generator_call {
+                self.static_generator_call_overrides
+                    .insert(name.clone(), call);
+            }
+            if let Some(values) = static_iterator_values {
+                self.static_iterator_binding_values
+                    .insert(name.clone(), values);
+            }
+        } else if let Some(binding) = self.lookup_binding(&name) {
+            self.static_string_bindings.remove(&binding);
         }
         Some(VarDeclaratorIr { name, init })
     }
@@ -4382,10 +4963,17 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::Identifier(storage_name.to_string()),
         );
+        let destructuring_may_run_user_code = match pattern {
+            Pattern::Array(_) => true,
+            Pattern::Object(pattern) => !pattern.bindings().is_empty(),
+        };
+        if destructuring_may_run_user_code {
+            self.invalidate_unknown_user_code_effects();
+        }
         let Pattern::Object(pattern) = pattern else {
             let Pattern::Array(pattern) = pattern else {
                 return Vec::new();
@@ -4435,7 +5023,7 @@ impl<'a> ScriptLowerer<'a> {
         if self.current_resumable_plan.is_some() {
             let Some(target) = ret.target() else {
                 let value = TypedExpr::undefined();
-                self.record_return_info(value.value_info());
+                self.record_return_expression(&value);
                 return (StatementIr::Return(value), ValueKind::Undefined);
             };
             let Some((mut statements, value)) =
@@ -4446,12 +5034,15 @@ impl<'a> ScriptLowerer<'a> {
                 ));
                 return (StatementIr::Empty, ValueKind::Undefined);
             };
-            self.record_return_info(ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            });
+            self.record_return_info(
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: FunctionTargetKnowledge::unknown(),
+                },
+                FunctionReturnShape::Absent,
+            );
             let (await_return, _) =
                 self.lower_linear_async_await_value(value, AsyncResumeModeIr::Return);
             if statements.is_empty() {
@@ -4478,7 +5069,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.unsupported("generator return expression suspension");
                 return (StatementIr::Empty, ValueKind::Undefined);
             };
-            self.record_return_info(value.value_info());
+            self.record_return_expression(&value);
             let kind = value.kind;
             statements.push(StatementIr::Return(value));
             return (StatementIr::LexicalBlock(statements), kind);
@@ -4486,12 +5077,15 @@ impl<'a> ScriptLowerer<'a> {
         if let (Some(Expression::Await(await_expression)), Some(_)) =
             (ret.target(), self.current_async_resume_state)
         {
-            self.record_return_info(ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            });
+            self.record_return_info(
+                ValueInfo {
+                    kind: ValueKind::Dynamic,
+                    possible_kinds: KindSet::all_runtime_tags(),
+                    heap_shape: None,
+                    function_targets: FunctionTargetKnowledge::unknown(),
+                },
+                FunctionReturnShape::Absent,
+            );
             return self
                 .lower_linear_async_await(await_expression.target(), AsyncResumeModeIr::Return);
         }
@@ -4503,7 +5097,7 @@ impl<'a> ScriptLowerer<'a> {
             .target()
             .and_then(|target| self.lower_async_prefixed_expression(target))
         {
-            self.record_return_info(value.value_info());
+            self.record_return_expression(&value);
             statements.push(StatementIr::Return(value.clone()));
             return (
                 StatementIr::Block(BlockIr {
@@ -4527,7 +5121,7 @@ impl<'a> ScriptLowerer<'a> {
                     self.unsupported("returned object literal spread");
                     return (StatementIr::Empty, ValueKind::Undefined);
                 };
-                self.record_return_info(value.value_info());
+                self.record_return_expression(&value);
                 statements.push(StatementIr::Return(value));
                 return (StatementIr::LexicalBlock(statements), ValueKind::Object);
             }
@@ -4536,7 +5130,7 @@ impl<'a> ScriptLowerer<'a> {
             .target()
             .map(|expression| self.lower_expression(expression))
             .unwrap_or_else(TypedExpr::undefined);
-        self.record_return_info(value.value_info());
+        self.record_return_expression(&value);
         (StatementIr::Return(value.clone()), value.kind)
     }
 
@@ -4647,7 +5241,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                 );
                 statements.push(StatementIr::Lexical {
@@ -4673,7 +5267,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                 );
                 statements.push(StatementIr::Lexical {
@@ -4727,7 +5321,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                 );
                 statements.push(StatementIr::Lexical {
@@ -4806,7 +5400,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape::default()))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let accumulator_name =
             self.alloc_suspension_owned_binding("generator.object.spread.", object_info.clone());
@@ -4825,6 +5419,7 @@ impl<'a> ScriptLowerer<'a> {
                             (Vec::new(), self.lower_expression(source))
                         };
                     statements.extend(source_statements);
+                    self.invalidate_unknown_user_code_effects();
                     let accumulator = self.lower_identifier_name(accumulator_name.clone(), false);
                     statements.push(StatementIr::Expression(
                         TypedExpr::spec_copy_data_properties(accumulator, source),
@@ -4871,7 +5466,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape::default()))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let accumulator_name = self.alloc_temp_binding_name("object.spread.");
         self.declare_binding(
@@ -4896,6 +5491,7 @@ impl<'a> ScriptLowerer<'a> {
                 return None;
             };
             let source = self.lower_expression(source);
+            self.invalidate_unknown_user_code_effects();
             let accumulator = self.lower_identifier_name(accumulator_name.clone(), false);
             statements.push(StatementIr::Expression(
                 TypedExpr::spec_copy_data_properties(accumulator, source),
@@ -4965,7 +5561,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: possible_kinds.as_value_kind(),
                         possible_kinds,
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::CoerciveAdd {
                         lhs: Box::new(self.lower_identifier_name(lhs_name, false)),
@@ -4995,7 +5591,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                         initialization: Initialization::Initialized,
                     },
                 );
@@ -5123,7 +5719,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                             initialization: Initialization::Initialized,
                         },
                     );
@@ -5176,6 +5772,9 @@ impl<'a> ScriptLowerer<'a> {
         value: TypedExpr,
         resume_mode: AsyncResumeModeIr,
     ) -> (StatementIr, ValueKind) {
+        // PromiseResolve reads a thenable's `then` before suspension. That
+        // getter can run user code even though the continuation runs later.
+        self.invalidate_unknown_user_code_effects();
         let (suspend_state, resume_state) = if self.current_resumable_plan.is_some() {
             let (suspend_state, resume_state) = self
                 .take_resumable_suspension(ResumableSuspensionKindIr::Await)
@@ -5490,7 +6089,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                         };
                         let received_name = self.alloc_suspension_owned_binding(
                             "async.lexical.received.",
@@ -5589,7 +6188,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             );
                             statements.push(StatementIr::Lexical {
@@ -5659,7 +6258,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                         };
                         let received_name = self.alloc_suspension_owned_binding(
                             "generator.lexical.received.",
@@ -5693,40 +6292,25 @@ impl<'a> ScriptLowerer<'a> {
                     }) {
                         self.array_prototype_mutated = true;
                     }
-                    let static_generator_values = variable
-                        .init()
-                        .and_then(|expression| self.static_generator_call_values_owned(expression));
-                    let static_object_iterator_values = variable.init().and_then(|expression| {
+                    let static_iterator_values = variable.init().and_then(|expression| {
                         self.static_object_iterator_literal_values(expression)
                     });
                     let static_to_string_regexp_object =
                         variable.init().is_some_and(|expression| {
                             self.static_to_string_returns_regexp_object_expr(expression)
                         });
-                    let static_iterator_values = static_generator_values
-                        .clone()
-                        .or_else(|| static_object_iterator_values.clone());
-                    let init = if let Some(values) = &static_generator_values {
-                        self.array_iterator_from_static_generator_values(values)
-                    } else {
-                        variable
-                            .init()
-                            .map(|expression| self.lower_expression(expression))
-                            .unwrap_or_else(TypedExpr::undefined)
-                    };
+                    let static_string_value = variable
+                        .init()
+                        .and_then(|expression| self.static_string_expression(expression));
+                    let init = variable
+                        .init()
+                        .map(|expression| self.lower_expression(expression))
+                        .unwrap_or_else(TypedExpr::undefined);
                     if let Some(values) = static_iterator_values {
                         self.static_iterator_binding_values
                             .insert(name.clone(), values);
                     } else {
                         self.static_iterator_binding_values.remove(&name);
-                    }
-                    if let Some(value) = variable
-                        .init()
-                        .and_then(|expression| self.static_string_expression(expression))
-                    {
-                        self.static_string_bindings.insert(name.clone(), value);
-                    } else {
-                        self.static_string_bindings.remove(&name);
                     }
                     if static_to_string_regexp_object {
                         self.static_to_string_regexp_object_bindings
@@ -5755,7 +6339,18 @@ impl<'a> ScriptLowerer<'a> {
                             )
                         }
                     };
-                    statements.push(initialized.declare(self));
+                    let statement = initialized.declare(self);
+                    let binding = self.lookup_binding(&name).unwrap_or_else(|| {
+                        panic!(
+                            "lexical binding `{name}` must be declared before installing static string facts"
+                        )
+                    });
+                    if let Some(value) = static_string_value {
+                        self.static_string_bindings.insert(&binding, value);
+                    } else {
+                        self.static_string_bindings.remove(&binding);
+                    }
+                    statements.push(statement);
                 }
                 Binding::Pattern(pattern) => {
                     let Some(init) = variable.init() else {
@@ -5834,8 +6429,10 @@ impl<'a> ScriptLowerer<'a> {
                 .init()
                 .expect("using initializers were validated before lowering");
             let init = self.lower_expression(initializer);
+            // AddDisposableResource performs the observable @@dispose lookup
+            // before the binding becomes available to the following suffix.
+            self.invalidate_unknown_user_code_effects();
             self.static_iterator_binding_values.remove(&name);
-            self.static_string_bindings.remove(&name);
             self.static_to_string_regexp_object_bindings.remove(&name);
             let init = LoweredInitializer::evaluated(init);
             let initialized = match pending {
@@ -5850,7 +6447,12 @@ impl<'a> ScriptLowerer<'a> {
                     )
                 }
             };
-            resources.push(initialized.into_sync_disposable_resource(self));
+            let resource = initialized.into_sync_disposable_resource(self);
+            let binding = self.lookup_binding(&name).unwrap_or_else(|| {
+                panic!("using binding `{name}` must be declared before clearing facts")
+            });
+            self.static_string_bindings.remove(&binding);
+            resources.push(resource);
         }
 
         let mut resources = resources.into_iter();
@@ -5887,7 +6489,12 @@ impl<'a> ScriptLowerer<'a> {
             SyncDisposableScopeOwnerPlan::PlainGenerator => {
                 let binding_name = self.alloc_suspension_owned_binding(
                     "generator.dispose.capability.",
-                    ValueInfo::new(ValueKind::Object),
+                    ValueInfo {
+                        kind: ValueKind::Object,
+                        possible_kinds: KindSet::from_kind(ValueKind::Object),
+                        heap_shape: None,
+                        function_targets: FunctionTargetKnowledge::none(),
+                    },
                 );
                 SyncDisposableScopeExecutionIr::PlainGenerator(
                     PlainGeneratorSyncDisposableCapabilityIr::new(binding_name),
@@ -5896,7 +6503,12 @@ impl<'a> ScriptLowerer<'a> {
             SyncDisposableScopeOwnerPlan::AsyncFunction => {
                 let binding_name = self.alloc_suspension_owned_binding(
                     "async.dispose.capability.",
-                    ValueInfo::new(ValueKind::Object),
+                    ValueInfo {
+                        kind: ValueKind::Object,
+                        possible_kinds: KindSet::from_kind(ValueKind::Object),
+                        heap_shape: None,
+                        function_targets: FunctionTargetKnowledge::none(),
+                    },
                 );
                 SyncDisposableScopeExecutionIr::AsyncFunction(
                     AsyncFunctionSyncDisposableCapabilityIr::new(binding_name),
@@ -5905,7 +6517,12 @@ impl<'a> ScriptLowerer<'a> {
             SyncDisposableScopeOwnerPlan::AsyncGenerator => {
                 let binding_name = self.alloc_suspension_owned_binding(
                     "async.generator.dispose.capability.",
-                    ValueInfo::new(ValueKind::Object),
+                    ValueInfo {
+                        kind: ValueKind::Object,
+                        possible_kinds: KindSet::from_kind(ValueKind::Object),
+                        heap_shape: None,
+                        function_targets: FunctionTargetKnowledge::none(),
+                    },
                 );
                 SyncDisposableScopeExecutionIr::AsyncGenerator(
                     AsyncGeneratorSyncDisposableCapabilityIr::new(binding_name),
@@ -6029,7 +6646,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Undefined,
                     possible_kinds: KindSet::from_kind(ValueKind::Undefined),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::none(),
                     is_script_global: false,
                     is_lexical_metadata: false,
                 },
@@ -6040,7 +6657,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Undefined,
             possible_kinds: KindSet::from_kind(ValueKind::Undefined),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
             is_script_global: self.current_owner_id == SCRIPT_OWNER_ID,
             is_lexical_metadata: false,
         });
@@ -6096,7 +6713,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             }),
         );
         for (name, binding) in &self.var_bindings {
@@ -6122,11 +6739,6 @@ impl<'a> ScriptLowerer<'a> {
                 ObjectShapeProperty::Data(info.value_info.clone()),
             );
         }
-        for (name, function_id) in &self.visible_function_names {
-            properties.entry(name.clone()).or_insert_with(|| {
-                ObjectShapeProperty::Data(self.function_value_info(function_id))
-            });
-        }
         ValueInfo {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
@@ -6136,7 +6748,7 @@ impl<'a> ScriptLowerer<'a> {
                 private_brands: BTreeSet::new(),
                 boxed_primitive: None,
             }))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -6285,6 +6897,8 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
+        let script_global_binding = self.script_global_var_binding_info(&name);
+        self.record_binding_value_write(&name, script_global_binding.as_ref());
         self.set_script_global_var_value_info(&name, info.clone());
         self.record_nested_script_global_value_info(&name, info);
     }
@@ -6315,6 +6929,8 @@ impl<'a> ScriptLowerer<'a> {
         let PreWriteGlobalPropertyValue(Some(before_write)) = before_write else {
             return;
         };
+        let script_global_binding = self.script_global_var_binding_info(name);
+        self.record_binding_value_write(name, script_global_binding.as_ref());
         let merged = self.merge_value_infos(before_write, info);
         if let Some(property) = self.global_properties.get_mut(name) {
             property.value_info = merged.clone();
@@ -6339,10 +6955,18 @@ impl<'a> ScriptLowerer<'a> {
             return;
         }
         let is_script_global = self.is_script_global_var_name(name);
-        if !self.global_properties.contains_key(name) && !is_script_global {
-            return;
+        let script_global_binding = self.script_global_var_binding_info(name);
+        self.record_binding_value_write(name, script_global_binding.as_ref());
+        let mut function_targets = FunctionTargetKnowledge::none();
+        if let Some(property) = self.global_properties.get(name) {
+            function_targets = function_targets.join(property.value_info.function_targets.clone());
         }
-        let info = unknown_runtime_value_info();
+        if let Some(binding) = self.script_global_var_value_info(name) {
+            function_targets = function_targets.join(binding.function_targets);
+        }
+        let mut info = unknown_runtime_value_info();
+        info.function_targets = function_targets;
+        info.widen_for_possible_replacement();
         if let Some(property) = self.global_properties.get_mut(name) {
             property.value_info = info.clone();
             property.source = GlobalPropertySource::Merged;
@@ -6351,8 +6975,8 @@ impl<'a> ScriptLowerer<'a> {
                 name.to_string(),
                 GlobalPropertyInfo {
                     value_info: info.clone(),
-                    proven_present: true,
-                    configurable: false,
+                    proven_present: is_script_global,
+                    configurable: !is_script_global,
                     source: GlobalPropertySource::Merged,
                 },
             );
@@ -6386,79 +7010,155 @@ impl<'a> ScriptLowerer<'a> {
     /// Keeping this transaction in one place prevents those implicit calls
     /// from preserving a cache or prototype guard which an explicit call could
     /// have changed.
-    fn visit_live_heap_shape_roots(&mut self, mut visit: impl FnMut(&mut Option<Box<HeapShape>>)) {
+    fn visit_live_heap_shape_roots(
+        &mut self,
+        mut visit: impl FnMut(KindSet, &FunctionTargetKnowledge, &mut Option<Box<HeapShape>>),
+    ) {
         fn visit_signature(
             signature: &mut FunctionSignature,
-            visit: &mut impl FnMut(&mut Option<Box<HeapShape>>),
+            visit: &mut impl FnMut(KindSet, &FunctionTargetKnowledge, &mut Option<Box<HeapShape>>),
         ) {
-            visit(&mut signature.return_shape);
-            visit(&mut signature.constructor_instance.heap_shape);
-            visit(&mut signature.this_info.heap_shape);
+            signature.return_shape.visit_flow_sensitive(
+                signature.return_possible_kinds,
+                &signature.return_targets,
+                visit,
+            );
+            visit(
+                signature.constructor_instance.possible_kinds,
+                &signature.constructor_instance.function_targets,
+                &mut signature.constructor_instance.heap_shape,
+            );
+            visit(
+                signature.this_info.possible_kinds,
+                &signature.this_info.function_targets,
+                &mut signature.this_info.heap_shape,
+            );
             for param in &mut signature.params {
-                visit(&mut param.heap_shape);
+                visit(
+                    param.possible_kinds,
+                    &param.function_targets,
+                    &mut param.heap_shape,
+                );
             }
         }
 
         for scope in &mut self.scopes {
             for binding in scope.values_mut() {
-                visit(&mut binding.heap_shape);
+                visit(
+                    binding.possible_kinds,
+                    &binding.function_targets,
+                    &mut binding.heap_shape,
+                );
             }
         }
         for binding in self.var_bindings.values_mut() {
-            visit(&mut binding.heap_shape);
+            visit(
+                binding.possible_kinds,
+                &binding.function_targets,
+                &mut binding.heap_shape,
+            );
         }
         for property in self.global_properties.values_mut() {
-            visit(&mut property.value_info.heap_shape);
+            visit(
+                property.value_info.possible_kinds,
+                &property.value_info.function_targets,
+                &mut property.value_info.heap_shape,
+            );
         }
         for info in self.well_known_symbol_prototype_properties.values_mut() {
-            visit(&mut info.heap_shape);
+            visit(
+                info.possible_kinds,
+                &info.function_targets,
+                &mut info.heap_shape,
+            );
         }
         for infos in [
             &mut self.nested_script_global_value_infos,
             &mut self.known_nested_script_global_value_infos,
         ] {
             for info in infos.values_mut() {
-                visit(&mut info.heap_shape);
+                visit(
+                    info.possible_kinds,
+                    &info.function_targets,
+                    &mut info.heap_shape,
+                );
             }
         }
         if let CurrentThisBinding::Activation(info) = &mut self.current_this_binding {
-            visit(&mut info.heap_shape);
+            visit(
+                info.possible_kinds,
+                &info.function_targets,
+                &mut info.heap_shape,
+            );
         }
-        visit(&mut self.current_new_target_info.heap_shape);
+        visit(
+            self.current_new_target_info.possible_kinds,
+            &self.current_new_target_info.function_targets,
+            &mut self.current_new_target_info.heap_shape,
+        );
         if let Some(info) = &mut self.current_construct_this_info {
-            visit(&mut info.heap_shape);
+            visit(
+                info.possible_kinds,
+                &info.function_targets,
+                &mut info.heap_shape,
+            );
         }
-        if let Some(info) = &mut self.current_return_info {
-            visit(&mut info.heap_shape);
+        if let Some(returned) = &mut self.current_return {
+            returned.shape.visit_flow_sensitive(
+                returned.info.possible_kinds,
+                &returned.info.function_targets,
+                &mut visit,
+            );
+            returned.info.heap_shape = returned.shape.cloned_shape();
         }
         if let Some(context) = &mut self.class_context {
-            visit(&mut context.super_base_shape);
+            visit(
+                KindSet::from_kind(ValueKind::Object),
+                &FunctionTargetKnowledge::none(),
+                &mut context.super_base_shape,
+            );
         }
-        for signature in self.function_signatures.values_mut() {
-            visit_signature(signature, &mut visit);
-        }
-        for signature in self.exact_context_function_observations.values_mut() {
-            visit_signature(signature, &mut visit);
-        }
-        for signature in self.exact_context_callback_observations.values_mut() {
-            visit_signature(signature, &mut visit);
-        }
-        for operand in self.pinned_async_operands.values_mut() {
-            visit(&mut operand.heap_shape);
-        }
-        for elements in self.static_generator_element_values.values_mut() {
-            for element in elements {
-                visit(&mut element.heap_shape);
+        if !self.is_prepass {
+            if self.is_function_body {
+                self.function_signature_shape_evidence =
+                    FunctionSignatureShapeEvidence::Invalidated;
+            } else {
+                for signature in self.function_signatures.values_mut() {
+                    visit_signature(signature, &mut visit);
+                }
+                for signature in self.exact_context_function_observations.values_mut() {
+                    visit_signature(signature, &mut visit);
+                }
+                for signature in self.exact_context_callback_observations.values_mut() {
+                    visit_signature(signature, &mut visit);
+                }
             }
         }
+        for operand in self.pinned_async_operands.values_mut() {
+            visit(
+                operand.possible_kinds,
+                &operand.function_targets,
+                &mut operand.heap_shape,
+            );
+        }
         for call in self.static_generator_call_overrides.values_mut() {
-            visit(&mut call.heap_shape);
+            visit(
+                call.possible_kinds,
+                &call.function_targets,
+                &mut call.heap_shape,
+            );
         }
     }
 
     fn invalidate_unknown_user_code_effects(&mut self) {
+        self.observe_live_script_global_values();
+        self.invalidate_unknown_user_code_effect_facts();
+    }
+
+    fn invalidate_unknown_user_code_effect_facts(&mut self) {
+        self.record_caller_flow_invalidation();
         self.unknown_user_code_effects_observed = true;
-        self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
+        self.unknown_user_code_effects_introduced = true;
         let unknown = unknown_runtime_value_info();
         let mut captured_names = BTreeSet::new();
         for plan in self.analysis.function_plans.values() {
@@ -6476,7 +7176,7 @@ impl<'a> ScriptLowerer<'a> {
                 {
                     binding.kind = unknown.kind;
                     binding.possible_kinds = unknown.possible_kinds;
-                    binding.function_targets.clear();
+                    binding.function_targets.widen_for_possible_replacement();
                 }
             }
         }
@@ -6484,10 +7184,10 @@ impl<'a> ScriptLowerer<'a> {
             if captured_names.contains(name) {
                 binding.kind = unknown.kind;
                 binding.possible_kinds = unknown.possible_kinds;
-                binding.function_targets.clear();
+                binding.function_targets.widen_for_possible_replacement();
             }
         }
-        self.visit_live_heap_shape_roots(|shape| *shape = None);
+        self.visit_live_heap_shape_roots(|_, _, shape| *shape = None);
 
         self.invalidate_all_possible_global_property_value_infos();
         for property in self.global_properties.values_mut() {
@@ -6500,7 +7200,7 @@ impl<'a> ScriptLowerer<'a> {
             &mut self.known_nested_script_global_value_infos,
         ] {
             for info in infos.values_mut() {
-                *info = unknown.clone();
+                info.widen_for_possible_replacement();
             }
         }
 
@@ -6514,10 +7214,30 @@ impl<'a> ScriptLowerer<'a> {
         self.static_boolean_bindings.clear();
         self.static_string_bindings.clear();
         self.static_to_string_regexp_object_bindings.clear();
-        self.static_generator_sum_values.clear();
-        self.static_generator_element_values.clear();
         self.static_generator_call_overrides.clear();
         self.static_iterator_binding_values.clear();
+    }
+
+    fn clear_static_binding_facts(&mut self, name: &str, binding: Option<&BindingInfo>) {
+        self.static_boolean_bindings.remove(name);
+        if let Some(binding) = binding {
+            self.static_string_bindings.remove(binding);
+        }
+        self.static_to_string_regexp_object_bindings.remove(name);
+        self.static_generator_call_overrides.remove(name);
+        self.static_iterator_binding_values.remove(name);
+    }
+
+    fn record_binding_value_write(&mut self, name: &str, binding: Option<&BindingInfo>) {
+        self.record_caller_flow_invalidation();
+        self.invalidated_static_binding_names
+            .insert(name.to_string());
+        self.clear_static_binding_facts(name, binding);
+    }
+
+    fn record_caller_flow_invalidation(&mut self) {
+        self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
+        self.source_call_flow_effects = SourceCallFlowEffects::may_invalidate_caller_flow();
     }
 
     fn script_global_var_value_info(&self, name: &str) -> Option<ValueInfo> {
@@ -6558,14 +7278,49 @@ impl<'a> ScriptLowerer<'a> {
             .insert(name.to_string(), merged);
     }
 
+    fn observe_live_script_global_values(&mut self) {
+        if !self.is_prepass
+            || self.script_global_call_observation_mode
+                != ScriptGlobalCallObservationMode::ExecutedFlow
+        {
+            return;
+        }
+        let observed_values = self
+            .var_bindings
+            .iter()
+            .filter(|(_, binding)| binding.is_script_global)
+            .map(|(name, binding)| {
+                (
+                    name.clone(),
+                    ValueInfo {
+                        kind: binding.kind,
+                        possible_kinds: binding.possible_kinds,
+                        heap_shape: binding.heap_shape.clone(),
+                        function_targets: binding.function_targets.clone(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        for (name, observed) in observed_values {
+            let merged = match self.called_script_global_value_infos.remove(&name) {
+                Some(existing) => self.merge_value_infos(existing, observed),
+                None => observed,
+            };
+            self.called_script_global_value_infos.insert(name, merged);
+        }
+    }
+
     fn global_property_is_writable_name(name: &str) -> bool {
         !matches!(name, "Infinity" | "NaN" | "undefined")
     }
 
     fn mark_global_property_deleted(&mut self, name: &str) {
+        let script_global_binding = self.script_global_var_binding_info(name);
+        self.record_binding_value_write(name, script_global_binding.as_ref());
         if let Some(info) = self.global_properties.get_mut(name) {
             if info.configurable {
                 info.proven_present = false;
+                info.source = GlobalPropertySource::DefinitelyDeleted;
             }
         }
     }
@@ -6577,7 +7332,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn mark_host_builtins_from_info(&mut self, info: &ValueInfo) {
-        for function_id in &info.function_targets {
+        for function_id in info.function_targets.known_targets() {
             self.mark_host_builtin_from_function_id(function_id);
         }
     }
@@ -6648,7 +7403,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 };
             }
             if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
@@ -6697,7 +7452,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Arguments,
                     possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::none(),
                 },
                 ExprIr::Arguments,
             );
@@ -6734,7 +7489,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 },
                 ExprIr::RuntimeThrow {
                     name: NativeErrorKind::ReferenceError,
@@ -6748,7 +7503,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::GlobalIdentifierRead { name },
         )
@@ -6763,6 +7518,13 @@ impl<'a> ScriptLowerer<'a> {
         objects.into_reference_plan(name, strictness, || {
             self.alloc_temp_binding_name("with.unscopables.")
         })
+    }
+
+    fn script_global_var_binding_info(&self, name: &str) -> Option<BindingInfo> {
+        self.var_bindings
+            .get(name)
+            .filter(|binding| binding.is_script_global)
+            .map(|binding| binding.to_binding_info(name))
     }
 
     /// Lower `expression`, first evaluating any operand of it that the spec
@@ -6906,7 +7668,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Number,
                         possible_kinds: KindSet::from_kind(ValueKind::Number),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::Number(value.to_bits()),
                 ),
@@ -6915,7 +7677,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Number,
                         possible_kinds: KindSet::from_kind(ValueKind::Number),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::Number((*value as f64).to_bits()),
                 ),
@@ -6924,7 +7686,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Boolean,
                         possible_kinds: KindSet::from_kind(ValueKind::Boolean),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::Boolean(*value),
                 ),
@@ -6933,7 +7695,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Null,
                         possible_kinds: KindSet::from_kind(ValueKind::Null),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::Null,
                 ),
@@ -6985,7 +7747,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                 );
                 self.async_expression_prefix
@@ -7104,539 +7866,6 @@ impl<'a> ScriptLowerer<'a> {
         self.function_value_expr(function_id)
     }
 
-    fn lower_generated_iterator_function_expression(
-        &mut self,
-        generator: &GeneratorExpression,
-    ) -> TypedExpr {
-        let function_name = "<generator>";
-        if self
-            .lower_function_parameters(generator.parameters(), function_name)
-            .is_none()
-        {
-            return TypedExpr::undefined();
-        }
-
-        let function_id = self.alloc_generated_function_id("generator.expr");
-        let return_info = ValueInfo {
-            kind: ValueKind::Object,
-            possible_kinds: KindSet::from_kind(ValueKind::Object),
-            heap_shape: Some(Self::array_iterator_instance_shape()),
-            function_targets: BTreeSet::new(),
-        };
-        let this_info = ValueInfo {
-            kind: ValueKind::Dynamic,
-            possible_kinds: KindSet::all_runtime_tags(),
-            heap_shape: None,
-            function_targets: BTreeSet::new(),
-        };
-        let to_string_representation = CallableToStringRepresentation::ExactSource(
-            generator_expression_source_slice(generator, self.source_text),
-        );
-
-        let mut lowerer = ScriptLowerer::new(
-            self.interner,
-            self.analysis,
-            self.source_text,
-            self.root_this_binding,
-            function_id.clone(),
-            self.host_surface_policy,
-        );
-        lowerer.function_signatures = std::mem::take(&mut self.function_signatures);
-        lowerer.visible_function_names = self.visible_function_names.clone();
-        lowerer.global_properties = self.global_properties.clone();
-        lowerer.well_known_symbol_prototype_properties =
-            self.well_known_symbol_prototype_properties.clone();
-        lowerer.array_prototype_mutated = self.array_prototype_mutated;
-        lowerer.number_prototype_to_string_state = self.number_prototype_to_string_state;
-        lowerer.number_prototype_match_is_string_match =
-            self.number_prototype_match_is_string_match;
-        lowerer.number_prototype_split_is_string_split =
-            self.number_prototype_split_is_string_split;
-        lowerer.boolean_prototype_to_string_state = self.boolean_prototype_to_string_state;
-        lowerer.dynamically_installed_getters = self.dynamically_installed_getters.clone();
-        lowerer.dynamically_installed_setters = self.dynamically_installed_setters.clone();
-        lowerer.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
-        lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
-        lowerer.static_string_bindings = self.static_string_bindings.clone();
-        lowerer.static_to_string_regexp_object_bindings =
-            self.static_to_string_regexp_object_bindings.clone();
-        lowerer.var_bindings = self.var_bindings.clone();
-        lowerer.used_host_builtins = self.used_host_builtins.clone();
-        lowerer.host_builtin_calls = self.host_builtin_calls;
-        lowerer.is_function_body = true;
-        lowerer.current_function_id = Some(function_id.clone());
-        if !generator_body_has_no_suspension(generator.body())
-            && linear_generator_plan(generator.body()).is_some()
-        {
-            lowerer.current_generator_resume_state = Some(0);
-        }
-        lowerer.current_owner_id = function_id.clone();
-        lowerer.current_this_binding = CurrentThisBinding::Activation(this_info.clone());
-        lowerer.current_new_target_info = ValueInfo::undefined();
-        lowerer.current_construct_this_info = None;
-        lowerer.push_scope();
-        lowerer.declare_binding(
-            LEXICAL_ARGUMENTS_NAME.to_string(),
-            BindingInfo {
-                mode: BindingMode::Let,
-                storage_name: LEXICAL_ARGUMENTS_NAME.to_string(),
-                kind: ValueKind::Arguments,
-                possible_kinds: KindSet::from_kind(ValueKind::Arguments),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-                initialization: Initialization::Initialized,
-            },
-        );
-
-        let mut params = Vec::with_capacity(generator.parameters().as_ref().len());
-        let mut parameter_prefix_statements = Vec::new();
-        for (index, parameter) in generator.parameters().as_ref().iter().enumerate() {
-            let binding = parameter.variable().binding();
-            let name = binding_parameter_storage_name(self.interner, binding, index);
-            let kind = if parameter.is_rest_param() {
-                ValueKind::Array
-            } else {
-                ValueKind::Dynamic
-            };
-            let possible_kinds = if parameter.is_rest_param() {
-                KindSet::from_kind(ValueKind::Array)
-            } else {
-                KindSet::all_runtime_tags()
-            };
-            lowerer.declare_binding(
-                name.clone(),
-                BindingInfo {
-                    mode: BindingMode::Let,
-                    storage_name: name.clone(),
-                    kind,
-                    possible_kinds,
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                    initialization: Initialization::Initialized,
-                },
-            );
-            lowerer.current_param_names.push(name.clone());
-            params.push(FunctionParamIr {
-                name: name.clone(),
-                kind,
-                default_init: parameter
-                    .init()
-                    .map(|expression| lowerer.lower_expression(expression)),
-                is_rest: parameter.is_rest_param(),
-            });
-            let binding_initializers = lowerer.lower_parameter_binding_pattern(binding, &name);
-            if !binding_initializers.is_empty() {
-                parameter_prefix_statements.push(StatementIr::ParameterInitialization {
-                    parameter_index: index,
-                    statements: binding_initializers,
-                });
-            }
-        }
-
-        let return_value = lowerer.lower_generator_body_as_array_iterator(generator);
-        lowerer.record_return_info(return_value.value_info());
-        let mut statements = parameter_prefix_statements;
-        statements.push(StatementIr::Return(return_value));
-        let body = BlockIr {
-            result_kind: return_info.kind,
-            statements,
-            lexical_environment: None,
-        };
-        lowerer.pop_scope();
-
-        let unknown_user_code_effects_observed = lowerer.unknown_user_code_effects_observed;
-        let intervening_effects_observed = lowerer.intervening_effect_epoch > 0;
-        self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
-        self.diagnostics.extend(lowerer.diagnostics.clone());
-        self.function_signatures = lowerer.function_signatures;
-        self.dynamically_installed_getters
-            .extend(lowerer.dynamically_installed_getters);
-        self.dynamically_installed_setters
-            .extend(lowerer.dynamically_installed_setters);
-        if unknown_user_code_effects_observed {
-            self.invalidate_unknown_user_code_effects();
-        } else if intervening_effects_observed {
-            self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
-        }
-        self.used_host_builtins.extend(lowerer.used_host_builtins);
-        self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
-        self.generated_functions.extend(lowerer.generated_functions);
-
-        self.function_signatures.insert(
-            function_id.clone(),
-            FunctionSignature {
-                id: function_id.clone(),
-                to_string_representation: to_string_representation.clone(),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: params
-                    .iter()
-                    .map(|param| FunctionParamSignature {
-                        kind: param.kind,
-                        possible_kinds: if param.is_rest {
-                            KindSet::from_kind(ValueKind::Array)
-                        } else {
-                            KindSet::all_runtime_tags()
-                        },
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                        observed: param.is_rest,
-                        has_default: param.default_init.is_some(),
-                        is_rest: param.is_rest,
-                    })
-                    .collect(),
-                return_kind: return_info.kind,
-                return_possible_kinds: return_info.possible_kinds,
-                return_shape: return_info.heap_shape.clone(),
-                return_targets: return_info.function_targets.clone(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: this_info.clone(),
-                this_observed: true,
-            },
-        );
-
-        self.generated_functions.push(FunctionIr {
-            id: function_id.clone(),
-            name: function_name.to_string(),
-            to_string_representation,
-            protocol: FunctionProtocolIr::OrdinaryCallOnly,
-            generator_plan: None,
-            resumable_plan: None,
-            strict: generator.body().strict(),
-            class_element_execution_kind: ClassElementExecutionKind::None,
-            class_heritage_kind: ClassHeritageKind::None,
-            is_static_class_member: false,
-            is_derived_constructor: false,
-            is_synthetic_default_derived_constructor: false,
-            class_instance_element_plan: None,
-            super_constructor_target: None,
-            uses_super: false,
-            this_before_super: false,
-            lexical_derived_activation: None,
-            private_name_ids: BTreeMap::new(),
-            captures_private_environment: false,
-            is_nested: true,
-            is_expression: true,
-            is_named_expression: false,
-            captures_lexical_this: false,
-            captures_lexical_arguments: false,
-            params,
-            body,
-            return_kind: return_info.kind,
-            return_shape: return_info.heap_shape.clone(),
-            return_targets: return_info.function_targets.clone(),
-            constructor_instance: ValueInfo::undefined(),
-            owned_env_bindings: Vec::new(),
-            captured_bindings: Vec::new(),
-        });
-
-        self.function_value_expr(function_id)
-    }
-
-    fn lower_generated_iterator_function(
-        &mut self,
-        generator: &GeneratorExpression,
-        statements: Vec<StatementIr>,
-    ) -> TypedExpr {
-        let function_id = self.alloc_generated_function_id("generator.expr");
-        let return_info = ValueInfo {
-            kind: ValueKind::Object,
-            possible_kinds: KindSet::from_kind(ValueKind::Object),
-            heap_shape: Some(Self::array_iterator_instance_shape()),
-            function_targets: BTreeSet::new(),
-        };
-        let this_info = ValueInfo {
-            kind: ValueKind::Dynamic,
-            possible_kinds: KindSet::all_runtime_tags(),
-            heap_shape: None,
-            function_targets: BTreeSet::new(),
-        };
-        let to_string_representation = CallableToStringRepresentation::ExactSource(
-            generator_expression_source_slice(generator, self.source_text),
-        );
-
-        self.function_signatures.insert(
-            function_id.clone(),
-            FunctionSignature {
-                id: function_id.clone(),
-                to_string_representation: to_string_representation.clone(),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: return_info.kind,
-                return_possible_kinds: return_info.possible_kinds,
-                return_shape: return_info.heap_shape.clone(),
-                return_targets: return_info.function_targets.clone(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: this_info.clone(),
-                this_observed: true,
-            },
-        );
-
-        self.generated_functions.push(FunctionIr {
-            id: function_id.clone(),
-            name: "<generator>".to_string(),
-            to_string_representation,
-            protocol: FunctionProtocolIr::OrdinaryCallOnly,
-            generator_plan: None,
-            resumable_plan: None,
-            strict: generator.body().strict(),
-            class_element_execution_kind: ClassElementExecutionKind::None,
-            class_heritage_kind: ClassHeritageKind::None,
-            is_static_class_member: false,
-            is_derived_constructor: false,
-            is_synthetic_default_derived_constructor: false,
-            class_instance_element_plan: None,
-            super_constructor_target: None,
-            uses_super: false,
-            this_before_super: false,
-            lexical_derived_activation: None,
-            private_name_ids: BTreeMap::new(),
-            captures_private_environment: false,
-            is_nested: true,
-            is_expression: true,
-            is_named_expression: false,
-            captures_lexical_this: false,
-            captures_lexical_arguments: false,
-            params: Vec::new(),
-            body: BlockIr {
-                result_kind: ValueKind::Undefined,
-                statements,
-                lexical_environment: None,
-            },
-            return_kind: return_info.kind,
-            return_shape: return_info.heap_shape.clone(),
-            return_targets: return_info.function_targets.clone(),
-            constructor_instance: ValueInfo::undefined(),
-            owned_env_bindings: Vec::new(),
-            captured_bindings: Vec::new(),
-        });
-
-        self.function_value_expr(function_id)
-    }
-
-    fn lower_this_range_generator_function_body(
-        &self,
-        generator: &GeneratorExpression,
-    ) -> Option<Vec<StatementIr>> {
-        let statements = generator.body().statements();
-        if statements.len() != 3 {
-            return None;
-        }
-
-        let (index_name, index_init) = self.single_lexical_number_binding(&statements[0])?;
-        if index_init != 0.0 {
-            return None;
-        }
-        let (target_name, target_init) = self.single_lexical_expression_binding(&statements[1])?;
-        if !self.expression_is_this_unsigned_right_shift_zero(target_init) {
-            return None;
-        }
-        let StatementListItem::Statement(while_statement) = &statements[2] else {
-            return None;
-        };
-        let Statement::WhileLoop(while_loop) = while_statement.as_ref() else {
-            return None;
-        };
-        let Expression::Binary(condition) = Self::unwrap_parenthesized_expr(while_loop.condition())
-        else {
-            return None;
-        };
-        if condition.op() != BinaryOp::Relational(RelationalOp::LessThan)
-            || !self.expr_is_identifier_named(condition.lhs(), &index_name)
-            || !self.expr_is_identifier_named(condition.rhs(), &target_name)
-        {
-            return None;
-        }
-        if !self.while_body_yields_and_increments(while_loop.body(), &index_name) {
-            return None;
-        }
-
-        let values_name = self.alloc_generated_iterator_values_name(&index_name, &target_name);
-        let number_info = ValueInfo::new(ValueKind::Number);
-        let index_expr =
-            TypedExpr::from_info(number_info.clone(), ExprIr::Identifier(index_name.clone()));
-        let target_expr =
-            TypedExpr::from_info(number_info.clone(), ExprIr::Identifier(target_name.clone()));
-        let values_array = Self::array_literal_from_lowered(Vec::new());
-        let values_info = values_array.value_info();
-        let values_expr =
-            TypedExpr::from_info(values_info.clone(), ExprIr::Identifier(values_name.clone()));
-
-        let this_expr = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::This,
-        );
-        let target_init = TypedExpr::from_info(
-            number_info.clone(),
-            ExprIr::BitwiseNumeric {
-                op: BitwiseBinaryOp::UShr,
-                lhs: Box::new(this_expr),
-                rhs: Box::new(self.static_number_index_expr(0.0)),
-            },
-        );
-        let condition = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::CompareNumber {
-                op: RelationalBinaryOp::LessThan,
-                lhs: Box::new(index_expr.clone()),
-                rhs: Box::new(target_expr),
-            },
-        );
-        let push = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Number),
-            ExprIr::CallMethod {
-                receiver: Box::new(values_expr.clone()),
-                key: PropertyKeyIr::StaticString("push".to_string()),
-                args: vec![index_expr.clone()],
-            },
-        );
-        let increment = TypedExpr::from_info(
-            number_info,
-            ExprIr::UpdateIdentifier {
-                name: index_name.clone(),
-                op: NumericUpdateOp::Increment,
-                return_mode: UpdateReturnMode::Prefix,
-                value_kind: ValueKind::Number,
-            },
-        );
-        let result = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Self::array_iterator_instance_shape()),
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::CallMethod {
-                receiver: Box::new(values_expr),
-                key: PropertyKeyIr::StaticString("values".to_string()),
-                args: Vec::new(),
-            },
-        );
-
-        Some(vec![
-            StatementIr::Lexical {
-                mode: BindingMode::Let,
-                name: index_name,
-                init: self.static_number_index_expr(0.0),
-            },
-            StatementIr::Lexical {
-                mode: BindingMode::Let,
-                name: target_name,
-                init: target_init,
-            },
-            StatementIr::Lexical {
-                mode: BindingMode::Let,
-                name: values_name,
-                init: values_array,
-            },
-            StatementIr::While {
-                condition,
-                body: Box::new(StatementIr::Block(BlockIr {
-                    result_kind: ValueKind::Number,
-                    statements: vec![
-                        StatementIr::Expression(push),
-                        StatementIr::Expression(increment),
-                    ],
-                    lexical_environment: None,
-                })),
-            },
-            StatementIr::Return(result),
-        ])
-    }
-
-    fn single_lexical_number_binding(&self, item: &StatementListItem) -> Option<(String, f64)> {
-        let (name, init) = self.single_lexical_expression_binding(item)?;
-        Some((name, Self::literal_number_value(init)?))
-    }
-
-    fn single_lexical_expression_binding<'b>(
-        &self,
-        item: &'b StatementListItem,
-    ) -> Option<(String, &'b Expression)> {
-        let StatementListItem::Declaration(declaration) = item else {
-            return None;
-        };
-        let Declaration::Lexical(lexical) = declaration.as_ref() else {
-            return None;
-        };
-        let list = match lexical {
-            LexicalDeclaration::Let(list) | LexicalDeclaration::Const(list) => list,
-            LexicalDeclaration::Using(_) | LexicalDeclaration::AwaitUsing(_) => return None,
-        };
-        if list.as_ref().len() != 1 {
-            return None;
-        }
-        let variable = &list.as_ref()[0];
-        let Binding::Identifier(identifier) = variable.binding() else {
-            return None;
-        };
-        Some((
-            self.interner.resolve_expect(identifier.sym()).to_string(),
-            variable.init()?,
-        ))
-    }
-
-    fn expression_is_this_unsigned_right_shift_zero(&self, expr: &Expression) -> bool {
-        let Expression::Binary(binary) = Self::unwrap_parenthesized_expr(expr) else {
-            return false;
-        };
-        binary.op() == BinaryOp::Bitwise(BitwiseOp::UShr)
-            && matches!(
-                Self::unwrap_parenthesized_expr(binary.lhs()),
-                Expression::This(_)
-            )
-            && Self::literal_number_value(binary.rhs()) == Some(0.0)
-    }
-
-    fn while_body_yields_and_increments(&self, body: &Statement, index_name: &str) -> bool {
-        let Statement::Block(block) = body else {
-            return false;
-        };
-        let statements = block.statement_list().statements();
-        if statements.len() != 2 {
-            return false;
-        }
-        let StatementListItem::Statement(yield_statement) = &statements[0] else {
-            return false;
-        };
-        let Statement::Expression(Expression::Yield(yield_expr)) = yield_statement.as_ref() else {
-            return false;
-        };
-        if yield_expr.delegate()
-            || !yield_expr
-                .target()
-                .is_some_and(|target| self.expr_is_identifier_named(target, index_name))
-        {
-            return false;
-        }
-        let StatementListItem::Statement(update_statement) = &statements[1] else {
-            return false;
-        };
-        let Statement::Expression(Expression::Update(update)) = update_statement.as_ref() else {
-            return false;
-        };
-        matches!(
-            update.op(),
-            UpdateOp::IncrementPre | UpdateOp::IncrementPost
-        ) && matches!(
-            update.target(),
-            UpdateTarget::Identifier(identifier)
-                if self.interner.resolve_expect(identifier.sym()).to_string() == index_name
-        )
-    }
-
-    fn alloc_generated_iterator_values_name(&self, index_name: &str, target_name: &str) -> String {
-        format!("$generatorValues${index_name}${target_name}")
-    }
-
     fn lower_template_literal(&mut self, template: &TemplateLiteral) -> TypedExpr {
         let mut lowered: Option<TypedExpr> = None;
         let elements = template.elements();
@@ -7712,7 +7941,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Array,
             possible_kinds: KindSet::from_kind(ValueKind::Array),
             heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let mut args = Vec::with_capacity(template.exprs().len() + 1);
         args.push(TypedExpr::from_info(
@@ -7734,9 +7963,9 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::all_runtime_tags(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         };
-        match template.tag() {
+        let result = match template.tag() {
             Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
                 let receiver = self.lower_property_target(access.target());
                 let key = match access.field() {
@@ -7768,7 +7997,9 @@ impl<'a> ScriptLowerer<'a> {
                     static_regexp_compilation: None,
                 },
             ),
-        }
+        };
+        self.invalidate_unknown_user_code_effects();
+        result
     }
 
     fn lower_arrow_function(&mut self, function: &ArrowFunction) -> TypedExpr {
@@ -7949,7 +8180,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                     initialization: Initialization::Initialized,
                 },
             );
@@ -7968,6 +8199,168 @@ impl<'a> ScriptLowerer<'a> {
             self.pop_scope();
         }
         lowered
+    }
+
+    fn capture_generated_class_element_flow(
+        execution_kind: ClassElementExecutionKind,
+        lowerer: &mut ScriptLowerer<'_>,
+        captured_parent_values: Vec<(String, ValueInfo)>,
+    ) -> GeneratedClassElementFlow {
+        match execution_kind {
+            ClassElementExecutionKind::None
+            | ClassElementExecutionKind::InstanceFieldInitializer => {
+                debug_assert!(captured_parent_values.is_empty());
+                GeneratedClassElementFlow::Deferred
+            }
+            ClassElementExecutionKind::StaticFieldInitializer
+            | ClassElementExecutionKind::StaticBlock => {
+                let script_global_values = lowerer
+                    .var_bindings
+                    .iter()
+                    .filter(|(_, binding)| binding.is_script_global)
+                    .map(|(name, binding)| {
+                        (
+                            name.clone(),
+                            ValueInfo {
+                                kind: binding.kind,
+                                possible_kinds: binding.possible_kinds,
+                                heap_shape: binding.heap_shape.clone(),
+                                function_targets: binding.function_targets.clone(),
+                            },
+                        )
+                    })
+                    .collect();
+                GeneratedClassElementFlow::Executed(ExecutedClassElementPostState {
+                    global_properties: std::mem::take(&mut lowerer.global_properties),
+                    well_known_symbol_prototype_properties: std::mem::take(
+                        &mut lowerer.well_known_symbol_prototype_properties,
+                    ),
+                    script_global_values,
+                    captured_parent_values,
+                    invalidated_static_binding_names: std::mem::take(
+                        &mut lowerer.invalidated_static_binding_names,
+                    ),
+                    boolean_alias_shapes_invalidated: lowerer.boolean_alias_shapes_invalidated,
+                    array_prototype_mutated: lowerer.array_prototype_mutated,
+                    number_prototype_to_string_state: lowerer.number_prototype_to_string_state,
+                    number_prototype_match_is_string_match: lowerer
+                        .number_prototype_match_is_string_match,
+                    number_prototype_split_is_string_split: lowerer
+                        .number_prototype_split_is_string_split,
+                    boolean_prototype_to_string_state: lowerer.boolean_prototype_to_string_state,
+                    unknown_user_code_effects_observed: lowerer.unknown_user_code_effects_observed,
+                    unknown_user_code_effects_introduced: lowerer
+                        .unknown_user_code_effects_introduced,
+                    intervening_effect_epoch: lowerer.intervening_effect_epoch,
+                    function_signature_shape_evidence: lowerer.function_signature_shape_evidence,
+                    source_call_flow_effects: lowerer.source_call_flow_effects,
+                })
+            }
+        }
+    }
+
+    fn executed_class_receiver_post_state(
+        &self,
+        execution_kind: ClassElementExecutionKind,
+        entry_info: &ValueInfo,
+        this_post_state: Option<ValueInfo>,
+        class_name_post_state: Option<ValueInfo>,
+    ) -> Option<ValueInfo> {
+        if !matches!(
+            execution_kind,
+            ClassElementExecutionKind::StaticFieldInitializer
+                | ClassElementExecutionKind::StaticBlock
+        ) {
+            return this_post_state;
+        }
+        let this_post_state = this_post_state.unwrap_or_else(|| entry_info.clone());
+        let class_name_post_state = class_name_post_state.unwrap_or_else(|| entry_info.clone());
+        let this_changed = &this_post_state != entry_info;
+        let class_name_changed = &class_name_post_state != entry_info;
+        match (
+            this_post_state.heap_shape.is_some(),
+            class_name_post_state.heap_shape.is_some(),
+        ) {
+            (true, false) => return Some(this_post_state),
+            (false, true) => return Some(class_name_post_state),
+            (false, false) => {
+                return Some(self.merge_value_infos(this_post_state, class_name_post_state));
+            }
+            (true, true) => {}
+        }
+        match (this_changed, class_name_changed) {
+            (true, false) => Some(this_post_state),
+            (false, true) => Some(class_name_post_state),
+            (false, false) => Some(entry_info.clone()),
+            (true, true) if this_post_state == class_name_post_state => Some(this_post_state),
+            (true, true) => {
+                let mut merged = self.merge_value_infos(this_post_state, class_name_post_state);
+                merged.heap_shape = None;
+                Some(merged)
+            }
+        }
+    }
+
+    fn install_generated_class_element_flow(&mut self, flow: GeneratedClassElementFlow) {
+        let GeneratedClassElementFlow::Executed(post_state) = flow else {
+            return;
+        };
+        if post_state.unknown_user_code_effects_introduced {
+            self.invalidate_unknown_user_code_effect_facts();
+        } else if post_state.boolean_alias_shapes_invalidated {
+            self.invalidate_all_static_boolean_alias_shapes();
+        }
+        self.invalidated_static_binding_names
+            .extend(post_state.invalidated_static_binding_names.iter().cloned());
+        for name in &post_state.invalidated_static_binding_names {
+            let binding = self
+                .scopes
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(name).cloned())
+                .or_else(|| {
+                    self.var_bindings
+                        .get(name)
+                        .map(|binding| binding.to_binding_info(name))
+                });
+            self.clear_static_binding_facts(name, binding.as_ref());
+        }
+        for (name, info) in &post_state.script_global_values {
+            self.set_script_global_var_value_info(name, info.clone());
+        }
+        self.global_properties = post_state.global_properties;
+        self.well_known_symbol_prototype_properties =
+            post_state.well_known_symbol_prototype_properties;
+        self.array_prototype_mutated = post_state.array_prototype_mutated;
+        self.number_prototype_to_string_state = post_state.number_prototype_to_string_state;
+        self.number_prototype_match_is_string_match =
+            post_state.number_prototype_match_is_string_match;
+        self.number_prototype_split_is_string_split =
+            post_state.number_prototype_split_is_string_split;
+        self.boolean_prototype_to_string_state = post_state.boolean_prototype_to_string_state;
+        for (source_name, captured_info) in post_state.captured_parent_values {
+            self.install_binding_value_info(&source_name, captured_info.clone())
+                .expect("executed class-element capture must remain visible to its parent");
+            if self.is_script_global_var_name(&source_name) {
+                if let Some(property) = self.global_properties.get_mut(&source_name) {
+                    property.value_info = captured_info;
+                    property.proven_present = true;
+                    property.source = GlobalPropertySource::GlobalWrite;
+                }
+            }
+        }
+        self.unknown_user_code_effects_observed = post_state.unknown_user_code_effects_observed;
+        self.function_signature_shape_evidence = self
+            .function_signature_shape_evidence
+            .join(post_state.function_signature_shape_evidence);
+        self.source_call_flow_effects = self
+            .source_call_flow_effects
+            .combine_caller_flow(post_state.source_call_flow_effects);
+        if !post_state.unknown_user_code_effects_introduced
+            && post_state.intervening_effect_epoch > 0
+        {
+            self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
+        }
     }
 
     fn mark_generated_function_as_generator(
@@ -8030,21 +8423,26 @@ impl<'a> ScriptLowerer<'a> {
                             KindSet::all_runtime_tags()
                         },
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: if parameter.is_rest_param() {
+                            FunctionTargetKnowledge::none()
+                        } else {
+                            FunctionTargetKnowledge::unknown()
+                        },
                         observed: parameter.is_rest_param(),
                         has_default: parameter.init().is_some(),
                         is_rest: parameter.is_rest_param(),
                     })
                     .collect(),
-                return_kind: ValueKind::Undefined,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_kind: ValueKind::Dynamic,
+                return_possible_kinds: KindSet::all_runtime_tags(),
+                return_shape: FunctionReturnShape::Unobserved,
+                return_targets: FunctionTargetKnowledge::unknown(),
                 constructor_instance: current_construct_this_info
                     .clone()
                     .unwrap_or_else(ValueInfo::undefined),
                 this_info: current_this_info.clone(),
                 this_observed: true,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
 
@@ -8062,7 +8460,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Object,
                     possible_kinds: KindSet::from_kind(ValueKind::Object),
                     heap_shape: Some(shape),
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 })
                 .unwrap_or_else(Self::fresh_constructed_instance_info);
             if let Some(HeapShape::Object(shape)) =
@@ -8101,14 +8499,33 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.dynamically_installed_getters = self.dynamically_installed_getters.clone();
         lowerer.dynamically_installed_setters = self.dynamically_installed_setters.clone();
         lowerer.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
+        lowerer.function_signature_shape_evidence = self.function_signature_shape_evidence;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
+        lowerer.static_generator_call_overrides = self.static_generator_call_overrides.clone();
+        lowerer.static_iterator_binding_values = self.static_iterator_binding_values.clone();
         lowerer.var_bindings = self.var_bindings.clone();
-        lowerer.seed_script_global_var_properties();
+        lowerer.known_nested_script_global_value_infos =
+            self.known_nested_script_global_value_infos.clone();
+        match class_element_execution_kind {
+            ClassElementExecutionKind::StaticFieldInitializer
+            | ClassElementExecutionKind::StaticBlock => {
+                lowerer.seed_live_script_global_var_properties();
+                lowerer.script_global_call_observation_mode =
+                    self.script_global_call_observation_mode;
+            }
+            ClassElementExecutionKind::None
+            | ClassElementExecutionKind::InstanceFieldInitializer => {
+                lowerer.seed_script_global_var_properties();
+                lowerer.script_global_call_observation_mode =
+                    ScriptGlobalCallObservationMode::DormantSummary;
+            }
+        }
         lowerer.used_host_builtins = self.used_host_builtins.clone();
         lowerer.host_builtin_calls = self.host_builtin_calls;
+        lowerer.is_prepass = self.is_prepass;
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function_id.clone());
         match execution_kind {
@@ -8152,11 +8569,26 @@ impl<'a> ScriptLowerer<'a> {
                 });
             let capture_owner_id =
                 &self.analysis.environment_plans[&capture_environment_id].owner_id;
-            let info = self
-                .class_name_binding_value_info_by_storage_name(&binding.name)
-                .unwrap_or_else(|| {
-                    lowerer.capture_value_info(capture_owner_id.as_str(), &binding.name)
-                });
+            let info = if generated_capture_can_use_definition_time_facts(
+                binding.mode,
+                class_element_execution_kind,
+            ) {
+                self.class_name_binding_value_info_by_storage_name(&binding.name)
+                    .or_else(|| {
+                        self.lookup_binding(&binding.source_name)
+                            .map(|visible| ValueInfo {
+                                kind: visible.kind,
+                                possible_kinds: visible.possible_kinds,
+                                heap_shape: visible.heap_shape,
+                                function_targets: visible.function_targets,
+                            })
+                    })
+                    .unwrap_or_else(|| {
+                        lowerer.capture_value_info(capture_owner_id.as_str(), &binding.name)
+                    })
+            } else {
+                unknown_runtime_value_info()
+            };
             if binding.mode == BindingMode::Const
                 && self
                     .analysis
@@ -8210,7 +8642,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Arguments,
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
                 initialization: Initialization::Initialized,
             },
         );
@@ -8270,7 +8702,11 @@ impl<'a> ScriptLowerer<'a> {
                         KindSet::all_runtime_tags()
                     },
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: if parameter.is_rest_param() {
+                        FunctionTargetKnowledge::none()
+                    } else {
+                        FunctionTargetKnowledge::unknown()
+                    },
                     initialization: Initialization::Initialized,
                 },
             );
@@ -8325,6 +8761,9 @@ impl<'a> ScriptLowerer<'a> {
             statements,
             lexical_environment: None,
         };
+        lowerer.source_call_flow_effects = lowerer.source_call_flow_effects.merge_observation(
+            SourceCallFlowEffects::for_finalized_invocation(&params, &body_ir),
+        );
         let derived_constructor_validation = if class_context.is_derived_constructor {
             Some(validate_derived_constructor_body(&body_ir))
         } else {
@@ -8335,95 +8774,99 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             None
         };
-        let captured_value_infos = captured_bindings
-            .iter()
-            .filter_map(|binding| {
-                lowerer.lookup_binding(&binding.source_name).map(|info| {
-                    (
-                        binding.source_name.clone(),
-                        ValueInfo {
-                            kind: info.kind,
-                            possible_kinds: info.possible_kinds,
-                            heap_shape: info.heap_shape,
-                            function_targets: info.function_targets,
-                        },
-                    )
+        let captured_value_infos = match class_element_execution_kind {
+            ClassElementExecutionKind::StaticBlock => captured_bindings
+                .iter()
+                .filter_map(|binding| {
+                    lowerer.lookup_binding(&binding.source_name).map(|info| {
+                        (
+                            binding.source_name.clone(),
+                            ValueInfo {
+                                kind: info.kind,
+                                possible_kinds: info.possible_kinds,
+                                heap_shape: info.heap_shape,
+                                function_targets: info.function_targets,
+                            },
+                        )
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
+                .collect::<Vec<_>>(),
+            ClassElementExecutionKind::None
+            | ClassElementExecutionKind::InstanceFieldInitializer
+            | ClassElementExecutionKind::StaticFieldInitializer => Vec::new(),
+        };
         owned_env_bindings.extend(lowerer.generated_owned_env_bindings.iter().cloned());
         lowerer.pop_scope();
 
         let mut return_info = lowerer
-            .current_return_info
-            .clone()
+            .current_return
+            .as_ref()
+            .map(|returned| returned.info.clone())
             .unwrap_or_else(ValueInfo::undefined);
         if !Self::statement_list_ends_in_return(&body_ir.statements) {
-            return_info = lowerer.merge_return_infos(return_info, ValueInfo::undefined());
+            return_info = lowerer.merge_value_infos(return_info, ValueInfo::undefined());
         }
         if execution_kind == FunctionExecutionKind::Generator {
             return_info = ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: Some(Self::generator_instance_shape()),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             };
         } else if execution_kind == FunctionExecutionKind::AsyncGenerator {
             return_info = ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: Some(Self::async_generator_instance_shape()),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             };
         } else if execution_kind == FunctionExecutionKind::Async {
             return_info = Self::value_info_from_shape(Some(Self::promise_instance_shape()));
         }
-        if matches!(
-            execution_kind,
-            FunctionExecutionKind::Async
-                | FunctionExecutionKind::AsyncGenerator
-                | FunctionExecutionKind::Generator
-        ) {
-            // The signature registered before the body was lowered still carries
-            // the *body's* return kind. Call sites read the signature, so without
-            // this write-back `c.m()` on a generator method types as the body's
-            // `return` value instead of the generator object.
-            if let Some(signature) = lowerer.function_signatures.get_mut(&function_id) {
-                signature.return_kind = return_info.kind;
-                signature.return_possible_kinds = return_info.possible_kinds;
-                signature.return_shape = return_info.heap_shape.clone();
-                signature.return_targets = return_info.function_targets.clone();
-            }
+        if let Some(signature) = lowerer.function_signatures.get_mut(&function_id) {
+            signature.return_kind = return_info.kind;
+            signature.return_possible_kinds = return_info.possible_kinds;
+            signature.return_shape = if execution_kind == FunctionExecutionKind::Ordinary {
+                signature
+                    .return_shape
+                    .with_shape(return_info.heap_shape.clone())
+            } else {
+                FunctionReturnShape::flow_sensitive(return_info.heap_shape.clone())
+            };
+            signature.return_targets = return_info.function_targets.clone();
+            signature.source_call_flow_effects = lowerer.source_call_flow_effects;
         }
         let resumable_plan = lowerer.current_resumable_plan.clone().or(resumable_plan);
+        let class_name_post_state = captured_bindings
+            .iter()
+            .find(|binding| is_class_name_binding_storage_name(&binding.name))
+            .and_then(|binding| {
+                captured_value_infos
+                    .iter()
+                    .find(|(source_name, _)| source_name == &binding.source_name)
+                    .map(|(_, info)| info.clone())
+            });
+        let construct_this_info = self.executed_class_receiver_post_state(
+            class_element_execution_kind,
+            &current_this_info,
+            lowerer.current_construct_this_info.clone(),
+            class_name_post_state,
+        );
+        let class_element_flow = Self::capture_generated_class_element_flow(
+            class_element_execution_kind,
+            &mut lowerer,
+            captured_value_infos,
+        );
 
-        let unknown_user_code_effects_observed = lowerer.unknown_user_code_effects_observed;
-        let intervening_effects_observed = lowerer.intervening_effect_epoch > 0;
         self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
-        for (source_name, captured_info) in captured_value_infos {
-            let Some(binding) = self.lookup_binding(&source_name) else {
-                continue;
-            };
-            let current_info = ValueInfo {
-                kind: binding.kind,
-                possible_kinds: binding.possible_kinds,
-                heap_shape: binding.heap_shape,
-                function_targets: binding.function_targets,
-            };
-            let merged = self.merge_value_infos(current_info, captured_info);
-            self.set_binding_value_info(&source_name, merged);
-        }
+        self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
         self.diagnostics.extend(lowerer.diagnostics.clone());
         self.function_signatures = lowerer.function_signatures;
         self.dynamically_installed_getters
             .extend(lowerer.dynamically_installed_getters);
         self.dynamically_installed_setters
             .extend(lowerer.dynamically_installed_setters);
-        if unknown_user_code_effects_observed {
-            self.invalidate_unknown_user_code_effects();
-        } else if intervening_effects_observed {
-            self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
-        }
+        self.install_generated_class_element_flow(class_element_flow);
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
         self.generated_functions.extend(lowerer.generated_functions);
@@ -8488,10 +8931,8 @@ impl<'a> ScriptLowerer<'a> {
         self.generated_functions.push(function_ir);
 
         GeneratedFunctionOutput {
-            function_id,
             return_info,
-            this_info: current_this_info,
-            construct_this_info: lowerer.current_construct_this_info,
+            construct_this_info,
         }
     }
 
@@ -8514,13 +8955,14 @@ impl<'a> ScriptLowerer<'a> {
                 callable: true,
                 class_heritage_kind: class_context.heritage_kind,
                 params: Vec::new(),
-                return_kind: ValueKind::Undefined,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_kind: ValueKind::Dynamic,
+                return_possible_kinds: KindSet::all_runtime_tags(),
+                return_shape: FunctionReturnShape::Unobserved,
+                return_targets: FunctionTargetKnowledge::unknown(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: current_this_info.clone(),
                 this_observed: true,
+                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
         );
 
@@ -8547,19 +8989,41 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.dynamically_installed_getters = self.dynamically_installed_getters.clone();
         lowerer.dynamically_installed_setters = self.dynamically_installed_setters.clone();
         lowerer.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
+        lowerer.function_signature_shape_evidence = self.function_signature_shape_evidence;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
+        lowerer.static_generator_call_overrides = self.static_generator_call_overrides.clone();
+        lowerer.static_iterator_binding_values = self.static_iterator_binding_values.clone();
         lowerer.var_bindings = self.var_bindings.clone();
-        lowerer.seed_script_global_var_properties();
+        lowerer.known_nested_script_global_value_infos =
+            self.known_nested_script_global_value_infos.clone();
+        match class_element_execution_kind {
+            ClassElementExecutionKind::StaticFieldInitializer
+            | ClassElementExecutionKind::StaticBlock => {
+                lowerer.seed_live_script_global_var_properties();
+                lowerer.script_global_call_observation_mode =
+                    self.script_global_call_observation_mode;
+            }
+            ClassElementExecutionKind::None
+            | ClassElementExecutionKind::InstanceFieldInitializer => {
+                lowerer.seed_script_global_var_properties();
+                lowerer.script_global_call_observation_mode =
+                    ScriptGlobalCallObservationMode::DormantSummary;
+            }
+        }
         lowerer.used_host_builtins = self.used_host_builtins.clone();
         lowerer.host_builtin_calls = self.host_builtin_calls;
+        lowerer.is_prepass = self.is_prepass;
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function_id.clone());
         lowerer.current_owner_id = function_id.clone();
         lowerer.current_this_binding = CurrentThisBinding::Activation(current_this_info.clone());
         lowerer.current_new_target_info = ValueInfo::undefined();
+        if class_element_execution_kind == ClassElementExecutionKind::StaticFieldInitializer {
+            lowerer.current_construct_this_info = Some(current_this_info.clone());
+        }
         lowerer.class_context = Some(class_context.clone());
         lowerer.push_scope();
         let owned_env_bindings = self.generated_owned_env_bindings_for_owner(&function_id);
@@ -8575,11 +9039,26 @@ impl<'a> ScriptLowerer<'a> {
                 });
             let capture_owner_id =
                 &self.analysis.environment_plans[&capture_environment_id].owner_id;
-            let info = self
-                .class_name_binding_value_info_by_storage_name(&binding.name)
-                .unwrap_or_else(|| {
-                    lowerer.capture_value_info(capture_owner_id.as_str(), &binding.name)
-                });
+            let info = if generated_capture_can_use_definition_time_facts(
+                binding.mode,
+                class_element_execution_kind,
+            ) {
+                self.class_name_binding_value_info_by_storage_name(&binding.name)
+                    .or_else(|| {
+                        self.lookup_binding(&binding.source_name)
+                            .map(|visible| ValueInfo {
+                                kind: visible.kind,
+                                possible_kinds: visible.possible_kinds,
+                                heap_shape: visible.heap_shape,
+                                function_targets: visible.function_targets,
+                            })
+                    })
+                    .unwrap_or_else(|| {
+                        lowerer.capture_value_info(capture_owner_id.as_str(), &binding.name)
+                    })
+            } else {
+                unknown_runtime_value_info()
+            };
             lowerer.declare_binding(
                 binding.source_name.clone(),
                 BindingInfo {
@@ -8601,37 +9080,82 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Arguments,
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
                 initialization: Initialization::Initialized,
             },
         );
         let return_value = lowerer.lower_expression(expression);
-        lowerer.record_return_info(return_value.value_info());
+        lowerer.record_return_expression(&return_value);
         let body = BlockIr {
             result_kind: return_value.kind,
             statements: vec![StatementIr::Return(return_value.clone())],
             lexical_environment: None,
         };
+        lowerer.source_call_flow_effects = lowerer
+            .source_call_flow_effects
+            .merge_observation(SourceCallFlowEffects::for_finalized_invocation(&[], &body));
+        let captured_value_infos = match class_element_execution_kind {
+            ClassElementExecutionKind::StaticFieldInitializer => captured_bindings
+                .iter()
+                .filter_map(|binding| {
+                    lowerer
+                        .lookup_binding(&binding.source_name)
+                        .map(|captured| {
+                            (
+                                binding.source_name.clone(),
+                                ValueInfo {
+                                    kind: captured.kind,
+                                    possible_kinds: captured.possible_kinds,
+                                    heap_shape: captured.heap_shape,
+                                    function_targets: captured.function_targets,
+                                },
+                            )
+                        })
+                })
+                .collect::<Vec<_>>(),
+            ClassElementExecutionKind::None
+            | ClassElementExecutionKind::InstanceFieldInitializer
+            | ClassElementExecutionKind::StaticBlock => Vec::new(),
+        };
         lowerer.pop_scope();
         let return_info = lowerer
-            .current_return_info
-            .clone()
+            .current_return
+            .as_ref()
+            .map(|returned| returned.info.clone())
             .unwrap_or_else(ValueInfo::undefined);
+        if let Some(signature) = lowerer.function_signatures.get_mut(&function_id) {
+            signature.source_call_flow_effects = lowerer.source_call_flow_effects;
+        }
+        let class_name_post_state = captured_bindings
+            .iter()
+            .find(|binding| is_class_name_binding_storage_name(&binding.name))
+            .and_then(|binding| {
+                captured_value_infos
+                    .iter()
+                    .find(|(source_name, _)| source_name == &binding.source_name)
+                    .map(|(_, info)| info.clone())
+            });
+        let construct_this_info = self.executed_class_receiver_post_state(
+            class_element_execution_kind,
+            &current_this_info,
+            lowerer.current_construct_this_info.clone(),
+            class_name_post_state,
+        );
+        let class_element_flow = Self::capture_generated_class_element_flow(
+            class_element_execution_kind,
+            &mut lowerer,
+            captured_value_infos,
+        );
 
-        let unknown_user_code_effects_observed = lowerer.unknown_user_code_effects_observed;
-        let intervening_effects_observed = lowerer.intervening_effect_epoch > 0;
         self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
+        self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
         self.diagnostics.extend(lowerer.diagnostics.clone());
         self.function_signatures = lowerer.function_signatures;
         self.dynamically_installed_getters
             .extend(lowerer.dynamically_installed_getters);
         self.dynamically_installed_setters
             .extend(lowerer.dynamically_installed_setters);
-        if unknown_user_code_effects_observed {
-            self.invalidate_unknown_user_code_effects();
-        } else if intervening_effects_observed {
-            self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
-        }
+        self.install_generated_class_element_flow(class_element_flow);
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
         self.generated_functions.extend(lowerer.generated_functions);
@@ -8671,10 +9195,8 @@ impl<'a> ScriptLowerer<'a> {
         });
 
         GeneratedFunctionOutput {
-            function_id,
             return_info,
-            this_info: current_this_info,
-            construct_this_info: None,
+            construct_this_info,
         }
     }
 
@@ -8692,6 +9214,11 @@ impl<'a> ScriptLowerer<'a> {
         prefix_statements: Vec<StatementIr>,
         statements: Vec<StatementIr>,
     ) -> GeneratedFunctionOutput {
+        let body = BlockIr {
+            result_kind: ValueKind::Undefined,
+            statements: prefix_statements.into_iter().chain(statements).collect(),
+            lexical_environment: None,
+        };
         self.function_signatures.insert(
             function_id.clone(),
             FunctionSignature {
@@ -8703,20 +9230,19 @@ impl<'a> ScriptLowerer<'a> {
                 params: Vec::new(),
                 return_kind: ValueKind::Undefined,
                 return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_shape: FunctionReturnShape::Absent,
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: current_construct_this_info
                     .clone()
                     .unwrap_or_else(ValueInfo::undefined),
                 this_info: current_this_info.clone(),
                 this_observed: true,
+                source_call_flow_effects: SourceCallFlowEffects::for_finalized_invocation(
+                    &[],
+                    &body,
+                ),
             },
         );
-        let body = BlockIr {
-            result_kind: ValueKind::Undefined,
-            statements: prefix_statements.into_iter().chain(statements).collect(),
-            lexical_environment: None,
-        };
         let lexical_derived_activation =
             class_context
                 .is_derived_constructor
@@ -8758,7 +9284,7 @@ impl<'a> ScriptLowerer<'a> {
             body,
             return_kind: ValueKind::Undefined,
             return_shape: None,
-            return_targets: BTreeSet::new(),
+            return_targets: FunctionTargetKnowledge::none(),
             constructor_instance: current_construct_this_info
                 .clone()
                 .unwrap_or_else(ValueInfo::undefined),
@@ -8766,9 +9292,7 @@ impl<'a> ScriptLowerer<'a> {
             captured_bindings,
         });
         GeneratedFunctionOutput {
-            function_id,
             return_info: ValueInfo::undefined(),
-            this_info: current_this_info,
             construct_this_info: current_construct_this_info,
         }
     }
@@ -8789,7 +9313,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::all_runtime_tags(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         };
         let backing_name_id = backing_name.private_name_id();
         let (params, body, return_info) = match protocol {
@@ -8862,7 +9386,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                         observed: true,
                         has_default: false,
                         is_rest: false,
@@ -8870,11 +9394,14 @@ impl<'a> ScriptLowerer<'a> {
                     .collect(),
                 return_kind: return_info.kind,
                 return_possible_kinds: return_info.possible_kinds,
-                return_shape: return_info.heap_shape.clone(),
+                return_shape: FunctionReturnShape::flow_sensitive(return_info.heap_shape.clone()),
                 return_targets: return_info.function_targets.clone(),
                 constructor_instance: ValueInfo::undefined(),
                 this_info: current_this_info.clone(),
                 this_observed: true,
+                source_call_flow_effects: SourceCallFlowEffects::for_finalized_invocation(
+                    &params, &body,
+                ),
             },
         );
         self.generated_functions.push(FunctionIr {
@@ -8920,6 +9447,7 @@ impl<'a> ScriptLowerer<'a> {
         receiver: TypedExpr,
         args: Vec<TypedExpr>,
         static_regexp_compilation: Option<StaticRegExpCompilation>,
+        invocation_effects: AnalyzedInvocationEffects,
     ) -> TypedExpr {
         let receiver_is_callee_base = match &callee.expr {
             ExprIr::PropertyRead { target, .. } => target.expr == receiver.expr,
@@ -8932,7 +9460,7 @@ impl<'a> ScriptLowerer<'a> {
             _ => false,
         };
         if !receiver_is_callee_base {
-            return TypedExpr::from_info(
+            let call = TypedExpr::from_info(
                 info,
                 ExprIr::CallIndirect {
                     callee: Box::new(callee),
@@ -8941,6 +9469,7 @@ impl<'a> ScriptLowerer<'a> {
                     static_regexp_compilation,
                 },
             );
+            return invocation_effects.attach_to_emitted_call(call);
         }
 
         let receiver_storage_name = self.alloc_temp_binding_name("call.receiver.");
@@ -8970,7 +9499,7 @@ impl<'a> ScriptLowerer<'a> {
             _ => unreachable!("property call receiver match should preserve reference IR"),
         }
 
-        let call = TypedExpr::from_info(
+        let call = invocation_effects.attach_to_emitted_call(TypedExpr::from_info(
             info.clone(),
             ExprIr::CallIndirect {
                 callee: Box::new(callee),
@@ -8978,7 +9507,7 @@ impl<'a> ScriptLowerer<'a> {
                 args,
                 static_regexp_compilation,
             },
-        );
+        ));
         TypedExpr::from_info(
             info,
             ExprIr::MaterializeBinding {
@@ -9061,46 +9590,63 @@ impl<'a> ScriptLowerer<'a> {
         if let Some(reviver_id) = self.resolve_single_function_target(reviver) {
             reviver_targets.insert(reviver_id);
         }
-        reviver_targets.extend(reviver.function_targets.iter().cloned());
+        reviver_targets.extend(reviver.function_targets.known_targets().iter().cloned());
         if let ExprIr::CallIndirect { callee, .. } = &reviver.expr {
             if let Some(factory_id) = self.resolve_single_function_target(callee) {
                 if let Some(signature) = self.function_signatures.get(&factory_id) {
-                    reviver_targets.extend(signature.return_targets.iter().cloned());
+                    reviver_targets
+                        .extend(signature.return_targets.known_targets().iter().cloned());
                 }
             }
         }
         reviver_targets
     }
 
-    fn observe_json_parse_reviver_targets(&mut self, reviver_targets: BTreeSet<FunctionId>) {
+    fn observe_json_parse_reviver_targets(
+        &mut self,
+        reviver_targets: BTreeSet<FunctionId>,
+        helper_context_id: &ExactHelperContextId,
+    ) {
         let holder_info = ValueInfo {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::from_kind(ValueKind::Object)
                 .union(KindSet::from_kind(ValueKind::Array)),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let object_info = ValueInfo {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let value_info = ValueInfo {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::all_runtime_tags(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         };
+        let reviver_param_infos = [ValueInfo::new(ValueKind::String), value_info, object_info];
         for reviver_id in reviver_targets {
-            self.merge_function_this_info(&reviver_id, holder_info.clone());
-            self.merge_function_param_infos(
+            let can_specialize_reviver = self
+                .analysis
+                .function_plans
+                .get(&reviver_id)
+                .is_some_and(|plan| plan.captures.is_empty());
+            if !can_specialize_reviver {
+                self.merge_function_this_info(&reviver_id, holder_info.clone());
+                self.merge_function_param_infos(&reviver_id, &reviver_param_infos);
+                continue;
+            }
+            self.observe_exact_callback_this_info(
                 &reviver_id,
-                &[
-                    ValueInfo::new(ValueKind::String),
-                    value_info.clone(),
-                    object_info.clone(),
-                ],
+                helper_context_id,
+                holder_info.clone(),
+            );
+            self.observe_exact_callback_param_infos(
+                &reviver_id,
+                helper_context_id,
+                &reviver_param_infos,
             );
         }
     }
@@ -9267,141 +9813,6 @@ impl<'a> ScriptLowerer<'a> {
         self.unsupported_expr("generator suspension")
     }
 
-    fn lower_generator_body_as_array_iterator(
-        &mut self,
-        generator: &GeneratorExpression,
-    ) -> TypedExpr {
-        if generator.body().statements().len() == 1 {
-            if let StatementListItem::Statement(statement) = &generator.body().statements()[0] {
-                if let Statement::Expression(Expression::Yield(yield_expr)) = statement.as_ref() {
-                    if yield_expr.delegate() {
-                        let Some(target) = yield_expr.target() else {
-                            return self.unsupported_expr(
-                                "unsupported expression form: yield* without target",
-                            );
-                        };
-                        return self.lower_yield_star_generator_iife(target);
-                    }
-                }
-            }
-        }
-
-        if let Some(values) =
-            self.static_generator_statement_list_values(generator.body().statements())
-        {
-            return self.array_iterator_from_static_generator_values(&values);
-        }
-
-        let mut elements = Vec::new();
-        for item in generator.body().statements() {
-            let StatementListItem::Statement(statement) = item else {
-                return self.unsupported_expr(
-                    "unsupported expression form: generator IIFE declaration item",
-                );
-            };
-            match statement.as_ref() {
-                Statement::Expression(Expression::Yield(yield_expr)) => {
-                    if yield_expr.delegate() {
-                        return self.unsupported_expr(
-                            "unsupported expression form: generator IIFE delegated yield",
-                        );
-                    }
-                    let Some(target) = yield_expr.target() else {
-                        let lowered = TypedExpr::undefined();
-                        elements.push(lowered);
-                        continue;
-                    };
-                    let lowered = self.lower_expression(target);
-                    elements.push(lowered);
-                }
-                Statement::Throw(throw_stmt) => {
-                    let thrown = self.lower_expression(throw_stmt.target());
-                    let mut object_shape = ObjectShape::default();
-                    object_shape.properties.insert(
-                        LILA_GENERATOR_THROW_SLOT.to_string(),
-                        ObjectShapeProperty::Data(thrown.value_info()),
-                    );
-                    return TypedExpr::from_info(
-                        ValueInfo {
-                            kind: ValueKind::Object,
-                            possible_kinds: KindSet::from_kind(ValueKind::Object),
-                            heap_shape: Some(Box::new(HeapShape::Object(object_shape))),
-                            function_targets: BTreeSet::new(),
-                        },
-                        ExprIr::ObjectLiteral(vec![ObjectPropertyIr::Data {
-                            key: LILA_GENERATOR_THROW_SLOT.to_string(),
-                            value: thrown,
-                            is_shorthand: false,
-                        }]),
-                    );
-                }
-                _ => {
-                    return self
-                        .unsupported_expr("unsupported expression form: generator IIFE statement");
-                }
-            }
-        }
-
-        self.array_iterator_from_lowered_elements(elements)
-    }
-
-    fn lower_yield_star_generator_iife(&mut self, target: &Expression) -> TypedExpr {
-        let delegate = self.lower_expression(target);
-        if !delegate.possible_kinds.contains(ValueKind::Object)
-            && !delegate.possible_kinds.contains(ValueKind::Array)
-            && !delegate.possible_kinds.contains(ValueKind::Arguments)
-            && !delegate.possible_kinds.contains(ValueKind::Dynamic)
-        {
-            return self.unsupported_expr("unsupported expression form: yield* target");
-        }
-
-        let marker =
-            TypedExpr::from_info(ValueInfo::new(ValueKind::Boolean), ExprIr::Boolean(true));
-        let mut properties = vec![ObjectPropertyIr::Data {
-            key: LILA_YIELD_STAR_GENERATOR_SLOT.to_string(),
-            value: marker.clone(),
-            is_shorthand: false,
-        }];
-        let mut shape = ObjectShape::default();
-        shape.properties.insert(
-            LILA_YIELD_STAR_GENERATOR_SLOT.to_string(),
-            ObjectShapeProperty::Data(marker.value_info()),
-        );
-
-        if self.delegate_method_returns_non_object(&delegate, "return") {
-            properties.push(ObjectPropertyIr::Data {
-                key: LILA_YIELD_STAR_RETURN_NON_OBJECT_SLOT.to_string(),
-                value: marker.clone(),
-                is_shorthand: false,
-            });
-            shape.properties.insert(
-                LILA_YIELD_STAR_RETURN_NON_OBJECT_SLOT.to_string(),
-                ObjectShapeProperty::Data(marker.value_info()),
-            );
-        }
-        if self.delegate_method_returns_non_object(&delegate, "throw") {
-            properties.push(ObjectPropertyIr::Data {
-                key: LILA_YIELD_STAR_THROW_NON_OBJECT_SLOT.to_string(),
-                value: marker.clone(),
-                is_shorthand: false,
-            });
-            shape.properties.insert(
-                LILA_YIELD_STAR_THROW_NON_OBJECT_SLOT.to_string(),
-                ObjectShapeProperty::Data(marker.value_info()),
-            );
-        }
-
-        TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Box::new(HeapShape::Object(shape))),
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::ObjectLiteral(properties),
-        )
-    }
-
     fn lower_static_yield_star_generator_method_call(
         &mut self,
         receiver: &TypedExpr,
@@ -9432,7 +9843,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Object,
                         possible_kinds: KindSet::from_kind(ValueKind::Object),
                         heap_shape: Some(Box::new(HeapShape::Object(shape))),
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::ObjectLiteral(vec![ObjectPropertyIr::Data {
                         key: "done".to_string(),
@@ -9514,33 +9925,8 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: Some(Box::new(HeapShape::Object(shape))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
-    }
-
-    fn delegate_method_returns_non_object(&self, delegate: &TypedExpr, key: &str) -> bool {
-        let Some(ObjectShapeProperty::Data(info)) = self.read_object_shape_property(delegate, key)
-        else {
-            return false;
-        };
-        if !info.possible_kinds.contains(ValueKind::Function) || info.function_targets.is_empty() {
-            return false;
-        }
-        info.function_targets.iter().all(|function_id| {
-            self.function_signatures
-                .get(function_id)
-                .is_some_and(|signature| {
-                    !signature.return_possible_kinds.contains(ValueKind::Object)
-                        && !signature.return_possible_kinds.contains(ValueKind::Array)
-                        && !signature
-                            .return_possible_kinds
-                            .contains(ValueKind::Arguments)
-                        && !signature
-                            .return_possible_kinds
-                            .contains(ValueKind::Function)
-                        && !signature.return_possible_kinds.contains(ValueKind::Dynamic)
-                })
-        })
     }
 
     fn static_generator_declaration_values(
@@ -9747,289 +10133,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn static_generator_declaration_elements(
-        &self,
-        generator: &GeneratorDeclaration,
-    ) -> Option<Vec<TypedExpr>> {
-        if generator.parameters().length() != 0 {
-            return None;
-        }
-
-        self.static_generator_statement_list_elements(generator.body().statements())
-    }
-
-    fn static_generator_statement_list_elements(
-        &self,
-        statements: &[StatementListItem],
-    ) -> Option<Vec<TypedExpr>> {
-        let mut elements = Vec::new();
-        for item in statements {
-            let StatementListItem::Statement(statement) = item else {
-                return None;
-            };
-            if let Some(value) = self.static_generator_yield_string_element(statement.as_ref()) {
-                elements.push(value);
-                continue;
-            }
-            if let Some(loop_elements) =
-                self.static_generator_for_loop_string_elements(statement.as_ref())
-            {
-                if elements.len() + loop_elements.len() >= MAX_STATIC_ARRAY_SHAPE_INDEX {
-                    return None;
-                }
-                elements.extend(loop_elements);
-                continue;
-            }
-            return None;
-        }
-        Some(elements)
-    }
-
-    fn static_generator_yield_string_element(&self, statement: &Statement) -> Option<TypedExpr> {
-        let Statement::Expression(Expression::Yield(yield_expr)) = self.single_statement(statement)
-        else {
-            return None;
-        };
-        if yield_expr.delegate() {
-            return None;
-        }
-        let value = self.static_string_expression(yield_expr.target()?)?;
-        Some(Self::static_string_typed_expr(value))
-    }
-
-    fn static_generator_for_loop_string_elements(
-        &self,
-        statement: &Statement,
-    ) -> Option<Vec<TypedExpr>> {
-        let Statement::ForLoop(for_loop) = self.single_statement(statement) else {
-            return None;
-        };
-        let (loop_name, mut current) =
-            self.static_generator_string_for_loop_initializer(for_loop)?;
-        let (condition_op, condition_var_on_lhs, condition_value) =
-            self.static_generator_for_loop_condition(for_loop.condition()?, &loop_name)?;
-        let step = self.static_generator_for_loop_update(for_loop.final_expr()?, &loop_name)?;
-        let body = self.static_generator_for_loop_string_body(for_loop.body(), &loop_name)?;
-
-        let mut elements = Vec::new();
-        while Self::static_generator_for_loop_condition_holds(
-            current,
-            condition_op,
-            condition_var_on_lhs,
-            condition_value,
-        ) {
-            if elements.len() >= MAX_STATIC_ARRAY_SHAPE_INDEX {
-                return None;
-            }
-            // The static generator enumerates a finite arithmetic progression.
-            // A non-finite induction variable means the progression is not one,
-            // so decline the fold here rather than folding `ToUint16(±∞) = 0`
-            // into a `"\0"` element. Hoisted out of
-            // `static_string_from_char_code_value` so that helper can state
-            // 7.1.9's totality; it must stay *inside* the loop and before the
-            // call, since without it a `for (let i = Infinity; i > 0; i--)`
-            // generator would iterate to `MAX_STATIC_ARRAY_SHAPE_INDEX` before
-            // declining, turning an immediate decline into a compile-time stall.
-            if !current.is_finite() {
-                return None;
-            }
-            let value = Self::static_string_from_char_code_value(current)?;
-            let include = match &body {
-                StaticStringGeneratorLoopBody::FromCharCode => true,
-                StaticStringGeneratorLoopBody::FromCharCodeUnlessRegexpMatch(regex) => {
-                    regex.find(&value).is_none()
-                }
-            };
-            if include {
-                elements.push(Self::static_string_typed_expr(value));
-            }
-            current += step;
-        }
-        Some(elements)
-    }
-
-    fn static_generator_string_for_loop_initializer(
-        &self,
-        for_loop: &ForLoop,
-    ) -> Option<(String, f64)> {
-        if let Some(init) = self.static_generator_for_loop_initializer(for_loop) {
-            return Some(init);
-        }
-        let ForLoopInitializer::Expression(expr) = for_loop.init()? else {
-            return None;
-        };
-        let Expression::Assign(assign) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        if assign.op() != AssignOp::Assign {
-            return None;
-        }
-        let AssignTarget::Identifier(identifier) = assign.lhs() else {
-            return None;
-        };
-        Some((
-            self.interner.resolve_expect(identifier.sym()).to_string(),
-            self.static_sum_precise_number_element(assign.rhs())?,
-        ))
-    }
-
-    fn static_generator_for_loop_string_body(
-        &self,
-        body: &Statement,
-        loop_name: &str,
-    ) -> Option<StaticStringGeneratorLoopBody> {
-        let statement = self.single_statement(body);
-        if self
-            .static_string_from_char_code_yield_name(statement)
-            .is_some_and(|yield_name| yield_name == loop_name)
-        {
-            return Some(StaticStringGeneratorLoopBody::FromCharCode);
-        }
-
-        let Statement::Block(block) = body else {
-            return None;
-        };
-        let statements = block.statement_list().statements();
-        if statements.len() != 2 {
-            return None;
-        }
-        let (binding_name, init) = self.single_lexical_expression_binding(&statements[0])?;
-        if !self.static_string_from_char_code_arg_is_named(init, loop_name) {
-            return None;
-        }
-        let StatementListItem::Statement(if_statement) = &statements[1] else {
-            return None;
-        };
-        let Statement::If(if_statement) = if_statement.as_ref() else {
-            return None;
-        };
-        if if_statement.else_node().is_some() {
-            return None;
-        }
-        let regex = self.static_negated_string_match_regex(if_statement.cond(), &binding_name)?;
-        if !self
-            .static_generator_yield_identifier_name(if_statement.body())
-            .is_some_and(|yield_name| yield_name == binding_name)
-        {
-            return None;
-        }
-        Some(StaticStringGeneratorLoopBody::FromCharCodeUnlessRegexpMatch(regex))
-    }
-
-    fn static_string_from_char_code_yield_name(&self, statement: &Statement) -> Option<String> {
-        let Statement::Expression(Expression::Yield(yield_expr)) = self.single_statement(statement)
-        else {
-            return None;
-        };
-        if yield_expr.delegate() {
-            return None;
-        }
-        self.static_string_from_char_code_arg_name(yield_expr.target()?)
-    }
-
-    fn static_generator_yield_identifier_name(&self, statement: &Statement) -> Option<String> {
-        let Statement::Expression(Expression::Yield(yield_expr)) = self.single_statement(statement)
-        else {
-            return None;
-        };
-        if yield_expr.delegate() {
-            return None;
-        }
-        let Expression::Identifier(identifier) =
-            Self::unwrap_parenthesized_expr(yield_expr.target()?)
-        else {
-            return None;
-        };
-        Some(self.interner.resolve_expect(identifier.sym()).to_string())
-    }
-
-    fn static_string_from_char_code_arg_is_named(&self, expr: &Expression, name: &str) -> bool {
-        self.static_string_from_char_code_arg_name(expr)
-            .is_some_and(|arg_name| arg_name == name)
-    }
-
-    fn static_string_from_char_code_arg_name(&self, expr: &Expression) -> Option<String> {
-        let Expression::Call(call) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        if call.args().len() != 1 {
-            return None;
-        }
-        let Expression::PropertyAccess(PropertyAccess::Simple(access)) =
-            Self::unwrap_parenthesized_expr(call.function())
-        else {
-            return None;
-        };
-        let (Expression::Identifier(target), PropertyAccessField::Const(field)) =
-            (access.target(), access.field())
-        else {
-            return None;
-        };
-        if self.interner.resolve_expect(target.sym()).to_string() != STRING_NAME
-            || self.interner.resolve_expect(field.sym()).to_string() != "fromCharCode"
-        {
-            return None;
-        }
-        let Expression::Identifier(arg) = Self::unwrap_parenthesized_expr(&call.args()[0]) else {
-            return None;
-        };
-        Some(self.interner.resolve_expect(arg.sym()).to_string())
-    }
-
-    fn static_negated_string_match_regex(&self, expr: &Expression, name: &str) -> Option<Regex> {
-        let Expression::Unary(unary) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        if unary.op() != UnaryOp::Not {
-            return None;
-        }
-        let Expression::Call(call) = Self::unwrap_parenthesized_expr(unary.target()) else {
-            return None;
-        };
-        if call.args().len() != 1 {
-            return None;
-        }
-        let Expression::PropertyAccess(PropertyAccess::Simple(access)) =
-            Self::unwrap_parenthesized_expr(call.function())
-        else {
-            return None;
-        };
-        let (Expression::Identifier(target), PropertyAccessField::Const(field)) =
-            (access.target(), access.field())
-        else {
-            return None;
-        };
-        if self.interner.resolve_expect(target.sym()).to_string() != name
-            || self.interner.resolve_expect(field.sym()).to_string() != "match"
-        {
-            return None;
-        }
-        let Expression::RegExpLiteral(regexp) = Self::unwrap_parenthesized_expr(&call.args()[0])
-        else {
-            return None;
-        };
-        let pattern = self.interner.resolve_expect(regexp.pattern()).to_string();
-        let flags = self.interner.resolve_expect(regexp.flags()).to_string();
-        Regex::with_flags(&pattern, flags.as_str()).ok()
-    }
-
-    /// 22.1.2.1 `String.fromCharCode ( ...codeUnits )` step 2.a: the code unit
-    /// whose numeric value is `ℝ(? ToUint16(next))`.
-    ///
-    /// The remaining `None` has exactly **one** cause: a lone surrogate, which
-    /// `String::from_utf16` refuses and Rust's `String` cannot hold.
-    /// `String.fromCharCode(0xD800)` is a perfectly valid JS string, so that
-    /// decline is a limitation of this *fold's output type*, not of ToUint16 —
-    /// which is total. Five CLI fixtures depend on it; do not remove it.
-    ///
-    /// The old `!value.is_finite()` early return moved to the caller, because
-    /// it belongs to the static generator's domain (an arithmetic progression
-    /// with a non-finite induction variable is not one) rather than to 7.1.9,
-    /// whose step 2 sends `±∞` to `+0𝔽`.
-    fn static_string_from_char_code_value(value: f64) -> Option<String> {
-        String::from_utf16(&[Uint16::of_number(value).code_unit()]).ok()
-    }
-
     fn static_string_typed_expr(value: String) -> TypedExpr {
         TypedExpr::from_info(Self::string_value_info(&value), ExprIr::String(value))
     }
@@ -10038,34 +10141,98 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         function_id: &FunctionId,
         args: &[Expression],
-    ) -> (Vec<TypedExpr>, ValueInfo) {
-        let (_, args, info) =
-            self.lower_call_args_with_target(function_id, args, BuiltinCallContext::Call);
-        (args, info)
+        this_observation: InvocationThisObservation<'_>,
+    ) -> (Vec<TypedExpr>, ValueInfo, AnalyzedInvocationEffects) {
+        let (_, args, info, invocation_effects) = self.lower_call_args_with_target(
+            function_id,
+            args,
+            BuiltinCallContext::Call,
+            this_observation,
+        );
+        (args, info, invocation_effects)
     }
 
-    fn lower_call_args_expanding_spread(&mut self, args: &[Expression]) -> Option<Vec<TypedExpr>> {
-        let mut lowered_args = Vec::with_capacity(args.len());
+    fn lower_call_args_expanding_spread(&mut self, args: &[Expression]) -> LoweredCallArguments {
+        let mut lowered_args: Vec<TypedExpr> = Vec::with_capacity(args.len());
+        let mut invalidates_preceding_heap_shapes = false;
         for arg in args {
-            let Expression::Spread(spread) = arg else {
-                lowered_args.push(self.lower_expression(arg));
-                continue;
+            let before_argument_effect_epoch = self.intervening_effect_epoch;
+            let (lowered_arg, expands_spread) = match arg {
+                Expression::Spread(spread) => {
+                    let spread_value = self.lower_expression(spread.target());
+                    (
+                        TypedExpr::from_info(
+                            spread_value.value_info(),
+                            ExprIr::SpreadArgument(SpreadArgumentIr {
+                                value: Box::new(spread_value),
+                                protocol: SpreadArgumentProtocol::ARGUMENT_LIST,
+                            }),
+                        ),
+                        true,
+                    )
+                }
+                _ => (self.lower_expression(arg), false),
             };
-            let spread_value = self.lower_expression(spread.target());
-            lowered_args.push(TypedExpr::from_info(
-                spread_value.value_info(),
-                ExprIr::SpreadArgument(SpreadArgumentIr {
-                    value: Box::new(spread_value),
-                    protocol: SpreadArgumentProtocol::ARGUMENT_LIST,
-                }),
-            ));
+            if self.intervening_effect_epoch != before_argument_effect_epoch {
+                invalidates_preceding_heap_shapes = true;
+                for previous_arg in &mut lowered_args {
+                    previous_arg.heap_shape = None;
+                }
+            }
+            lowered_args.push(lowered_arg);
+            if expands_spread {
+                self.invalidate_unknown_user_code_effects();
+                invalidates_preceding_heap_shapes = true;
+                for observed_arg in &mut lowered_args {
+                    observed_arg.heap_shape = None;
+                }
+            }
         }
-        Some(lowered_args)
+        LoweredCallArguments {
+            arguments: lowered_args,
+            invalidates_preceding_heap_shapes,
+        }
     }
 
     fn call_args_have_spread(args: &[TypedExpr]) -> bool {
         args.iter()
             .any(|arg| matches!(arg.expr, ExprIr::SpreadArgument(_)))
+    }
+
+    fn finish_target_call_arguments(
+        &mut self,
+        function_id: &FunctionId,
+        lowered: LoweredCallArguments,
+        this_observation: InvocationThisObservation<'_>,
+    ) -> Vec<TypedExpr> {
+        let (arguments, this_info) = match this_observation {
+            InvocationThisObservation::NotObserved => {
+                (lowered.into_arguments_without_predecessor(), None)
+            }
+            InvocationThisObservation::ConstructorCallee(callee) => {
+                (lowered.into_arguments_after_expression(callee), None)
+            }
+            InvocationThisObservation::Default => (
+                lowered.into_arguments_without_predecessor(),
+                Some(self.default_this_info_for_function_target(function_id)),
+            ),
+            InvocationThisObservation::Current => (
+                lowered.into_arguments_without_predecessor(),
+                Some(self.current_this_info()),
+            ),
+            InvocationThisObservation::ExplicitMethod { receiver, callee } => {
+                let arguments = lowered.into_arguments_after_two_expressions(receiver, callee);
+                (arguments, Some(receiver.value_info()))
+            }
+            InvocationThisObservation::ExplicitValueMethod { receiver, callee } => {
+                let arguments = lowered.into_arguments_after_expression_and_value(callee, receiver);
+                (arguments, Some(receiver.clone()))
+            }
+        };
+        if let Some(this_info) = this_info {
+            self.merge_function_this_info(function_id, this_info);
+        }
+        arguments
     }
 
     fn lower_splice_zero_call_args(
@@ -10075,19 +10242,29 @@ impl<'a> ScriptLowerer<'a> {
         if args.len() == 3 {
             if let Expression::Spread(spread) = &args[2] {
                 if self.is_object_keys_call(spread.target()) {
-                    return Some((
-                        "spliceFromArray".to_string(),
-                        vec![
-                            self.lower_expression(&args[0]),
-                            self.lower_expression(&args[1]),
-                            self.lower_expression(spread.target()),
-                        ],
-                    ));
+                    let mut lowered_args = self
+                        .lower_call_args_expanding_spread(args)
+                        .into_arguments_without_predecessor();
+                    let TypedExpr {
+                        expr: ExprIr::SpreadArgument(spread),
+                        ..
+                    } = lowered_args
+                        .pop()
+                        .expect("three source arguments must produce a spread argument")
+                    else {
+                        unreachable!("the final source spread must remain a spread argument")
+                    };
+                    let mut spread_value = *spread.value;
+                    spread_value.heap_shape = None;
+                    lowered_args.push(spread_value);
+                    return Some(("spliceFromArray".to_string(), lowered_args));
                 }
             }
         }
-        self.lower_call_args_expanding_spread(args)
-            .map(|args| ("splice".to_string(), args))
+        let args = self
+            .lower_call_args_expanding_spread(args)
+            .into_arguments_without_predecessor();
+        Some(("splice".to_string(), args))
     }
 
     fn is_object_keys_call(&self, expr: &Expression) -> bool {
@@ -10116,70 +10293,110 @@ impl<'a> ScriptLowerer<'a> {
         function_id: &FunctionId,
         args: &[Expression],
         context: BuiltinCallContext,
-    ) -> (FunctionId, Vec<TypedExpr>, ValueInfo) {
+        this_observation: InvocationThisObservation<'_>,
+    ) -> (
+        FunctionId,
+        Vec<TypedExpr>,
+        ValueInfo,
+        AnalyzedInvocationEffects,
+    ) {
         if !self.function_signatures.contains_key(function_id) {
             self.unsupported_expr("indirect call");
-            return (function_id.clone(), Vec::new(), ValueInfo::undefined());
+            return (
+                function_id.clone(),
+                Vec::new(),
+                ValueInfo::undefined(),
+                AnalyzedInvocationEffects::already_applied(),
+            );
         }
         if args.iter().any(|arg| matches!(arg, Expression::Spread(_))) {
-            let Some(lowered_args) = self.lower_call_args_expanding_spread(args) else {
-                return (function_id.clone(), Vec::new(), ValueInfo::undefined());
-            };
+            let lowered_args = self.lower_call_args_expanding_spread(args);
+            let lowered_args =
+                self.finish_target_call_arguments(function_id, lowered_args, this_observation);
+            self.observe_live_script_global_values();
             let signature = self
                 .function_signatures
                 .get(function_id)
                 .cloned()
                 .expect("function signature must exist");
-            match self.resolve_dynamic_source_call(function_id, context, Some(args), &lowered_args)
+            match self.resolve_dynamic_source_call(function_id, &context, Some(args), &lowered_args)
             {
                 None => {}
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(_)) => {
                     unreachable!("spread arguments cannot prove eval's first value is non-String")
                 }
-                Some(ResolvedDynamicSourceCall::Unsupported(gap)) => {
-                    self.record_unsupported_dynamic_source(function_id, gap);
-                    return (function_id.clone(), Vec::new(), ValueInfo::undefined());
+                Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
+                    self.record_unsupported_dynamic_source(unsupported);
+                    return (
+                        function_id.clone(),
+                        Vec::new(),
+                        ValueInfo::undefined(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
                 }
             }
+            if let Some(builtin) = Self::define_property_builtin(function_id) {
+                let (result, effects) = self
+                    .unknown_forwarded_define_property_call_analysis(builtin)
+                    .into_parts();
+                return (function_id.clone(), lowered_args, result, effects);
+            }
+            self.merge_unknown_spread_param_infos(function_id);
+            let return_info = if StandardBuiltinId::from_function_id(function_id).is_some() {
+                self.function_call_return_info(&signature)
+            } else {
+                ValueInfo::new(ValueKind::Dynamic)
+            };
             let result = (
                 function_id.clone(),
                 lowered_args,
-                ValueInfo {
-                    kind: signature.return_kind,
-                    possible_kinds: signature.return_possible_kinds,
-                    heap_shape: signature.return_shape,
-                    function_targets: signature.return_targets,
-                },
+                return_info,
+                AnalyzedInvocationEffects::already_applied(),
             );
-            if self.analysis.function_plans.contains_key(function_id) {
+            let may_invalidate_caller_flow =
+                if StandardBuiltinId::from_function_id(function_id).is_some() {
+                    self.function_may_run_user_code_synchronously(function_id)
+                } else {
+                    self.invocation_caller_flow_effects(function_id, &signature)
+                        .may_invalidate_caller_flow()
+                };
+            if may_invalidate_caller_flow {
                 self.invalidate_unknown_user_code_effects();
             }
             return result;
         }
-        let mut lowered_args = Vec::with_capacity(args.len());
-        for arg in args {
-            lowered_args.push(self.lower_expression(arg));
-        }
-        let mut eval_pass_through =
-            match self.resolve_dynamic_source_call(function_id, context, Some(args), &lowered_args)
-            {
-                None => None,
-                Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
-                Some(ResolvedDynamicSourceCall::Unsupported(gap)) => {
-                    self.record_unsupported_dynamic_source(function_id, gap);
-                    return (function_id.clone(), Vec::new(), ValueInfo::undefined());
-                }
-            };
-        if StandardBuiltinId::from_function_id(function_id) == Some(StandardBuiltinId::JsonParse) {
-            let reviver_targets = self.known_json_parse_reviver_targets(&lowered_args);
-            self.observe_json_parse_reviver_targets(reviver_targets);
-        }
+        let lowered_args = self.lower_call_args_expanding_spread(args);
+        let mut lowered_args =
+            self.finish_target_call_arguments(function_id, lowered_args, this_observation);
+        self.observe_live_script_global_values();
+        let mut eval_pass_through = match self.resolve_dynamic_source_call(
+            function_id,
+            &context,
+            Some(args),
+            &lowered_args,
+        ) {
+            None => None,
+            Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
+            Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
+                self.record_unsupported_dynamic_source(unsupported);
+                return (
+                    function_id.clone(),
+                    Vec::new(),
+                    ValueInfo::undefined(),
+                    AnalyzedInvocationEffects::already_applied(),
+                );
+            }
+        };
         let arg_infos = lowered_args
             .iter()
             .map(TypedExpr::value_info)
             .collect::<Vec<_>>();
         let canonical_arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
         let helper_context_id = Self::exact_helper_context_id(function_id, &canonical_arg_infos);
+        if StandardBuiltinId::from_function_id(function_id) == Some(StandardBuiltinId::JsonParse) {
+            let reviver_targets = self.known_json_parse_reviver_targets(&lowered_args);
+            self.observe_json_parse_reviver_targets(reviver_targets, &helper_context_id);
+        }
         let effective_function_id = self
             .exact_context_function_specializations
             .get(&(function_id.clone(), helper_context_id.clone()))
@@ -10238,9 +10455,12 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        if self.is_prepass || self.analysis.function_plans.contains_key(function_id) {
-            self.propagate_direct_call_context(function_id, &canonical_arg_infos);
-        }
+        let callsite_return_info =
+            if self.is_prepass || self.analysis.function_plans.contains_key(function_id) {
+                self.propagate_direct_call_context(function_id, &canonical_arg_infos)
+            } else {
+                None
+            };
 
         let exact_context_key = (function_id.clone(), helper_context_id.clone());
         let signature = self
@@ -10250,7 +10470,14 @@ impl<'a> ScriptLowerer<'a> {
                 self.exact_context_callback_observations
                     .get(&exact_context_key)
             })
-            .filter(|signature| !signature.this_observed || signature.return_targets.is_empty())
+            .filter(|_| !self.function_has_untracked_captures(function_id))
+            .filter(|signature| {
+                !signature.this_observed
+                    || signature
+                        .return_targets
+                        .exact_targets()
+                        .is_some_and(BTreeSet::is_empty)
+            })
             .cloned()
             .or_else(|| {
                 self.function_signatures
@@ -10277,13 +10504,15 @@ impl<'a> ScriptLowerer<'a> {
             let Some(arg) = lowered_args.get(index).cloned() else {
                 continue;
             };
+            let arg_function_targets = arg.function_targets.clone();
             let Some(number_arg) = self.coerce_expr_to_number(arg) else {
                 if let Some(signature) = self.function_signatures.get_mut(&effective_function_id) {
                     if let Some(param) = signature.params.get_mut(index) {
                         param.kind = ValueKind::Dynamic;
                         param.possible_kinds = KindSet::all_runtime_tags();
                         param.heap_shape = None;
-                        param.function_targets.clear();
+                        param.function_targets =
+                            param.function_targets.clone().join(arg_function_targets);
                         param.observed = true;
                     }
                 }
@@ -10300,13 +10529,25 @@ impl<'a> ScriptLowerer<'a> {
                     effective_function_id,
                     lowered_args,
                     proof.into_result_info(),
+                    AnalyzedInvocationEffects::already_applied(),
                 );
             }
-            let Some(info) = self.standard_builtin_call_info(builtin, &lowered_args, context)
+            let Some(analysis) = self.standard_builtin_call_info(builtin, &lowered_args, context)
             else {
-                return (effective_function_id, Vec::new(), ValueInfo::undefined());
+                return (
+                    effective_function_id,
+                    Vec::new(),
+                    ValueInfo::undefined(),
+                    AnalyzedInvocationEffects::already_applied(),
+                );
             };
-            return (effective_function_id, lowered_args, info);
+            let (result, invocation_effects) = analysis.into_parts();
+            return (
+                effective_function_id,
+                lowered_args,
+                result,
+                invocation_effects,
+            );
         }
 
         debug_assert!(
@@ -10317,24 +10558,23 @@ impl<'a> ScriptLowerer<'a> {
         let result = (
             effective_function_id,
             lowered_args,
-            ValueInfo {
-                kind: signature.return_kind,
-                possible_kinds: signature.return_possible_kinds,
-                heap_shape: signature.return_shape,
-                function_targets: signature.return_targets,
-            },
+            callsite_return_info.unwrap_or_else(|| self.function_call_return_info(&signature)),
+            AnalyzedInvocationEffects::already_applied(),
         );
-        if self.analysis.function_plans.contains_key(function_id) {
+        if self
+            .invocation_caller_flow_effects(function_id, &signature)
+            .may_invalidate_caller_flow()
+        {
             self.invalidate_unknown_user_code_effects();
         }
         result
     }
 
     fn resolve_single_function_target(&self, expr: &TypedExpr) -> Option<FunctionId> {
-        if expr.kind != ValueKind::Function || expr.function_targets.len() != 1 {
+        if expr.kind != ValueKind::Function {
             return None;
         }
-        expr.function_targets.iter().next().cloned()
+        expr.function_targets.exact_single_target().cloned()
     }
 
     fn original_exact_function_id(&self, function_id: &FunctionId) -> FunctionId {
@@ -10350,6 +10590,48 @@ impl<'a> ScriptLowerer<'a> {
         function_id.clone()
     }
 
+    fn function_may_run_user_code_synchronously(&self, function_id: &FunctionId) -> bool {
+        let canonical_function_id = self
+            .function_signatures
+            .get(function_id)
+            .map(|signature| &signature.id)
+            .unwrap_or(function_id);
+        if self
+            .analysis
+            .planned_source_function_ids
+            .contains(canonical_function_id)
+        {
+            return true;
+        }
+        if StandardBuiltinId::from_function_id(canonical_function_id)
+            .is_some_and(StandardBuiltinId::may_run_user_code_synchronously)
+        {
+            return true;
+        }
+        HostBuiltinId::from_function_id(canonical_function_id)
+            .is_some_and(HostBuiltinId::may_run_user_code_synchronously)
+    }
+
+    fn invocation_caller_flow_effects(
+        &self,
+        _function_id: &FunctionId,
+        signature: &FunctionSignature,
+    ) -> InvocationCallerFlowEffects {
+        if self
+            .analysis
+            .planned_source_function_ids
+            .contains(&signature.id)
+        {
+            return InvocationCallerFlowEffects::from_source_call(
+                signature.source_call_flow_effects,
+            );
+        }
+        if let Some(builtin) = HostBuiltinId::from_function_id(&signature.id) {
+            return InvocationCallerFlowEffects::from_host_builtin(builtin);
+        }
+        InvocationCallerFlowEffects::may_invalidate()
+    }
+
     fn canonical_exact_context_arg_infos(&self, args: &[ValueInfo]) -> Vec<ValueInfo> {
         args.iter()
             .cloned()
@@ -10358,14 +10640,12 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn canonical_exact_context_function_info(&self, mut info: ValueInfo) -> ValueInfo {
-        if info.kind != ValueKind::Function || info.function_targets.is_empty() {
+        if info.kind != ValueKind::Function {
             return info;
         }
         info.function_targets = info
             .function_targets
-            .iter()
-            .map(|function_id| self.original_exact_function_id(function_id))
-            .collect();
+            .map_known_targets(|function_id| self.original_exact_function_id(&function_id));
         info
     }
 
@@ -10377,20 +10657,16 @@ impl<'a> ScriptLowerer<'a> {
         let Some(helper_context_id) = helper_context_id else {
             return info;
         };
-        if info.kind != ValueKind::Function || info.function_targets.is_empty() {
+        if info.kind != ValueKind::Function {
             return info;
         }
-        info.function_targets = info
-            .function_targets
-            .iter()
-            .map(|function_id| {
-                let original_id = self.original_exact_function_id(function_id);
-                self.exact_context_callback_specializations
-                    .get(&(original_id.clone(), helper_context_id.clone()))
-                    .cloned()
-                    .unwrap_or(original_id)
-            })
-            .collect();
+        info.function_targets = info.function_targets.map_known_targets(|function_id| {
+            let original_id = self.original_exact_function_id(&function_id);
+            self.exact_context_callback_specializations
+                .get(&(original_id.clone(), helper_context_id.clone()))
+                .cloned()
+                .unwrap_or(original_id)
+        });
         info
     }
 
@@ -10431,6 +10707,27 @@ impl<'a> ScriptLowerer<'a> {
             .union(KindSet::from_kind(ValueKind::Arguments))
     }
 
+    fn unknown_construct_result_info() -> ValueInfo {
+        ValueInfo {
+            kind: ValueKind::Dynamic,
+            possible_kinds: Self::object_like_kind_set(),
+            heap_shape: None,
+            function_targets: FunctionTargetKnowledge::unknown(),
+        }
+    }
+
+    fn construct_explicit_object_return_info(mut return_info: ValueInfo) -> Option<ValueInfo> {
+        let possible_kinds = return_info
+            .possible_kinds
+            .intersection(Self::object_like_kind_set());
+        if possible_kinds == KindSet::EMPTY {
+            return None;
+        }
+        return_info.kind = possible_kinds.as_value_kind();
+        return_info.possible_kinds = possible_kinds;
+        Some(return_info)
+    }
+
     /// `this` in an ordinary sloppy function is object-coerced before the body
     /// runs, but an unobserved call site provides no evidence that it is the
     /// global object. Keep the object-like domain and deliberately omit a
@@ -10440,7 +10737,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Dynamic,
             possible_kinds: Self::object_like_kind_set(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         }
     }
 
@@ -10475,24 +10772,18 @@ impl<'a> ScriptLowerer<'a> {
     ///   that tracked prototype chain (rules out Error/boxed-primitive/
     ///   user-defined overrides).
     ///
-    /// `heap_shape.is_some()` alone is not enough: the *default* `this` info
-    /// used for a function whose call sites the lowering pass can't trace
-    /// (e.g. a standalone function assigned to `BigInt.prototype.toJSON` and
-    /// invoked only via the JSON.stringify runtime's own dynamic dispatch)
-    /// falls back to `global_this_info()`, which is `ValueKind::Object` with
-    /// a *populated* heap shape (all visible global bindings) even though
-    /// the receiver's real value is unrelated to any tracked object shape.
-    /// So `this` (and only `this` — an aliased/copied `this` value continues
-    /// to carry the same untrustworthy info) is excluded outright.
+    /// Unknown and reflective call boundaries erase receiver shapes before
+    /// lowering the body, so a surviving shape is positive evidence here.
+    /// In particular, unobserved sloppy-function `this` starts with no shape;
+    /// copying it cannot manufacture a false prototype-resolution proof.
     fn dynamic_object_prototype_method_resolution_is_safe(
         &self,
         target: &TypedExpr,
         name: &str,
     ) -> bool {
-        !matches!(target.expr, ExprIr::This)
-            && target
-                .possible_kinds
-                .is_subset_of(Self::plain_object_kind_set())
+        target
+            .possible_kinds
+            .is_subset_of(Self::plain_object_kind_set())
             && !self.is_typed_array_value(target)
             && target.heap_shape.is_some()
             && self.read_object_shape(target, name).is_none()
@@ -10507,7 +10798,7 @@ impl<'a> ScriptLowerer<'a> {
             kind,
             possible_kinds: KindSet::from_kind(kind),
             heap_shape: shape,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         }
     }
 
@@ -10529,7 +10820,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::all_runtime_tags(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         };
         Self::property_descriptor_shape(vec![
             ("value", dynamic.clone()),
@@ -10591,12 +10882,25 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn merge_unknown_spread_param_infos(&mut self, function_id: &FunctionId) {
+        let Some(signature) = self.function_signatures.get_mut(function_id) else {
+            return;
+        };
+        let unknown_argument = ValueInfo::new(ValueKind::Dynamic);
+        for param in &mut signature.params {
+            if param.is_rest {
+                break;
+            }
+            Self::merge_signature_param_observation(param, &unknown_argument);
+        }
+    }
+
     fn unknown_proxy_target_info() -> ValueInfo {
         ValueInfo {
             kind: ValueKind::Dynamic,
             possible_kinds: Self::object_like_kind_set(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         }
     }
 
@@ -10605,7 +10909,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::all_runtime_tags(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         };
         // ToPropertyKey has exactly this two-kind codomain. In particular, a
         // Symbol must not be narrowed to String merely because most fixtures
@@ -10615,19 +10919,19 @@ impl<'a> ScriptLowerer<'a> {
             possible_kinds: KindSet::from_kind(ValueKind::String)
                 .union(KindSet::from_kind(ValueKind::Symbol)),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let descriptor = ValueInfo {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: Some(Self::generic_property_descriptor_shape()),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let prototype = ValueInfo {
             kind: ValueKind::Dynamic,
             possible_kinds: Self::object_like_kind_set().union(KindSet::from_kind(ValueKind::Null)),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         };
         let arguments_list = ValueInfo::new(ValueKind::Array);
         let new_target = Self::unknown_proxy_target_info();
@@ -10676,12 +10980,10 @@ impl<'a> ScriptLowerer<'a> {
             else {
                 continue;
             };
-            if handler_method.kind != ValueKind::Function
-                || handler_method.function_targets.is_empty()
-            {
+            if handler_method.kind != ValueKind::Function {
                 continue;
             }
-            for function_id in &handler_method.function_targets {
+            for function_id in handler_method.function_targets.known_targets() {
                 self.merge_function_this_info(function_id, trap_this.clone());
                 self.merge_proxy_trap_signature_hint(trap, target.value_info(), function_id);
             }
@@ -10763,7 +11065,7 @@ impl<'a> ScriptLowerer<'a> {
         Self::merge_omitted_signature_params_as_undefined(observation, args.len());
     }
 
-    fn forwarded_apply_arg_infos(&self, apply_arg: Option<&TypedExpr>) -> Option<Vec<ValueInfo>> {
+    fn forwarded_apply_args(&self, apply_arg: Option<&TypedExpr>) -> Option<Vec<TypedExpr>> {
         let Some(apply_arg) = apply_arg else {
             return Some(Vec::new());
         };
@@ -10772,20 +11074,22 @@ impl<'a> ScriptLowerer<'a> {
         ) {
             return Some(Vec::new());
         }
-        let HeapShape::Array(shape) = apply_arg.heap_shape.as_deref()? else {
+        let ExprIr::ArrayLiteral(elements) = &apply_arg.expr else {
             return None;
         };
-        Some(shape.elements.clone())
+        (!elements
+            .iter()
+            .any(|element| matches!(element.expr, ExprIr::ArrayHole)))
+        .then(|| elements.clone())
     }
 
     fn merge_array_species_constructor_this_info(&mut self, receiver: &TypedExpr) {
         let Some(constructor_info) = self.read_object_shape(receiver, "constructor") else {
             return;
         };
-        let Some(species_info) = self.read_object_shape(
-            &TypedExpr::from_info(constructor_info, ExprIr::Undefined),
-            WellKnownSymbol::Species.description(),
-        ) else {
+        let Some(species_info) =
+            self.read_well_known_symbol_shape(&constructor_info, WellKnownSymbol::Species)
+        else {
             return;
         };
         let Some(ObjectShapeProperty::Data(prototype_info)) = self.read_object_shape_property(
@@ -10804,7 +11108,7 @@ impl<'a> ScriptLowerer<'a> {
             Self::fresh_constructed_instance_info(),
             prototype_info.heap_shape,
         );
-        for function_id in &species_info.function_targets {
+        for function_id in species_info.function_targets.known_targets() {
             self.merge_function_this_info(function_id, instance.clone());
         }
     }
@@ -10821,7 +11125,7 @@ impl<'a> ScriptLowerer<'a> {
                 .union(KindSet::from_kind(ValueKind::Function))
                 .union(KindSet::from_kind(ValueKind::Arguments)),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         }
     }
 
@@ -10843,10 +11147,9 @@ impl<'a> ScriptLowerer<'a> {
         let default = Self::unshaped_array_result_info;
 
         if let Some(constructor_info) = self.read_object_shape(receiver, "constructor") {
-            if let Some(species_info) = self.read_object_shape(
-                &TypedExpr::from_info(constructor_info, ExprIr::Undefined),
-                WellKnownSymbol::Species.description(),
-            ) {
+            if let Some(species_info) =
+                self.read_well_known_symbol_shape(&constructor_info, WellKnownSymbol::Species)
+            {
                 if !species_info.possible_kinds.is_subset_of(
                     KindSet::from_kind(ValueKind::Undefined)
                         .union(KindSet::from_kind(ValueKind::Null)),
@@ -10861,7 +11164,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                         };
                     };
                     if !matches!(
@@ -10905,7 +11208,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Array,
             possible_kinds: KindSet::from_kind(ValueKind::Array),
             heap_shape: Some(Box::new(HeapShape::Array(shape))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -10914,7 +11217,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Array,
             possible_kinds: KindSet::from_kind(ValueKind::Array),
             heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
 
         let Some(mapper) = mapper else {
@@ -10930,12 +11233,7 @@ impl<'a> ScriptLowerer<'a> {
             return default();
         };
 
-        let mapper_result = ValueInfo {
-            kind: signature.return_kind,
-            possible_kinds: signature.return_possible_kinds,
-            heap_shape: signature.return_shape.clone(),
-            function_targets: signature.return_targets.clone(),
-        };
+        let mapper_result = self.function_call_return_info(signature);
         let mut shape = ArrayShape::default();
         shape
             .elements
@@ -10945,7 +11243,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Array,
             possible_kinds: KindSet::from_kind(ValueKind::Array),
             heap_shape: Some(Box::new(HeapShape::Array(shape))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -10957,7 +11255,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Array,
                 possible_kinds: KindSet::from_kind(ValueKind::Array),
                 heap_shape: Some(Box::new(HeapShape::Array(shape))),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::ArrayLiteral(elements),
         )
@@ -10970,7 +11268,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Array,
             possible_kinds: KindSet::from_kind(ValueKind::Array),
             heap_shape: Some(Box::new(HeapShape::Array(shape))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -10992,12 +11290,7 @@ impl<'a> ScriptLowerer<'a> {
     fn accessor_return_info(&self, function_id: &FunctionId) -> ValueInfo {
         self.function_signatures
             .get(function_id)
-            .map(|signature| ValueInfo {
-                kind: signature.return_kind,
-                possible_kinds: signature.return_possible_kinds,
-                heap_shape: signature.return_shape.clone(),
-                function_targets: signature.return_targets.clone(),
-            })
+            .map(|signature| self.function_call_return_info(signature))
             .unwrap_or_else(ValueInfo::undefined)
     }
 
@@ -11328,11 +11621,49 @@ impl<'a> ScriptLowerer<'a> {
                             properties.push(ObjectPropertyIr::ComputedMethod { key, function });
                         }
                         MethodDefinitionKind::Get => {
-                            has_unknown_key |= key_may_be_string;
+                            let function_id = function.function_id().clone();
+                            match well_known_key {
+                                Some(symbol) => {
+                                    let property_name = shape_namespace_key(symbol);
+                                    let setter = match shape.properties.get(&property_name) {
+                                        Some(ObjectShapeProperty::Accessor { setter, .. }) => {
+                                            setter.clone()
+                                        }
+                                        _ => None,
+                                    };
+                                    shape.properties.insert(
+                                        property_name,
+                                        ObjectShapeProperty::Accessor {
+                                            getter: Some(ObjectAccessorShape { function_id }),
+                                            setter,
+                                        },
+                                    );
+                                }
+                                None => has_unknown_key |= key_may_be_string,
+                            }
                             properties.push(ObjectPropertyIr::ComputedGetter { key, function });
                         }
                         MethodDefinitionKind::Set => {
-                            has_unknown_key |= key_may_be_string;
+                            let function_id = function.function_id().clone();
+                            match well_known_key {
+                                Some(symbol) => {
+                                    let property_name = shape_namespace_key(symbol);
+                                    let getter = match shape.properties.get(&property_name) {
+                                        Some(ObjectShapeProperty::Accessor { getter, .. }) => {
+                                            getter.clone()
+                                        }
+                                        _ => None,
+                                    };
+                                    shape.properties.insert(
+                                        property_name,
+                                        ObjectShapeProperty::Accessor {
+                                            getter,
+                                            setter: Some(ObjectAccessorShape { function_id }),
+                                        },
+                                    );
+                                }
+                                None => has_unknown_key |= key_may_be_string,
+                            }
                             properties.push(ObjectPropertyIr::ComputedSetter { key, function });
                         }
                     }
@@ -11387,9 +11718,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 PropertyDefinition::SpreadObject(source) => {
                     has_spread = true;
-                    properties.push(ObjectPropertyIr::Spread {
-                        source: self.lower_expression(source),
-                    });
+                    let source = self.lower_expression(source);
+                    self.invalidate_unknown_user_code_effects();
+                    properties.push(ObjectPropertyIr::Spread { source });
                 }
             }
         }
@@ -11399,7 +11730,7 @@ impl<'a> ScriptLowerer<'a> {
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: (!has_spread && !has_unknown_key)
                     .then(|| Box::new(HeapShape::Object(shape))),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::ObjectLiteral(properties),
         )
@@ -11471,7 +11802,7 @@ impl<'a> ScriptLowerer<'a> {
             return self.unsupported_expr("regexp literal");
         };
         TypedExpr::from_info(
-            result,
+            result.into_non_call_result(),
             ExprIr::RegExpLiteral {
                 program: RegExpProgram::compile(&pattern, &flags).ok(),
                 source: pattern,
@@ -11526,38 +11857,49 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         let mut boundary_before_first_call = false;
-        let (target, mut chain, mut call_sources) =
-            if starts_with_call && initial_property.is_none() {
-                match target {
-                    TypedExpr {
-                        expr: ExprIr::OptionalPropertyChain { target, chain },
-                        ..
-                    } => {
-                        boundary_before_first_call = true;
-                        let call_sources = already_accounted_optional_calls(&chain);
-                        (*target, chain, call_sources)
-                    }
-                    target => (
+        let (target, mut chain, mut analysis) = if starts_with_call && initial_property.is_none() {
+            match target {
+                TypedExpr {
+                    expr: ExprIr::OptionalPropertyChain { target, chain },
+                    ..
+                } => {
+                    boundary_before_first_call = true;
+                    let call_sources = already_accounted_optional_calls(&chain);
+                    let target = *target;
+                    let analysis =
+                        self.analyze_optional_property_chain(&target, &chain, &call_sources);
+                    (target, chain, analysis)
+                }
+                target => {
+                    let analysis = OptionalChainAnalysisState::from_target(&target);
+                    (
                         target,
                         Vec::with_capacity(
                             optional.chain().len() + usize::from(initial_property.is_some()),
                         ),
-                        Vec::new(),
-                    ),
+                        analysis,
+                    )
                 }
-            } else {
-                (
-                    target,
-                    Vec::with_capacity(
-                        optional.chain().len() + usize::from(initial_property.is_some()),
-                    ),
-                    Vec::new(),
-                )
-            };
+            }
+        } else {
+            let analysis = OptionalChainAnalysisState::from_target(&target);
+            (
+                target,
+                Vec::with_capacity(
+                    optional.chain().len() + usize::from(initial_property.is_some()),
+                ),
+                analysis,
+            )
+        };
         if let Some(field) = initial_property {
+            let before_key_effect_epoch = self.intervening_effect_epoch;
             let Some(key) = self.lower_optional_chain_property_key(field) else {
                 return self.unsupported_expr("unsupported optional computed property key");
             };
+            if self.intervening_effect_epoch != before_key_effect_epoch {
+                analysis.current.heap_shape = None;
+            }
+            self.analyze_optional_chain_property(&mut analysis, &key, false);
             chain.push(OptionalChainOperationIr::Property {
                 key,
                 shorted: false,
@@ -11567,9 +11909,14 @@ impl<'a> ScriptLowerer<'a> {
         for operation in optional.chain() {
             match operation.kind() {
                 OptionalOperationKind::SimplePropertyAccess { field } => {
+                    let before_key_effect_epoch = self.intervening_effect_epoch;
                     let Some(key) = self.lower_optional_chain_property_key(field) else {
                         return self.unsupported_expr("unsupported optional computed property key");
                     };
+                    if self.intervening_effect_epoch != before_key_effect_epoch {
+                        analysis.current.heap_shape = None;
+                    }
+                    self.analyze_optional_chain_property(&mut analysis, &key, operation.shorted());
                     chain.push(OptionalChainOperationIr::Property {
                         key,
                         shorted: operation.shorted(),
@@ -11577,24 +11924,43 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 OptionalOperationKind::Call { args } => {
                     let source_args = args;
-                    let Some(args) = self.lower_call_args_expanding_spread(source_args) else {
-                        return TypedExpr::undefined();
+                    let receiver = std::mem::replace(
+                        &mut first_call_receiver,
+                        OptionalChainCallReceiverIr::ReferenceOrUndefined,
+                    );
+                    let mut call_receiver =
+                        self.take_optional_chain_call_receiver(&mut analysis, receiver);
+                    let lowered_args = self.lower_call_args_expanding_spread(source_args);
+                    let args = match call_receiver.as_mut() {
+                        Some(receiver) => lowered_args.into_arguments_after_value(receiver),
+                        None => lowered_args.into_arguments_without_predecessor(),
                     };
+                    let shorted = operation.shorted();
+                    let boundary_before = std::mem::take(&mut boundary_before_first_call);
+                    self.analyze_optional_chain_call(
+                        &mut analysis,
+                        call_receiver.as_ref(),
+                        &args,
+                        shorted,
+                        boundary_before,
+                        &OptionalCallSource::Syntax(source_args),
+                    );
                     chain.push(OptionalChainOperationIr::Call {
                         args,
-                        receiver: std::mem::replace(
-                            &mut first_call_receiver,
-                            OptionalChainCallReceiverIr::ReferenceOrUndefined,
-                        ),
-                        shorted: operation.shorted(),
-                        boundary_before: std::mem::take(&mut boundary_before_first_call),
+                        receiver,
+                        shorted,
+                        boundary_before,
                     });
-                    call_sources.push(OptionalCallSource::Syntax(source_args));
                 }
                 OptionalOperationKind::PrivatePropertyAccess { field } => {
                     let Some(private_name_id) = self.current_private_name_id(*field) else {
                         return self.unsupported_expr("private class element");
                     };
+                    self.analyze_optional_chain_private_property(
+                        &mut analysis,
+                        private_name_id,
+                        operation.shorted(),
+                    );
                     chain.push(OptionalChainOperationIr::PrivateProperty {
                         private_name_id,
                         shorted: operation.shorted(),
@@ -11603,14 +11969,15 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        let info = self.analyze_optional_property_chain(&target, &chain, &call_sources);
-        TypedExpr::from_info(
-            info,
+        let (result, effects) = self.finish_optional_chain_analysis(analysis);
+        let chain = TypedExpr::from_info(
+            result,
             ExprIr::OptionalPropertyChain {
                 target: Box::new(target),
                 chain,
             },
-        )
+        );
+        effects.attach_to_emitted_call(chain)
     }
 
     fn analyze_optional_property_chain(
@@ -11618,36 +11985,24 @@ impl<'a> ScriptLowerer<'a> {
         target: &TypedExpr,
         chain: &[OptionalChainOperationIr],
         call_sources: &[OptionalCallSource<'_>],
-    ) -> ValueInfo {
-        let mut current = target.value_info();
-        let mut property_receiver = None;
-        let mut short_circuit_reaches_result = false;
-        let mut call_sources = call_sources.iter().copied();
+    ) -> OptionalChainAnalysisState {
+        let mut analysis = OptionalChainAnalysisState::from_target(target);
+        let mut call_sources = call_sources.iter();
 
         for operation in chain {
             match operation {
                 OptionalChainOperationIr::Property { key, shorted } => {
-                    short_circuit_reaches_result |= *shorted;
-                    let receiver = current;
-                    current = self.optional_chain_property_info(&receiver, key);
-                    property_receiver = Some(receiver);
+                    self.analyze_optional_chain_property(&mut analysis, key, *shorted);
                 }
                 OptionalChainOperationIr::PrivateProperty {
                     private_name_id,
                     shorted,
                 } => {
-                    short_circuit_reaches_result |= *shorted;
-                    let receiver = current;
-                    let receiver_expr = TypedExpr::from_info(receiver.clone(), ExprIr::Undefined);
-                    current = self
-                        .read_object_shape(&receiver_expr, &private_data_key(*private_name_id))
-                        .unwrap_or(ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: BTreeSet::new(),
-                        });
-                    property_receiver = Some(receiver);
+                    self.analyze_optional_chain_private_property(
+                        &mut analysis,
+                        *private_name_id,
+                        *shorted,
+                    );
                 }
                 OptionalChainOperationIr::Call {
                     args,
@@ -11656,57 +12011,155 @@ impl<'a> ScriptLowerer<'a> {
                     boundary_before,
                 } => {
                     let source = call_sources.next().expect("missing optional call source");
-                    if *boundary_before {
-                        // A grouped chain has already produced its value. A nullish path
-                        // reaching an ordinary call now throws instead of flowing through
-                        // to the enclosing expression as `undefined`.
-                        short_circuit_reaches_result = false;
+                    let mut call_receiver =
+                        self.take_optional_chain_call_receiver(&mut analysis, *receiver);
+                    if matches!(source, OptionalCallSource::AlreadyAccounted) && !args.is_empty() {
+                        if let Some(receiver) = &mut call_receiver {
+                            receiver.heap_shape = None;
+                        }
                     }
-                    short_circuit_reaches_result |= *shorted;
-                    let call_receiver = match receiver {
-                        OptionalChainCallReceiverIr::ReferenceOrUndefined => {
-                            property_receiver.take()
-                        }
-                        OptionalChainCallReceiverIr::CurrentThis => {
-                            property_receiver = None;
-                            Some(self.current_this_info())
-                        }
-                    };
-                    current =
-                        self.optional_call_info(&current, call_receiver.as_ref(), args, source);
+                    self.analyze_optional_chain_call(
+                        &mut analysis,
+                        call_receiver.as_ref(),
+                        args,
+                        *shorted,
+                        *boundary_before,
+                        source,
+                    );
                 }
             }
         }
 
         assert!(call_sources.next().is_none(), "extra optional call source");
+        analysis
+    }
 
-        if short_circuit_reaches_result {
-            self.merge_value_infos(current, ValueInfo::undefined())
-        } else {
-            current
+    fn analyze_optional_chain_property(
+        &mut self,
+        analysis: &mut OptionalChainAnalysisState,
+        key: &PropertyKeyIr,
+        shorted: bool,
+    ) {
+        analysis.short_circuit_reaches_result |= shorted;
+        let mut receiver = analysis.current.clone();
+        analysis.current = match self.optional_chain_property_analysis(&receiver, key) {
+            OptionalPropertyReadAnalysis::ProvenEffectFree(result) => result,
+            OptionalPropertyReadAnalysis::MayRunUserCode(result) => {
+                self.invalidate_unknown_user_code_effects();
+                receiver.heap_shape = None;
+                result
+            }
+        };
+        analysis.property_receiver = Some(receiver);
+    }
+
+    fn analyze_optional_chain_private_property(
+        &self,
+        analysis: &mut OptionalChainAnalysisState,
+        private_name_id: PrivateNameId,
+        shorted: bool,
+    ) {
+        analysis.short_circuit_reaches_result |= shorted;
+        let receiver = analysis.current.clone();
+        let receiver_expr = TypedExpr::from_info(receiver.clone(), ExprIr::Undefined);
+        analysis.current = self
+            .read_object_shape(&receiver_expr, &private_data_key(private_name_id))
+            .unwrap_or(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::unknown(),
+            });
+        analysis.property_receiver = Some(receiver);
+    }
+
+    fn take_optional_chain_call_receiver(
+        &self,
+        analysis: &mut OptionalChainAnalysisState,
+        receiver: OptionalChainCallReceiverIr,
+    ) -> Option<ValueInfo> {
+        match receiver {
+            OptionalChainCallReceiverIr::ReferenceOrUndefined => analysis.property_receiver.take(),
+            OptionalChainCallReceiverIr::CurrentThis => {
+                analysis.property_receiver = None;
+                Some(self.current_this_info())
+            }
         }
     }
 
-    fn optional_chain_property_info(&self, receiver: &ValueInfo, key: &PropertyKeyIr) -> ValueInfo {
+    fn analyze_optional_chain_call(
+        &mut self,
+        analysis: &mut OptionalChainAnalysisState,
+        receiver: Option<&ValueInfo>,
+        args: &[TypedExpr],
+        shorted: bool,
+        boundary_before: bool,
+        source: &OptionalCallSource<'_>,
+    ) {
+        if boundary_before {
+            // A grouped chain has already produced its value. A nullish path
+            // reaching an ordinary call now throws instead of flowing through
+            // to the enclosing expression as `undefined`.
+            analysis.short_circuit_reaches_result = false;
+        }
+        analysis.short_circuit_reaches_result |= shorted;
+        let (next, effects) = self.optional_call_info(&analysis.current, receiver, args, source);
+        analysis.current = next;
+        let previous = std::mem::replace(
+            &mut analysis.invocation_effects,
+            AnalyzedInvocationEffects::already_applied(),
+        );
+        analysis.invocation_effects = previous.combine(effects);
+    }
+
+    fn finish_optional_chain_analysis(
+        &mut self,
+        analysis: OptionalChainAnalysisState,
+    ) -> (ValueInfo, AnalyzedInvocationEffects) {
+        let result = if analysis.short_circuit_reaches_result {
+            self.merge_value_infos(analysis.current, ValueInfo::undefined())
+        } else {
+            analysis.current
+        };
+        (result, analysis.invocation_effects)
+    }
+
+    fn optional_chain_property_analysis(
+        &self,
+        receiver: &ValueInfo,
+        key: &PropertyKeyIr,
+    ) -> OptionalPropertyReadAnalysis {
         match key {
             PropertyKeyIr::StaticString(key) => self
-                .optional_chain_static_property_info(receiver, key)
-                .unwrap_or_else(|| ValueInfo::new(ValueKind::Dynamic)),
-            PropertyKeyIr::ArrayLength => ValueInfo::new(ValueKind::Number),
+                .optional_chain_static_property_analysis(receiver, key)
+                .unwrap_or_else(|| {
+                    OptionalPropertyReadAnalysis::MayRunUserCode(ValueInfo::new(ValueKind::Dynamic))
+                }),
+            PropertyKeyIr::ArrayLength => {
+                OptionalPropertyReadAnalysis::ProvenEffectFree(ValueInfo::new(ValueKind::Number))
+            }
             PropertyKeyIr::ArrayIndex(index) => {
                 let receiver = TypedExpr::from_info(receiver.clone(), ExprIr::Undefined);
-                self.read_array_shape(&receiver, index)
-                    .unwrap_or_else(|| ValueInfo::new(ValueKind::Dynamic))
+                self.read_array_shape(&receiver, index).map_or_else(
+                    || {
+                        OptionalPropertyReadAnalysis::MayRunUserCode(ValueInfo::new(
+                            ValueKind::Dynamic,
+                        ))
+                    },
+                    OptionalPropertyReadAnalysis::ProvenEffectFree,
+                )
             }
-            PropertyKeyIr::StringExpr(_) => ValueInfo::new(ValueKind::Dynamic),
+            PropertyKeyIr::StringExpr(_) => {
+                OptionalPropertyReadAnalysis::MayRunUserCode(ValueInfo::new(ValueKind::Dynamic))
+            }
         }
     }
 
-    fn optional_chain_static_property_info(
+    fn optional_chain_static_property_analysis(
         &self,
         receiver: &ValueInfo,
         key: &str,
-    ) -> Option<ValueInfo> {
+    ) -> Option<OptionalPropertyReadAnalysis> {
         let non_nullish_kinds = receiver
             .possible_kinds
             .without(ValueKind::Null)
@@ -11714,7 +12167,9 @@ impl<'a> ScriptLowerer<'a> {
         let prototype_constructor = match non_nullish_kinds.as_value_kind() {
             ValueKind::String => {
                 if key == "length" {
-                    return Some(ValueInfo::new(ValueKind::Number));
+                    return Some(OptionalPropertyReadAnalysis::ProvenEffectFree(
+                        ValueInfo::new(ValueKind::Number),
+                    ));
                 }
                 Some(STRING_NAME)
             }
@@ -11766,12 +12221,16 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         Some(match property {
-            ObjectShapeProperty::Data(info) => info,
+            ObjectShapeProperty::Data(info) => OptionalPropertyReadAnalysis::ProvenEffectFree(info),
             ObjectShapeProperty::Accessor {
                 getter: Some(getter),
                 ..
-            } => self.accessor_return_info(&getter.function_id),
-            ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
+            } => OptionalPropertyReadAnalysis::MayRunUserCode(
+                self.accessor_return_info(&getter.function_id),
+            ),
+            ObjectShapeProperty::Accessor { getter: None, .. } => {
+                OptionalPropertyReadAnalysis::ProvenEffectFree(ValueInfo::undefined())
+            }
         })
     }
 
@@ -11807,7 +12266,27 @@ impl<'a> ScriptLowerer<'a> {
         }) {
             return Some(property.clone());
         }
-        self.optional_chain_static_property_info(receiver, key.description())
+        if receiver
+            .possible_kinds
+            .without(ValueKind::Null)
+            .without(ValueKind::Undefined)
+            .as_value_kind()
+            == ValueKind::Array
+        {
+            if let Some(property) = self.read_well_known_symbol_shape(receiver, key) {
+                return Some(property);
+            }
+        }
+        let Some(constructor_name) = constructor_name else {
+            return self.read_well_known_symbol_shape(receiver, key);
+        };
+        let constructor = self.lookup_global_property(constructor_name)?;
+        let prototype =
+            match read_heap_shape_property(constructor.heap_shape.as_deref()?, "prototype")? {
+                ObjectShapeProperty::Data(prototype) => prototype,
+                ObjectShapeProperty::Accessor { .. } => return None,
+            };
+        self.read_well_known_symbol_shape(&prototype, key)
     }
 
     fn optional_call_info(
@@ -11815,155 +12294,19 @@ impl<'a> ScriptLowerer<'a> {
         callee: &ValueInfo,
         receiver: Option<&ValueInfo>,
         args: &[TypedExpr],
-        source: OptionalCallSource<'_>,
-    ) -> ValueInfo {
-        let function_targets = callee.function_targets.iter().cloned().collect::<Vec<_>>();
-        if function_targets.is_empty() {
-            return ValueInfo::new(ValueKind::Dynamic);
+        source: &OptionalCallSource<'_>,
+    ) -> (ValueInfo, AnalyzedInvocationEffects) {
+        let source = match source {
+            OptionalCallSource::AlreadyAccounted => CallCandidateSource::AlreadyAccounted,
+            OptionalCallSource::Syntax(arguments) => CallCandidateSource::IndirectSyntax(arguments),
+        };
+        match self.analyze_known_call_candidates(callee, receiver, args, source) {
+            CallCandidateAnalysis::UnsupportedDynamicSource => (
+                ValueInfo::undefined(),
+                AnalyzedInvocationEffects::already_applied(),
+            ),
+            CallCandidateAnalysis::Accepted { result, effects } => (result, effects),
         }
-        let arg_infos = args.iter().map(TypedExpr::value_info).collect::<Vec<_>>();
-        let canonical_arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
-        let args_have_spread = Self::call_args_have_spread(args);
-        let mut result = None;
-
-        for function_id in function_targets {
-            let Some(initial_signature) = self.function_signatures.get(&function_id).cloned()
-            else {
-                continue;
-            };
-            if !initial_signature.callable
-                && initial_signature.protocol.class_kind() != ClassFunctionKind::Constructor
-            {
-                continue;
-            }
-            if let Some(resolved) = self.resolve_dynamic_source_call(
-                &function_id,
-                BuiltinCallContext::Call,
-                source.syntax(),
-                args,
-            ) {
-                let return_info = match resolved {
-                    ResolvedDynamicSourceCall::EvalPassThrough(proof) => {
-                        if source.owns_diagnostic() {
-                            if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id)
-                            {
-                                self.note_standard_builtin_call(builtin);
-                            }
-                        }
-                        proof.into_result_info()
-                    }
-                    ResolvedDynamicSourceCall::Unsupported(gap) => {
-                        if source.owns_diagnostic() {
-                            self.record_unsupported_dynamic_source(&function_id, gap);
-                        }
-                        ValueInfo::undefined()
-                    }
-                };
-                result = Some(match result {
-                    Some(existing) => self.merge_value_infos(existing, return_info),
-                    None => return_info,
-                });
-                continue;
-            }
-
-            let this_info = match receiver {
-                Some(receiver) => {
-                    let receiver = TypedExpr::from_info(receiver.clone(), ExprIr::Undefined);
-                    self.explicit_this_info_for_function_target(
-                        &function_id,
-                        &receiver,
-                        initial_signature.this_info.clone(),
-                    )
-                }
-                None => self.default_this_info_for_function_target(&function_id),
-            };
-            // Observe the receiver before propagating the call so a function
-            // whose return analysis depends on `this` is lowered under the
-            // same context as an ordinary known call.
-            self.merge_function_this_info(&function_id, this_info.clone());
-
-            if args_have_spread {
-                let return_info = ValueInfo {
-                    kind: initial_signature.return_kind,
-                    possible_kinds: initial_signature.return_possible_kinds,
-                    heap_shape: initial_signature.return_shape,
-                    function_targets: initial_signature.return_targets,
-                };
-                result = Some(match result {
-                    Some(existing) => self.merge_value_infos(existing, return_info),
-                    None => return_info,
-                });
-                continue;
-            }
-
-            let exact_prepass_call =
-                self.is_prepass && self.analysis.function_plans.contains_key(&function_id);
-            if !exact_prepass_call {
-                self.merge_function_param_infos(&function_id, &arg_infos);
-                if let Some(signature) = self.function_signatures.get_mut(&function_id) {
-                    Self::merge_omitted_signature_params_as_undefined(signature, args.len());
-                }
-            } else if let Some(helper_context_id) = self
-                .exact_context_callback_targets
-                .get(&self.original_exact_function_id(&function_id))
-                .cloned()
-            {
-                let original_function_id = self.original_exact_function_id(&function_id);
-                self.observe_exact_callback_this_info(
-                    &original_function_id,
-                    &helper_context_id,
-                    this_info,
-                );
-                self.observe_exact_callback_param_infos(
-                    &original_function_id,
-                    &helper_context_id,
-                    &canonical_arg_infos,
-                );
-            }
-
-            let helper_context_id =
-                Self::exact_helper_context_id(&function_id, &canonical_arg_infos);
-            if self.is_prepass || self.analysis.function_plans.contains_key(&function_id) {
-                self.propagate_direct_call_context(&function_id, &canonical_arg_infos);
-            }
-
-            let effective_function_id = self
-                .exact_context_function_specializations
-                .get(&(function_id.clone(), helper_context_id.clone()))
-                .cloned()
-                .unwrap_or_else(|| function_id.clone());
-            let exact_context_key = (function_id.clone(), helper_context_id);
-            let Some(signature) = self
-                .exact_context_function_observations
-                .get(&exact_context_key)
-                .or_else(|| {
-                    self.exact_context_callback_observations
-                        .get(&exact_context_key)
-                })
-                .filter(|signature| !signature.this_observed || signature.return_targets.is_empty())
-                .cloned()
-                .or_else(|| {
-                    self.function_signatures
-                        .get(&effective_function_id)
-                        .cloned()
-                })
-            else {
-                continue;
-            };
-
-            let return_info = ValueInfo {
-                kind: signature.return_kind,
-                possible_kinds: signature.return_possible_kinds,
-                heap_shape: signature.return_shape,
-                function_targets: signature.return_targets,
-            };
-            result = Some(match result {
-                Some(existing) => self.merge_value_infos(existing, return_info),
-                None => return_info,
-            });
-        }
-
-        result.unwrap_or_else(|| ValueInfo::new(ValueKind::Dynamic))
     }
 
     fn lower_optional_chain_property_key(
@@ -11988,9 +12331,25 @@ impl<'a> ScriptLowerer<'a> {
         {
             return self.unsupported_expr("unsupported expression form: super call");
         }
-        let Some(args) = self.lower_call_args_expanding_spread(call.arguments()) else {
-            return TypedExpr::undefined();
-        };
+        let args = self
+            .lower_call_args_expanding_spread(call.arguments())
+            .into_arguments_without_predecessor();
+        let super_constructor_target = self
+            .class_context
+            .as_ref()
+            .and_then(|context| context.super_constructor_target.clone());
+        let requires_unknown_property_hook_observation = super_constructor_target
+            .as_ref()
+            .is_none_or(Self::invocation_target_requires_unknown_property_hook_observation);
+        let super_constructor_may_run_source = super_constructor_target
+            .as_ref()
+            .is_none_or(|function_id| self.function_may_run_user_code_synchronously(function_id));
+        if requires_unknown_property_hook_observation {
+            self.observe_all_planned_source_as_unknown_property_hooks();
+        }
+        if requires_unknown_property_hook_observation || super_constructor_may_run_source {
+            self.invalidate_unknown_user_code_effects();
+        }
         let info = self
             .current_construct_this_info
             .clone()
@@ -12030,7 +12389,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::PrivateRead {
                 target: Box::new(target),
@@ -12090,6 +12449,49 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
+    fn function_prototype_call_is_intrinsic(&self, receiver: &TypedExpr) -> bool {
+        if receiver.heap_shape.is_none() {
+            return false;
+        }
+        let Some(function_constructor) = self.lookup_global_property(FUNCTION_NAME) else {
+            return false;
+        };
+        if function_constructor.function_targets.exact_single_target()
+            != Some(&StandardBuiltinId::FunctionConstructor.function_id())
+        {
+            return false;
+        }
+        let Some(HeapShape::Object(constructor_shape)) = function_constructor.heap_shape.as_deref()
+        else {
+            return false;
+        };
+        let Some(ObjectShapeProperty::Data(function_prototype)) =
+            constructor_shape.properties.get("prototype")
+        else {
+            return false;
+        };
+        if function_prototype.function_targets.exact_single_target()
+            != Some(&StandardBuiltinId::FunctionPrototype.function_id())
+        {
+            return false;
+        }
+        let Some(HeapShape::Object(prototype_shape)) = function_prototype.heap_shape.as_deref()
+        else {
+            return false;
+        };
+        // The pristine `%Function.prototype%` shape omits catalogued method
+        // properties. Writes add an explicit fact, while delete and unknown
+        // effects erase the shape, so absence here is the intrinsic state.
+        match prototype_shape.properties.get("call") {
+            None => true,
+            Some(ObjectShapeProperty::Data(call)) => {
+                call.function_targets.exact_single_target()
+                    == Some(&StandardBuiltinId::FunctionPrototypeCall.function_id())
+            }
+            Some(ObjectShapeProperty::Accessor { .. }) => false,
+        }
+    }
+
     // `is_error_prototype_expr` used to sit here: a second hand-kept nine-row
     // list of the same closed domain, with zero call sites anywhere in the
     // workspace. AGENTS.md: code unreachable from the product path should fail
@@ -12136,6 +12538,7 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         let mut lowered = self.lower_expression(expr);
+        self.record_possible_to_primitive_effects(&lowered.value_info());
         if let ExprIr::String(key) = &lowered.expr {
             return Some(PropertyKeyIr::StaticString(key.clone()));
         }
@@ -12164,7 +12567,7 @@ impl<'a> ScriptLowerer<'a> {
                 lowered.kind = ValueKind::String;
                 lowered.possible_kinds = KindSet::from_kind(ValueKind::String);
                 lowered.heap_shape = None;
-                lowered.function_targets.clear();
+                lowered.function_targets.replace_with_no_function();
                 return Some(PropertyKeyIr::StringExpr(Box::new(lowered)));
             }
         }
@@ -12216,11 +12619,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn static_number_property_key_from_value(value: f64) -> String {
-        if value.fract() == 0.0 {
-            format!("{value:.0}")
-        } else {
-            value.to_string()
-        }
+        Self::js_number_to_string(value)
     }
 
     fn static_number_index_expr(&self, value: f64) -> TypedExpr {
@@ -12229,7 +12628,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Number,
                 possible_kinds: KindSet::from_kind(ValueKind::Number),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::Number(value.to_bits()),
         )
@@ -12263,7 +12662,7 @@ impl<'a> ScriptLowerer<'a> {
                 index.kind = ValueKind::Number;
                 index.possible_kinds = KindSet::from_kind(ValueKind::Number);
                 index.heap_shape = None;
-                index.function_targets.clear();
+                index.function_targets.replace_with_no_function();
                 return true;
             }
         }
@@ -12274,7 +12673,7 @@ impl<'a> ScriptLowerer<'a> {
             index.kind = ValueKind::Number;
             index.possible_kinds = KindSet::from_kind(ValueKind::Number);
             index.heap_shape = None;
-            index.function_targets.clear();
+            index.function_targets.replace_with_no_function();
             return true;
         }
         false
@@ -12285,40 +12684,61 @@ impl<'a> ScriptLowerer<'a> {
         target: TypedExpr,
         field: &PropertyAccessField,
     ) -> TypedExpr {
-        let known_getter = match field {
+        let known_symbol = match field {
+            PropertyAccessField::Expr(expression) => {
+                self.try_well_known_symbol_key_name(expression)
+            }
+            PropertyAccessField::Const(_) => None,
+        };
+        let known_property_name = match field {
             PropertyAccessField::Const(name) => {
-                let name = self.interner.resolve_expect(name.sym()).to_string();
-                match self.read_object_shape_property(&target, &name) {
-                    Some(ObjectShapeProperty::Accessor {
-                        getter: Some(getter),
-                        ..
-                    }) => Some(getter.function_id),
-                    Some(ObjectShapeProperty::Data(_))
-                    | Some(ObjectShapeProperty::Accessor { getter: None, .. })
-                    | None => None,
-                }
+                Some(self.interner.resolve_expect(name.sym()).to_string())
             }
             PropertyAccessField::Expr(expression) => self
                 .try_static_ordinary_property_key(expression)
-                .and_then(
-                    |name| match self.read_object_shape_property(&target, &name) {
-                        Some(ObjectShapeProperty::Accessor {
-                            getter: Some(getter),
-                            ..
-                        }) => Some(getter.function_id),
-                        Some(ObjectShapeProperty::Data(_))
-                        | Some(ObjectShapeProperty::Accessor { getter: None, .. })
-                        | None => None,
-                    },
-                ),
+                .or_else(|| {
+                    self.try_well_known_symbol_key_name(expression)
+                        .map(shape_namespace_key)
+                }),
+        };
+        let known_property = known_symbol
+            .and_then(|symbol| {
+                Self::read_well_known_symbol_shape_property(target.heap_shape.as_deref(), symbol)
+            })
+            .or_else(|| {
+                known_property_name
+                    .as_deref()
+                    .and_then(|name| self.read_object_shape_property(&target, name))
+            });
+        let known_getter = match known_property {
+            Some(ObjectShapeProperty::Accessor {
+                getter: Some(getter),
+                ..
+            }) => Some(getter.function_id),
+            Some(ObjectShapeProperty::Data(_))
+            | Some(ObjectShapeProperty::Accessor { getter: None, .. })
+            | None => None,
         };
         let unknown_getter_possible = target.heap_shape.is_none()
-            || matches!(&target.expr, ExprIr::This)
-            || matches!(field, PropertyAccessField::Expr(expression) if self.try_static_ordinary_property_key(expression).is_none());
-        let builtin_getter_may_dispatch = known_getter
+            || (known_property_name.is_none() && known_symbol.is_none());
+        let known_builtin_getter = known_getter
             .as_ref()
-            .is_some_and(|getter| StandardBuiltinId::from_function_id(getter).is_some());
-        let property_get_may_call_user_code = unknown_getter_possible || known_getter.is_some();
+            .and_then(|getter| StandardBuiltinId::from_function_id(getter));
+        let receiver_provenance = if target.heap_shape.is_some() {
+            BuiltinGetterReceiverProvenance::ProvenNonProxy
+        } else {
+            BuiltinGetterReceiverProvenance::MayBeProxy
+        };
+        let known_getter_may_call_user_code = match known_builtin_getter {
+            Some(builtin) => {
+                Self::standard_builtin_getter_may_call_user_code(builtin, &receiver_provenance)
+            }
+            None => known_getter.is_some(),
+        };
+        let builtin_getter_may_dispatch =
+            known_builtin_getter.is_some() && known_getter_may_call_user_code;
+        let property_get_may_call_user_code =
+            unknown_getter_possible || known_getter_may_call_user_code;
 
         if unknown_getter_possible || builtin_getter_may_dispatch {
             self.observe_all_planned_source_as_unknown_property_hooks();
@@ -12380,10 +12800,10 @@ impl<'a> ScriptLowerer<'a> {
                             if WellKnownSymbol::from_description(SymbolDescription::new(description))
                                 == Some(WellKnownSymbol::HasInstance)
                     )
-        ) && target.function_targets.len() == 1
-            && target
-                .function_targets
-                .contains(&StandardBuiltinId::FunctionPrototype.function_id());
+        ) && target
+            .function_targets
+            .exact_single_target()
+            == Some(&StandardBuiltinId::FunctionPrototype.function_id());
         if exact_function_prototype_has_instance {
             return TypedExpr::from_info(
                 Self::standard_builtin_value_info(
@@ -12473,6 +12893,7 @@ impl<'a> ScriptLowerer<'a> {
                 return self.unsupported_expr("Error.stack");
             }
             if name == "call"
+                && self.function_prototype_call_is_intrinsic(&target)
                 && (target.kind == ValueKind::Function
                     || self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype"))
             {
@@ -12570,6 +12991,33 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
         }
+        if let PropertyKeyIr::StringExpr(symbol_key) = &key {
+            let symbol = match &symbol_key.expr {
+                ExprIr::String(description) if symbol_key.kind == ValueKind::Symbol => {
+                    WellKnownSymbol::from_description(SymbolDescription::new(description))
+                }
+                _ => None,
+            };
+            if let Some(property) = symbol.and_then(|symbol| {
+                Self::read_well_known_symbol_shape_property(target.heap_shape.as_deref(), symbol)
+            }) {
+                let info = match property {
+                    ObjectShapeProperty::Data(info) => info,
+                    ObjectShapeProperty::Accessor {
+                        getter: Some(getter),
+                        ..
+                    } => {
+                        self.merge_function_this_info(&getter.function_id, target.value_info());
+                        self.accessor_return_info(&getter.function_id)
+                    }
+                    ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
+                };
+                self.mark_host_builtins_from_info(&info);
+                let key_operand = Self::spec_get_v_operand_from_property_key(&key)
+                    .expect("a computed Symbol key is a GetV operand");
+                return TypedExpr::spec_get_v_with_info(info, target, key_operand);
+            }
+        }
         let info = match &key {
             PropertyKeyIr::StaticString(key) => {
                 if key == "BYTES_PER_ELEMENT"
@@ -12599,14 +13047,14 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     })
             }
             PropertyKeyIr::StringExpr(_) => ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             PropertyKeyIr::ArrayIndex(_) if self.is_typed_array_value(&target) => {
                 ValueInfo::new(ValueKind::Number)
@@ -12615,7 +13063,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
         };
         self.mark_host_builtins_from_info(&info);
@@ -12644,7 +13092,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Number,
                         possible_kinds: KindSet::from_kind(ValueKind::Number),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::PropertyRead {
                         target: Box::new(target),
@@ -13005,7 +13453,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: Self::object_like_kind_set(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                     ExprIr::PropertyRead {
                         target: Box::new(target),
@@ -13018,7 +13466,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 },
                 ExprIr::PropertyRead {
                     target: Box::new(target),
@@ -13049,7 +13497,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 })
             }
             PropertyKeyIr::ArrayIndex(index) => {
@@ -13057,14 +13505,14 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 })
             }
             PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayLength => ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
         };
         TypedExpr::from_info(
@@ -13098,7 +13546,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                     ExprIr::PropertyRead {
                         target: Box::new(target),
@@ -13146,7 +13594,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 },
                 ExprIr::PropertyRead {
                     target: Box::new(target),
@@ -13176,7 +13624,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::PropertyRead {
                 target: Box::new(target),
@@ -13241,7 +13689,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Number,
                         possible_kinds: KindSet::from_kind(ValueKind::Number),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::PropertyRead {
                         target: Box::new(target),
@@ -13285,7 +13733,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 },
                 ExprIr::PropertyRead {
                     target: Box::new(target),
@@ -13315,7 +13763,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                     ExprIr::PropertyRead {
                         target: Box::new(target),
@@ -13330,7 +13778,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 },
                 ExprIr::PropertyRead {
                     target: Box::new(target),
@@ -13343,7 +13791,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::PropertyRead {
                 target: Box::new(target),
@@ -13386,7 +13834,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::RuntimeThrow {
                 name: NativeErrorKind::ReferenceError,
@@ -13466,7 +13914,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::RuntimeThrow {
                 name: error.kind(),
@@ -13615,6 +14063,7 @@ impl<'a> ScriptLowerer<'a> {
         let value_info = value.value_info();
         Some(match pattern {
             Pattern::Array(pattern) => {
+                self.invalidate_unknown_user_code_effects();
                 let pattern = self.lower_array_assignment_pattern(pattern.bindings())?;
                 TypedExpr::from_info(
                     value_info,
@@ -13626,6 +14075,9 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             Pattern::Object(pattern) => {
+                if !pattern.bindings().is_empty() {
+                    self.invalidate_unknown_user_code_effects();
+                }
                 let pattern = self.lower_object_assignment_pattern(pattern.bindings())?;
                 TypedExpr::from_info(
                     value_info,
@@ -13668,7 +14120,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
         );
         let mut statements = vec![StatementIr::Lexical {
@@ -13747,6 +14199,7 @@ impl<'a> ScriptLowerer<'a> {
             }
 
             let value = self.lower_expression(init);
+            self.invalidate_unknown_user_code_effects();
             let pattern = self.lower_array_binding_pattern(mode, pattern.bindings(), None)?;
             return Some(vec![StatementIr::Expression(TypedExpr::from_info(
                 ValueInfo::undefined(),
@@ -13849,6 +14302,7 @@ impl<'a> ScriptLowerer<'a> {
         init: TypedExpr,
     ) -> Option<Vec<StatementIr>> {
         if let Pattern::Array(pattern) = pattern {
+            self.invalidate_unknown_user_code_effects();
             let pattern =
                 self.lower_array_binding_pattern(BindingMode::Var, pattern.bindings(), None)?;
             return Some(vec![StatementIr::Expression(TypedExpr::from_info(
@@ -13864,6 +14318,9 @@ impl<'a> ScriptLowerer<'a> {
             unreachable!("pattern variants are handled above")
         };
 
+        if !pattern.bindings().is_empty() {
+            self.invalidate_unknown_user_code_effects();
+        }
         if pattern.bindings().is_empty() {
             return Some(vec![StatementIr::Expression(TypedExpr::spec_to_object(
                 init,
@@ -13961,6 +14418,7 @@ impl<'a> ScriptLowerer<'a> {
                 storage_names,
             ),
             Pattern::Array(pattern) => {
+                self.invalidate_unknown_user_code_effects();
                 let pattern =
                     self.lower_array_binding_pattern(mode, pattern.bindings(), storage_names)?;
                 Some(vec![StatementIr::Expression(TypedExpr::from_info(
@@ -13986,7 +14444,10 @@ impl<'a> ScriptLowerer<'a> {
         // cannot be expressed as one lexical statement per bound name, so they go
         // through the semantic `ObjectDestructure` node, which already models
         // nested targets, defaults and CopyDataProperties.
-        if !object_pattern_binds_only_single_names(bindings) {
+        if !bindings.is_empty() {
+            self.invalidate_unknown_user_code_effects();
+        }
+        if bindings.is_empty() || !object_pattern_binds_only_single_names(bindings) {
             let pattern = self.lower_object_binding_pattern(mode, bindings, storage_names)?;
             return Some(vec![StatementIr::Expression(TypedExpr::from_info(
                 ValueInfo::undefined(),
@@ -14092,7 +14553,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                             initialization: Initialization::Initialized,
                         },
                     );
@@ -14166,7 +14627,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Object,
                             possible_kinds: KindSet::from_kind(ValueKind::Object),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                             initialization: Initialization::Initialized,
                         },
                     );
@@ -14231,7 +14692,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                             initialization: Initialization::Initialized,
                         },
                     );
@@ -14273,7 +14734,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Array,
                             possible_kinds: KindSet::from_kind(ValueKind::Array),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                             initialization: Initialization::Initialized,
                         },
                     );
@@ -14520,7 +14981,7 @@ impl<'a> ScriptLowerer<'a> {
                                 kind: ValueKind::Dynamic,
                                 possible_kinds: KindSet::all_runtime_tags(),
                                 heap_shape: None,
-                                function_targets: BTreeSet::new(),
+                                function_targets: FunctionTargetKnowledge::unknown(),
                             },
                         );
                         IdentifierWriteReferenceIr::mutable_binding(storage_name)
@@ -14550,7 +15011,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                     if implicit {
                         GlobalPropertySource::ImplicitGlobalWrite
@@ -14645,17 +15106,26 @@ impl<'a> ScriptLowerer<'a> {
         pending: Option<PendingInitialization>,
         storage_name: Option<String>,
     ) -> StatementIr {
-        self.static_string_bindings.remove(&name);
         self.static_to_string_regexp_object_bindings.remove(&name);
         let initialized = match pending {
             Some(pending) => pending.initialize(init),
             None => {
                 let storage_name =
                     storage_name.unwrap_or_else(|| self.direct_lexical_storage_name(&name, span));
-                InitializedBinding::without_creation(name, mode, storage_name, init.into_expr())
+                InitializedBinding::without_creation(
+                    name.clone(),
+                    mode,
+                    storage_name,
+                    init.into_expr(),
+                )
             }
         };
-        initialized.declare(self)
+        let statement = initialized.declare(self);
+        let binding = self.lookup_binding(&name).unwrap_or_else(|| {
+            panic!("lexical binding `{name}` must be declared before clearing static string facts")
+        });
+        self.static_string_bindings.remove(&binding);
+        statement
     }
 
     fn lower_object_pattern_value_from_value(&self, target: &TypedExpr, key: &str) -> TypedExpr {
@@ -14663,7 +15133,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::all_runtime_tags(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         });
         TypedExpr::from_info(
             info,
@@ -14744,6 +15214,9 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             None => {
+                if self.is_script_global_var_name(name) && !self.has_scope_binding(name) {
+                    self.set_binding_value_info(name, info.clone());
+                }
                 self.set_global_property_value_info(name.to_string(), info.clone());
                 let strictness = self.reference_strictness();
                 TypedExpr::from_info(
@@ -14786,13 +15259,9 @@ impl<'a> ScriptLowerer<'a> {
         let pins = self.pin_reference_operands(&mut record);
 
         let read = record.read(read_info.clone());
-        let rhs = if matches!(op, PropertyUpdateOp::Logical(_)) {
-            self.lower_conditionally_reached_expression(rhs)
-        } else {
-            self.lower_expression(rhs)
-        };
         let (value, shape_info, compose) = match op {
             PropertyUpdateOp::Logical(logical) => {
+                let rhs = self.lower_conditionally_reached_expression(rhs);
                 // The write only happens on the branch that evaluates `rhs`, so
                 // the observable property type is the merge of both branches.
                 let written_info = rhs.value_info();
@@ -14808,11 +15277,13 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             PropertyUpdateOp::Arithmetic(arithmetic) => {
+                let rhs = self.lower_expression(rhs);
                 let value = self.combine_arithmetic(arithmetic, read, rhs);
                 let info = value.value_info();
                 (value, info, Composition::Value)
             }
             PropertyUpdateOp::Bitwise(bitwise) => {
+                let rhs = self.lower_expression(rhs);
                 let op = match bitwise {
                     BitwiseOp::And => BitwiseBinaryOp::And,
                     BitwiseOp::Or => BitwiseBinaryOp::Or,
@@ -14918,6 +15389,7 @@ impl<'a> ScriptLowerer<'a> {
         access: &PropertyAccess,
         value: TypedExpr,
     ) -> TypedExpr {
+        self.record_caller_flow_invalidation();
         if let PropertyAccess::Private(access) = access {
             let Some(private_name_id) = self.current_private_name_id(access.field()) else {
                 return self.unsupported_expr("private class element");
@@ -15022,6 +15494,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_property_assign(&mut self, access: &PropertyAccess, rhs: &Expression) -> TypedExpr {
+        self.record_caller_flow_invalidation();
         match access {
             PropertyAccess::Simple(access) => {
                 let target = self.lower_property_target(access.target());
@@ -15430,8 +15903,9 @@ impl<'a> ScriptLowerer<'a> {
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
     ) -> TypedExpr {
+        self.record_caller_flow_invalidation();
         if let Some(info) = self.global_properties.get_mut(&name) {
-            info.value_info = unknown_runtime_value_info();
+            info.value_info.widen_for_possible_replacement();
             info.proven_present = false;
         }
         let bindings =
@@ -15496,24 +15970,33 @@ impl<'a> ScriptLowerer<'a> {
                 .possible_kinds
                 .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
             {
-                ValueKind::BigInt
+                NumericUpdateValueKind::BigInt
             } else if binding
                 .possible_kinds
                 .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
             {
-                ValueKind::Number
+                NumericUpdateValueKind::Number
             } else {
-                ValueKind::Dynamic
+                NumericUpdateValueKind::Dynamic
             };
             let storage_name = binding.storage_name.clone();
             let emitted_update_kind = match reachability {
                 IdentifierUpdateReachability::Definite => update_kind,
-                IdentifierUpdateReachability::WithEnvironmentFallback => ValueKind::Dynamic,
+                IdentifierUpdateReachability::WithEnvironmentFallback => {
+                    NumericUpdateValueKind::Dynamic
+                }
             };
             let updated_info = match reachability {
-                IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind),
+                IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind.value_kind()),
                 IdentifierUpdateReachability::WithEnvironmentFallback => {
-                    unknown_runtime_value_info()
+                    let mut value = ValueInfo {
+                        kind: binding.kind,
+                        possible_kinds: binding.possible_kinds,
+                        heap_shape: binding.heap_shape,
+                        function_targets: binding.function_targets,
+                    };
+                    value.widen_for_possible_replacement();
+                    value
                 }
             };
             self.set_binding_value_info(&name, updated_info.clone());
@@ -15535,24 +16018,30 @@ impl<'a> ScriptLowerer<'a> {
                     .possible_kinds
                     .is_subset_of(KindSet::from_kind(ValueKind::BigInt))
                 {
-                    ValueKind::BigInt
+                    NumericUpdateValueKind::BigInt
                 } else if info
                     .value_info
                     .possible_kinds
                     .is_subset_of(KindSet::PRIMITIVE_ONLY.without(ValueKind::BigInt))
                 {
-                    ValueKind::Number
+                    NumericUpdateValueKind::Number
                 } else {
-                    ValueKind::Dynamic
+                    NumericUpdateValueKind::Dynamic
                 };
                 let emitted_update_kind = match reachability {
                     IdentifierUpdateReachability::Definite => update_kind,
-                    IdentifierUpdateReachability::WithEnvironmentFallback => ValueKind::Dynamic,
+                    IdentifierUpdateReachability::WithEnvironmentFallback => {
+                        NumericUpdateValueKind::Dynamic
+                    }
                 };
                 let updated_info = match reachability {
-                    IdentifierUpdateReachability::Definite => ValueInfo::new(update_kind),
+                    IdentifierUpdateReachability::Definite => {
+                        ValueInfo::new(update_kind.value_kind())
+                    }
                     IdentifierUpdateReachability::WithEnvironmentFallback => {
-                        unknown_runtime_value_info()
+                        let mut value = info.value_info.clone();
+                        value.widen_for_possible_replacement();
+                        value
                     }
                 };
                 self.set_global_property_value_info(name.clone(), updated_info);
@@ -15566,7 +16055,7 @@ impl<'a> ScriptLowerer<'a> {
                         return TypedExpr::undefined();
                     }
                     IdentifierUpdateReachability::WithEnvironmentFallback => {
-                        (None, ValueKind::Dynamic)
+                        (None, NumericUpdateValueKind::Dynamic)
                     }
                 }
             }
@@ -15575,7 +16064,9 @@ impl<'a> ScriptLowerer<'a> {
                 IdentifierUpdateReachability::Definite => {
                     return self.unsupported_expr("numeric update on non-number binding");
                 }
-                IdentifierUpdateReachability::WithEnvironmentFallback => (None, ValueKind::Dynamic),
+                IdentifierUpdateReachability::WithEnvironmentFallback => {
+                    (None, NumericUpdateValueKind::Dynamic)
+                }
             }
         } else {
             match reachability {
@@ -15585,14 +16076,16 @@ impl<'a> ScriptLowerer<'a> {
                     ));
                     return TypedExpr::undefined();
                 }
-                IdentifierUpdateReachability::WithEnvironmentFallback => (None, ValueKind::Dynamic),
+                IdentifierUpdateReachability::WithEnvironmentFallback => {
+                    (None, NumericUpdateValueKind::Dynamic)
+                }
             }
         };
 
         let strictness = self.reference_strictness();
         if let Some(storage_name) = binding_storage_name {
             return TypedExpr::from_info(
-                ValueInfo::new(update_kind),
+                ValueInfo::new(update_kind.value_kind()),
                 ExprIr::UpdateIdentifier {
                     name: storage_name,
                     op,
@@ -15603,14 +16096,14 @@ impl<'a> ScriptLowerer<'a> {
         }
         if reachability == IdentifierUpdateReachability::WithEnvironmentFallback {
             if let Some(info) = self.global_properties.get_mut(&name) {
-                info.value_info = unknown_runtime_value_info();
+                info.value_info.widen_for_possible_replacement();
                 if info.configurable {
                     info.proven_present = false;
                 }
             }
         }
         let update = TypedExpr::from_info(
-            ValueInfo::new(update_kind),
+            ValueInfo::new(update_kind.value_kind()),
             ExprIr::GlobalPropertyUpdate {
                 name: name.clone(),
                 op,
@@ -15638,7 +16131,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Dynamic,
                         possible_kinds: KindSet::all_runtime_tags(),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::unknown(),
                     },
                     ExprIr::RuntimeThrow {
                         name: NativeErrorKind::ReferenceError,
@@ -15684,7 +16177,10 @@ impl<'a> ScriptLowerer<'a> {
                     let fallback = if is_bound {
                         self.lower_identifier_name_inner(name, false, true)
                     } else {
-                        TypedExpr::undefined()
+                        TypedExpr::from_info(
+                            unknown_runtime_value_info(),
+                            ExprIr::GlobalPropertyRead { name },
+                        )
                     };
                     return TypedExpr::from_info(
                         ValueInfo::new(ValueKind::String),
@@ -15694,6 +16190,22 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
                 if !is_bound {
+                    let global_presence_requires_runtime_lookup = self
+                        .global_properties
+                        .get(&name)
+                        .is_some_and(|property| !property.proven_present)
+                        || self.unknown_user_code_effects_observed;
+                    if global_presence_requires_runtime_lookup {
+                        return TypedExpr::from_info(
+                            ValueInfo::new(ValueKind::String),
+                            ExprIr::TypeOf {
+                                expr: Box::new(TypedExpr::from_info(
+                                    unknown_runtime_value_info(),
+                                    ExprIr::GlobalPropertyRead { name },
+                                )),
+                            },
+                        );
+                    }
                     return TypedExpr::from_info(
                         ValueInfo::new(ValueKind::String),
                         ExprIr::TypeOfUnresolvedIdentifier { name },
@@ -15710,15 +16222,15 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::Number(value.to_bits()),
                     );
                 }
+                self.record_possible_to_primitive_effects(&lowered_target.value_info());
                 TypedExpr::from_info(
                     ValueInfo {
                         kind: ValueKind::Number,
                         possible_kinds: KindSet::from_kind(ValueKind::Number),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
-                    ExprIr::UnaryNumber {
-                        op: UnaryNumericOp::Plus,
+                    ExprIr::UnaryPlus {
                         expr: Box::new(lowered_target),
                     },
                 )
@@ -15730,31 +16242,26 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::BigInt(bits.negated()),
                     );
                 }
-                // `BigInt::unaryMinus` (ECMA-262 6.1.6.2.1) is exact, so it
-                // cannot go through the Number negation below; `0n - x` is the
-                // same value and reuses the BigInt arithmetic path.
-                if lowered_target.kind == ValueKind::BigInt {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::BigInt),
-                        ExprIr::BinaryNumber {
-                            op: ArithmeticBinaryOp::Sub,
-                            lhs: Box::new(TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::BigInt),
-                                ExprIr::BigInt(BigIntLiteralIr::from_u64_payload(0)),
-                            )),
-                            rhs: Box::new(lowered_target),
-                        },
-                    );
+                let primitive = self.to_primitive_info(&lowered_target, ToPrimitiveHint::Number);
+                let (has_number, has_bigint) = numeric_domain(primitive.as_ref());
+                let mut result_kinds = KindSet::EMPTY;
+                if has_number {
+                    result_kinds = result_kinds.union(KindSet::from_kind(ValueKind::Number));
+                }
+                if has_bigint {
+                    result_kinds = result_kinds.union(KindSet::from_kind(ValueKind::BigInt));
+                }
+                if result_kinds == KindSet::EMPTY {
+                    result_kinds = KindSet::from_kind(ValueKind::Number);
                 }
                 TypedExpr::from_info(
                     ValueInfo {
-                        kind: ValueKind::Number,
-                        possible_kinds: KindSet::from_kind(ValueKind::Number),
+                        kind: result_kinds.as_value_kind(),
+                        possible_kinds: result_kinds,
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
-                    ExprIr::UnaryNumber {
-                        op: UnaryNumericOp::Minus,
+                    ExprIr::UnaryMinusNumeric {
                         expr: Box::new(lowered_target),
                     },
                 )
@@ -15764,7 +16271,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Boolean,
                     possible_kinds: KindSet::from_kind(ValueKind::Boolean),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::none(),
                 },
                 ExprIr::LogicalNot {
                     expr: Box::new(lowered_target),
@@ -15875,7 +16382,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: result_kinds.as_value_kind(),
                 possible_kinds: result_kinds,
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::BitwiseNumeric {
                 op,
@@ -15909,7 +16416,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: result_kinds.as_value_kind(),
                 possible_kinds: result_kinds,
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::UnaryBitwiseNumeric {
                 op,
@@ -16035,7 +16542,7 @@ impl<'a> ScriptLowerer<'a> {
                                 kind: possible_kinds.as_value_kind(),
                                 possible_kinds,
                                 heap_shape: None,
-                                function_targets: BTreeSet::new(),
+                                function_targets: FunctionTargetKnowledge::none(),
                             },
                             ExprIr::CoerciveAdd {
                                 lhs: Box::new(lhs),
@@ -16087,7 +16594,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: possible_kinds.as_value_kind(),
                             possible_kinds,
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         },
                         ExprIr::CoerciveAdd {
                             lhs: Box::new(lhs),
@@ -16123,7 +16630,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Number,
                         possible_kinds: KindSet::from_kind(ValueKind::Number),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::BinaryNumber {
                         op: ArithmeticBinaryOp::Add,
@@ -16173,7 +16680,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: result_kinds.as_value_kind(),
                             possible_kinds: result_kinds,
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         },
                         ExprIr::CoerciveBinaryNumber {
                             op,
@@ -16256,7 +16763,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Number,
                         possible_kinds: KindSet::from_kind(ValueKind::Number),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::BinaryNumber {
                         op,
@@ -16294,7 +16801,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: possible_kinds.as_value_kind(),
                         possible_kinds,
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     }
                 };
                 let bigint_exp_expr = |lhs: TypedExpr, rhs: TypedExpr, info: ValueInfo| {
@@ -16485,7 +16992,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Boolean,
                         possible_kinds: KindSet::from_kind(ValueKind::Boolean),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::CompareNumber {
                         op,
@@ -16508,6 +17015,8 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
             RelationalOp::Equal | RelationalOp::NotEqual => {
+                self.record_possible_to_primitive_effects(&lhs.value_info());
+                self.record_possible_to_primitive_effects(&rhs.value_info());
                 let equality = TypedExpr::spec_is_loosely_equal(lhs, rhs);
                 if matches!(relational, RelationalOp::NotEqual) {
                     TypedExpr::from_info(
@@ -16520,7 +17029,10 @@ impl<'a> ScriptLowerer<'a> {
                     equality
                 }
             }
-            RelationalOp::In => TypedExpr::spec_has_property(rhs, lhs),
+            RelationalOp::In => {
+                self.invalidate_unknown_user_code_effects();
+                TypedExpr::spec_has_property(rhs, lhs)
+            }
             RelationalOp::InstanceOf => {
                 if let Some(function_id) = self.resolve_single_function_target(&rhs) {
                     let Some(signature) = self.function_signatures.get(&function_id) else {
@@ -16530,6 +17042,7 @@ impl<'a> ScriptLowerer<'a> {
                         return self.unsupported_expr("unsupported comparison operator");
                     }
                 }
+                self.invalidate_unknown_user_code_effects();
                 TypedExpr::from_info(
                     ValueInfo::new(ValueKind::Boolean),
                     ExprIr::InstanceOf {
@@ -16604,7 +17117,24 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn to_primitive_info(&mut self, expr: &TypedExpr, hint: ToPrimitiveHint) -> Option<ValueInfo> {
-        self.value_info_to_primitive(&expr.value_info(), hint)
+        let info = expr.value_info();
+        let primitive = self.value_info_to_primitive(&info, hint);
+        self.record_possible_to_primitive_effects(&info);
+        primitive
+    }
+
+    fn record_possible_to_primitive_effects(&mut self, info: &ValueInfo) {
+        if [
+            ValueKind::Object,
+            ValueKind::Array,
+            ValueKind::Arguments,
+            ValueKind::Function,
+        ]
+        .into_iter()
+        .any(|kind| info.possible_kinds.contains(kind))
+        {
+            self.invalidate_unknown_user_code_effects();
+        }
     }
 
     fn value_info_to_primitive(
@@ -16669,7 +17199,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: possible_kinds.as_value_kind(),
             possible_kinds,
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         })
     }
 
@@ -16706,14 +17236,9 @@ impl<'a> ScriptLowerer<'a> {
         };
         for key in order {
             let entry = match key {
-                // A symbol key has two spellings in the shape maps: object
-                // literals record it under the symbol namespace, while the
-                // intrinsic wrapper shapes still use the bare description.
-                // Accept either.
-                ToPrimitiveLookupKey::Symbol(symbol) => shape
-                    .properties
-                    .get(&shape_namespace_key(*symbol))
-                    .or_else(|| shape.properties.get(symbol.description())),
+                ToPrimitiveLookupKey::Symbol(symbol) => {
+                    shape.properties.get(&shape_namespace_key(*symbol))
+                }
                 ToPrimitiveLookupKey::Method(name) => shape.properties.get(*name),
             };
             let Some(ObjectShapeProperty::Data(info)) = entry else {
@@ -16722,11 +17247,12 @@ impl<'a> ScriptLowerer<'a> {
             if !info.possible_kinds.contains(ValueKind::Function) {
                 continue;
             }
-            if info.function_targets.is_empty() {
+            let function_targets = info.function_targets.exact_targets()?;
+            if function_targets.is_empty() {
                 continue;
             }
             let mut return_kinds = KindSet::EMPTY;
-            for function_id in &info.function_targets {
+            for function_id in function_targets {
                 let Some(signature) = self.function_signatures.get(function_id) else {
                     return None;
                 };
@@ -16829,11 +17355,11 @@ impl<'a> ScriptLowerer<'a> {
     /// exactly this question; before this helper existed they asked it with two
     /// byte-identical inline copies of the four clauses, ~5,700 lines apart.
     fn expression_is_builtin_symbol_intrinsic(&self, target_name: &str) -> bool {
-        target_name == SYMBOL_NAME && self.identifier_resolves_to_builtin_global(target_name)
+        target_name == SYMBOL_NAME && self.identifier_resolves_to_intrinsic_global(target_name)
     }
 
-    /// ResolveBinding (9.1.1) for a name a constant fold wants to treat as a
-    /// **builtin global**: true only when nothing shadows it.
+    /// ResolveBinding (9.1.1) for a name a constant fold wants to treat as its
+    /// canonical intrinsic global: true only when nothing shadows or replaced it.
     ///
     /// The four clauses are the ones the two intrinsic guards below and above
     /// already spelled inline, lifted so there is one of them:
@@ -16844,7 +17370,8 @@ impl<'a> ScriptLowerer<'a> {
     ///    the environment *before* the global object, so a parameter, `let`,
     ///    `const`, `var` or catch parameter named `Infinity` wins;
     /// 3. the global property is proven present, and
-    /// 4. it is still the *builtin* one, not something a `GlobalWrite` replaced.
+    /// 4. it is still the standard or host intrinsic, not something a
+    ///    `GlobalWrite` replaced.
     ///
     /// Testing a fold's precondition by **spelling alone** has already shipped
     /// wrong answers here three times: the two recorded on
@@ -16854,13 +17381,17 @@ impl<'a> ScriptLowerer<'a> {
     /// (1.5).toPrecision(Infinity); }` from a correct runtime answer into an
     /// emitted `RangeError` throw. Any new resolver that maps an identifier
     /// spelling to a value must call this.
-    fn identifier_resolves_to_builtin_global(&self, name: &str) -> bool {
+    fn identifier_resolves_to_intrinsic_global(&self, name: &str) -> bool {
         self.with_environment_chain.is_empty()
             && self.lookup_binding(name).is_none()
             && self
                 .lookup_global_property_info(name)
                 .is_some_and(|property| {
-                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                    property.proven_present
+                        && matches!(
+                            property.source,
+                            GlobalPropertySource::Builtin | GlobalPropertySource::HostBuiltin
+                        )
                 })
     }
 
@@ -16878,7 +17409,7 @@ impl<'a> ScriptLowerer<'a> {
             "NaN" | "undefined" => f64::NAN,
             _ => return None,
         };
-        self.identifier_resolves_to_builtin_global(name)
+        self.identifier_resolves_to_intrinsic_global(name)
             .then_some(value)
     }
 
@@ -16902,7 +17433,7 @@ impl<'a> ScriptLowerer<'a> {
     /// visible, and the guard is the same four clauses.
     fn identifier_is_builtin_native_error(&self, name: &str) -> Option<NativeErrorKind> {
         let kind = NativeErrorKind::from_str(name)?;
-        self.identifier_resolves_to_builtin_global(name)
+        self.identifier_resolves_to_intrinsic_global(name)
             .then_some(kind)
     }
 
@@ -17133,6 +17664,32 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn boolean_receiver_uses_intrinsic_method(
+        &self,
+        receiver: &Expression,
+        property_name: &str,
+        builtin: StandardBuiltinId,
+    ) -> bool {
+        let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(receiver) else {
+            return true;
+        };
+        let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        let Some(binding) = self.lookup_binding(&name) else {
+            return true;
+        };
+        let Some(shape) = binding.heap_shape.as_deref() else {
+            return binding
+                .possible_kinds
+                .is_subset_of(KindSet::from_kind(ValueKind::Boolean));
+        };
+        let Some(ObjectShapeProperty::Data(method)) =
+            read_heap_shape_property(shape, property_name)
+        else {
+            return false;
+        };
+        method.function_targets.exact_single_target() == Some(&builtin.function_id())
+    }
+
     fn static_bigint_to_number_expr(&self, expr: &Expression) -> Option<f64> {
         self.static_bigint_i128_expr(expr).map(|value| value as f64)
     }
@@ -17223,17 +17780,6 @@ impl<'a> ScriptLowerer<'a> {
                     "NEGATIVE_INFINITY" => Some(f64::NEG_INFINITY),
                     _ => None,
                 }
-            }
-            Expression::New(new_expr) => {
-                let Expression::Identifier(constructor) =
-                    Self::unwrap_parenthesized_expr(new_expr.constructor())
-                else {
-                    return None;
-                };
-                if self.interner.resolve_expect(constructor.sym()).to_string() != NUMBER_NAME {
-                    return None;
-                }
-                self.static_to_number_arg(new_expr.arguments().first())
             }
             _ => None,
         }
@@ -17826,7 +18372,7 @@ impl<'a> ScriptLowerer<'a> {
             Expression::Literal(literal) => matches!(literal.kind(), LiteralKind::Undefined),
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                name == "undefined" && self.identifier_resolves_to_builtin_global(&name)
+                name == "undefined" && self.identifier_resolves_to_intrinsic_global(&name)
             }
             _ => false,
         }
@@ -17847,92 +18393,23 @@ impl<'a> ScriptLowerer<'a> {
                 _ => None,
             },
             Expression::Identifier(identifier) => {
-                match self
-                    .interner
-                    .resolve_expect(identifier.sym())
-                    .to_string()
-                    .as_str()
-                {
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                if !self.identifier_resolves_to_intrinsic_global(&name) {
+                    return None;
+                }
+                match name.as_str() {
                     "Infinity" => Some("Infinity".to_string()),
                     "NaN" => Some("NaN".to_string()),
                     "undefined" => Some("undefined".to_string()),
                     _ => None,
                 }
             }
-            Expression::New(new_expr) => self.static_parse_float_new_input(new_expr),
-            _ => None,
-        }
-    }
-
-    fn static_parse_float_new_input(&self, new_expr: &New) -> Option<String> {
-        let Expression::Identifier(constructor) =
-            Self::unwrap_parenthesized_expr(new_expr.constructor())
-        else {
-            return None;
-        };
-        let constructor_name = self.interner.resolve_expect(constructor.sym()).to_string();
-        let args = new_expr.arguments();
-        if args.len() != 1 {
-            return None;
-        }
-        match constructor_name.as_str() {
-            NUMBER_NAME => {
-                let arg = Self::unwrap_parenthesized_expr(&args[0]);
-                if let Some(value) = Self::literal_number_value(arg) {
-                    return Some(Self::js_number_to_string(value));
-                }
-                if let Expression::Identifier(identifier) = arg {
-                    match self
-                        .interner
-                        .resolve_expect(identifier.sym())
-                        .to_string()
-                        .as_str()
-                    {
-                        "Infinity" => Some("Infinity".to_string()),
-                        "NaN" => Some("NaN".to_string()),
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            }
-            STRING_NAME => self.static_parse_float_input(&args[0]),
             _ => None,
         }
     }
 
     fn js_number_to_string(value: f64) -> String {
-        if value == 0.0 {
-            "0".to_string()
-        } else if value.is_nan() {
-            "NaN".to_string()
-        } else if value == f64::INFINITY {
-            "Infinity".to_string()
-        } else if value == f64::NEG_INFINITY {
-            "-Infinity".to_string()
-        } else if value == 1e-7 {
-            "1e-7".to_string()
-        } else if value == -1e-7 {
-            "-1e-7".to_string()
-        } else if value == 1e-8 {
-            "1e-8".to_string()
-        } else if value == -1e-8 {
-            "-1e-8".to_string()
-        } else if value == 1e20 {
-            "100000000000000000000".to_string()
-        } else if value == -1e20 {
-            "-100000000000000000000".to_string()
-        } else if value == 1e21 {
-            "1e+21".to_string()
-        } else if value == -1e21 {
-            "-1e+21".to_string()
-        } else if value == 1e22 {
-            "1e+22".to_string()
-        } else if value == -1e22 {
-            "-1e+22".to_string()
-        } else {
-            value.to_string()
-        }
+        ryu_js::Buffer::new().format(value).to_string()
     }
 
     fn parse_float_string(input: &str) -> f64 {
@@ -18006,6 +18483,39 @@ impl<'a> ScriptLowerer<'a> {
         read_heap_shape_property(target.heap_shape.as_deref()?, key)
     }
 
+    fn read_well_known_symbol_shape_property(
+        shape: Option<&HeapShape>,
+        symbol: WellKnownSymbol,
+    ) -> Option<ObjectShapeProperty> {
+        let shape = shape?;
+        let (properties, prototype) = match shape {
+            HeapShape::Object(shape) => (&shape.properties, shape.prototype.as_deref()),
+            HeapShape::Array(shape) => (&shape.properties, shape.prototype.as_deref()),
+        };
+        properties
+            .get(&shape_namespace_key(symbol))
+            .cloned()
+            .or_else(|| Self::read_well_known_symbol_shape_property(prototype, symbol))
+    }
+
+    fn read_well_known_symbol_shape(
+        &self,
+        target: &ValueInfo,
+        symbol: WellKnownSymbol,
+    ) -> Option<ValueInfo> {
+        Some(
+            match Self::read_well_known_symbol_shape_property(target.heap_shape.as_deref(), symbol)?
+            {
+                ObjectShapeProperty::Data(info) => info,
+                ObjectShapeProperty::Accessor {
+                    getter: Some(getter),
+                    ..
+                } => self.accessor_return_info(&getter.function_id),
+                ObjectShapeProperty::Accessor { getter: None, .. } => ValueInfo::undefined(),
+            },
+        )
+    }
+
     fn read_own_object_shape_property(
         &self,
         target: &TypedExpr,
@@ -18044,12 +18554,12 @@ impl<'a> ScriptLowerer<'a> {
             return ValueInfo::undefined();
         };
         let mut possible_kinds = KindSet::EMPTY;
-        let mut function_targets = BTreeSet::new();
+        let mut function_targets = FunctionTargetKnowledge::none();
         let mut same_kind = true;
         let mut same_heap_shape = true;
         for element in elements {
             possible_kinds = possible_kinds.union(element.possible_kinds);
-            function_targets.extend(element.function_targets.iter().cloned());
+            function_targets = function_targets.join(element.function_targets.clone());
             same_kind &= element.kind == first.kind;
             same_heap_shape &= element.heap_shape == first.heap_shape;
         }
@@ -18170,7 +18680,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
         );
     }
@@ -18221,7 +18731,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Number,
                                     possible_kinds: KindSet::from_kind(ValueKind::Number),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::none(),
                                 },
                                 ExprIr::Number(index.to_bits()),
                             )))
@@ -18247,18 +18757,27 @@ impl<'a> ScriptLowerer<'a> {
     /// Preserve only the precisely resolved write target so the caller can
     /// apply its exact shape update, and erase every other candidate's shape.
     fn invalidate_static_boolean_alias_shapes(&mut self, target_name: &str) {
-        let target_location = (target_name != LEXICAL_THIS_NAME)
-            .then(|| self.lookup_binding_with_location(target_name))
-            .flatten()
+        self.invalidate_static_boolean_alias_shapes_except(Some(target_name));
+    }
+
+    fn invalidate_all_static_boolean_alias_shapes(&mut self) {
+        self.invalidate_static_boolean_alias_shapes_except(None);
+    }
+
+    fn invalidate_static_boolean_alias_shapes_except(&mut self, target_name: Option<&str>) {
+        let target_location = target_name
+            .filter(|name| *name != LEXICAL_THIS_NAME)
+            .and_then(|name| self.lookup_binding_with_location(name))
             .map(|(_, location)| location);
         let candidates = std::mem::take(&mut self.static_boolean_bindings);
         if candidates.is_empty() {
             return;
         }
+        self.boolean_alias_shapes_invalidated = true;
 
         for (scope_index, scope) in self.scopes.iter_mut().enumerate() {
             for (name, binding) in scope {
-                let is_target = name == target_name
+                let is_target = target_name == Some(name.as_str())
                     && target_location == Some(BindingLookupLocation::Scope(scope_index));
                 if candidates.contains_key(name) && !is_target {
                     binding.heap_shape = None;
@@ -18266,7 +18785,7 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         for (name, binding) in &mut self.var_bindings {
-            let is_target = name == target_name
+            let is_target = target_name == Some(name.as_str())
                 && (target_location == Some(BindingLookupLocation::VariableEnvironment)
                     || (target_location.is_none() && binding.is_script_global));
             if candidates.contains_key(name) && !is_target {
@@ -18274,7 +18793,7 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         for (name, property) in &mut self.global_properties {
-            let is_target = name == target_name
+            let is_target = target_name == Some(name.as_str())
                 && !matches!(target_location, Some(BindingLookupLocation::Scope(_)));
             if candidates.contains_key(name) && !is_target {
                 property.value_info.heap_shape = None;
@@ -18285,14 +18804,14 @@ impl<'a> ScriptLowerer<'a> {
             &mut self.known_nested_script_global_value_infos,
         ] {
             for (name, info) in infos {
-                let is_target = name == target_name
+                let is_target = target_name == Some(name.as_str())
                     && !matches!(target_location, Some(BindingLookupLocation::Scope(_)));
                 if candidates.contains_key(name) && !is_target {
                     info.heap_shape = None;
                 }
             }
         }
-        if target_name != LEXICAL_THIS_NAME && candidates.contains_key(LEXICAL_THIS_NAME) {
+        if target_name != Some(LEXICAL_THIS_NAME) && candidates.contains_key(LEXICAL_THIS_NAME) {
             if let Some(info) = &mut self.current_construct_this_info {
                 info.heap_shape = None;
             }
@@ -18311,6 +18830,8 @@ impl<'a> ScriptLowerer<'a> {
             return;
         }
         let is_nested_global = self.is_nested_script_global_var_name(name);
+        let is_visible_script_global =
+            self.visible_function_names.contains_key(name) && self.is_script_global_var_name(name);
         for scope in self.scopes.iter_mut().rev() {
             if let Some(binding) = scope.get_mut(name) {
                 let binding_value = ValueInfo {
@@ -18325,7 +18846,7 @@ impl<'a> ScriptLowerer<'a> {
                 binding.possible_kinds = next.possible_kinds;
                 binding.heap_shape = next.heap_shape;
                 binding.function_targets = next.function_targets;
-                if self.visible_function_names.contains_key(name) {
+                if is_visible_script_global {
                     self.set_global_property_value_info_with_source(
                         name.to_string(),
                         global_next,
@@ -18671,44 +19192,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn static_generator_call_values(&self, expr: &Expression) -> Option<&[f64]> {
-        let name = self.static_generator_call_name(expr)?;
-        self.static_generator_sum_values
-            .get(&name)
-            .map(Vec::as_slice)
-    }
-
-    fn static_generator_call_values_owned(&self, expr: &Expression) -> Option<Vec<f64>> {
-        self.static_generator_call_values(expr).map(<[_]>::to_vec)
-    }
-
-    fn static_generator_call_elements_owned(&self, expr: &Expression) -> Option<Vec<TypedExpr>> {
-        let name = self.static_generator_call_name(expr)?;
-        self.static_generator_element_values.get(&name).cloned()
-    }
-
-    fn static_generator_call_name(&self, expr: &Expression) -> Option<String> {
-        let Expression::Call(call) = Self::unwrap_parenthesized_expr(expr) else {
-            return None;
-        };
-        if !call.args().is_empty() {
-            return None;
-        }
-        let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(call.function())
-        else {
-            return None;
-        };
-        Some(self.interner.resolve_expect(identifier.sym()).to_string())
-    }
-
-    fn static_generator_call_is_known(&self, expr: &Expression) -> bool {
-        let Some(name) = self.static_generator_call_name(expr) else {
-            return false;
-        };
-        self.static_generator_sum_values.contains_key(&name)
-            || self.static_generator_element_values.contains_key(&name)
-    }
-
     fn static_generator_declaration_values_by_name(&self, name: &str) -> Option<Vec<f64>> {
         for item in self.analysis.script_items {
             let StatementListItem::Declaration(declaration) = item else {
@@ -18724,26 +19207,6 @@ impl<'a> ScriptLowerer<'a> {
                 == name
             {
                 return self.static_generator_declaration_values(generator);
-            }
-        }
-        None
-    }
-
-    fn static_generator_declaration_elements_by_name(&self, name: &str) -> Option<Vec<TypedExpr>> {
-        for item in self.analysis.script_items {
-            let StatementListItem::Declaration(declaration) = item else {
-                continue;
-            };
-            let Declaration::GeneratorDeclaration(generator) = declaration.as_ref() else {
-                continue;
-            };
-            if self
-                .interner
-                .resolve_expect(generator.name().sym())
-                .to_string()
-                == name
-            {
-                return self.static_generator_declaration_elements(generator);
             }
         }
         None
@@ -18809,9 +19272,6 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn static_iterator_values_expr(&self, expr: &Expression) -> Option<&[f64]> {
-        if let Some(values) = self.static_generator_call_values(expr) {
-            return Some(values);
-        }
         if let Expression::Call(call) = Self::unwrap_parenthesized_expr(expr) {
             if call.args().len() == 1 && self.is_iterator_from_callee(call.function()) {
                 return self.static_iterator_values_expr(&call.args()[0]);
@@ -18888,14 +19348,25 @@ impl<'a> ScriptLowerer<'a> {
                             return None;
                         };
                         let init = variable.init()?;
-                        let values = self
-                            .static_generator_call_values(init)
-                            .map(<[f64]>::to_vec)
-                            .or_else(|| {
-                                self.static_generator_call_name(init).and_then(|name| {
-                                    self.static_generator_declaration_values_by_name(&name)
-                                })
-                            })?;
+                        let Expression::Call(generator_call) =
+                            Self::unwrap_parenthesized_expr(init)
+                        else {
+                            return None;
+                        };
+                        if !generator_call.args().is_empty() {
+                            return None;
+                        }
+                        let Expression::Identifier(generator_name) =
+                            Self::unwrap_parenthesized_expr(generator_call.function())
+                        else {
+                            return None;
+                        };
+                        let generator_name = self
+                            .interner
+                            .resolve_expect(generator_name.sym())
+                            .to_string();
+                        let values =
+                            self.static_generator_declaration_values_by_name(&generator_name)?;
                         local_iterators.insert(
                             self.interner.resolve_expect(identifier.sym()).to_string(),
                             values,
@@ -19147,31 +19618,6 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn array_iterator_from_static_generator_values(&self, values: &[f64]) -> TypedExpr {
-        self.array_iterator_from_lowered_elements(
-            values
-                .iter()
-                .map(|value| self.static_number_index_expr(*value))
-                .collect(),
-        )
-    }
-
-    fn array_iterator_from_lowered_elements(&self, elements: Vec<TypedExpr>) -> TypedExpr {
-        TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Self::array_iterator_instance_shape()),
-                function_targets: BTreeSet::new(),
-            },
-            ExprIr::CallMethod {
-                receiver: Box::new(Self::array_literal_from_lowered(elements)),
-                key: PropertyKeyIr::StaticString(LILA_STATIC_GENERATOR_VALUES_METHOD.to_string()),
-                args: Vec::new(),
-            },
-        )
-    }
-
     /// 21.3.2.11 `Math.clz32 ( x )` steps 1–3.
     ///
     /// The early `!is_finite() || == 0.0` guard is gone, and its absence is the
@@ -19233,38 +19679,89 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn set_binding_value_info(&mut self, name: &str, info: ValueInfo) -> Option<()> {
+        if !self.scopes.iter().any(|scope| scope.contains_key(name))
+            && !self.var_bindings.contains_key(name)
+        {
+            return None;
+        }
+        let binding = self
+            .scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).cloned())
+            .or_else(|| {
+                self.var_bindings
+                    .get(name)
+                    .map(|binding| binding.to_binding_info(name))
+            })
+            .unwrap_or_else(|| panic!("binding `{name}` must exist before recording its write"));
+        self.record_binding_value_write(name, Some(&binding));
         for scope in self.scopes.iter_mut().rev() {
             if let Some(binding) = scope.get_mut(name) {
                 binding.kind = info.kind;
                 binding.possible_kinds = info.possible_kinds;
                 binding.heap_shape = info.heap_shape.clone();
                 binding.function_targets = info.function_targets.clone();
-                self.static_string_bindings.remove(name);
-                self.static_to_string_regexp_object_bindings.remove(name);
                 return Some(());
             }
         }
-        let info = if self.current_owner_id == SCRIPT_OWNER_ID {
-            match self.nested_script_global_value_infos.get(name).cloned() {
-                Some(nested_info) => self.merge_value_infos(info, nested_info),
-                None => info,
-            }
-        } else {
-            info
-        };
         if let Some(binding) = self.var_bindings.get_mut(name) {
+            let is_script_global = binding.is_script_global;
             binding.kind = info.kind;
             binding.possible_kinds = info.possible_kinds;
-            binding.heap_shape = info.heap_shape;
-            binding.function_targets = info.function_targets;
-            self.static_string_bindings.remove(name);
-            self.static_to_string_regexp_object_bindings.remove(name);
+            binding.heap_shape = info.heap_shape.clone();
+            binding.function_targets = info.function_targets.clone();
+            if is_script_global {
+                self.set_global_property_value_info(name.to_string(), info);
+            }
             return Some(());
         }
         None
     }
 
+    fn widen_binding_for_possible_replacement(&mut self, name: &str) -> Option<()> {
+        let binding = self.lookup_binding(name)?;
+        let mut value = ValueInfo {
+            kind: binding.kind,
+            possible_kinds: binding.possible_kinds,
+            heap_shape: binding.heap_shape,
+            function_targets: binding.function_targets,
+        };
+        value.widen_for_possible_replacement();
+        self.set_binding_value_info(name, value)
+    }
+
+    fn install_binding_value_info(&mut self, name: &str, info: ValueInfo) -> Option<()> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(binding) = scope.get_mut(name) {
+                binding.kind = info.kind;
+                binding.possible_kinds = info.possible_kinds;
+                binding.heap_shape = info.heap_shape;
+                binding.function_targets = info.function_targets;
+                return Some(());
+            }
+        }
+        let binding = self.var_bindings.get_mut(name)?;
+        binding.kind = info.kind;
+        binding.possible_kinds = info.possible_kinds;
+        binding.heap_shape = info.heap_shape;
+        binding.function_targets = info.function_targets;
+        Some(())
+    }
+
     fn set_owner_binding_value_info(&mut self, name: &str, info: ValueInfo) {
+        let owner_binding = self
+            .scopes
+            .first()
+            .and_then(|scope| scope.get(name).cloned())
+            .or_else(|| {
+                self.var_bindings
+                    .get(name)
+                    .map(|binding| binding.to_binding_info(name))
+            });
+        if let Some(owner_binding) = owner_binding.as_ref() {
+            self.record_binding_value_write(name, Some(owner_binding));
+        }
         if let Some(binding) = self
             .scopes
             .first_mut()
@@ -19302,7 +19799,7 @@ impl<'a> ScriptLowerer<'a> {
             expr.kind = ValueKind::Number;
             expr.possible_kinds = KindSet::from_kind(ValueKind::Number);
             expr.heap_shape = None;
-            expr.function_targets.clear();
+            expr.function_targets.replace_with_no_function();
             return Some(expr);
         }
         if expr.possible_kinds != KindSet::all_runtime_tags() {
@@ -19315,71 +19812,63 @@ impl<'a> ScriptLowerer<'a> {
                 expr.kind = ValueKind::Number;
                 expr.possible_kinds = KindSet::from_kind(ValueKind::Number);
                 expr.heap_shape = None;
-                expr.function_targets.clear();
+                expr.function_targets.replace_with_no_function();
                 Some(expr)
             }
             ExprIr::CallNamed { name, .. } => {
-                let next_info = {
+                let (next_info, next_shape) = {
                     let function_id = self.visible_function_names.get(name)?;
                     let signature = self.function_signatures.get(function_id)?;
-                    self.merge_return_infos(
-                        ValueInfo {
-                            kind: signature.return_kind,
-                            possible_kinds: signature.return_possible_kinds,
-                            heap_shape: signature.return_shape.clone(),
-                            function_targets: signature.return_targets.clone(),
-                        },
+                    self.merge_signature_return_value_observation(
+                        signature,
                         ValueInfo {
                             kind: ValueKind::Number,
                             possible_kinds: KindSet::from_kind(ValueKind::Number),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         },
+                        &FunctionReturnShape::Absent,
                     )
                 };
                 if let Some(function_id) = self.visible_function_names.get(name).cloned() {
                     if let Some(signature) = self.function_signatures.get_mut(&function_id) {
                         signature.return_kind = next_info.kind;
                         signature.return_possible_kinds = next_info.possible_kinds;
-                        signature.return_shape = next_info.heap_shape.clone();
+                        signature.return_shape = next_shape;
                         signature.return_targets = next_info.function_targets.clone();
                     }
                 }
                 expr.kind = ValueKind::Number;
                 expr.possible_kinds = KindSet::from_kind(ValueKind::Number);
                 expr.heap_shape = None;
-                expr.function_targets.clear();
+                expr.function_targets.replace_with_no_function();
                 Some(expr)
             }
             ExprIr::CallIndirect { callee, .. } => {
                 let function_id = self.resolve_single_function_target(callee)?;
-                let next_info = {
+                let (next_info, next_shape) = {
                     let signature = self.function_signatures.get(&function_id)?;
-                    self.merge_return_infos(
-                        ValueInfo {
-                            kind: signature.return_kind,
-                            possible_kinds: signature.return_possible_kinds,
-                            heap_shape: signature.return_shape.clone(),
-                            function_targets: signature.return_targets.clone(),
-                        },
+                    self.merge_signature_return_value_observation(
+                        signature,
                         ValueInfo {
                             kind: ValueKind::Number,
                             possible_kinds: KindSet::from_kind(ValueKind::Number),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         },
+                        &FunctionReturnShape::Absent,
                     )
                 };
                 if let Some(signature) = self.function_signatures.get_mut(&function_id) {
                     signature.return_kind = next_info.kind;
                     signature.return_possible_kinds = next_info.possible_kinds;
-                    signature.return_shape = next_info.heap_shape.clone();
+                    signature.return_shape = next_shape;
                     signature.return_targets = next_info.function_targets.clone();
                 }
                 expr.kind = ValueKind::Number;
                 expr.possible_kinds = KindSet::from_kind(ValueKind::Number);
                 expr.heap_shape = None;
-                expr.function_targets.clear();
+                expr.function_targets.replace_with_no_function();
                 Some(expr)
             }
             _ => None,
@@ -19392,8 +19881,7 @@ impl<'a> ScriptLowerer<'a> {
                 return self.root_this_info();
             }
             return self
-                .function_signatures
-                .get(owner_id)
+                .function_signature_for_current_flow(owner_id)
                 .map(|signature| signature.this_info.clone())
                 .unwrap_or_else(ValueInfo::undefined);
         }
@@ -19402,7 +19890,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Arguments,
                 possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             };
         }
         if name == LEXICAL_NEW_TARGET_NAME {
@@ -19433,7 +19921,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             };
         };
         if owner_id == SCRIPT_OWNER_ID {
@@ -19464,7 +19952,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::all_runtime_tags(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         }
     }
 
@@ -19490,7 +19978,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn capture_parameter_value_info(&self, owner_id: &str, name: &str) -> Option<ValueInfo> {
         let plan = self.analysis.function_plans.get(owner_id)?;
-        let signature = self.function_signatures.get(owner_id)?;
+        let signature = self.function_signature_for_current_flow(owner_id)?;
         let mut positional_index = 0usize;
         for parameter in plan.parameters.as_ref() {
             if let Binding::Identifier(identifier) = parameter.variable().binding() {
@@ -19619,7 +20107,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: key_kinds.as_value_kind(),
                         possible_kinds: key_kinds,
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     });
                 }
                 self.infer_var_binding_info_from_statement(for_in.body(), name)
@@ -19714,7 +20202,7 @@ impl<'a> ScriptLowerer<'a> {
                 private_brands: BTreeSet::new(),
                 boxed_primitive: None,
             }))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let mut properties = BTreeMap::new();
         properties.insert(
@@ -19730,7 +20218,7 @@ impl<'a> ScriptLowerer<'a> {
                 private_brands: BTreeSet::new(),
                 boxed_primitive: None,
             }))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
         }
     }
 
@@ -19750,14 +20238,6 @@ impl<'a> ScriptLowerer<'a> {
 
     fn static_initializer_value_info(&self, expression: &Expression) -> Option<ValueInfo> {
         let expression = Self::unwrap_parenthesized_expr(expression);
-        if self.static_generator_call_is_known(expression) {
-            return Some(ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Self::array_iterator_instance_shape()),
-                function_targets: BTreeSet::new(),
-            });
-        }
         match expression {
             Expression::Literal(literal) => match literal.kind() {
                 LiteralKind::Num(_) | LiteralKind::Int(_) => {
@@ -19803,7 +20283,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Array,
                     possible_kinds: KindSet::from_kind(ValueKind::Array),
                     heap_shape: Some(Box::new(HeapShape::Array(shape))),
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::none(),
                 })
             }
             Expression::RegExpLiteral(_) => Some(Self::value_info_from_shape(Some(
@@ -20100,41 +20580,79 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    fn seed_live_script_global_var_properties(&mut self) {
+        let missing_globals = self
+            .var_bindings
+            .iter()
+            .filter(|(name, binding)| {
+                binding.is_script_global && !self.global_properties.contains_key(*name)
+            })
+            .map(|(name, binding)| {
+                (
+                    name.clone(),
+                    ValueInfo {
+                        kind: binding.kind,
+                        possible_kinds: binding.possible_kinds,
+                        heap_shape: binding.heap_shape.clone(),
+                        function_targets: binding.function_targets.clone(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        for (name, value_info) in missing_globals {
+            self.global_properties.insert(
+                name,
+                GlobalPropertyInfo {
+                    value_info,
+                    proven_present: true,
+                    configurable: false,
+                    source: GlobalPropertySource::GlobalWrite,
+                },
+            );
+        }
+    }
+
+    fn known_script_global_values(&self) -> BTreeMap<String, ValueInfo> {
+        self.var_bindings
+            .iter()
+            .filter(|(_, binding)| binding.is_script_global)
+            .map(|(name, binding)| {
+                let root_value = ValueInfo {
+                    kind: binding.kind,
+                    possible_kinds: binding.possible_kinds,
+                    heap_shape: binding.heap_shape.clone(),
+                    function_targets: binding.function_targets.clone(),
+                };
+                let value = match self.nested_script_global_value_infos.get(name) {
+                    Some(nested_value) => self.merge_value_infos(root_value, nested_value.clone()),
+                    None => root_value,
+                };
+                let value = match self.called_script_global_value_infos.get(name) {
+                    Some(called_value) => self.merge_value_infos(value, called_value.clone()),
+                    None => value,
+                };
+                (name.clone(), value)
+            })
+            .collect()
+    }
+
+    fn reset_script_global_var_flow_facts(&mut self) {
+        for binding in self
+            .var_bindings
+            .values_mut()
+            .filter(|binding| binding.is_script_global)
+        {
+            binding.kind = ValueKind::Undefined;
+            binding.possible_kinds = KindSet::from_kind(ValueKind::Undefined);
+            binding.heap_shape = None;
+            binding.function_targets.replace_with_no_function();
+        }
+    }
+
     fn merge_nested_script_global_value_infos(
         &mut self,
         nested_globals: &BTreeMap<String, ValueInfo>,
     ) {
-        let merged_bindings = self
-            .var_bindings
-            .iter()
-            .filter(|(_, binding)| binding.is_script_global)
-            .filter_map(|(name, binding)| {
-                nested_globals.get(name).map(|nested_info| {
-                    (
-                        name.clone(),
-                        self.merge_value_infos(
-                            ValueInfo {
-                                kind: binding.kind,
-                                possible_kinds: binding.possible_kinds,
-                                heap_shape: binding.heap_shape.clone(),
-                                function_targets: binding.function_targets.clone(),
-                            },
-                            nested_info.clone(),
-                        ),
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
-        for (name, merged) in merged_bindings {
-            let binding = self
-                .var_bindings
-                .get_mut(&name)
-                .expect("merged script-global binding must still exist");
-            binding.kind = merged.kind;
-            binding.possible_kinds = merged.possible_kinds;
-            binding.heap_shape = merged.heap_shape;
-            binding.function_targets = merged.function_targets;
-        }
         for (name, nested_info) in nested_globals {
             if !self
                 .var_bindings
@@ -20148,6 +20666,20 @@ impl<'a> ScriptLowerer<'a> {
                 None => nested_info.clone(),
             };
             self.nested_script_global_value_infos
+                .insert(name.clone(), next);
+        }
+    }
+
+    fn merge_called_script_global_value_infos(
+        &mut self,
+        called_globals: &BTreeMap<String, ValueInfo>,
+    ) {
+        for (name, called_info) in called_globals {
+            let next = match self.called_script_global_value_infos.remove(name) {
+                Some(existing) => self.merge_value_infos(existing, called_info.clone()),
+                None => called_info.clone(),
+            };
+            self.called_script_global_value_infos
                 .insert(name.clone(), next);
         }
     }
@@ -20176,20 +20708,8 @@ impl<'a> ScriptLowerer<'a> {
                     if binding.is_script_global && self.current_owner_id != SCRIPT_OWNER_ID {
                         return None;
                     }
-                    let mode = BindingMode::Var;
-                    let kind = binding.kind;
-                    let heap_shape = binding.heap_shape.clone();
-                    let function_targets = binding.function_targets.clone();
                     Some((
-                        BindingInfo {
-                            mode,
-                            storage_name: name.to_string(),
-                            kind,
-                            possible_kinds: binding.possible_kinds,
-                            heap_shape,
-                            function_targets,
-                            initialization: Initialization::Initialized,
-                        },
+                        binding.to_binding_info(name),
                         BindingLookupLocation::VariableEnvironment,
                     ))
                 })
@@ -20239,7 +20759,7 @@ impl<'a> ScriptLowerer<'a> {
                 binding.kind = kind;
                 binding.possible_kinds = KindSet::from_kind(kind);
                 binding.heap_shape = None;
-                binding.function_targets.clear();
+                binding.function_targets = ValueInfo::new(kind).function_targets;
                 self.static_to_string_regexp_object_bindings.remove(name);
                 self.record_param_kind(name, kind);
                 return Some(());
@@ -20249,7 +20769,7 @@ impl<'a> ScriptLowerer<'a> {
             binding.kind = kind;
             binding.possible_kinds = KindSet::from_kind(kind);
             binding.heap_shape = None;
-            binding.function_targets.clear();
+            binding.function_targets = ValueInfo::new(kind).function_targets;
             self.static_to_string_regexp_object_bindings.remove(name);
             return Some(());
         }
@@ -20297,15 +20817,16 @@ impl<'a> ScriptLowerer<'a> {
             dynamically_installed_getters: self.dynamically_installed_getters.clone(),
             dynamically_installed_setters: self.dynamically_installed_setters.clone(),
             unknown_user_code_effects_observed: self.unknown_user_code_effects_observed,
+            function_signature_shape_evidence: self.function_signature_shape_evidence,
             static_boolean_bindings: self.static_boolean_bindings.clone(),
             static_string_bindings: self.static_string_bindings.clone(),
             static_to_string_regexp_object_bindings: self
                 .static_to_string_regexp_object_bindings
                 .clone(),
-            static_generator_sum_values: self.static_generator_sum_values.clone(),
-            static_generator_element_values: self.static_generator_element_values.clone(),
             static_generator_call_overrides: self.static_generator_call_overrides.clone(),
             static_iterator_binding_values: self.static_iterator_binding_values.clone(),
+            invalidated_static_binding_names: self.invalidated_static_binding_names.clone(),
+            boolean_alias_shapes_invalidated: self.boolean_alias_shapes_invalidated,
         }
     }
 
@@ -20325,14 +20846,15 @@ impl<'a> ScriptLowerer<'a> {
         self.dynamically_installed_getters = facts.dynamically_installed_getters;
         self.dynamically_installed_setters = facts.dynamically_installed_setters;
         self.unknown_user_code_effects_observed = facts.unknown_user_code_effects_observed;
+        self.function_signature_shape_evidence = facts.function_signature_shape_evidence;
         self.static_boolean_bindings = facts.static_boolean_bindings;
         self.static_string_bindings = facts.static_string_bindings;
         self.static_to_string_regexp_object_bindings =
             facts.static_to_string_regexp_object_bindings;
-        self.static_generator_sum_values = facts.static_generator_sum_values;
-        self.static_generator_element_values = facts.static_generator_element_values;
         self.static_generator_call_overrides = facts.static_generator_call_overrides;
         self.static_iterator_binding_values = facts.static_iterator_binding_values;
+        self.invalidated_static_binding_names = facts.invalidated_static_binding_names;
+        self.boolean_alias_shapes_invalidated = facts.boolean_alias_shapes_invalidated;
     }
 
     fn merge_conditional_flow_facts(
@@ -20386,21 +20908,15 @@ impl<'a> ScriptLowerer<'a> {
             &left.static_boolean_bindings,
             &right.static_boolean_bindings,
         );
-        let static_string_bindings =
-            equal_map_intersection(&left.static_string_bindings, &right.static_string_bindings);
+        let static_string_bindings = StaticStringBindingFacts::equal_intersection(
+            &left.static_string_bindings,
+            &right.static_string_bindings,
+        );
         let static_to_string_regexp_object_bindings = left
             .static_to_string_regexp_object_bindings
             .intersection(&right.static_to_string_regexp_object_bindings)
             .cloned()
             .collect();
-        let static_generator_sum_values = equal_map_intersection(
-            &left.static_generator_sum_values,
-            &right.static_generator_sum_values,
-        );
-        let static_generator_element_values = equal_map_intersection(
-            &left.static_generator_element_values,
-            &right.static_generator_element_values,
-        );
         let static_generator_call_overrides = equal_map_intersection(
             &left.static_generator_call_overrides,
             &right.static_generator_call_overrides,
@@ -20443,13 +20959,21 @@ impl<'a> ScriptLowerer<'a> {
             dynamically_installed_setters,
             unknown_user_code_effects_observed: left.unknown_user_code_effects_observed
                 || right.unknown_user_code_effects_observed,
+            function_signature_shape_evidence: left
+                .function_signature_shape_evidence
+                .join(right.function_signature_shape_evidence),
             static_boolean_bindings,
             static_string_bindings,
             static_to_string_regexp_object_bindings,
-            static_generator_sum_values,
-            static_generator_element_values,
             static_generator_call_overrides,
             static_iterator_binding_values,
+            invalidated_static_binding_names: left
+                .invalidated_static_binding_names
+                .union(&right.invalidated_static_binding_names)
+                .cloned()
+                .collect(),
+            boolean_alias_shapes_invalidated: left.boolean_alias_shapes_invalidated
+                || right.boolean_alias_shapes_invalidated,
         });
     }
 
@@ -20605,13 +21129,6 @@ impl<'a> ScriptLowerer<'a> {
             .as_value_kind()
     }
 
-    fn merge_operand_shapes(&self, left: &TypedExpr, right: &TypedExpr) -> Option<Box<HeapShape>> {
-        if left.possible_kinds != right.possible_kinds {
-            return None;
-        }
-        self.merge_heap_shapes(left.kind, &left.heap_shape, &right.heap_shape)
-    }
-
     fn merge_heap_shapes(
         &self,
         kind: ValueKind,
@@ -20628,11 +21145,10 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn merge_value_infos(&self, left: ValueInfo, right: ValueInfo) -> ValueInfo {
+        let function_targets = left.function_targets.join(right.function_targets);
         if left.kind == ValueKind::Function && right.kind == ValueKind::Function {
             let heap_shape =
                 self.merge_heap_shapes(ValueKind::Function, &left.heap_shape, &right.heap_shape);
-            let mut function_targets = left.function_targets;
-            function_targets.extend(right.function_targets);
             return ValueInfo {
                 kind: ValueKind::Function,
                 possible_kinds: KindSet::from_kind(ValueKind::Function),
@@ -20646,58 +21162,97 @@ impl<'a> ScriptLowerer<'a> {
                 kind: possible_kinds.as_value_kind(),
                 possible_kinds,
                 heap_shape: self.merge_heap_shapes(left.kind, &left.heap_shape, &right.heap_shape),
-                function_targets: if left.kind == ValueKind::Function {
-                    let mut function_targets = left.function_targets;
-                    function_targets.extend(right.function_targets);
-                    function_targets
-                } else {
-                    left.function_targets
-                },
+                function_targets,
             };
         }
         ValueInfo {
             kind: possible_kinds.as_value_kind(),
             possible_kinds,
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets,
         }
     }
 
-    fn merge_return_infos(&self, left: ValueInfo, right: ValueInfo) -> ValueInfo {
-        if left.kind == ValueKind::Undefined {
-            return right;
-        }
-        if right.kind == ValueKind::Undefined {
-            return left;
-        }
-        self.merge_value_infos(left, right)
+    fn record_return_expression(&mut self, value: &TypedExpr) {
+        let return_shape = if value.heap_shape.is_none() {
+            FunctionReturnShape::Absent
+        } else {
+            let recreated_dependencies = match &value.expr {
+                ExprIr::CallIndirect { callee, .. } => self
+                    .resolve_single_function_target(callee)
+                    .and_then(|function_id| {
+                        let dependencies = self
+                            .function_signatures
+                            .get(&function_id)?
+                            .return_shape
+                            .recreated_dependencies()?
+                            .clone();
+                        match &callee.expr {
+                            ExprIr::FunctionValue(emitted_function_id) => (self
+                                .canonical_function_target(emitted_function_id)
+                                == self.canonical_function_target(&function_id))
+                            .then_some(dependencies),
+                            ExprIr::GlobalPropertyRead { name } => {
+                                let expected = self.canonical_function_target(&function_id);
+                                self.global_function_target_matches(name, &expected)
+                                    .then(|| {
+                                        dependencies
+                                            .with_global_function_target(name.clone(), expected)
+                                    })
+                                    .flatten()
+                            }
+                            _ => None,
+                        }
+                    }),
+                _ => None,
+            };
+            if let Some(dependencies) = recreated_dependencies {
+                FunctionReturnShape::recreated_per_call_with_dependencies(
+                    value
+                        .heap_shape
+                        .clone()
+                        .expect("per-call recreated return must have a heap shape"),
+                    dependencies,
+                )
+            } else {
+                FunctionReturnShape::flow_sensitive(value.heap_shape.clone())
+            }
+        };
+        self.record_return_info(value.value_info(), return_shape);
     }
 
-    fn record_return_info(&mut self, info: ValueInfo) {
-        self.current_return_info = Some(match self.current_return_info.take() {
-            Some(existing) => self.merge_return_infos(existing, info.clone()),
-            None => info.clone(),
+    fn record_return_info(&mut self, info: ValueInfo, return_shape: FunctionReturnShape) {
+        self.current_return = Some(match self.current_return.take() {
+            Some(existing) => {
+                let merged_info = self.merge_value_infos(existing.info, info.clone());
+                let merged_shape = FunctionReturnShape::merged(
+                    &existing.shape,
+                    &return_shape,
+                    merged_info.heap_shape.clone(),
+                );
+                FunctionReturnObservation {
+                    info: merged_info,
+                    shape: merged_shape,
+                }
+            }
+            None => FunctionReturnObservation {
+                info: info.clone(),
+                shape: return_shape.clone(),
+            },
         });
         if let Some(function_id) = &self.current_function_id {
-            let next_info = self.function_signatures.get(function_id).map(|signature| {
-                match signature.return_kind {
-                    ValueKind::Undefined => info.clone(),
-                    _ => self.merge_return_infos(
-                        ValueInfo {
-                            kind: signature.return_kind,
-                            possible_kinds: signature.return_possible_kinds,
-                            heap_shape: signature.return_shape.clone(),
-                            function_targets: signature.return_targets.clone(),
-                        },
-                        info.clone(),
-                    ),
-                }
+            let next_return = self.function_signatures.get(function_id).map(|signature| {
+                self.merge_signature_return_value_observation(
+                    signature,
+                    info.clone(),
+                    &return_shape,
+                )
             });
-            if let Some(next_info) = next_info {
+            if let Some((next_info, next_shape)) = next_return {
                 if let Some(signature) = self.function_signatures.get_mut(function_id) {
                     signature.return_kind = next_info.kind;
                     signature.return_possible_kinds = next_info.possible_kinds;
-                    signature.return_shape = next_info.heap_shape;
+                    signature.return_shape = next_shape;
                     signature.return_targets = next_info.function_targets;
                 }
             }
@@ -20718,8 +21273,16 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn pop_scope(&mut self) {
-        self.scopes.pop();
-        self.direct_lexical_scopes.pop();
+        let scope = self
+            .scopes
+            .pop()
+            .expect("scope stack must contain the scope being left");
+        self.direct_lexical_scopes
+            .pop()
+            .expect("scope markers must match the scope stack");
+        for (name, binding) in &scope {
+            self.clear_static_binding_facts(name, Some(binding));
+        }
     }
 
     // `mark_tdz_binding`, `clear_tdz_binding` and `is_tdz_binding` lived here,

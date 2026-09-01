@@ -49,7 +49,7 @@ impl<'a> ScriptLowerer<'a> {
         if let Some(binding) = binding {
             let storage_name = binding.storage_name.clone();
             if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
-                self.set_binding_value_info(&name, unknown_runtime_value_info());
+                self.widen_binding_for_possible_replacement(&name);
                 return self
                     .lower_global_object_environment_eager_compound_assignment(name, op, rhs);
             }
@@ -63,7 +63,7 @@ impl<'a> ScriptLowerer<'a> {
                 return self.immutable_binding_write(&storage_name, applied);
             }
 
-            self.set_binding_value_info(&name, unknown_runtime_value_info());
+            self.widen_binding_for_possible_replacement(&name);
             return TypedExpr::from_info(
                 applied.value_info(),
                 ExprIr::AssignIdentifier {
@@ -82,8 +82,9 @@ impl<'a> ScriptLowerer<'a> {
         op: EagerCompoundAssignmentOp,
         rhs: TypedExpr,
     ) -> TypedExpr {
+        self.record_caller_flow_invalidation();
         if let Some(info) = self.global_properties.get_mut(&name) {
-            info.value_info = unknown_runtime_value_info();
+            info.value_info.widen_for_possible_replacement();
             if info.configurable {
                 info.proven_present = false;
             }

@@ -160,18 +160,34 @@ impl HostModuleLoader for RejectAllModuleLoader {
     }
 }
 
-/// The entry point of a module graph.
+/// The source authority for a module graph entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModuleEntry {
-    /// Unnormalized locator the host turns into the entry's [`ModuleKey`].
-    /// Relative specifiers inside the entry resolve against its directory.
-    pub key: String,
-    /// Entry source supplied in memory.
+pub enum ModuleEntry {
+    /// Load the entry through [`HostModuleLoader::load`].
+    HostLoad {
+        /// Unnormalized locator the host turns into the entry's [`ModuleKey`].
+        /// Relative specifiers inside the entry resolve against its directory.
+        locator: String,
+    },
+    /// Use source text already supplied by the embedder.
     ///
     /// Load-bearing for test262: the harness prepends `assert.js` and `sta.js`
     /// to the entry module's text, but relative specifiers inside it must
-    /// still resolve against the real on-disk directory that `key` names.
-    pub source_override: Option<String>,
+    /// still resolve against the real on-disk directory that `locator` names.
+    InMemory {
+        /// Unnormalized locator the host turns into the entry's [`ModuleKey`].
+        locator: String,
+        /// Exact entry source to parse.
+        source_text: String,
+    },
+}
+
+impl ModuleEntry {
+    fn locator(&self) -> &str {
+        match self {
+            Self::HostLoad { locator } | Self::InMemory { locator, .. } => locator,
+        }
+    }
 }
 
 /// A filesystem loader confined to a root directory.
@@ -339,14 +355,14 @@ pub fn load_module_graph(
 ) -> Result<ModuleGraphSources, ModuleLoadError> {
     // The entry never passes through `resolve`, so normalize its key here or a
     // module that imports the entry back gets a second copy of it.
-    let entry_key = loader.canonical_key(&entry.key);
-    let entry_module = match &entry.source_override {
-        Some(source_text) => ModuleSourceIr::new(
+    let entry_key = loader.canonical_key(entry.locator());
+    let entry_module = match entry {
+        ModuleEntry::InMemory { source_text, .. } => ModuleSourceIr::new(
             entry_key.clone(),
             source_text.clone(),
             format!("file://{}", entry_key.as_str()),
         ),
-        None => {
+        ModuleEntry::HostLoad { .. } => {
             let loaded = loader.load(&entry_key)?;
             ModuleSourceIr::new(loaded.key, module_text(loaded.kind), loaded.meta_url)
         }
@@ -359,11 +375,11 @@ pub fn load_module_graph(
 /// end. Dependencies still enter through [`ModuleSourceIr::new`], while the
 /// entry retains this exact syntax product instead of parsing its text again.
 pub(crate) fn load_module_graph_from_parsed(
-    entry: &ModuleEntry,
+    entry_locator: &str,
     source: ParsedModule,
     loader: &dyn HostModuleLoader,
 ) -> Result<ModuleGraphSources, ModuleLoadError> {
-    let entry_key = loader.canonical_key(&entry.key);
+    let entry_key = loader.canonical_key(entry_locator);
     let entry_module = ModuleSourceIr::from_parsed(
         entry_key.clone(),
         format!("file://{}", entry_key.as_str()),
@@ -376,11 +392,11 @@ pub(crate) fn load_module_graph_from_parsed(
 /// keeps Script grammar and contributes only its `import()` requests; every
 /// loaded target is still parsed with Module grammar.
 pub(crate) fn load_module_graph_from_parsed_script(
-    entry: &ModuleEntry,
+    entry_locator: &str,
     source: ParsedScript,
     loader: &dyn HostModuleLoader,
 ) -> Result<ModuleGraphSources, ModuleLoadError> {
-    let entry_key = loader.canonical_key(&entry.key);
+    let entry_key = loader.canonical_key(entry_locator);
     let entry_module = ModuleSourceIr::from_parsed_script(
         entry_key.clone(),
         format!("file://{}", entry_key.as_str()),
@@ -503,10 +519,39 @@ mod tests {
     }
 
     fn entry_at(path: &Path) -> ModuleEntry {
-        ModuleEntry {
-            key: path.to_string_lossy().into_owned(),
-            source_override: None,
+        ModuleEntry::HostLoad {
+            locator: path.to_string_lossy().into_owned(),
         }
+    }
+
+    #[test]
+    fn a_host_entry_loads_its_source_through_the_loader() {
+        let base = temp_base("host-entry");
+        let root = base.join("root");
+        write_tree(&root, &[("entry.js", "export const origin = 'host';")]);
+        let loader = loader_at(&root);
+
+        let sources = load_module_graph(&entry_at(&root.join("entry.js")), &loader).unwrap();
+        assert_eq!(
+            sources.modules[0].source_text(),
+            "export const origin = 'host';"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_in_memory_entry_does_not_ask_the_host_to_load_it() {
+        let entry = ModuleEntry::InMemory {
+            locator: "virtual/entry.js".to_string(),
+            source_text: "export const origin = 'memory';".to_string(),
+        };
+
+        let sources = load_module_graph(&entry, &RejectAllModuleLoader).unwrap();
+        assert_eq!(sources.modules[0].key().as_str(), "virtual/entry.js");
+        assert_eq!(
+            sources.modules[0].source_text(),
+            "export const origin = 'memory';"
+        );
     }
 
     #[test]

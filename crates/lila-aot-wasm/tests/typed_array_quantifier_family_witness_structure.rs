@@ -9,7 +9,7 @@ const BRAND_WIRING: &str = r#"
     function.instruction(&Instruction::I64Ne);
     function.instruction(&Instruction::If(BlockType::Empty));
     self.emit_throw_current_function_realm_type_error(
-        match quantifier {
+        match &quantifier {
             TypedArrayQuantifierKind::Every => "TypedArray every method requires a TypedArray",
             TypedArrayQuantifierKind::Some => "TypedArray some method requires a TypedArray",
         },
@@ -58,7 +58,7 @@ const CALLBACK_VALIDATION_WIRING: &str = r#"
     function.instruction(&Instruction::I32Eqz);
     function.instruction(&Instruction::If(BlockType::Empty));
     self.emit_throw_current_function_realm_type_error(
-        match quantifier {
+        match &quantifier {
             TypedArrayQuantifierKind::Every => {
                 "TypedArray.prototype.every callback is not callable"
             }
@@ -155,14 +155,14 @@ const CALLBACK_OUTCOME_TAIL_WIRING: &str = r#"
         callback_result_payload_local,
         function,
     )?;
-    match quantifier {
+    match &quantifier {
         TypedArrayQuantifierKind::Every => {
             function.instruction(&Instruction::I32Eqz);
         }
         TypedArrayQuantifierKind::Some => {}
     }
     function.instruction(&Instruction::If(BlockType::Empty));
-    function.instruction(&Instruction::I64Const(match quantifier {
+    function.instruction(&Instruction::I64Const(match &quantifier {
         TypedArrayQuantifierKind::Every => 0,
         TypedArrayQuantifierKind::Some => 1,
     }));
@@ -180,7 +180,7 @@ const CALLBACK_OUTCOME_TAIL_WIRING: &str = r#"
     function.instruction(&Instruction::End);
     function.instruction(&Instruction::End);
 
-    function.instruction(&Instruction::I64Const(match quantifier {
+    function.instruction(&Instruction::I64Const(match &quantifier {
         TypedArrayQuantifierKind::Every => 1,
         TypedArrayQuantifierKind::Some => 0,
     }));
@@ -202,8 +202,24 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 fn quantifier_body() -> &'static str {
     bounded(
         ARRAY_SOURCE,
-        "pub(crate) fn compile_typed_array_prototype_quantifier_builtin(",
+        "fn compile_typed_array_prototype_quantifier_builtin(",
         "pub(crate) fn compile_array_prototype_every_builtin(",
+    )
+}
+
+fn array_every_body() -> &'static str {
+    bounded(
+        ARRAY_SOURCE,
+        "pub(crate) fn compile_array_prototype_every_builtin(",
+        "pub(crate) fn compile_array_prototype_some_builtin(",
+    )
+}
+
+fn array_some_body() -> &'static str {
+    bounded(
+        ARRAY_SOURCE,
+        "pub(crate) fn compile_array_prototype_some_builtin(",
+        "pub(crate) fn compile_array_prototype_filter_builtin(",
     )
 }
 
@@ -230,26 +246,68 @@ fn unique_normalized_position(body: &str, snippet: &str, label: &str) -> usize {
 
 #[test]
 fn typed_array_quantifier_kind_has_exactly_two_inhabitants() {
-    let body = ARRAY_SOURCE
-        .split_once("pub(crate) enum TypedArrayQuantifierKind {")
+    let declaration = ARRAY_SOURCE
+        .split_once("enum TypedArrayQuantifierKind {")
         .expect("TypedArray quantifier kind")
         .1
         .split_once('}')
         .expect("TypedArray quantifier kind end")
         .0;
-    let variants = body
+    let variants = declaration
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
 
     assert_eq!(variants, ["Every,", "Some,"]);
+    let declaration_offset = ARRAY_SOURCE
+        .find("enum TypedArrayQuantifierKind {")
+        .expect("TypedArray quantifier kind declaration");
+    assert_eq!(
+        ARRAY_SOURCE[..declaration_offset]
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(str::trim),
+        Some("}")
+    );
+    for forbidden in [
+        "pub enum TypedArrayQuantifierKind",
+        "pub(crate) enum TypedArrayQuantifierKind",
+        "pub(super) enum TypedArrayQuantifierKind",
+        "impl Clone for TypedArrayQuantifierKind",
+        "impl Copy for TypedArrayQuantifierKind",
+        "impl PartialEq for TypedArrayQuantifierKind",
+        "impl Eq for TypedArrayQuantifierKind",
+        "impl Default for TypedArrayQuantifierKind",
+    ] {
+        assert!(
+            !ARRAY_SOURCE.contains(forbidden),
+            "the quantifier authority must not expose `{forbidden}`"
+        );
+    }
 }
 
 #[test]
 fn typed_array_quantifier_dispatch_and_witness_are_closed() {
     let body = quantifier_body();
     let normalized_body = without_whitespace(body);
+
+    assert_eq!(body.matches("match &quantifier").count(), 7);
+    for forbidden in [
+        "match quantifier",
+        "quantifier ==",
+        "quantifier !=",
+        "matches!(quantifier",
+        "quantifier: bool",
+        "_ =>",
+        "unreachable!",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "the quantifier authority must be projected exhaustively, not through `{forbidden}`"
+        );
+    }
 
     assert_eq!(
         body.matches("emit_load_typed_array_private_state(").count(),
@@ -364,39 +422,172 @@ fn typed_array_quantifier_dispatch_and_witness_are_closed() {
         "temporary locals must be released exactly once in reverse reservation order"
     );
 
+    let normalized_array = without_whitespace(ARRAY_SOURCE).replace(",)", ")");
+    for (compiler, variant) in [("every", "Every"), ("some", "Some")] {
+        let mapping = format!(
+            "compile_typed_array_prototype_{compiler}_builtin(&mutself,function:&mutFunction)->Result<(),EmitError>{{self.compile_typed_array_prototype_quantifier_builtin(function,TypedArrayQuantifierKind::{variant})}}"
+        );
+        unique_normalized_position(
+            &normalized_array,
+            &mapping,
+            &format!("TypedArray {compiler} wrapper -> TypedArrayQuantifierKind::{variant}"),
+        );
+    }
+    assert_eq!(
+        ARRAY_SOURCE
+            .matches("compile_typed_array_prototype_quantifier_builtin(")
+            .count(),
+        3,
+        "the private shared compiler definition and both wrapper producers must be the complete authority census"
+    );
+    for forbidden in [
+        "pub fn compile_typed_array_prototype_quantifier_builtin(",
+        "pub(crate) fn compile_typed_array_prototype_quantifier_builtin(",
+        "pub(super) fn compile_typed_array_prototype_quantifier_builtin(",
+    ] {
+        assert!(
+            !ARRAY_SOURCE.contains(forbidden),
+            "the shared quantifier compiler must remain private: `{forbidden}`"
+        );
+    }
+    assert!(!STANDARD_SOURCE.contains("TypedArrayQuantifierKind"));
+
     let normalized_standard = without_whitespace(STANDARD_SOURCE).replace(",)", ")");
-    for (builtin, variant) in [
-        ("TypedArrayPrototypeEvery", "Every"),
-        ("TypedArrayPrototypeSome", "Some"),
+    for (builtin, compiler) in [
+        ("TypedArrayPrototypeEvery", "every"),
+        ("TypedArrayPrototypeSome", "some"),
     ] {
         let mapping = format!(
-            "StandardBuiltinId::{builtin}=>{{self.compile_typed_array_prototype_quantifier_builtin(function,TypedArrayQuantifierKind::{variant})?;}}"
+            "StandardBuiltinId::{builtin}=>{{self.compile_typed_array_prototype_{compiler}_builtin(function)?;}}"
         );
         unique_normalized_position(
             &normalized_standard,
             &mapping,
-            &format!("StandardBuiltinId::{builtin} -> TypedArrayQuantifierKind::{variant}"),
+            &format!("StandardBuiltinId::{builtin} -> TypedArray {compiler} wrapper"),
         );
     }
-    assert_eq!(
-        STANDARD_SOURCE
-            .matches("compile_typed_array_prototype_quantifier_builtin(")
-            .count(),
-        2,
-        "both and only both TypedArray quantifiers must use the shared compiler"
-    );
-    assert_eq!(
-        STANDARD_SOURCE
-            .matches("TypedArrayQuantifierKind::Every")
-            .count(),
-        1
-    );
-    assert_eq!(
-        STANDARD_SOURCE
-            .matches("TypedArrayQuantifierKind::Some")
-            .count(),
-        1
-    );
+}
+
+#[test]
+fn array_and_typed_array_quantifier_entry_families_are_disjoint() {
+    for (method, body) in [
+        ("Array.prototype.every", array_every_body()),
+        ("Array.prototype.some", array_some_body()),
+    ] {
+        for forbidden in [
+            "typed_array_only",
+            "typed_brand_local",
+            "TypedArrayWitnessUse::ValidatedMethodEntry",
+            "method requires a TypedArray",
+        ] {
+            assert!(
+                !body.contains(forbidden),
+                "{method} must not retain the unreachable strict TypedArray entry projection {forbidden}"
+            );
+        }
+        assert_eq!(
+            body.matches("TypedArrayWitnessUse::IntegerIndexedProperty")
+                .count(),
+            1,
+            "{method} must retain one fresh integer-indexed witness for borrowed TypedArrays"
+        );
+    }
+
+    let normalized_standard = without_whitespace(STANDARD_SOURCE).replace(",)", ")");
+    for (builtin, compiler) in [
+        (
+            "ArrayPrototypeEvery",
+            "compile_array_prototype_every_builtin",
+        ),
+        ("ArrayPrototypeSome", "compile_array_prototype_some_builtin"),
+    ] {
+        let mapping = format!("StandardBuiltinId::{builtin}=>{{self.{compiler}(function)?;}}");
+        unique_normalized_position(
+            &normalized_standard,
+            &mapping,
+            &format!("StandardBuiltinId::{builtin} -> {compiler}"),
+        );
+        assert_eq!(
+            STANDARD_SOURCE.matches(&format!("{compiler}(")).count(),
+            1,
+            "the generic {builtin} compiler must have exactly one dispatcher producer"
+        );
+    }
+}
+
+#[test]
+fn array_quantifiers_have_no_array_result_or_species_residue() {
+    for (method, body) in [
+        ("Array.prototype.every", array_every_body()),
+        ("Array.prototype.some", array_some_body()),
+    ] {
+        for forbidden in [
+            "array_constructor_table_index",
+            "constructor_table_index_local",
+            "skip_species_local",
+            "species_source_payload_local",
+            "species_source_tag_local",
+            "species_source_is_array_local",
+            "species_proxy_kind_local",
+            "species_payload_local",
+            "species_tag_local",
+            "result_payload_local",
+            "target_payload_local",
+            "target_tag_local",
+            "zero_local",
+            "out_index_local",
+            "mapped_len_local",
+            "mapped_flatten_payload_local",
+            "mapped_flatten_tag_local",
+            "mapped_index_local",
+            "child_payload_local",
+            "child_tag_local",
+            "typed_buffer_tag_local",
+            "typed_data_ptr_local",
+            "typed_address_local",
+            "emit_array_constructor_read(",
+            "emit_mark_skip_species_for_cross_realm_array_constructor(",
+            "property_key_symbol_payload(\"Symbol.species\")",
+            "emit_alloc_array_payload_with_length(",
+            "emit_function_handle_construct_with_argv(",
+        ] {
+            assert!(
+                !body.contains(forbidden),
+                "{method} must not retain Array-producing residue `{forbidden}`"
+            );
+        }
+
+        for required in [
+            "typed_receiver_local",
+            "typed_buffer_payload_local",
+            "typed_byte_offset_local",
+            "typed_stored_byte_length_local",
+            "typed_bytes_per_element_local",
+            "TypedArrayViewLocals::new(",
+            "emit_load_typed_array_private_state(",
+        ] {
+            assert!(
+                body.contains(required),
+                "{method} must retain borrowed-TypedArray state `{required}`"
+            );
+        }
+        assert_eq!(
+            body.matches("TypedArrayWitnessUse::IntegerIndexedProperty")
+                .count(),
+            1,
+            "{method} must retain one fresh integer-indexed witness"
+        );
+
+        let reservations = local_sequence(body, "let ", " = self.reserve_temp_local();");
+        let releases = local_sequence(body, "self.release_temp_local(", ");");
+        assert_eq!(reservations.len(), 28, "{method} temporary census");
+        let mut expected_releases = reservations;
+        expected_releases.reverse();
+        assert_eq!(
+            releases, expected_releases,
+            "{method} must release each retained temporary in reverse order"
+        );
+    }
 }
 
 #[test]

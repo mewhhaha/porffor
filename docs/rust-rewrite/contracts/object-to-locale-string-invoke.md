@@ -24,12 +24,14 @@ current Realm Record of the running built-in. Borrowing a created realm's
 
 ## Closed compiler shape
 
-The Wasm-AOT emitter preserves the lookup and receiver roles in a private,
-non-`Copy` `ObjectToLocaleStringGetVLocals` value. Its `original_receiver` is
-never overwritten. Its `boxed_lookup` is the current-function-Realm wrapper
-used only as the `[[Get]]` target, and its `method` is the sole result slot. A
-single GetV helper borrows that state and is the only boundary allowed to map
-it into `emit_object_read`.
+`lila-aot-wasm/src/builtins/object/object_to_locale_string_invoke.rs` is the
+sole owner of the complete invocation family. The Wasm-AOT emitter preserves
+the lookup and receiver roles in a private, non-`Copy`
+`ObjectToLocaleStringGetVLocals` value. Its `original_receiver` is never
+overwritten. Its `boxed_lookup` is the current-function-Realm wrapper used only
+as the `[[Get]]` target, and its `method` is the sole result slot. A single GetV
+helper borrows that state and is the only boundary allowed to map it into
+`emit_object_read`.
 
 After GetV, one validator consumes the receiver roles and applies the general
 `IsCallable` helper. Failure uses the current-function-Realm TypeError helper;
@@ -47,13 +49,19 @@ helper. Observable order remains nullish validation, current-function-Realm
 boxing, GetV and abrupt propagation, IsCallable, then Call and abrupt
 propagation.
 
+The compiler entry remains visible only within `crate::builtins`; the explicit
+restricted visibility preserves the scope previously supplied by
+`object.rs`'s `pub(super)` boundary. The standard builtin dispatcher remains
+its sole external caller.
+
 ## Durable evidence
 
-The source-structure regression fixes both private type states, the unique
-GetV mapping, general callability validation, current-function-Realm failures,
-the ownership-consuming Proxy-aware call and the empty argument list. It also
-rejects raw property-read, callability, call and entry-realm error operations
-inside the builtin body.
+The source-structure regression fixes the private file module, exact type and
+method inventory, sole standard-dispatch caller, both private type states, the
+unique GetV mapping, general callability validation, current-function-Realm
+failures, the ownership-consuming Proxy-aware call and the empty argument
+list. It also rejects raw property-read, callability, call and entry-realm error
+operations inside the builtin body.
 
 The focused CLI fixture uses a strict Number-prototype getter returning a
 callable Proxy. It observes the exact primitive at both the getter and Proxy

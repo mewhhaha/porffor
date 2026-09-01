@@ -16,7 +16,7 @@ impl ScriptLowerer<'_> {
             // arbitrary number and kind of elements. An empty ArrayShape would
             // falsely prove length zero, so the shape is deliberately absent.
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -41,10 +41,14 @@ impl ScriptLowerer<'_> {
         element: &Expression,
     ) -> ArrayAccumulationElementIr {
         match element {
-            Expression::Spread(spread) => ArrayAccumulationElementIr::Spread(ArraySpreadIr {
-                value: Box::new(self.lower_expression(spread.target())),
-                protocol: ArraySpreadProtocol::ARRAY_ACCUMULATION,
-            }),
+            Expression::Spread(spread) => {
+                let value = self.lower_expression(spread.target());
+                self.invalidate_unknown_user_code_effects();
+                ArrayAccumulationElementIr::Spread(ArraySpreadIr {
+                    value: Box::new(value),
+                    protocol: ArraySpreadProtocol::ARRAY_ACCUMULATION,
+                })
+            }
             expression => ArrayAccumulationElementIr::Value(self.lower_expression(expression)),
         }
     }
@@ -85,7 +89,7 @@ impl ScriptLowerer<'_> {
                 kind: ValueKind::Array,
                 possible_kinds: KindSet::from_kind(ValueKind::Array),
                 heap_shape: Some(Box::new(HeapShape::Array(shape))),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::ArrayLiteral(elements),
         )
@@ -175,6 +179,7 @@ impl ScriptLowerer<'_> {
             }
 
             elements.push(if spread {
+                self.invalidate_unknown_user_code_effects();
                 ArrayAccumulationElementIr::Spread(ArraySpreadIr {
                     value: Box::new(value),
                     protocol: ArraySpreadProtocol::ARRAY_ACCUMULATION,

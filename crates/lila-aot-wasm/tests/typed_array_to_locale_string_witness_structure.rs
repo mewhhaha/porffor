@@ -25,8 +25,7 @@ if (Array.prototype.toLocaleString.call(detached) !== "") failures |= 131072;
 
 const FINAL_FIXTURE_PUBLICATION: &str = "failures === 0;";
 
-const TYPED_ARRAY_ARM_START: &str =
-    "if matches!(receiver_kind, ToLocaleStringReceiverKind::TypedArray) {";
+const TYPED_ARRAY_ARM_START: &str = "if typed_array_entry {";
 const ARRAYLIKE_ARM_START: &str = r#"
         } else {
             self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
@@ -289,23 +288,24 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
     assert_eq!(
         shared.matches("receiver_kind").count(),
         4,
-        "the closed entry policy must have one binding and only the method-name, direct-arm and invocation consumers"
+        "the closed entry policy must have one binding and only the method-name, typed-entry and invocation consumers"
     );
     assert_eq!(
         normalized_shared
-            .matches("letmethod_name=receiver_kind.method_name();")
+            .matches("letmethod_name=match&receiver_kind{")
             .count(),
         1
     );
     assert_eq!(
         normalized_shared
-            .matches("ifmatches!(receiver_kind,ToLocaleStringReceiverKind::TypedArray){")
+            .matches("lettyped_array_entry=match&receiver_kind{")
             .count(),
         1
     );
+    assert_eq!(normalized_shared.matches("iftyped_array_entry{").count(), 1);
     assert_eq!(
         normalized_shared
-            .matches("self.emit_validate_to_locale_string_invocation(receiver_kind,")
+            .matches("self.emit_validate_to_locale_string_invocation(&receiver_kind,")
             .count(),
         1
     );

@@ -312,7 +312,6 @@ const INDEXED_COPY_WIRING: &str = r#"
     function.instruction(&Instruction::LocalSet(target_index_local));
     self.emit_typed_array_element_write_from_locals(
         target_payload_local,
-        target_tag_local,
         target_index_local,
         element_payload_local,
         element_tag_local,

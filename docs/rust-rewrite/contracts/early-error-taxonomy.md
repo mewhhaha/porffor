@@ -1,5 +1,51 @@
 # Contract: early-error taxonomy — pointer
 
+## Parse-failure pattern observation
+
+`ParseFailurePattern` retains `Clone` and `Copy` as intentional static-table
+value semantics: its three rows contain only immutable `'static` references,
+and the const table walkers repeatedly inspect a shared rule. The classifier's
+73-row authority is split exactly `54/18/1` between `ContainsAll`, `StartsWith`
+and `Exact`. A recursive Rust-lexical guard pins 91 lexical mentions and all 16
+observations across six exhaustive consumers, with no wildcard or `matches!`
+observer. Adding a fourth pattern therefore requires an explicit ownership
+decision in every consumer without turning table traversal into an ownership
+lifecycle. Focused verification of the 73-row state is pending. This paragraph
+makes no broad Cargo, Test262 or published-status claim.
+
+## 2026-09-01 AsyncGeneratorDeclaration `Contains super` amendment
+
+T07 now gives the four AsyncGeneratorDeclaration parameter/body ×
+SuperProperty/SuperCall restrictions one production-owned code. The normative
+extension is:
+
+`docs/rust-rewrite/contracts/async-generator-declaration-contains-super-early-errors.md`
+
+The shared declaration predicate and order remain unchanged. Its message hook
+is now required, and all four declaration implementations select their own
+diagnostic; the generic default is deleted. The raw `invalid super usage`
+literal remains only at the fixed ScriptBody producer. The exact pinned
+AsyncGeneratorDeclaration cohort is zero files across all 301 JavaScript files
+in `language/statements/async-generator/`, so this amendment makes no Test262
+pass or aggregate-status claim. Focused Cargo verification is pending.
+
+## 2026-09-01 GeneratorDeclaration `Contains super` amendment
+
+At the GeneratorDeclaration checkpoint, T07 gave the four declaration
+parameter/body × SuperProperty/
+SuperCall restrictions one production-owned code. The normative extension is:
+
+`docs/rust-rewrite/contracts/generator-declaration-contains-super-early-errors.md`
+
+The shared declaration predicate and order remained unchanged; only
+GeneratorDeclaration selected the new diagnostic at that checkpoint, while
+AsyncGeneratorDeclaration still consumed the generic default. The exact pinned GeneratorDeclaration
+cohort is zero files across all 266 JavaScript files in
+`language/statements/generators/`, so this amendment makes no Test262 pass or
+aggregate-status claim. The full front library and parse-pattern target pass
+`158/158` and `4/4`; the focused IR filter and four graph/source structure
+targets pass `7/7` and `13/13`.
+
 ## 2026-08-23 delete-reference amendment
 
 T07's current fixed-message batch splits the strict-mode delete early error

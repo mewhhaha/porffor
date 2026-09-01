@@ -1,10 +1,14 @@
+use std::fs;
+use std::path::Path;
+
 const INSTALLER_SOURCE: &str = include_str!("../src/intrinsics/function.rs");
 const FUNCTION_BODY_SOURCE: &str = include_str!("../src/builtins/function.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
-const OBJECT_BUILTIN_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const DEFINE_PROPERTY_SOURCE: &str = include_str!("../src/builtins/object/define_property.rs");
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
+const HAS_INSTANCE_SOURCE: &str = include_str!("../src/operations/has_instance.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const CATALOG_SOURCE: &str = include_str!("../../lila-ir/src/builtins/catalog.rs");
 const FIXTURE: &str =
@@ -26,6 +30,202 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
     let earlier = source.find(earlier).expect("earlier operation");
     let later = source.find(later).expect("later operation");
     assert!(earlier < later, "{earlier} must precede {later}");
+}
+
+fn quoted_literal_end(source: &str, quote_start: usize, quote: u8) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut offset = quote_start + 1;
+    let mut escaped = false;
+    while offset < bytes.len() {
+        let byte = bytes[offset];
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else if byte == quote {
+            return Some(offset + 1);
+        }
+        offset += 1;
+    }
+    None
+}
+
+fn character_literal_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let value_start = start + 1;
+    if value_start >= bytes.len() {
+        return None;
+    }
+    let value_end = if bytes[value_start] == b'\\' {
+        let mut offset = value_start + 1;
+        if offset >= bytes.len() {
+            return None;
+        }
+        if bytes[offset] == b'u' && bytes.get(offset + 1) == Some(&b'{') {
+            offset += 2;
+            while bytes.get(offset).is_some_and(|byte| *byte != b'}') {
+                offset += 1;
+            }
+            if bytes.get(offset) != Some(&b'}') {
+                return None;
+            }
+            offset + 1
+        } else if bytes[offset] == b'x'
+            && bytes
+                .get(offset + 1..offset + 3)
+                .is_some_and(|digits| digits.iter().all(u8::is_ascii_hexdigit))
+        {
+            offset + 3
+        } else {
+            offset + 1
+        }
+    } else {
+        value_start + source[value_start..].chars().next()?.len_utf8()
+    };
+    (bytes.get(value_end) == Some(&b'\'')).then_some(value_end + 1)
+}
+
+fn raw_literal_end(source: &str, start: usize, prefix_len: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut quote_start = start + prefix_len;
+    while bytes.get(quote_start) == Some(&b'#') {
+        quote_start += 1;
+    }
+    if bytes.get(quote_start) != Some(&b'"') {
+        return None;
+    }
+    let hashes = quote_start - start - prefix_len;
+    let mut offset = quote_start + 1;
+    while offset < bytes.len() {
+        if bytes[offset] == b'"'
+            && bytes
+                .get(offset + 1..offset + 1 + hashes)
+                .is_some_and(|suffix| suffix.iter().all(|byte| *byte == b'#'))
+        {
+            return Some(offset + 1 + hashes);
+        }
+        offset += 1;
+    }
+    None
+}
+
+fn literal_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    match bytes.get(start).copied()? {
+        b'"' => quoted_literal_end(source, start, b'"'),
+        b'\'' => character_literal_end(source, start),
+        b'b' if bytes.get(start + 1) == Some(&b'\'') => character_literal_end(source, start + 1),
+        b'b' | b'c' if bytes.get(start + 1) == Some(&b'"') => {
+            quoted_literal_end(source, start + 1, b'"')
+        }
+        b'r' => raw_literal_end(source, start, 1),
+        b'b' | b'c' if bytes.get(start + 1) == Some(&b'r') => raw_literal_end(source, start, 2),
+        _ => None,
+    }
+}
+
+struct NormalizedRust {
+    code: String,
+    identifiers: String,
+    routes: String,
+}
+
+fn normalize_rust(source: &str) -> NormalizedRust {
+    let bytes = source.as_bytes();
+    let mut code = String::new();
+    let mut identifiers = String::new();
+    let mut routes = String::new();
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some(end) = literal_end(source, offset) {
+            code.push_str(&source[offset..end]);
+            identifiers.push(' ');
+            routes.push('L');
+            offset = end;
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"//") {
+            identifiers.push(' ');
+            offset += 2;
+            while bytes.get(offset).is_some_and(|byte| *byte != b'\n') {
+                offset += 1;
+            }
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"/*") {
+            identifiers.push(' ');
+            offset += 2;
+            let mut depth = 1;
+            while offset < bytes.len() && depth != 0 {
+                if bytes.get(offset..offset + 2) == Some(b"/*") {
+                    depth += 1;
+                    offset += 2;
+                } else if bytes.get(offset..offset + 2) == Some(b"*/") {
+                    depth -= 1;
+                    offset += 2;
+                } else {
+                    offset += 1;
+                }
+            }
+            assert_eq!(depth, 0, "unterminated block comment in Rust source");
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"r#")
+            && source[offset + 2..]
+                .chars()
+                .next()
+                .is_some_and(|character| character == '_' || character.is_alphabetic())
+        {
+            offset += 2;
+            continue;
+        }
+        let character = source[offset..].chars().next().unwrap();
+        if !character.is_whitespace() {
+            code.push(character);
+            identifiers.push(character);
+            routes.push(character);
+        } else {
+            identifiers.push(' ');
+        }
+        offset += character.len_utf8();
+    }
+    NormalizedRust {
+        code,
+        identifiers,
+        routes,
+    }
+}
+
+fn exact_identifier_count(source: &str, identifier: &str) -> usize {
+    source
+        .match_indices(identifier)
+        .filter(|(offset, _)| {
+            let before = source[..*offset].chars().next_back();
+            let after = source[*offset + identifier.len()..].chars().next();
+            [before, after].into_iter().all(|edge| {
+                edge.map(|character| !character.is_alphanumeric() && character != '_')
+                    .unwrap_or(true)
+            })
+        })
+        .count()
+}
+
+fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
+    fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
+        .map(|entry| entry.expect("failed to read Rust source entry").path())
+        .map(|path| {
+            if path.is_dir() {
+                return count_identifier_in_rust_sources(&path, identifier);
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+                return 0;
+            }
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+            exact_identifier_count(&normalize_rust(&source).identifiers, identifier)
+        })
+        .sum()
 }
 
 #[test]
@@ -69,7 +269,7 @@ fn intrinsic_is_one_rooted_nonconstructable_catalog_identity() {
     );
     assert_eq!(
         dispatch
-            .matches("FunctionBuiltin::PrototypeSymbolHasInstance")
+            .matches("self.emit_function_prototype_symbol_has_instance_builtin(function)?")
             .count(),
         1
     );
@@ -174,22 +374,148 @@ fn created_realm_installs_a_fresh_realm_local_function_through_the_typed_context
 
 #[test]
 fn has_instance_dispatch_is_a_closed_noncopyable_two_entry_domain() {
-    let request = bounded(
-        OPERATIONS_SOURCE,
-        "enum HasInstanceRequestLocals {",
-        "#[derive(Clone, Copy)]\n#[repr(u64)]\nenum HasInstanceRuntimeState",
+    assert_eq!(
+        OPERATIONS_SOURCE.matches("\nmod has_instance;\n").count(),
+        1
     );
-    assert!(request.contains("InstanceofOperator"));
-    assert!(request.contains("object: HasInstanceValueLocals"));
-    assert!(request.contains("constructor: HasInstanceValueLocals"));
-    assert!(request.contains("OrdinaryHasInstance"));
+    assert!(!OPERATIONS_SOURCE.contains("pub mod has_instance;"));
+    assert!(!OPERATIONS_SOURCE.contains("pub(crate) mod has_instance;"));
+    assert!(HAS_INSTANCE_SOURCE.starts_with("use super::*;\n\n"));
+
+    for declaration in [
+        "struct HasInstanceValueLocals {",
+        "enum HasInstanceRequestLocals {",
+        "enum HasInstanceRuntimeState {",
+    ] {
+        assert_eq!(
+            HAS_INSTANCE_SOURCE.matches(declaration).count(),
+            1,
+            "child must own exactly one {declaration}"
+        );
+        assert_eq!(
+            OPERATIONS_SOURCE.matches(declaration).count(),
+            0,
+            "parent must not own {declaration}"
+        );
+    }
+
+    let builder = bounded(
+        HAS_INSTANCE_SOURCE,
+        "impl<'a> FunctionBuilder<'a> {",
+        "\n}\n",
+    );
+    assert_eq!(builder.matches("    pub(crate) fn ").count(), 3);
+    assert_eq!(builder.matches("    fn ").count(), 1);
+    for method in [
+        "emit_instanceof_i32",
+        "emit_instanceof_operator_from_locals",
+        "emit_ordinary_has_instance_from_locals",
+    ] {
+        let declaration = format!("    pub(crate) fn {method}(");
+        assert_eq!(builder.matches(&declaration).count(), 1);
+        assert_eq!(OPERATIONS_SOURCE.matches(&declaration).count(), 0);
+    }
+    assert_eq!(
+        builder.matches("    fn emit_has_instance_request(").count(),
+        1
+    );
+    assert_eq!(
+        OPERATIONS_SOURCE
+            .matches("    fn emit_has_instance_request(")
+            .count(),
+        0
+    );
+
+    let value = bounded(
+        HAS_INSTANCE_SOURCE,
+        "struct HasInstanceValueLocals {",
+        "\n}",
+    );
+    assert_eq!(
+        value.split_whitespace().collect::<String>(),
+        "payload:u32,tag:u32,"
+    );
+    let request = bounded(
+        HAS_INSTANCE_SOURCE,
+        "enum HasInstanceRequestLocals {",
+        "\n}",
+    );
+    assert_eq!(
+        request.split_whitespace().collect::<String>(),
+        "InstanceofOperator{object:HasInstanceValueLocals,constructor:HasInstanceValueLocals,},OrdinaryHasInstance{constructor:HasInstanceValueLocals,object:HasInstanceValueLocals,},"
+    );
     assert!(!request.contains("bool"));
     assert!(!request.contains("_ =>"));
-    assert!(OPERATIONS_SOURCE.contains("#[must_use]\nenum HasInstanceRequestLocals"));
-    assert!(!OPERATIONS_SOURCE.contains("impl Copy for HasInstanceRequestLocals"));
+    assert!(HAS_INSTANCE_SOURCE.contains("#[must_use]\nenum HasInstanceRequestLocals"));
+    assert!(!HAS_INSTANCE_SOURCE.contains("impl Copy for HasInstanceRequestLocals"));
+
+    let lexical_probe = r###"
+        // HasInstanceRuntimeState::OrdinaryHasInstance.runtime_code()
+        "HasInstanceRuntimeState::OrdinaryHasInstance.runtime_code()";
+        r#"HasInstanceRuntimeState::OrdinaryHasInstance.runtime_code()"#;
+        struct r#HasInstanceRuntimeState;
+        value./* split route */r#runtime_code();
+    "###;
+    let lexical_probe = normalize_rust(lexical_probe);
+    assert_eq!(
+        exact_identifier_count(&lexical_probe.identifiers, "HasInstanceRuntimeState"),
+        1
+    );
+    assert_eq!(lexical_probe.routes.matches(".runtime_code()").count(), 1);
+
+    let runtime_authority = bounded(
+        HAS_INSTANCE_SOURCE,
+        "        object: HasInstanceValueLocals,\n    },\n}\n\n",
+        "\n\nimpl<'a> FunctionBuilder<'a> {",
+    );
+    assert_eq!(
+        normalize_rust(runtime_authority).code,
+        concat!(
+            "enumHasInstanceRuntimeState{InstanceofOperator,OrdinaryHasInstance,}",
+            "implHasInstanceRuntimeState{constfnruntime_code(&self)->i64{",
+            "matchself{Self::InstanceofOperator=>0,Self::OrdinaryHasInstance=>1,}}}"
+        )
+    );
+    let normalized_source = normalize_rust(HAS_INSTANCE_SOURCE);
+    assert!(!normalized_source
+        .code
+        .contains("forHasInstanceRuntimeState"));
+    assert!(!normalized_source.code.contains("#[repr"));
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert_eq!(
+        count_identifier_in_rust_sources(&source_root, "HasInstanceRuntimeState"),
+        7,
+        "the declaration, projection, two request mappings and three runtime-state selections must be the complete source census"
+    );
+    assert_eq!(
+        normalized_source
+            .routes
+            .matches("HasInstanceRuntimeState::InstanceofOperator")
+            .count(),
+        3
+    );
+    assert_eq!(
+        normalized_source
+            .routes
+            .matches("HasInstanceRuntimeState::OrdinaryHasInstance")
+            .count(),
+        2
+    );
+    assert_eq!(
+        normalized_source.routes.matches(".runtime_code()").count(),
+        4,
+        "the selected initial state and all three gate/transition constants must use the exhaustive projection"
+    );
+    assert!(!normalized_source.routes.contains("stateasi64"));
+    assert!(!normalized_source
+        .routes
+        .contains("HasInstanceRuntimeState::InstanceofOperatorasi64"));
+    assert!(!normalized_source
+        .routes
+        .contains("HasInstanceRuntimeState::OrdinaryHasInstanceasi64"));
 
     let operator_wrapper = bounded(
-        OPERATIONS_SOURCE,
+        HAS_INSTANCE_SOURCE,
         "    pub(crate) fn emit_instanceof_operator_from_locals(",
         "    pub(crate) fn emit_ordinary_has_instance_from_locals(",
     );
@@ -198,7 +524,7 @@ fn has_instance_dispatch_is_a_closed_noncopyable_two_entry_domain() {
     assert!(operator_wrapper.contains("constructor: HasInstanceValueLocals::new("));
 
     let ordinary_wrapper = bounded(
-        OPERATIONS_SOURCE,
+        HAS_INSTANCE_SOURCE,
         "    pub(crate) fn emit_ordinary_has_instance_from_locals(",
         "    fn emit_has_instance_request(",
     );
@@ -207,9 +533,9 @@ fn has_instance_dispatch_is_a_closed_noncopyable_two_entry_domain() {
     assert!(ordinary_wrapper.contains("object: HasInstanceValueLocals::new("));
 
     let emitter = bounded(
-        OPERATIONS_SOURCE,
+        HAS_INSTANCE_SOURCE,
         "    fn emit_has_instance_request(",
-        "    pub(crate) fn emit_update_delta(",
+        "\n    }\n}",
     );
     assert!(emitter.contains("let (state, constructor, object) = match request"));
     assert!(!emitter.contains("_ =>"));
@@ -217,10 +543,109 @@ fn has_instance_dispatch_is_a_closed_noncopyable_two_entry_domain() {
     assert!(emitter.contains("self.emit_indirect_call_from_locals("));
     assert!(emitter.contains("self.emit_to_boolean_payload_from_tagged_locals("));
     assert!(emitter.contains("FUNCTION_FLAG_BOUND"));
-    assert!(emitter.contains("HasInstanceRuntimeState::InstanceofOperator as i64"));
     assert!(emitter.contains("self.strings.payload(\"prototype\")"));
     assert!(emitter.contains("self.emit_object_read("));
     assert!(emitter.contains("self.emit_object_get_prototype_of("));
+
+    let normalized_emitter = normalize_rust(emitter);
+    assert_eq!(
+        exact_identifier_count(&normalized_emitter.identifiers, "state_local"),
+        6,
+        "the reservation, three writes, one comparison read and final release must be the complete state-local lifecycle"
+    );
+    let local_reservations = bounded(
+        emitter,
+        ") -> Result<(), EmitError> {",
+        "\n\n        let (state, constructor, object) = match request",
+    );
+    assert_eq!(
+        normalize_rust(local_reservations).code,
+        concat!(
+            "letstate_local=self.reserve_temp_local();",
+            "letconstructor_payload_local=self.reserve_temp_local();",
+            "letconstructor_tag_local=self.reserve_temp_local();",
+            "letobject_payload_local=self.reserve_temp_local();",
+            "letobject_tag_local=self.reserve_temp_local();",
+            "letkey_local=self.reserve_temp_local();",
+            "lethandler_payload_local=self.reserve_temp_local();",
+            "lethandler_tag_local=self.reserve_temp_local();",
+            "letcall_result_payload_local=self.reserve_temp_local();",
+            "letcall_result_tag_local=self.reserve_temp_local();",
+            "letflags_local=self.reserve_temp_local();",
+            "letbound_record_local=self.reserve_temp_local();",
+            "letprototype_payload_local=self.reserve_temp_local();",
+            "letprototype_tag_local=self.reserve_temp_local();",
+            "letsearch_payload_local=self.reserve_temp_local();",
+            "letsearch_tag_local=self.reserve_temp_local();",
+            "letnext_prototype_payload_local=self.reserve_temp_local();",
+            "letnext_prototype_tag_local=self.reserve_temp_local();"
+        )
+    );
+    let normalized_emitter = &normalized_emitter.code;
+    assert!(normalized_emitter.contains(concat!(
+        "let(state,constructor,object)=matchrequest{",
+        "HasInstanceRequestLocals::InstanceofOperator{object,constructor,}=>",
+        "(HasInstanceRuntimeState::InstanceofOperator,constructor,object,),",
+        "HasInstanceRequestLocals::OrdinaryHasInstance{constructor,object,}=>",
+        "(HasInstanceRuntimeState::OrdinaryHasInstance,constructor,object,),};",
+        "function.instruction(&Instruction::I64Const(state.runtime_code()));",
+        "function.instruction(&Instruction::LocalSet(state_local));",
+        "function.instruction(&Instruction::LocalGet(constructor.payload));"
+    )));
+    assert!(normalized_emitter.contains(concat!(
+        "function.instruction(&Instruction::LocalGet(state_local));",
+        "function.instruction(&Instruction::I64Const(",
+        "HasInstanceRuntimeState::InstanceofOperator.runtime_code(),));",
+        "function.instruction(&Instruction::I64Eq);",
+        "self.open_frame(ControlFrameKind::If,function);"
+    )));
+    assert!(normalized_emitter.contains(concat!(
+        "function.instruction(&Instruction::I64Const(",
+        "HasInstanceRuntimeState::OrdinaryHasInstance.runtime_code(),));",
+        "function.instruction(&Instruction::LocalSet(state_local));",
+        "self.emit_branch_to_target(dispatch,function);"
+    )));
+    assert!(normalized_emitter.contains(concat!(
+        "self.load_i64_to_local_from_offset(bound_record_local,",
+        "HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET,constructor_tag_local,function,);",
+        "function.instruction(&Instruction::I64Const(",
+        "HasInstanceRuntimeState::InstanceofOperator.runtime_code(),));",
+        "function.instruction(&Instruction::LocalSet(state_local));",
+        "self.emit_branch_to_target(dispatch,function);"
+    )));
+    assert_eq!(
+        normalized_emitter
+            .matches("Instruction::LocalSet(state_local)")
+            .count(),
+        3
+    );
+    assert_eq!(
+        normalized_emitter
+            .matches("Instruction::LocalGet(state_local)")
+            .count(),
+        1
+    );
+    assert!(normalized_emitter.ends_with(concat!(
+        "self.release_temp_local(next_prototype_tag_local);",
+        "self.release_temp_local(next_prototype_payload_local);",
+        "self.release_temp_local(search_tag_local);",
+        "self.release_temp_local(search_payload_local);",
+        "self.release_temp_local(prototype_tag_local);",
+        "self.release_temp_local(prototype_payload_local);",
+        "self.release_temp_local(bound_record_local);",
+        "self.release_temp_local(flags_local);",
+        "self.release_temp_local(call_result_tag_local);",
+        "self.release_temp_local(call_result_payload_local);",
+        "self.release_temp_local(handler_tag_local);",
+        "self.release_temp_local(handler_payload_local);",
+        "self.release_temp_local(key_local);",
+        "self.release_temp_local(object_tag_local);",
+        "self.release_temp_local(object_payload_local);",
+        "self.release_temp_local(constructor_tag_local);",
+        "self.release_temp_local(constructor_payload_local);",
+        "self.release_temp_local(state_local);",
+        "Ok(())"
+    )));
 
     let absent_handler = bounded(
         emitter,
@@ -233,7 +658,7 @@ fn has_instance_dispatch_is_a_closed_noncopyable_two_entry_domain() {
     assert_before(
         absent_handler,
         "self.emit_is_callable_i32(constructor_tag_local, constructor_payload_local",
-        "HasInstanceRuntimeState::OrdinaryHasInstance as i64",
+        "HasInstanceRuntimeState::OrdinaryHasInstance.runtime_code()",
     );
     assert_before(
         emitter,
@@ -242,11 +667,11 @@ fn has_instance_dispatch_is_a_closed_noncopyable_two_entry_domain() {
     );
 
     let define_property = bounded(
-        OBJECT_BUILTIN_SOURCE,
-        "    pub(super) fn compile_object_define_property_builtin(",
-        "    pub(super) fn compile_object_get_own_property_descriptor_builtin(",
+        DEFINE_PROPERTY_SOURCE,
+        "    pub(in crate::builtins) fn compile_object_define_property_builtin(",
+        "\n}",
     );
-    assert!(define_property.contains("self.emit_object_define_entry("));
+    assert!(define_property.contains("self.emit_object_define_entry_validated("));
     assert!(!define_property.contains("FUNCTION_FLAG_BOUND | FUNCTION_FLAG_IS_HTMLDDA"));
 }
 

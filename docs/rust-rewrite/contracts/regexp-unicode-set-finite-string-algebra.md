@@ -132,8 +132,9 @@ source `\q` operand.
 ### Finite keycap property extension
 
 Unicode 17 `Emoji_Keycap_Sequence` is the exact twelve-member set
-`[#*0-9] FE0F 20E3`. Its property parser constructs those complete
-three-code-point strings directly, so a bare
+`[#*0-9] FE0F 20E3`. The pinned `regress` provider already owns those twelve
+complete three-code-point sequences. The Lila property parser borrows that
+table and converts it once into the private finite-set product, so a bare
 `\p{Emoji_Keycap_Sequence}` atom and UnicodeSets union, intersection and
 subtraction all consume the canonical finite product above. The property sets
 `MayContainStrings` independently of the post-algebra product, preserving the
@@ -143,6 +144,25 @@ negated-class early error.
 `RequiresUnicodePropertyOfStrings`. Adding another property requires its own
 revision-pinned table and focused raw inventory; recognizing its name is not
 permission to approximate it with code-point ranges.
+
+### Closed provider boundary
+
+The vendored provider exposes only `UnicodeStringProperty`, its strict name
+parser and a read-only sequence accessor from the crate root. The generated
+table module remains private. `UnicodeStringProperty` is the single closed
+seven-variant authority for the exact ECMAScript property names, and the
+provider's sequence accessor projects all seven variants exhaustively.
+
+Lila parses the source spelling into that domain once at the RegExp boundary.
+Its catch-all-free match then has one semantic arm per provider variant:
+`EmojiKeycapSequence` consumes the provider sequences and enters
+`FiniteClassSet`; `BasicEmoji` and each of the five `RGIEmoji*` variants enter
+the explicit `RequiresUnicodePropertyOfStrings` capability. No raw property
+name is matched again inside Lila, and no handwritten keycap table remains.
+Adding a provider variant therefore makes both the provider table projection
+and the Lila semantic projection fail to compile until the new case is owned.
+This is an invariant-only authority change: the admitted keycap behavior and
+the six unsupported capability outcomes are unchanged.
 
 ## Case-insensitive boundary
 
@@ -190,6 +210,9 @@ The focused `lila-ir` witness must prove:
   string set remains explicit unsupported; and
 - the exact twelve-member keycap table enters the same direct-atom and set
   algebra path while other string properties remain typed unsupported;
+- the strict provider parser and exhaustive seven-arm provider/Lila
+  projections are the sole property-name and sequence authorities, with the
+  provider sequence accessor consumed only by the finite keycap arm;
 - the source-derived 37-file keycap inventory stays unflagged, contains exactly
   three parse-negative files, and has no runner, shortcut, or known-failure
   mask; and
@@ -226,3 +249,11 @@ those exact relative paths independently under `wasm-aot`; the three
 parse-time `SyntaxError` successes. Publication reports that inventory
 separately from the original 27-file/54-execution direct-`\q` cohort and from
 the complete generated directory.
+
+The 2026-08-27 invariant-only provider refresh passed both focused IR witnesses
+(`1/1` finite algebra and `1/1` strict closed names), the dedicated bounded
+provider-domain structure target `3/3`, and the retained finite-string
+structure target `7/7`. `cargo check -p lila-ir`, formatting and diff checks
+were green with only the repository's existing warnings. No Wasm fixture,
+golden or Test262 status was rerun because the admitted behavior did not
+change.

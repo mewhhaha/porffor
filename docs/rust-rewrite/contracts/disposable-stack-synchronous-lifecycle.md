@@ -84,13 +84,17 @@ entry.
 prototype and never invokes a disposer, including when the receiver is a
 subclass instance.
 
-The backend expresses the transfer as a private, non-`Copy`, `#[must_use]`
-capability witness. Minting the witness snapshots the pointer, length, and
-capacity, replaces the source with the canonical empty capability, and sets
-the source state to `Disposed`. A single consuming finalizer installs the
-snapshot into a freshly allocated pending record and publishes the branded
-base instance. The capability cannot be installed twice or silently discarded
-without a compiler diagnostic.
+The backend expresses the transfer as a private-field, non-`Copy`,
+`#[must_use]` capability witness. Its private
+`disposable_stack/capability_transfer.rs` owner contains the sole producer and
+consumer. Rust requires the carrier and those two methods to be `pub(super)` so
+the parent can pass the inferred value through the retained `move` choreography,
+but the parent cannot construct or project its pointer, length or capacity.
+Minting the witness snapshots those three locals, replaces the source with the
+canonical empty capability, and sets the source state to `Disposed`. The sole
+consumer installs the snapshot into a freshly allocated pending record before
+the existing finalizer publishes the branded base instance. The capability
+cannot be installed twice or silently discarded without a compiler diagnostic.
 
 The returned stack is `Pending`; the source is permanently `Disposed`. A later
 `source.dispose()` is an idempotent no-op, while registration and another
@@ -194,8 +198,19 @@ cargo test -p lila-cli --test cli wasm_disposable_stack --quiet
 ./target/debug/lila test262 run staging/explicit-resource-management/disposable-stack --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
+The recursive lifecycle structure guard additionally pins sole child ownership
+of the transfer carrier, its raw fields, construction and consumption; forbids
+parent imports, re-exports and explicit carrier naming; and preserves the
+parent's `take -> install -> finalize` call order.
+
 The narrower 2026-08-23 value-return routing change passed the capped
 workspace `cargo xc` gate, the exact structural lifecycle witness (`1/1`) and
 the existing exact CLI lifecycle fixture (`1/1`). That checkpoint proves the
 typed caller map and preserves the focused runtime behavior; it did not rerun
 the two broad Test262 directories or refresh the 76-file inventory above.
+
+At the 2026-08-28 Batch U checkpoint, the capability-transfer owner kept its
+frozen child and parent-choreography hashes, the complete lifecycle structure
+target passed `8/8`, the exact intrinsic-unit witness passed `1/1`, the exact
+CLI lifecycle fixture passed `1/1`, and the shared `cargo xc` gate was green.
+The two broad Test262 directories and the 76-file inventory were not rerun.

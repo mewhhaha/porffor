@@ -491,8 +491,8 @@ impl<'ast> VisitorMut<'ast> for BindingEscapeAnalyzer<'_> {
         node: &'ast mut ExportDeclaration,
     ) -> ControlFlow<Self::BreakTy> {
         match node {
-            ExportDeclaration::ReExport { specifier, kind } => {
-                self.visit_module_specifier_mut(specifier)?;
+            ExportDeclaration::ReExport { request, kind } => {
+                request.visit_with_mut(self)?;
                 self.visit_re_export_kind_mut(kind)
             }
             ExportDeclaration::List(list) => {

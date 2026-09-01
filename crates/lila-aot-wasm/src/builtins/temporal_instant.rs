@@ -28,7 +28,7 @@ use crate::operations::BigIntNumberPolicy;
 /// Interned unconditionally in the `data.rs` string pool: `StringPool::payload`
 /// panics for a message that is not there, so a missing row is a compiler
 /// panic for every program that roots `Temporal.Instant`, not a wrong answer.
-pub(crate) const TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE: &str =
+const TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE: &str =
     "Temporal.Instant.fromEpochMilliseconds requires an integral Number";
 
 /// `Temporal.Instant.prototype.valueOf` exists only to make implicit numeric
@@ -38,7 +38,7 @@ pub(crate) const TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE: &str 
 ///
 /// Interned unconditionally in the `data.rs` string pool, for the same reason
 /// as the message above.
-pub(crate) const TEMPORAL_INSTANT_VALUE_OF_MESSAGE: &str =
+const TEMPORAL_INSTANT_VALUE_OF_MESSAGE: &str =
     "Temporal.Instant does not support implicit conversion; use compare() or equals()";
 
 /// A `(payload, tag)` local pair holding epoch nanoseconds that nothing has
@@ -65,7 +65,6 @@ pub(crate) struct UnvalidatedEpochNanoseconds {
 /// cannot be produced any other way. `IsValidEpochNanoseconds` is therefore
 /// checked exactly once per allocation site, and "I forgot to range-check"
 /// stops being expressible rather than being left for a test to notice.
-#[derive(Clone, Copy)]
 struct EpochNanoseconds(UnvalidatedEpochNanoseconds);
 
 impl<'a> FunctionBuilder<'a> {
@@ -96,14 +95,18 @@ impl<'a> FunctionBuilder<'a> {
         epoch: EpochNanoseconds,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let EpochNanoseconds(UnvalidatedEpochNanoseconds {
+            payload_local,
+            tag_local,
+        }) = epoch;
         let prototype_payload_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(
             TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
         ));
         function.instruction(&Instruction::LocalSet(prototype_payload_local));
         self.emit_alloc_temporal_instant(
-            epoch.0.payload_local,
-            epoch.0.tag_local,
+            payload_local,
+            tag_local,
             prototype_payload_local,
             function,
         )?;

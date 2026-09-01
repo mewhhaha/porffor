@@ -64,6 +64,19 @@ Both the value-resume and iterator-close-resume paths normalize before any
 completion, iterator-result validation or environment-unwind decision. No
 ordinary async consumer compares the raw word.
 
+Batch AB makes `ForAwaitActivationLayout` a must-use, capability-free owner of
+the complete suspension policy. Its three offset projections borrow that one
+owner. The two borrowed strict-decoder calls and four borrowed exhaustive
+projections select the rejection Promise Realm and the ordinary-async versus
+async-generator reaction sequence for the close and value suspension paths.
+The former copied layout values and `is_async_generator` Boolean carrier are
+gone, so those policies cannot drift onto independently copied authorities.
+This Rust-only closure changes no emitted Wasm or runtime behavior. At the
+Batch AB checkpoint, `cargo xc` is green, the dedicated structure target passes
+`3/3`, and the exact ordinary-rejection, iterator-close and async-generator
+rejection engine controls pass `3/3`. Test262 and semantic goldens were not
+rerun for this capability-only closure.
+
 ## Durable evidence
 
 The heap wire-domain test fixes the two words and their exhaustive throw
@@ -89,7 +102,8 @@ non-success bucket at zero.
 
 ## Nonclaims
 
-This invariant does not type Promise lifecycle state, async-generator resume
+This invariant does not merge the distinct async-function and async-generator
+resume domains. It does not type Promise lifecycle state, async-generator resume
 kinds, async-generator execution/body state, or module/finalization jobs. It
 does not make the Promise-job queue realm- or agent-owned, change unhandled
 rejection reporting, establish complete suspended-body support, or close the

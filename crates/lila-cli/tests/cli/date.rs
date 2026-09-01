@@ -269,6 +269,48 @@ fn run_wasm_backend_resolves_temporal_time_string_calendars_by_consumer() {
 }
 
 #[test]
+fn run_wasm_backend_preserves_temporal_date_field_read_modes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_date_field_read_modes.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262"));
+}
+
+#[test]
+fn run_wasm_backend_preserves_plain_date_time_field_read_modes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_temporal_plain_date_time_field_read_mode.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("number(262"));
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_era_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -285,10 +327,16 @@ fn run_wasm_backend_succeeds_for_temporal_zoned_date_time_era_fixture() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains(
+            "temporal-zdt-option-order:invalid-era|missing-year|missing-day|missing-time-zone|invalid-time-zone"
+        ),
+        "{stdout}"
+    );
 
-    // Asserted in three halves, because the three carry different mechanisms
-    // and one combined `contains` would report any of them as a failure of the
-    // first.
+    // The era/component output is asserted in three halves, because the three
+    // carry different mechanisms and one combined `contains` would report any
+    // of them as a failure of the first.
     //
     // (1) The accessor pair itself: `"ce"`/1970 for a gregory receiver and
     // `undefined` for an iso8601 one. The `undefined` half is the one that used
@@ -546,4 +594,67 @@ fn run_wasm_backend_succeeds_for_date_utc_and_exponent_tonumber_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("number(262"));
+}
+
+#[test]
+fn run_wasm_backend_distinguishes_plain_temporal_add_and_subtract() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_plain_arithmetic_operation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_distinguishes_plain_temporal_until_and_since() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_plain_difference_operation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_preserves_temporal_conversion_overflow_options() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_conversion_overflow_options.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
 }

@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::Path;
+
 const COLLECTION_INTRINSICS_SOURCE: &str = include_str!("../src/intrinsics/collections.rs");
 
 fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -22,6 +25,59 @@ fn exact_identifier_count(source: &str, identifier: &str) -> usize {
             })
         })
         .count()
+}
+
+fn normalized(source: &str) -> String {
+    source
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+fn normalized_preserving_string_contents(source: &str) -> String {
+    let mut result = String::new();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for character in source.chars() {
+        if in_string {
+            result.push(character);
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+        } else if character == '"' {
+            in_string = true;
+            result.push(character);
+        } else if !character.is_whitespace() {
+            result.push(character);
+        }
+    }
+
+    assert!(!in_string, "unterminated string literal in bounded source");
+    result
+}
+
+fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
+    fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
+        .map(|entry| entry.expect("failed to read Rust source entry").path())
+        .map(|path| {
+            if path.is_dir() {
+                return count_in_rust_sources(&path, needle);
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+                return 0;
+            }
+            fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+                .matches(needle)
+                .count()
+        })
+        .sum()
 }
 
 fn assert_before(source: &str, earlier: &str, later: &str) {
@@ -58,7 +114,26 @@ fn assert_after_containing_loop(source: &str, loop_body_operation: &str, later: 
 }
 
 #[test]
+fn authority_normalizer_preserves_string_literal_spaces() {
+    assert_eq!(
+        normalized_preserving_string_contents("Self::WeakMap => \"Weak Map\","),
+        "Self::WeakMap=>\"Weak Map\","
+    );
+}
+
+#[test]
 fn collection_prototype_to_string_tags_have_one_closed_descriptor_authority() {
+    let declaration_start = COLLECTION_INTRINSICS_SOURCE
+        .find("enum CollectionPrototypeIntrinsic {")
+        .expect("collection prototype authority declaration");
+    assert_eq!(
+        COLLECTION_INTRINSICS_SOURCE[..declaration_start]
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(str::trim),
+        Some("pub(crate)")
+    );
     let declaration = between(
         COLLECTION_INTRINSICS_SOURCE,
         "enum CollectionPrototypeIntrinsic {",
@@ -70,23 +145,69 @@ fn collection_prototype_to_string_tags_have_one_closed_descriptor_authority() {
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
     assert_eq!(variants, ["Map,", "Set,", "WeakMap,", "WeakSet,"]);
+    let declaration_region = between(
+        COLLECTION_INTRINSICS_SOURCE,
+        "use crate::functions::NonArrayRealmIntrinsicSlot;",
+        "impl CollectionPrototypeIntrinsic {",
+    );
+    assert!(!declaration_region.contains("#[derive"));
+    for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
+        assert!(!COLLECTION_INTRINSICS_SOURCE.contains(&format!(
+            "impl {capability} for CollectionPrototypeIntrinsic"
+        )));
+    }
+
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert_eq!(
+        count_in_rust_sources(&source_root, "CollectionPrototypeIntrinsic"),
+        10,
+        "the import, declaration, inherent impl, owned emitter parameter and six producers own every mention"
+    );
+    for (variant, expected_producers) in [("Map", 1), ("Set", 1), ("WeakMap", 2), ("WeakSet", 2)] {
+        assert_eq!(
+            count_in_rust_sources(
+                &source_root,
+                &format!("CollectionPrototypeIntrinsic::{variant}")
+            ),
+            expected_producers,
+            "{variant} must have the expected entry- and created-Realm producers"
+        );
+    }
 
     let authority = between(
         COLLECTION_INTRINSICS_SOURCE,
         "impl CollectionPrototypeIntrinsic {",
         "\n}\n\nimpl<'a> FunctionBuilder<'a> {",
     );
-    assert!(!authority.contains("_ =>"));
-    for (variant, global, tag) in [
-        ("Map", "MAP_PROTOTYPE_GLOBAL_INDEX", "Map"),
-        ("Set", "SET_PROTOTYPE_GLOBAL_INDEX", "Set"),
-        ("WeakMap", "WEAK_MAP_PROTOTYPE_GLOBAL_INDEX", "WeakMap"),
-        ("WeakSet", "WEAK_SET_PROTOTYPE_GLOBAL_INDEX", "WeakSet"),
+    assert_eq!(
+        normalized_preserving_string_contents(authority),
+        concat!(
+            "constfnprototype_global_index(&self)->u32{matchself{",
+            "Self::Map=>MAP_PROTOTYPE_GLOBAL_INDEX,",
+            "Self::Set=>SET_PROTOTYPE_GLOBAL_INDEX,",
+            "Self::WeakMap=>WEAK_MAP_PROTOTYPE_GLOBAL_INDEX,",
+            "Self::WeakSet=>WEAK_SET_PROTOTYPE_GLOBAL_INDEX,",
+            "}}",
+            "constfnto_string_tag(&self)->&'staticstr{matchself{",
+            "Self::Map=>\"Map\",",
+            "Self::Set=>\"Set\",",
+            "Self::WeakMap=>\"WeakMap\",",
+            "Self::WeakSet=>\"WeakSet\",",
+            "}}",
+            "pub(crate)constfnrealm_slot(&self)->NonArrayRealmIntrinsicSlot{matchself{",
+            "Self::Map=>NonArrayRealmIntrinsicSlot::MapPrototype,",
+            "Self::Set=>NonArrayRealmIntrinsicSlot::SetPrototype,",
+            "Self::WeakMap=>NonArrayRealmIntrinsicSlot::WeakMapPrototype,",
+            "Self::WeakSet=>NonArrayRealmIntrinsicSlot::WeakSetPrototype,",
+            "}}",
+        )
+    );
+    for global in [
+        "MAP_PROTOTYPE_GLOBAL_INDEX",
+        "SET_PROTOTYPE_GLOBAL_INDEX",
+        "WEAK_MAP_PROTOTYPE_GLOBAL_INDEX",
+        "WEAK_SET_PROTOTYPE_GLOBAL_INDEX",
     ] {
-        let global_mapping = format!("Self::{variant} => {global},");
-        let tag_mapping = format!("Self::{variant} => \"{tag}\",");
-        assert_eq!(authority.matches(&global_mapping).count(), 1, "{variant}");
-        assert_eq!(authority.matches(&tag_mapping).count(), 1, "{variant}");
         assert_eq!(
             exact_identifier_count(COLLECTION_INTRINSICS_SOURCE, global),
             1,
@@ -96,9 +217,13 @@ fn collection_prototype_to_string_tags_have_one_closed_descriptor_authority() {
 
     let emitter = between(
         COLLECTION_INTRINSICS_SOURCE,
-        "    fn emit_collection_prototype_to_string_tag(",
+        "    pub(crate) fn emit_collection_prototype_to_string_tag(",
         "    pub(crate) fn install_map_constructor_intrinsics(",
     );
+    assert!(normalized(emitter).starts_with(concat!(
+        "&mutself,intrinsic:CollectionPrototypeIntrinsic,prototype_local:u32,",
+        "function:&mutFunction,)->Result<(),EmitError>{"
+    )));
     assert_eq!(
         emitter
             .matches("property_key_symbol_payload(\"Symbol.toStringTag\")")
@@ -126,6 +251,24 @@ fn collection_prototype_to_string_tags_have_one_closed_descriptor_authority() {
         1,
         "the shared descriptor must be non-writable, non-enumerable and configurable"
     );
+    assert_eq!(exact_identifier_count(emitter, "reserve_temp_local"), 3);
+    assert_eq!(exact_identifier_count(emitter, "release_temp_local"), 3);
+    for local in ["key_local", "payload_local", "tag_local"] {
+        assert_eq!(
+            emitter
+                .matches(&format!("let {local} = self.reserve_temp_local();"))
+                .count(),
+            1,
+            "{local} must be reserved exactly once"
+        );
+        assert_eq!(
+            emitter
+                .matches(&format!("self.release_temp_local({local});"))
+                .count(),
+            1,
+            "{local} must be released exactly once"
+        );
+    }
     assert_before(
         emitter,
         "let key_local = self.reserve_temp_local();",
@@ -146,6 +289,12 @@ fn collection_prototype_to_string_tags_have_one_closed_descriptor_authority() {
         "self.release_temp_local(payload_local);",
         "self.release_temp_local(key_local);",
     );
+    assert!(normalized(emitter).ends_with(concat!(
+        "self.release_temp_local(tag_local);",
+        "self.release_temp_local(payload_local);",
+        "self.release_temp_local(key_local);",
+        "Ok(())}",
+    )));
 
     let installers = [
         (
@@ -201,6 +350,22 @@ fn collection_prototype_to_string_tags_have_one_closed_descriptor_authority() {
             1,
             "{variant} family selection"
         );
+        assert_before(
+            installer,
+            "Instruction::GlobalGet(intrinsic.prototype_global_index())",
+            "emit_collection_prototype_to_string_tag(",
+        );
+        let normalized_installer = normalized(installer).replace(",)?;", ")?;");
+        let consuming_call = format!(
+            "self.emit_collection_prototype_to_string_tag(intrinsic,{prototype_local},function)?;"
+        );
+        assert_eq!(
+            normalized_installer.matches(&consuming_call).count(),
+            1,
+            "{variant} must move its authority once after the borrowed prototype projection"
+        );
+        assert!(!normalized_installer
+            .contains("self.emit_collection_prototype_to_string_tag(&intrinsic,"));
         assert_eq!(
             installer
                 .matches("Instruction::GlobalGet(intrinsic.prototype_global_index())")

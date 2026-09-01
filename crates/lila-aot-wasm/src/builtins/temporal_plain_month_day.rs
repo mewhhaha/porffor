@@ -9,8 +9,11 @@
 //! The reference year is 1972 - a leap year, so `--02-29` is representable.
 
 use super::super::*;
-use super::temporal_options::{ShowCalendarName, TemporalOverflow};
+use super::temporal_options::{
+    ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow,
+};
 use super::temporal_plain_date::{MonthDayYearUse, TemporalCalendarId, TemporalResolvedYear};
+use super::temporal_plain_date_methods::TemporalDateFieldReadMode;
 use super::temporal_plain_year_month::{TemporalPartialDatePrototype, TemporalPartialDateType};
 
 /// `ISO_REFERENCE_YEAR` from the proposal.
@@ -81,7 +84,7 @@ const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
 /// checker can mint, instead of a bare `u32` local. That moves the obligation to
 /// the allocation site, which every path must reach.
 #[must_use]
-pub(crate) struct TemporalParsedMonthDayYear {
+struct TemporalParsedMonthDayYear {
     year_local: u32,
     year_present_local: u32,
 }
@@ -222,8 +225,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_temporal_branded_record_from_receiver(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_MONTH_DAY,
-            "Temporal.PlainMonthDay receiver does not have [[InitializedTemporalMonthDay]]",
+            TemporalPartialDateType::PlainMonthDay,
             record_local,
             function,
         )
@@ -541,13 +543,11 @@ impl<'a> FunctionBuilder<'a> {
 
     /// `ToTemporalMonthDay`.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn emit_temporal_to_temporal_month_day(
+    pub(super) fn emit_temporal_to_temporal_month_day(
         &mut self,
         argument_payload_local: u32,
         argument_tag_local: u32,
-        options_payload_local: u32,
-        options_tag_local: u32,
-        read_options: bool,
+        overflow_options: TemporalConversionOverflowOptions,
         year_local: u32,
         month_local: u32,
         day_local: u32,
@@ -602,13 +602,17 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         );
-        if read_options {
-            self.emit_temporal_month_day_overflow_option(
-                options_payload_local,
-                options_tag_local,
+        match overflow_options {
+            TemporalConversionOverflowOptions::Read {
+                payload_local,
+                tag_local,
+            } => self.emit_temporal_month_day_overflow_option(
+                payload_local,
+                tag_local,
                 overflow_local,
                 function,
-            )?;
+            )?,
+            TemporalConversionOverflowOptions::Omit => {}
         }
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(handled_local));
@@ -631,17 +635,20 @@ impl<'a> FunctionBuilder<'a> {
             month_code_present_local,
             day_local,
             day_present_local,
-            true,
-            true,
+            TemporalDateFieldReadMode::MonthDayConversion,
             function,
         )?;
-        if read_options {
-            self.emit_temporal_month_day_overflow_option(
-                options_payload_local,
-                options_tag_local,
+        match overflow_options {
+            TemporalConversionOverflowOptions::Read {
+                payload_local,
+                tag_local,
+            } => self.emit_temporal_month_day_overflow_option(
+                payload_local,
+                tag_local,
                 overflow_local,
                 function,
-            )?;
+            )?,
+            TemporalConversionOverflowOptions::Omit => {}
         }
         let resolved_year = self.emit_temporal_resolve_era_to_year(
             era,
@@ -714,15 +721,19 @@ impl<'a> FunctionBuilder<'a> {
         // routes through the `handled_local == 0` bag branch and which never
         // enters this string branch at all.
         //
-        // `equals` arrives with `read_options: false` and still owes both
+        // `equals` arrives with omitted overflow options and still owes both
         // RangeErrors, which is why they are not inside here.
-        if read_options {
-            self.emit_temporal_month_day_overflow_option(
-                options_payload_local,
-                options_tag_local,
+        match overflow_options {
+            TemporalConversionOverflowOptions::Read {
+                payload_local,
+                tag_local,
+            } => self.emit_temporal_month_day_overflow_option(
+                payload_local,
+                tag_local,
                 overflow_local,
                 function,
-            )?;
+            )?,
+            TemporalConversionOverflowOptions::Omit => {}
         }
         self.emit_temporal_month_day_string_reference_year(
             parsed,
@@ -769,9 +780,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_to_temporal_month_day(
             argument_payload_local,
             argument_tag_local,
-            options_payload_local,
-            options_tag_local,
-            true,
+            TemporalConversionOverflowOptions::Read {
+                payload_local: options_payload_local,
+                tag_local: options_tag_local,
+            },
             year_local,
             month_local,
             day_local,
@@ -811,7 +823,7 @@ impl<'a> FunctionBuilder<'a> {
     /// than releasing it, and why this returns a
     /// [`TemporalParsedMonthDayYear`] instead of `()`.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn emit_temporal_parse_month_day_string(
+    fn emit_temporal_parse_month_day_string(
         &mut self,
         string_payload_local: u32,
         year_local: u32,
@@ -895,7 +907,7 @@ impl<'a> FunctionBuilder<'a> {
     /// derive this year from `CalendarMonthDayFromFields` instead — see the note
     /// on `ALL` itself.
     ///
-    /// Both checks are outside the caller's `if read_options` block, because
+    /// Both checks are outside the caller's overflow-options match, because
     /// `equals` reaches `ToTemporalMonthDay` with no options at all and
     /// `prototype/equals/argument-string-invalid.js` still requires both
     /// RangeErrors. That the overflow read is emitted *before* them follows the
@@ -977,8 +989,6 @@ impl<'a> FunctionBuilder<'a> {
         let calendar_payload_local = self.reserve_temp_local();
         let argument_payload_local = self.reserve_temp_local();
         let argument_tag_local = self.reserve_temp_local();
-        let undefined_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
         let other_year_local = self.reserve_temp_local();
         let other_month_local = self.reserve_temp_local();
         let other_day_local = self.reserve_temp_local();
@@ -993,17 +1003,11 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_temporal_to_temporal_month_day(
             argument_payload_local,
             argument_tag_local,
-            undefined_local,
-            undefined_tag_local,
-            false,
+            TemporalConversionOverflowOptions::Omit,
             other_year_local,
             other_month_local,
             other_day_local,
@@ -1041,8 +1045,6 @@ impl<'a> FunctionBuilder<'a> {
             other_day_local,
             other_month_local,
             other_year_local,
-            undefined_tag_local,
-            undefined_local,
             argument_tag_local,
             argument_payload_local,
             calendar_payload_local,
@@ -1158,8 +1160,7 @@ impl<'a> FunctionBuilder<'a> {
             month_code_present_local,
             new_day_local,
             day_present_local,
-            false,
-            true,
+            TemporalDateFieldReadMode::MonthDayWith,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(year_present_local));

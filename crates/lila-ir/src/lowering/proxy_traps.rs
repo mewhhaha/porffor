@@ -11,7 +11,6 @@
 /// `(target, thisArgument, argumentsList)`, or `(target, argumentsList,
 /// newTarget)`, and treating those as interchangeable is exactly the mistake
 /// this seam prevents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ProxyTrapSignature {
     Target,
     TargetAndPropertyKey,

@@ -49,12 +49,28 @@ const ASYNC_DISPOSABLE_STACK_DISPOSE_ENTRIES_PTR_OFFSET: u64 = 16;
 /// walks `[[DisposableResourceStack]]` in reverse list order, so the walk
 /// starts at the length and stops at zero.
 const ASYNC_DISPOSABLE_STACK_DISPOSE_INDEX_OFFSET: u64 = 24;
-/// Whether `completion` is currently a throw completion. `DisposeResources`
-/// threads one completion through the whole walk; this flag plus the two value
-/// words below are that completion.
-const ASYNC_DISPOSABLE_STACK_DISPOSE_HAS_ERROR_OFFSET: u64 = 32;
+/// The closed completion kind threaded through the disposal walk. The two
+/// value words below are meaningful only for `Throw`.
+const ASYNC_DISPOSABLE_STACK_DISPOSE_COMPLETION_KIND_OFFSET: u64 = 32;
 const ASYNC_DISPOSABLE_STACK_DISPOSE_ERROR_TAG_OFFSET: u64 = 40;
 const ASYNC_DISPOSABLE_STACK_DISPOSE_ERROR_PAYLOAD_OFFSET: u64 = 48;
+
+enum AsyncDisposableStackDisposeCompletionKind {
+    Normal,
+    Throw,
+}
+
+impl AsyncDisposableStackDisposeCompletionKind {
+    fn word(&self) -> u64 {
+        match self {
+            Self::Normal => 0,
+            Self::Throw => 1,
+        }
+    }
+}
+
+#[must_use = "a loaded disposal completion kind must be consumed by an exhaustive route"]
+struct AsyncDisposableStackDisposeCompletionKindLocal(u32);
 
 impl<'a> FunctionBuilder<'a> {
     /// `AsyncDisposableStack ( )` (27.4.1.1).
@@ -692,8 +708,12 @@ impl<'a> FunctionBuilder<'a> {
             entries_len_local,
             function,
         );
+        self.emit_store_async_disposable_stack_dispose_completion_kind(
+            dispose_state_local,
+            AsyncDisposableStackDisposeCompletionKind::Normal,
+            function,
+        );
         for offset in [
-            ASYNC_DISPOSABLE_STACK_DISPOSE_HAS_ERROR_OFFSET,
             ASYNC_DISPOSABLE_STACK_DISPOSE_ERROR_TAG_OFFSET,
             ASYNC_DISPOSABLE_STACK_DISPOSE_ERROR_PAYLOAD_OFFSET,
         ] {
@@ -815,7 +835,6 @@ impl<'a> FunctionBuilder<'a> {
         let rejected_payload_local = self.reserve_temp_local();
         let callback_tag_local = self.reserve_temp_local();
         let promise_record_local = self.reserve_temp_local();
-        let has_error_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(suspended_local));
@@ -1097,14 +1116,15 @@ impl<'a> FunctionBuilder<'a> {
             promise_record_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
+        let completion_kind = self.emit_load_async_disposable_stack_dispose_completion_kind(
             dispose_state_local,
-            ASYNC_DISPOSABLE_STACK_DISPOSE_HAS_ERROR_OFFSET,
-            has_error_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(has_error_local));
-        function.instruction(&Instruction::I64Eqz);
+        self.emit_async_disposable_stack_dispose_completion_kind_is(
+            completion_kind,
+            AsyncDisposableStackDisposeCompletionKind::Normal,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_async_disposable_stack_settle_undefined(
             promise_record_local,
@@ -1135,7 +1155,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         for local in [
-            has_error_local,
             promise_record_local,
             callback_tag_local,
             rejected_payload_local,
@@ -1183,7 +1202,6 @@ impl<'a> FunctionBuilder<'a> {
         error_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let has_error_local = self.reserve_temp_local();
         let suppressed_payload_local = self.reserve_temp_local();
         let suppressed_tag_local = self.reserve_temp_local();
         let prototype_local = self.reserve_temp_local();
@@ -1194,15 +1212,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(combined_payload_local));
         function.instruction(&Instruction::LocalGet(error_tag_local));
         function.instruction(&Instruction::LocalSet(combined_tag_local));
-        self.load_i64_to_local_from_offset(
+        let completion_kind = self.emit_load_async_disposable_stack_dispose_completion_kind(
             dispose_state_local,
-            ASYNC_DISPOSABLE_STACK_DISPOSE_HAS_ERROR_OFFSET,
-            has_error_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(has_error_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        self.emit_async_disposable_stack_dispose_completion_kind_is(
+            completion_kind,
+            AsyncDisposableStackDisposeCompletionKind::Throw,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             dispose_state_local,
@@ -1245,10 +1263,9 @@ impl<'a> FunctionBuilder<'a> {
             combined_payload_local,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.emit_store_async_disposable_stack_dispose_completion_kind(
             dispose_state_local,
-            ASYNC_DISPOSABLE_STACK_DISPOSE_HAS_ERROR_OFFSET,
-            1,
+            AsyncDisposableStackDisposeCompletionKind::Throw,
             function,
         );
 
@@ -1257,8 +1274,61 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(prototype_local);
         self.release_temp_local(suppressed_tag_local);
         self.release_temp_local(suppressed_payload_local);
-        self.release_temp_local(has_error_local);
         Ok(())
+    }
+
+    fn emit_store_async_disposable_stack_dispose_completion_kind(
+        &mut self,
+        dispose_state_local: u32,
+        completion_kind: AsyncDisposableStackDisposeCompletionKind,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            dispose_state_local,
+            ASYNC_DISPOSABLE_STACK_DISPOSE_COMPLETION_KIND_OFFSET,
+            completion_kind.word(),
+            function,
+        );
+    }
+
+    fn emit_load_async_disposable_stack_dispose_completion_kind(
+        &mut self,
+        dispose_state_local: u32,
+        function: &mut Function,
+    ) -> AsyncDisposableStackDisposeCompletionKindLocal {
+        let completion_kind_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            dispose_state_local,
+            ASYNC_DISPOSABLE_STACK_DISPOSE_COMPLETION_KIND_OFFSET,
+            completion_kind_local,
+            function,
+        );
+        for completion_kind in [
+            AsyncDisposableStackDisposeCompletionKind::Normal,
+            AsyncDisposableStackDisposeCompletionKind::Throw,
+        ] {
+            function.instruction(&Instruction::LocalGet(completion_kind_local));
+            function.instruction(&Instruction::I64Const(completion_kind.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+        }
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        AsyncDisposableStackDisposeCompletionKindLocal(completion_kind_local)
+    }
+
+    fn emit_async_disposable_stack_dispose_completion_kind_is(
+        &mut self,
+        completion_kind_local: AsyncDisposableStackDisposeCompletionKindLocal,
+        expected: AsyncDisposableStackDisposeCompletionKind,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(completion_kind_local.0));
+        function.instruction(&Instruction::I64Const(expected.word() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.release_temp_local(completion_kind_local.0);
     }
 
     /// `GetMethod(V, key)` (7.3.11) written into `method_*`.

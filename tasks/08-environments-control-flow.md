@@ -58,6 +58,41 @@ files remain
 large shared hotspots, and the language subtrees assigned to this task have not
 been proven zero-failure on a current complete Wasm-AOT matrix.
 
+The `Array.prototype.keys` resizable-buffer case no longer replaces
+`Array.from(iterator)` with a source-spliced `for-of` collector. Its unchanged
+vendored body now reaches the general Array iterator and `Array.from` paths;
+both sloppy and strict Wasm-AOT executions pass. A materialization invariant
+pins the original body so this T08 source-shape shortcut cannot return.
+
+Identifier `typeof` now distinguishes proven-static absence from run-time
+Global Object Environment uncertainty. An arbitrary source call, a tracked
+property whose `proven_present` fact was lost, or an unbound fallback selected
+through `with` lowers to `TypeOf(GlobalPropertyRead)`; only a name still proven
+unresolvable uses `TypeOfUnresolvedIdentifier`. The `with` fallback is always a
+run-time read because `HasBinding` and `@@unscopables` can create or delete the
+global while choosing that branch. Four focused IR scenarios pin builtin
+globals after calls, dynamic/accessor/deleted globals, conditional deletion and
+creation during `@@unscopables`; the registered Wasm fixture passes `1/1`.
+`cargo xc` is green. The exact `BigInt.prototype.toString` leaf that exposed
+the defect moved from `24/26` to `26/26`, and the independent `BigInt.asIntN`
+control passes `2/2`. The semantic golden review finds exactly thirteen changed
+pre-existing fixtures, each containing a `typeof` site covered by the new
+run-time rule; their dumps change only emitted-size summaries, and the focused
+fixture is the sole added artifact.
+
+CallExpression ordering now has a typed lowering boundary rather than an
+informal convention. `LoweredCallArguments` is `#[must_use]`, clears heap-shape
+evidence from every earlier argument after an intervening effect, and can be
+consumed only after the caller explicitly names zero, one or two pre-argument
+callee/receiver snapshots. Direct and sloppy-default `this` observations are
+merged only after arguments. Optional chains analyze each property or getter
+before lowering the following call arguments while retaining the already
+captured callee identity and invalidating the receiver snapshot on later
+effects. Focused IR regressions and the compiled
+`wasm_call_argument_snapshot_invalidation.js` witness cover ordinary, private,
+optional and constructor calls plus getter/argument order. This closes the
+stale local-shape defect without claiming broader control-flow conformance.
+
 Non-resumable numeric update and eager arithmetic/bitwise compound assignment
 through a `super` property now use a fused Reference contract and verified
 consumer fixture. The private plan retains current receiver, raw key, captured
@@ -266,6 +301,49 @@ alias invalidation outside the shared possible-write transaction; both tests
 were corrected to assert the actual contracts before their focused reruns
 passed.
 
+Ordinary-property writes now derive a closed possible-mutation authority set
+for the Global Object and the Array, Number and Boolean prototypes. An unknown
+object base conservatively carries every authority; an exact base shape carries
+only the authorities whose current canonical shape matches it. Possible writes
+invalidate global and prototype facts through exact and joined aliases before a
+must-use pending publication may install the post-`Set` own-property fact.
+Structural alias reachability follows own data properties, boxed-primitive
+payloads and array elements, but not `[[Prototype]]`, which is inheritance
+rather than object identity; authority-bearing root aliases are not republished
+as fresh shapes. Separately, the analysis prepass now exports summaries without
+replacing root-entry global facts or unknown-effect state, nested body lowerers
+retain prepass identity, and body inspection no longer mutates the parent's
+live facts as though the function had executed. Final lowering and actual
+source-call paths replay live invalidation in source order. The complete
+`lila-ir` unit suite passes `892/892`; the exact and joined `globalThis`
+aliases, refined Number-prototype alias, boxed-Boolean alias, nested
+object/array alias and stale-sibling-publication controls each pass `1/1`.
+This is conservative compiler-fact soundness, not an object-identity analysis
+or a full conformance claim.
+
+The follow-up runtime audit found one separate cache-coherence hole: the main
+script owner still lowered `var` arithmetic compound assignment through its
+frame binding, even though nested owners read and write the authoritative
+global property. A nested call could therefore update `trace`, after which the
+main owner's `trace += suffix` resumed from the stale frame value and erased
+the nested write. Script-global compound assignment now selects the global-
+property read/modify/write IR at every owner. The public IR regression pins
+both the nested and main nodes at `1/1`; the existing ToLength abrupt-route CLI
+fixture, whose callbacks append to one script-global trace, passes `1/1`; and
+the shared `cargo xc` checkpoint is green.
+
+The shared semantic Wasm-golden checkpoint retains the same 646 fixture rows
+(648 files including the manifest and largest-function report), with no added
+or removed fixture. The accumulated semantic batch changes 452 fixture hashes;
+72 of their dumps change the selected standard-builtin root set, while the
+remainder change emitted-size, local-count or result-inference summaries. Five
+fixtures change their recorded static result kind. The four non-ignored product
+paths all remain green at `1/1`: the two Object-prototype predicates return
+`boolean(true)`, heap growth returns `number(66)`, and TypedArray indexed writes
+return `number(1022)`. The fifth is the existing T05 page-boundary stress test,
+which remains deliberately ignored because of cost and was not run here. This
+is a reviewed semantic golden delta, not a byte-identity claim.
+
 The earlier focused IR contract and Wasm execution covering TDZ/default order,
 strict and sloppy unresolved writes, and immutable assignment are green. The
 suspended-property Reference IR contract is also covered by the central
@@ -415,6 +493,14 @@ resumable-loop Wasm module test, and the six-closure consumer fixture all pass.
 The two exact pinned `Array.fromAsync` witnesses report `4/4` under Wasm-AOT;
 the complete 95-file leaf was not rerun.
 
+`AsyncForOfArrayWalkForm` was a private, non-capability one-shot classification
+at this checkpoint. Its four-mention ownership and exhaustive projection are
+recorded in the retired contract
+[`async-for-of-array-walk-form-ownership.md`](../docs/rust-rewrite/contracts/async-for-of-array-walk-form-ownership.md).
+The later T15 resumable synchronous Iterator Record migration deleted the form,
+its specialized Array lowerer, and its premise witness. That later checkpoint
+does not change this source-equivalent lane's historical verification result.
+
 Eager identifier compound assignments inside `with` now use the same non-empty
 consuming Reference plan. One private closed operation
 separates all six arithmetic and all six bitwise operators from the three
@@ -461,6 +547,60 @@ passes `11/11`, and the adjacent prefix passes `22/22` with zero unsupported,
 crash or bug outcomes. The shared closed operation includes `**=`, but there is
 no twelfth direct vendored witness and no full language-subtree or pinned-matrix
 claim.
+
+The declaration-instantiation token now carries its frame-lifetime decision in
+the private, capability-free `InstantiatedFrame::{Pushed, Current}` domain.
+The two frame-owning constructors push before sweeping and produce `Pushed`;
+the current-frame constructor performs no push and produces `Current`.
+Consuming `finish` matches both rows exhaustively to pop or preserve the frame,
+and a bounded structure guard pins the exact three producers, sweep ordering
+and both lifecycle arms. The structure target passes `3/3`, and the exact block
+and switch TDZ witnesses pass `2/2`. Independent review confirmed the complete
+capability/mention closure and preserved push, sweep and pop order. Coordinated
+`cargo xc`, formatter, diff and repository policy checks are green. This is a
+source-equivalent T08 invariant closure, not a new environment or control-flow
+capability.
+
+The shared private-property compound-assignment and super/private
+logical-assignment path now hands its operation through the private,
+non-derived `PropertyUpdateOp::{Arithmetic, Bitwise, Logical}` domain. Its sole
+consumer uses one exhaustive match to bind RHS reachability, value operation,
+shape and composition; the former copied `matches!` reachability observation
+is gone. The Rust-lexical `property_update_op_ownership_structure` target pins
+the nine-to-eight ownership census, one producer and consumer per row, all
+three ordered producer contexts and the complete Reference read-to-write
+lifecycle. It passes `4/4`; the affected-package check and neighboring logical
+assignment structure are green. The four exact private-reference Test262 leaves
+covering arithmetic, bitwise, taken logical and short-circuit logical behavior
+pass all `8/8` sloppy/strict Wasm-AOT executions. Every failure bucket is zero.
+This is source-equivalent ownership closure, not a new private-field or `super`
+behavior claim.
+
+The function arguments binding protocol now has one private, non-cloneable
+pending-to-bound lifecycle. Parameter binding consumes its mapped or unmapped
+construction authority once before owned arguments-object initialization;
+local planning retains only a presence projection that cannot recover the
+semantic protocol. The Rust-lexical
+`arguments_binding_protocol_ownership_structure` target pins that closure, and
+passes `4/4`; the exact repeated-binding unit passes `1/1`. The
+contract and retained reusable mapped-entry projections are recorded in
+[`function-arguments-binding-ownership.md`](../docs/rust-rewrite/contracts/function-arguments-binding-ownership.md).
+This is a source-equivalent T08 ownership closure, not a new arguments-object
+or environment behavior claim.
+
+Prepared destructuring property keys now cross target preparation and PutValue
+through the private, non-derived
+`PreparedDestructuringPropertyKey::{Static, Computed}` domain. The computed row
+can be constructed only after its payload and tag locals are both populated;
+the write alone installs their temporary binding and exhaustively releases the
+pair. The former independent key form and two `Option<u32>` fields could encode
+half-prepared or contradictory states. The Rust-lexical
+`prepared_destructuring_property_key_ownership_structure` target pins the
+two-row domain, nine-mention authority census, ordered producer, exhaustive
+projection and tag-before-payload release. The retained exact array
+destructuring abrupt-completion fixture is the semantic control for the shared
+prepared-property-target path. This is a source-equivalent T08 invariant
+closure, not a new destructuring or control-flow capability.
 
 ## Objective
 

@@ -68,7 +68,6 @@ enum ModuleSyntaxEdit {
 /// forgotten at a call site.
 struct SpanStableReplacement(String);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpanStableReplacementError {
     InvalidSpan,
     GeneratedLineTerminator,
@@ -285,7 +284,6 @@ pub(crate) fn strip_module_syntax(
 }
 
 /// What a `/` means at the current position.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlashMeaning {
     /// The previous significant token can end an expression, so `/` divides.
     Divide,
@@ -373,11 +371,18 @@ impl<'a> Scanner<'a> {
                 b'/' if self.bytes.get(self.index + 1) == Some(&b'*') => {
                     self.skip_block_comment()?
                 }
-                b'/' if self.slash == SlashMeaning::Regexp => {
-                    self.skip_regexp()?;
-                    self.slash = SlashMeaning::Divide;
-                    self.previous_was_dot = false;
-                }
+                b'/' => match &self.slash {
+                    SlashMeaning::Regexp => {
+                        self.skip_regexp()?;
+                        self.slash = SlashMeaning::Divide;
+                        self.previous_was_dot = false;
+                    }
+                    SlashMeaning::Divide => {
+                        self.slash = SlashMeaning::Regexp;
+                        self.previous_was_dot = false;
+                        self.index += self.char_len();
+                    }
+                },
                 b'\'' | b'"' => {
                     self.skip_string(byte)?;
                     self.slash = SlashMeaning::Divide;
@@ -1049,6 +1054,24 @@ mod tests {
     fn regexp_literal_containing_a_quote_does_not_open_a_string() {
         let source = "const r = /'/;\nexport const x = 1;";
         assert_eq!(strip(source), "const r = /'/;\n       const x = 1;");
+    }
+
+    #[test]
+    fn division_slash_does_not_consume_the_following_export_as_a_regexp() {
+        let source = "const quotient = dividend / divisor;\nexport const x = 1;";
+        assert_eq!(
+            strip(source),
+            "const quotient = dividend / divisor;\n       const x = 1;"
+        );
+    }
+
+    #[test]
+    fn comments_preserve_division_and_regexp_slash_contexts() {
+        let source = "const line_divide = dividend // line\n / divisor;\nconst line_regexp = (// line\n /line/);\nconst block_divide = dividend /* block */ / divisor;\nconst block_regexp = (/* block */ /block/);\nexport const x = 1;";
+        assert_eq!(
+            strip(source),
+            "const line_divide = dividend // line\n / divisor;\nconst line_regexp = (// line\n /line/);\nconst block_divide = dividend /* block */ / divisor;\nconst block_regexp = (/* block */ /block/);\n       const x = 1;"
+        );
     }
 
     #[test]

@@ -25,13 +25,15 @@ use lila_ir::{
 // type here would shadow the sink in this file alone, which is precisely the
 // hole the sink exists to close.
 use wasm_encoder::{
-    ConstExpr, DataSection, ElementSection, Elements, ExportKind, ExportSection, FunctionSection,
-    GlobalType, ImportSection, Instruction, MemorySection, MemoryType, Module, RefType,
-    TableSection, TableType, ValType,
+    ConstExpr, DataSection, ExportKind, ExportSection, FunctionSection, GlobalType, ImportSection,
+    Instruction, MemorySection, MemoryType, Module, ValType,
 };
 
 use super::*;
 use lila_intl::{embedded_locale_data_identity, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION};
+
+mod completion_exit;
+pub(crate) use completion_exit::CompletionExit;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ControlFrameKind {
@@ -139,75 +141,19 @@ pub(crate) enum ReturnAbi {
     MultiValue,
 }
 
-/// The one exit policy owned by an emitted body.
-///
-/// `ReturnAbi` describes the public Wasm signature. This state additionally
-/// records the temporary host-checkpoint target that is live while main-source
-/// statements are emitted. Its private representation prevents an internal
-/// function from acquiring a main checkpoint or a caller from manufacturing a
-/// target without the checked transition methods below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CompletionExit(CompletionExitState);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CompletionExitState {
-    MainExport,
-    MainJobCheckpoint(ControlTarget),
-    MultiValue,
-}
-
-impl CompletionExit {
-    fn for_return_abi(return_abi: ReturnAbi) -> Self {
-        Self(match return_abi {
-            ReturnAbi::MainExport => CompletionExitState::MainExport,
-            ReturnAbi::MultiValue => CompletionExitState::MultiValue,
-        })
-    }
-
-    pub(crate) const fn return_abi(&self) -> ReturnAbi {
-        match self.0 {
-            CompletionExitState::MainExport | CompletionExitState::MainJobCheckpoint(_) => {
-                ReturnAbi::MainExport
-            }
-            CompletionExitState::MultiValue => ReturnAbi::MultiValue,
-        }
-    }
-
-    pub(crate) const fn main_job_checkpoint_target(&self) -> Option<ControlTarget> {
-        match self.0 {
-            CompletionExitState::MainJobCheckpoint(target) => Some(target),
-            CompletionExitState::MainExport | CompletionExitState::MultiValue => None,
-        }
-    }
-
-    fn enter_main_job_checkpoint(&mut self, target: ControlTarget) {
-        assert!(matches!(self.0, CompletionExitState::MainExport));
-        self.0 = CompletionExitState::MainJobCheckpoint(target);
-    }
-
-    fn leave_main_job_checkpoint(&mut self, target: ControlTarget) {
-        assert!(matches!(
-            self.0,
-            CompletionExitState::MainJobCheckpoint(active) if active == target
-        ));
-        self.0 = CompletionExitState::MainExport;
-    }
-}
-
 /// Construction role of one emitted function.
 ///
 /// The main role necessarily borrows the exact sealed global package that the
 /// module later encodes. `Self::new` derives the return ABI from this value, so
 /// a caller cannot construct a main body without its rooted section or extract
 /// a copyable schema to pair with another section.
-#[derive(Clone, Copy)]
 enum FunctionModuleState<'a> {
     Main(&'a FinalizedModuleGlobals),
     Internal,
 }
 
 impl FunctionModuleState<'_> {
-    const fn return_abi(self) -> ReturnAbi {
+    const fn return_abi(&self) -> ReturnAbi {
         match self {
             Self::Main(_) => ReturnAbi::MainExport,
             Self::Internal => ReturnAbi::MultiValue,
@@ -217,7 +163,7 @@ impl FunctionModuleState<'_> {
 
 /// Closed inputs for compiling the one exported main body.
 ///
-/// Fields and construction stay in this module. [`FinalizedModuleSections`]
+/// Fields and construction stay in this module. The finalized module package
 /// consumes the plan and supplies its own private globals to `compile_into`, so
 /// module assembly cannot pass an arbitrary callback that ignores package A
 /// while compiling against package B.
@@ -364,6 +310,224 @@ impl NumericErrorRealmSource {
     }
 }
 
+/// Where Proxy `[[Call]]` and `[[Construct]]` obtain the Realm of the current
+/// execution context.
+///
+/// Main, user and host bodies can carry ordinary lexical environments, so
+/// they use the entry-Realm fallback. Standard builtins carry a self-backed
+/// function environment. The outlined object-read and Proxy dispatch helpers
+/// receive only that trusted environment-or-zero projection through ABI
+/// parameter 6.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProxyExecutionRealmSource {
+    MainRealmFallback,
+    StandardBuiltinEnvironment,
+    ObjectReadHelperArgument,
+    ProxyDispatchHelperArgument,
+}
+
+impl ProxyExecutionRealmSource {
+    const fn for_initial_body(numeric_source: NumericErrorRealmSource) -> Self {
+        match numeric_source {
+            NumericErrorRealmSource::StandardBuiltinEnvironment => Self::StandardBuiltinEnvironment,
+            NumericErrorRealmSource::GlobalFallback
+            | NumericErrorRealmSource::NumericConversionHelperArgument => Self::MainRealmFallback,
+        }
+    }
+
+    /// The closed body-domain transition performed when a runtime helper starts.
+    pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
+        match helper {
+            RuntimeHelperId::ObjectRead | RuntimeHelperId::ObjectReadProxy => {
+                Self::ObjectReadHelperArgument
+            }
+            RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
+                Self::ProxyDispatchHelperArgument
+            }
+            RuntimeHelperId::HeapAlloc
+            | RuntimeHelperId::ObjectAppendDataProperty
+            | RuntimeHelperId::ObjectAppendAccessorProperty
+            | RuntimeHelperId::FunctionObjectAlloc
+            | RuntimeHelperId::PlainObjectAlloc
+            | RuntimeHelperId::ArrayAlloc
+            | RuntimeHelperId::ObjectWrite
+            | RuntimeHelperId::ObjectDefineData
+            | RuntimeHelperId::StringEquality
+            | RuntimeHelperId::NumberToString
+            | RuntimeHelperId::StringToNumber
+            | RuntimeHelperId::ValueToString
+            | RuntimeHelperId::ValueToNumber
+            | RuntimeHelperId::ValueToNumeric
+            | RuntimeHelperId::ObjectGetPrototypeOf
+            | RuntimeHelperId::ObjectIsExtensible
+            | RuntimeHelperId::ObjectPreventExtensions
+            | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::FunctionCall
+            | RuntimeHelperId::DynamicPropertyRead
+            | RuntimeHelperId::OrdinarySetDataOnReceiver
+            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
+            | RuntimeHelperId::ArrayWrite
+            | RuntimeHelperId::OrdinarySet
+            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
+            | RuntimeHelperId::DecimalToBinary64
+            | RuntimeHelperId::BigIntArithmetic
+            | RuntimeHelperId::TemporalCalendarIsoDateProbe
+            | RuntimeHelperId::TemporalCalendarIdentifier
+            | RuntimeHelperId::IndexedElementRead
+            | RuntimeHelperId::IndexedElementWrite
+            | RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString
+            | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::JsonStringifyValue => Self::MainRealmFallback,
+        }
+    }
+}
+
+/// What `current_env_local` is allowed to mean when proxy `[[Get]]` detects a
+/// revoked proxy.
+///
+/// User and host functions may carry ordinary lexical environments, so they
+/// must use the main-Realm fallback. Standard builtins carry a trusted
+/// self-backed Realm record. The two outlined object-read helpers and the Proxy
+/// call/construct helpers receive only that trusted record-or-zero through ABI
+/// parameter 6.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObjectReadErrorRealmSource {
+    GlobalFallback,
+    StandardBuiltinEnvironment,
+    ObjectReadHelperArgument,
+    ProxyDispatchHelperArgument,
+}
+
+/// What `current_env_local` is allowed to mean when an object mutation creates
+/// a TypeError.
+///
+/// User and host functions may carry ordinary lexical environments, so they
+/// must use the main-Realm fallback. Standard builtins carry a trusted
+/// self-backed Realm record. The five outlined set-path helpers receive only
+/// that trusted record-or-zero through their private compiler-owned ABIs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObjectMutationErrorRealmSource {
+    GlobalFallback,
+    StandardBuiltinEnvironment,
+    SetPathHelperArgument,
+}
+
+impl ObjectMutationErrorRealmSource {
+    const fn for_initial_body(numeric_source: NumericErrorRealmSource) -> Self {
+        match numeric_source {
+            NumericErrorRealmSource::StandardBuiltinEnvironment => Self::StandardBuiltinEnvironment,
+            NumericErrorRealmSource::GlobalFallback
+            | NumericErrorRealmSource::NumericConversionHelperArgument => Self::GlobalFallback,
+        }
+    }
+
+    /// The closed body-domain transition performed when a runtime helper starts.
+    pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
+        match helper {
+            RuntimeHelperId::ObjectWrite
+            | RuntimeHelperId::OrdinarySetDataOnReceiver
+            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
+            | RuntimeHelperId::OrdinarySet
+            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback => Self::SetPathHelperArgument,
+            RuntimeHelperId::HeapAlloc
+            | RuntimeHelperId::ObjectAppendDataProperty
+            | RuntimeHelperId::ObjectAppendAccessorProperty
+            | RuntimeHelperId::FunctionObjectAlloc
+            | RuntimeHelperId::PlainObjectAlloc
+            | RuntimeHelperId::ArrayAlloc
+            | RuntimeHelperId::ObjectRead
+            | RuntimeHelperId::ObjectDefineData
+            | RuntimeHelperId::ProxyCall
+            | RuntimeHelperId::ProxyConstruct
+            | RuntimeHelperId::StringEquality
+            | RuntimeHelperId::NumberToString
+            | RuntimeHelperId::StringToNumber
+            | RuntimeHelperId::ValueToString
+            | RuntimeHelperId::ValueToNumber
+            | RuntimeHelperId::ValueToNumeric
+            | RuntimeHelperId::ObjectGetPrototypeOf
+            | RuntimeHelperId::ObjectIsExtensible
+            | RuntimeHelperId::ObjectPreventExtensions
+            | RuntimeHelperId::ObjectReadProxy
+            | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::FunctionCall
+            | RuntimeHelperId::DynamicPropertyRead
+            | RuntimeHelperId::ArrayWrite
+            | RuntimeHelperId::DecimalToBinary64
+            | RuntimeHelperId::BigIntArithmetic
+            | RuntimeHelperId::TemporalCalendarIsoDateProbe
+            | RuntimeHelperId::TemporalCalendarIdentifier
+            | RuntimeHelperId::IndexedElementRead
+            | RuntimeHelperId::IndexedElementWrite
+            | RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString
+            | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
+        }
+    }
+}
+
+impl ObjectReadErrorRealmSource {
+    const fn for_initial_body(numeric_source: NumericErrorRealmSource) -> Self {
+        match numeric_source {
+            NumericErrorRealmSource::StandardBuiltinEnvironment => Self::StandardBuiltinEnvironment,
+            NumericErrorRealmSource::GlobalFallback
+            | NumericErrorRealmSource::NumericConversionHelperArgument => Self::GlobalFallback,
+        }
+    }
+
+    /// The closed body-domain transition performed when a runtime helper starts.
+    pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
+        match helper {
+            RuntimeHelperId::ObjectRead | RuntimeHelperId::ObjectReadProxy => {
+                Self::ObjectReadHelperArgument
+            }
+            RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
+                Self::ProxyDispatchHelperArgument
+            }
+            RuntimeHelperId::HeapAlloc
+            | RuntimeHelperId::ObjectAppendDataProperty
+            | RuntimeHelperId::ObjectAppendAccessorProperty
+            | RuntimeHelperId::FunctionObjectAlloc
+            | RuntimeHelperId::PlainObjectAlloc
+            | RuntimeHelperId::ArrayAlloc
+            | RuntimeHelperId::ObjectWrite
+            | RuntimeHelperId::ObjectDefineData
+            | RuntimeHelperId::StringEquality
+            | RuntimeHelperId::NumberToString
+            | RuntimeHelperId::StringToNumber
+            | RuntimeHelperId::ValueToString
+            | RuntimeHelperId::ValueToNumber
+            | RuntimeHelperId::ValueToNumeric
+            | RuntimeHelperId::ObjectGetPrototypeOf
+            | RuntimeHelperId::ObjectIsExtensible
+            | RuntimeHelperId::ObjectPreventExtensions
+            | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::FunctionCall
+            | RuntimeHelperId::DynamicPropertyRead
+            | RuntimeHelperId::OrdinarySetDataOnReceiver
+            | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
+            | RuntimeHelperId::ArrayWrite
+            | RuntimeHelperId::OrdinarySet
+            | RuntimeHelperId::OrdinarySetWithoutReceiverFallback
+            | RuntimeHelperId::DecimalToBinary64
+            | RuntimeHelperId::BigIntArithmetic
+            | RuntimeHelperId::TemporalCalendarIsoDateProbe
+            | RuntimeHelperId::TemporalCalendarIdentifier
+            | RuntimeHelperId::IndexedElementRead
+            | RuntimeHelperId::IndexedElementWrite
+            | RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString
+            | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OrdinarySetDataOnReceiverEmission {
     Inline,
@@ -377,26 +541,12 @@ pub(crate) enum OrdinarySetDataOnReceiverEmission {
 /// distinguish them — the [`RuntimeHelperId`] its body is filed under, and
 /// whether an exotic receiver may fall back to its generic `[[Set]]` — used to
 /// be a `bool` parameter next to a separately written helper id. Carrying them
-/// as one value is what makes "compiled the fallback body, filed it as the
-/// no-fallback helper" unrepresentable rather than a silent index swap at every
-/// `Reflect.set` call site.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// as one value makes body construction exhaustive. The later helper-body
+/// filing table remains a separate source invariant and is pinned beside these
+/// producers by the bounded structure guard.
 enum OrdinarySetReceiverFallback {
     Allowed,
     Denied,
-}
-
-impl OrdinarySetReceiverFallback {
-    const fn helper(self) -> RuntimeHelperId {
-        match self {
-            Self::Allowed => RuntimeHelperId::OrdinarySet,
-            Self::Denied => RuntimeHelperId::OrdinarySetWithoutReceiverFallback,
-        }
-    }
-
-    const fn allows_receiver_generic_write(self) -> bool {
-        matches!(self, Self::Allowed)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -439,6 +589,9 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) completion_exit: CompletionExit,
     module_state: FunctionModuleState<'a>,
     numeric_error_realm_source: NumericErrorRealmSource,
+    proxy_execution_realm_source: ProxyExecutionRealmSource,
+    object_read_error_realm_source: ObjectReadErrorRealmSource,
+    object_mutation_error_realm_source: ObjectMutationErrorRealmSource,
     pub(crate) binding_scopes: Vec<BTreeMap<String, BindingStorage>>,
     pub(crate) hoisted_vars: Vec<String>,
     pub(crate) next_binding_local: u32,
@@ -717,6 +870,9 @@ fn async_generator_contains_suspension(
             .chain(std::iter::once(suspension_statement.as_ref()))
             .chain(after_suspension)
             .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::AsyncFunctionForOfIterator { .. } => {
+            matches!(suspension, AsyncGeneratorSuspension::Await)
+        }
         StatementIr::GeneratorIf {
             then_before_yield,
             then_yield_statement,
@@ -770,8 +926,6 @@ fn async_generator_contains_suspension(
         StatementIr::While { body, .. }
         | StatementIr::DoWhile { body, .. }
         | StatementIr::For { body, .. }
-        | StatementIr::ForOfArray { body, .. }
-        | StatementIr::ForOfString { body, .. }
         | StatementIr::ForOfIterator { body, .. }
         | StatementIr::ForInArray { body, .. }
         | StatementIr::ForInString { body, .. }
@@ -926,6 +1080,9 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
                 .chain(after_suspension)
                 .find_map(async_generator_dispatcher_unsupported_feature)
         }
+        StatementIr::AsyncFunctionForOfIterator { .. } => {
+            Some("resumable synchronous for-of requires a plain async function")
+        }
         StatementIr::GeneratorIf {
             then_before_yield,
             then_yield_statement,
@@ -1023,8 +1180,6 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         StatementIr::While { .. }
         | StatementIr::DoWhile { .. }
         | StatementIr::For { .. }
-        | StatementIr::ForOfArray { .. }
-        | StatementIr::ForOfString { .. }
         | StatementIr::ForOfIterator { .. }
         | StatementIr::ForInArray { .. }
         | StatementIr::ForInString { .. }
@@ -1180,6 +1335,11 @@ fn emit_script_with_forced_builtins(
     {
         compiled_host_builtins.push(HostBuiltinId::HTMLDDA);
     }
+    if compiled_host_builtins.contains(&HostBuiltinId::CreateRealm)
+        && !compiled_host_builtins.contains(&HostBuiltinId::RealmEvalScript)
+    {
+        compiled_host_builtins.push(HostBuiltinId::RealmEvalScript);
+    }
     for builtin in HostBuiltinId::ALL {
         if forced.host.contains(builtin) && !compiled_host_builtins.contains(builtin) {
             compiled_host_builtins.push(*builtin);
@@ -1290,6 +1450,17 @@ fn emit_script_with_forced_builtins(
         RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins);
     let has_shared_stub =
         !stubbed_standard_builtins.is_empty() || !stubbed_host_builtins.is_empty();
+    let host_import_function_indices = HostImportFunctionIndices::new(
+        number_pow_import_function_index.map(NumberPowImportFunctionIndex::new),
+        wall_clock_millis_import_function_index.map(WallClockMillisImportFunctionIndex::new),
+        shared_memory_alloc_function_index.map(SharedMemoryAllocImportFunctionIndex::new),
+        monotonic_clock_nanos_import_function_index
+            .map(MonotonicClockNanosImportFunctionIndex::new),
+        sleep_nanos_import_function_index.map(SleepNanosImportFunctionIndex::new),
+        agent_call_import_function_index.map(AgentCallImportFunctionIndex::new),
+        intl_call_import_function_index.map(IntlCallImportFunctionIndex::new),
+        random_f64_import_function_index.map(RandomF64ImportFunctionIndex::new),
+    );
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
             script.functions.as_slice(),
@@ -1300,20 +1471,12 @@ fn emit_script_with_forced_builtins(
             imported_function_count,
         ),
         compiled_host_builtins.iter().copied().collect(),
-        number_pow_import_function_index,
-        wall_clock_millis_import_function_index,
-        shared_memory_alloc_function_index,
-        monotonic_clock_nanos_import_function_index,
-        sleep_nanos_import_function_index,
-        agent_call_import_function_index,
-        intl_call_import_function_index,
-        random_f64_import_function_index,
+        host_import_function_indices,
     );
     let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
     let string_pool =
         StringPool::collect(script, function_metas.metas(), &compiled_standard_builtins);
-    let uses_function_table = true;
-    let module_types = ModuleTypeRegistry::new(uses_function_table);
+    let module_types = ModuleTypeRegistry::new();
     let module_guard_count = module_unit_guard_count(script);
 
     // Every fixed and dynamic scalar-global count is now known. Build and
@@ -2486,20 +2649,6 @@ fn emit_script_with_forced_builtins(
         );
     }
 
-    let tables = if uses_function_table {
-        let mut tables = TableSection::new();
-        tables.table(TableType {
-            element_type: RefType::FUNCREF,
-            minimum: callable_function_count as u64,
-            maximum: Some(callable_function_count as u64),
-            table64: false,
-            shared: false,
-        });
-        Some(tables)
-    } else {
-        None
-    };
-
     let mut memories = None;
     let mut data = None;
     if !string_pool.bytes.is_empty() || uses_heap {
@@ -2526,29 +2675,20 @@ fn emit_script_with_forced_builtins(
         }
     }
 
-    let elements = if uses_function_table {
-        let mut elements = ElementSection::new();
-        let first_callable_wasm_index = imported_function_count + 1;
-        let function_indexes = (first_callable_wasm_index
-            ..first_callable_wasm_index + callable_function_count as u32)
-            .collect::<Vec<_>>();
-        elements.active(
-            Some(0),
-            &ConstExpr::i32_const(0),
-            Elements::Functions(Cow::Owned(function_indexes)),
-        );
-        Some(elements)
-    } else {
-        None
-    };
-
+    let first_callable_wasm_index = imported_function_count + 1;
     let declared_function_count = functions.len();
     let main_emitted_local_count = module_package.main_emitted_local_count();
     let mut module = Module::new();
     let function_table = module_package.append_to_module(
         &mut module,
         ModuleAssemblySections::new(
-            imports, functions, tables, memories, exports, elements, data,
+            imports,
+            functions,
+            first_callable_wasm_index,
+            callable_function_count,
+            memories,
+            exports,
+            data,
         ),
     );
     // The function section and the code section must describe the same number
@@ -2821,6 +2961,20 @@ impl<'a> FunctionBuilder<'a> {
         self.numeric_error_realm_source
     }
 
+    pub(crate) const fn proxy_execution_realm_source(&self) -> ProxyExecutionRealmSource {
+        self.proxy_execution_realm_source
+    }
+
+    pub(crate) const fn object_read_error_realm_source(&self) -> ObjectReadErrorRealmSource {
+        self.object_read_error_realm_source
+    }
+
+    pub(crate) const fn object_mutation_error_realm_source(
+        &self,
+    ) -> ObjectMutationErrorRealmSource {
+        self.object_mutation_error_realm_source
+    }
+
     pub(crate) fn template_object_global_index(&self, site_id: u64) -> u32 {
         let site_offset = self
             .strings
@@ -3069,14 +3223,13 @@ impl<'a> FunctionBuilder<'a> {
         array_alloc_function_index: Option<u32>,
     ) -> Self {
         let return_abi = module_state.return_abi();
-        let hoisted_vars = if matches!(module_state, FunctionModuleState::Main(_)) {
-            script_global_bindings
+        let hoisted_vars = match &module_state {
+            FunctionModuleState::Main(_) => script_global_bindings
                 .expect("main builder must carry the global binding plan")
                 .main_frame_cache_bindings()
                 .map(|binding| binding.name.clone())
-                .collect()
-        } else {
-            collect_hoisted_vars_block_root(body)
+                .collect(),
+            FunctionModuleState::Internal => collect_hoisted_vars_block_root(body),
         };
         let self_binding_local_count = usize::from(self_binding_name.is_some());
         let param_local_count = count_param_locals(return_abi) as u32;
@@ -3100,6 +3253,12 @@ impl<'a> FunctionBuilder<'a> {
         let class_function_context_local = current_env_local + 5;
         let named_function_context_local = class_function_context_local + 1;
         let scratch_local = named_function_context_local + 1;
+        let object_read_error_realm_source =
+            ObjectReadErrorRealmSource::for_initial_body(numeric_error_realm_source);
+        let object_mutation_error_realm_source =
+            ObjectMutationErrorRealmSource::for_initial_body(numeric_error_realm_source);
+        let proxy_execution_realm_source =
+            ProxyExecutionRealmSource::for_initial_body(numeric_error_realm_source);
         Self {
             body,
             params,
@@ -3119,6 +3278,9 @@ impl<'a> FunctionBuilder<'a> {
             completion_exit: CompletionExit::for_return_abi(return_abi),
             module_state,
             numeric_error_realm_source,
+            proxy_execution_realm_source,
+            object_read_error_realm_source,
+            object_mutation_error_realm_source,
             hoisted_vars,
             binding_scopes: Vec::new(),
             next_binding_local: param_local_count,
@@ -3863,8 +4025,9 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     fn initialize_runtime_gc_anchor_root(&self, function: &mut Function) {
-        let FunctionModuleState::Main(module_globals) = self.module_state else {
-            return;
+        let module_globals = match &self.module_state {
+            FunctionModuleState::Main(module_globals) => module_globals,
+            FunctionModuleState::Internal => return,
         };
 
         // Construct the anchor, make it reachable through the holder's
@@ -3882,8 +4045,9 @@ impl<'a> FunctionBuilder<'a> {
     /// temporary main-job-checkpoint branch, so pending jobs retain the root.
     /// Internal functions carry no finalized global package and emit nothing.
     pub(crate) fn verify_and_clear_runtime_gc_anchor_root(&self, function: &mut Function) {
-        let FunctionModuleState::Main(module_globals) = self.module_state else {
-            return;
+        let module_globals = match &self.module_state {
+            FunctionModuleState::Main(module_globals) => module_globals,
+            FunctionModuleState::Internal => return,
         };
         module_globals.emit_verify_and_clear_anchor_root(function);
     }
@@ -4046,6 +4210,11 @@ impl<'a> FunctionBuilder<'a> {
     /// enforcement claim anywhere else.
     pub(crate) fn begin_helper_body(&mut self, helper: RuntimeHelperId) -> Function {
         self.numeric_error_realm_source = NumericErrorRealmSource::for_runtime_helper(helper);
+        self.proxy_execution_realm_source = ProxyExecutionRealmSource::for_runtime_helper(helper);
+        self.object_read_error_realm_source =
+            ObjectReadErrorRealmSource::for_runtime_helper(helper);
+        self.object_mutation_error_realm_source =
+            ObjectMutationErrorRealmSource::for_runtime_helper(helper);
         match helper {
             RuntimeHelperId::ObjectRead => self.outline_object_read = false,
             RuntimeHelperId::ObjectWrite => self.outline_object_write = false,
@@ -4105,11 +4274,14 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`] (seven i64 params, four i64
     /// results). Params: 0=object payload, 1=object tag, 2=receiver payload,
-    /// 3=receiver tag, 4=key payload. Params 5/6 are unused. Results are the
-    /// standard `(result, result_tag, completion, completion_aux)` tuple.
+    /// 3=receiver tag, 4=key payload. Param 5 is unused. Param 6 is the trusted
+    /// Proxy execution-Realm environment or zero. Results are the standard
+    /// `(result, result_tag, completion, completion_aux)` tuple.
     fn compile_object_read_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ObjectRead);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_object_read_ordinary_inner(
@@ -4264,7 +4436,13 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         receiver_fallback: OrdinarySetReceiverFallback,
     ) -> Result<Function, EmitError> {
-        let mut function = self.begin_helper_body(receiver_fallback.helper());
+        let (runtime_helper, receiver_generic_write_allowed) = match receiver_fallback {
+            OrdinarySetReceiverFallback::Allowed => (RuntimeHelperId::OrdinarySet, true),
+            OrdinarySetReceiverFallback::Denied => {
+                (RuntimeHelperId::OrdinarySetWithoutReceiverFallback, false)
+            }
+        };
+        let mut function = self.begin_helper_body(runtime_helper);
         self.ordinary_set_data_on_receiver_emission = OrdinarySetDataOnReceiverEmission::Outlined;
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
@@ -4311,7 +4489,7 @@ impl<'a> FunctionBuilder<'a> {
             value_payload_local,
             value_tag_local,
             self.result_local,
-            receiver_fallback.allows_receiver_generic_write(),
+            receiver_generic_write_allowed,
             &mut function,
         )?;
         self.object_write_strict_flag_local = None;
@@ -4428,12 +4606,15 @@ impl<'a> FunctionBuilder<'a> {
     /// `call_indirect`) is emitted once here and reached with a plain `call`.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
-    /// 1=callee tag, 2=this payload, 3=this tag, 4=argc, 5=argv. Params 6 is
-    /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
+    /// 1=callee tag, 2=this payload, 3=this tag, 4=argc, 5=argv. Param 6 is the
+    /// trusted Proxy execution-Realm environment or zero. Results are the
+    /// `(result, result_tag, completion, aux)` tuple;
     /// throws are surfaced through the completion rather than propagated.
     fn compile_proxy_call_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ProxyCall);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
@@ -4460,11 +4641,13 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
     /// 1=callee tag, 2=new.target payload, 3=new.target tag, 4=argc, 5=argv.
-    /// Param 6 is unused. Results are the `(result, result_tag, completion,
-    /// aux)` tuple.
+    /// Param 6 is the trusted Proxy execution-Realm environment or zero.
+    /// Results are the `(result, result_tag, completion, aux)` tuple.
     fn compile_proxy_construct_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ProxyConstruct);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_function_or_proxy_construct_with_argv(
@@ -4866,12 +5049,15 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=object payload,
     /// 1=object tag, 2=receiver payload, 3=receiver tag, 4=key payload, 5=key
-    /// tag. Param 6 is unused. Results are the standard four-i64 tuple: on normal
+    /// tag. Param 6 is the trusted Proxy execution-Realm environment or zero.
+    /// Results are the standard four-i64 tuple: on normal
     /// completion the value `(payload, tag)` is in the first two slots; a
     /// proxy-trap throw is surfaced through the completion slots.
     fn compile_object_read_proxy_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ObjectReadProxy);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_object_read_with_key_tag(
@@ -5305,14 +5491,6 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn buffer_memarg64(&self, offset: u64) -> MemArg {
         Self::memarg64_in(self.buffer_memory_index(), offset)
-    }
-
-    pub(crate) fn buffer_memarg32(&self, offset: u64) -> MemArg {
-        Self::memarg32_in(self.buffer_memory_index(), offset)
-    }
-
-    pub(crate) fn buffer_memarg16(&self, offset: u64) -> MemArg {
-        Self::memarg16_in(self.buffer_memory_index(), offset)
     }
 
     pub(crate) fn buffer_memarg8(&self, offset: u64) -> MemArg {

@@ -22,18 +22,19 @@ infinities produce NaN. A zero exact finite sum is positive zero, so only an
 empty iterable or one containing exclusively negative zeros returns negative
 zero.
 
-## Closed iterator-error policy
+## Closed sync-iterator consumer
 
-The shared sync-iterator helpers accept a closed `SyncIteratorErrorPolicy`
-instead of loose message and realm parameters. Existing array/destructuring
-consumers select `LegacyMainRealm`; `Math.sumPrecise` selects
-`MathSumPrecise`. An exhaustive mapping from a private protocol-error enum
-chooses the message and whether the TypeError is allocated in the main realm
-or the current builtin function's realm. The Math policy covers a non-iterable
-input, a non-object iterator-method result, a non-callable cached `next`, and a
-non-object `next` result. It also boxes primitive iterator inputs with the
-current function realm's intrinsic prototypes, so a created-realm Math method
-observes that realm's `String.prototype[Symbol.iterator]`.
+The shared sync-iterator helpers accept the closed
+`SyncIteratorConsumer::MathSumPrecise` selection instead of loose message and
+Realm parameters. Its exhaustive rows cover a non-iterable input, a non-object
+iterator-method result, a non-callable cached `next`, and a non-object `next`
+result. All four synchronous consumers now allocate these TypeErrors and box
+primitive iterator inputs through the current function Realm. A zero current
+environment retains the entry code's main Realm fallback. A created-Realm Math
+method therefore observes that Realm's `String.prototype[Symbol.iterator]`.
+See the shared
+[`sync-iterator-consumer-capability.md`](./sync-iterator-consumer-capability.md)
+for the complete diagnostic and Realm projection.
 
 `GetIterator` failures and failures from `next`, `done`, or `value` access are
 propagated unchanged and do not close the iterator. Once a value has been
@@ -73,10 +74,13 @@ limit, and reapplies the exact sign. Magnitudes below bit 52 are exact
 subnormals because every coefficient is integral in `2^-1074` units.
 
 The constants encode the proof: 2151 required signed magnitude bits, 64 bits
-per limb and exactly 34 limbs. `MathSumPreciseState` is a closed domain for the
-five specification states. The sole reducer produces a private, non-`Copy`,
-`#[must_use]` `CompletedMathSumPreciseReduction`; only the finisher consumes
-it. Invalid internal state words trap instead of silently selecting a result.
+per limb and exactly 34 limbs. The private, capability-free
+`MathSumPreciseState` is a closed domain for the five specification states. It
+can only be consumed by its exhaustive ABI-word projection; it cannot be
+cloned, copied, formatted, defaulted, compared, ordered or hashed. The sole
+reducer produces a private, non-`Copy`, `#[must_use]`
+`CompletedMathSumPreciseReduction`; only the finisher consumes it. Invalid
+internal state words trap instead of silently selecting a result.
 
 ## Runtime-only route and durable witnesses
 
@@ -115,10 +119,19 @@ inventory and `git diff --check`. Cargo, the CLI fixture, pinned Test262, the
 complete Math tree and the broad batch ladder remain owned by the central
 verifier.
 
+Batch AL removes the five unused `Clone`, `Copy`, `Debug`, `PartialEq` and `Eq`
+capabilities from `MathSumPreciseState`. Its exact five-state domain, exhaustive
+`0..=4` ABI projection and every emitter use remain source-equivalent. Shared
+`cargo xc` is green, the strengthened structure target passes `6/6`, the exact
+runtime CLI fixture passes `1/1`, and the two focused state-result Test262
+leaves pass all `4/4` Wasm-AOT variants with every failure bucket at zero. No
+semantic golden was required or run. No new Math behavior is claimed.
+
 ## Nonclaims
 
 This seam does not claim a current-HEAD ten-of-ten `Math.sumPrecise` Test262
-result before those tests run. It does not close the rest of Math or T20, make
+result from the two focused state-result leaves. It does not close the rest of
+Math or T20, make
 the generic iterator helpers realm-complete for every consumer, repair own or
 created-realm Arguments iterator lookup, or add generic generator-close
 behavior. The `2^53 - 1` count failure is structurally pinned but is not

@@ -19,18 +19,21 @@ impl<'a> ScriptLowerer<'a> {
         let (plan, referenced_name, metadata) = self.lower_ordinary_property_reference_plan(access);
         self.record_ordinary_property_get(&metadata);
         let possible_getters = Self::possible_ordinary_property_getters(&metadata);
-        let possible_setters = self.possible_ordinary_property_setters(&metadata, true);
+        let coercion_may_call_user_code =
+            self.ordinary_property_numeric_coercion_may_call_user_code(&metadata);
+        let possible_setters =
+            self.possible_ordinary_property_setters(&metadata, coercion_may_call_user_code);
         let result = plan.numeric_update(op, return_mode, possible_getters, possible_setters);
         self.record_ordinary_property_possible_write(
             &referenced_name,
             &metadata,
-            true,
+            coercion_may_call_user_code,
             ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::from_kind(ValueKind::Number)
                     .union(KindSet::from_kind(ValueKind::BigInt)),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
         );
         result
@@ -121,7 +124,7 @@ mod tests {
             assert_eq!(update.strictness(), Strictness::Strict);
             assert_eq!(update.op(), expected_op);
             assert_eq!(update.return_mode(), expected_mode);
-            assert_eq!(update.value_kind(), ValueKind::Dynamic);
+            assert_eq!(update.value_kind(), NumericUpdateValueKind::Dynamic);
         }
     }
 

@@ -37,7 +37,8 @@ allocation detail; no JavaScript reference to the partial object exists.
 
 ## Load-bearing representation
 
-`builtins/intl.rs` has a private two-state lifecycle:
+The private `builtins/intl/construction_lifecycle.rs` child owns the complete
+two-state lifecycle:
 
 ```text
 ReservedIntlLocaleObjectLocal
@@ -46,11 +47,41 @@ ReservedIntlLocaleObjectLocal
 ```
 
 Both states are non-`Copy`, have private raw locals, and are constructed only
-by their corresponding emitter transitions. The initializer consumes the
-reserved state after successful tag processing, installs every currently
-represented Locale slot plus the internal brand, and returns the only state
-the publisher accepts. Publishing a reserved or partially initialized object
-is therefore a Rust type error.
+by their corresponding emitter transitions. Rust requires the carrier and
+transition names to be `pub(super)` for the parent's inferred handoffs, but
+the parent neither names nor imports them and cannot construct or project
+their private tuple fields. The initializer consumes the reserved state after
+successful tag processing, installs every currently represented Locale slot
+plus the internal brand, and returns the only state the publisher accepts.
+Publishing a reserved or partially initialized object is therefore a Rust
+type error.
+
+The exact 15-line carrier and 97-line transition selections retain
+visibility-normalized SHA-256
+`f7515bf0b336e4307fac6cdefb699e32b4b3794bd0a6eff9e4f3d58113473725`
+and
+`7aea2daa1ccd0b8d9bdd8f5ac35eb2287eef2c686037a8e41f226c7ce659d0fa`;
+their combined 112 selected lines retain
+`ca374b7f75159c8b7c978d46ee0be44be1faafb9ac34d6b8e686a200ba5d4ac4`.
+The 117-line child has SHA-256
+`3ebcef67424bcff990b0e6f6ed519e5c40185288d3b3ab9c21311c9110dc1bd0`.
+The source move alone reduces the 2,368-line parent snapshot to 2,256 lines;
+the strengthened colocated guard brings the current file to 2,364 lines, with
+2,171 lines before the test module. The unchanged reserve call and ten-line
+initialize/publish block retain SHA-256
+`3fd56c270a997572d0c093e16d933bc366f4ec3f5371fb20d36835affe92c3d9`
+and
+`44a6f0a8622f2073daad21bf287597fee7048bd60325c79d7f1606125b4b5b4e`.
+The recursive guard pins zero parent production references to either carrier,
+four child uses of each carrier, one child definition and one parent call for
+each transition, and the sole one/two raw projections.
+
+`functions.rs` classifies `Intl.Locale` in the closed direct-returning
+constructor domain. The construct dispatcher therefore enters the builtin
+before the generic constructor path can read `NewTarget.prototype` or allocate
+a receiver. The lifecycle reserve transition remains the sole prototype `Get`
+and result allocation for an explicit `NewTarget`; removing this classification
+makes both the recursive guard and the construction-order fixture fail.
 
 Prototype resolution continues to use the existing shared
 `emit_new_target_prototype_to_locals` route with its existing `CurrentGlobal`
@@ -99,12 +130,19 @@ or a green `intl402/Locale` subtree.
 ## Verification boundary
 
 Static freeze consists of exact-file `rustfmt --check` for `builtins/intl.rs`
-and the CLI module, `node --check` for the fixture, the colocated structural
-guard proving LIFO reservation, tagged allocation, and the one-way
-reserved/initialized/published transition,
-`git diff --check`, file-scope review, and fresh independent review.
+and `builtins/intl/construction_lifecycle.rs`, the colocated recursive
+structural guard proving sole ownership, LIFO reservation, tagged allocation,
+and the one-way reserved/initialized/published transition, the module-boundary
+and task-plan source gates, `git diff --check`, and file-scope review.
 
-After the shared low-memory matrix releases Cargo, run the registered CLI
-fixture, the three pinned Test262 witnesses above under Wasm AOT, the adjacent
-`intl402/Locale` filter, and then the serialized broad batch ladder. No Cargo,
-fixture execution, Test262, or snapshot result is claimed by this freeze.
+At the 2026-08-28 Batch X checkpoint, `cargo xc` is green, the colocated
+lifecycle/direct-dispatch guard passes `1/1`, and the registered construction
+order fixture passes `1/1`. The fixture initially exposed a duplicate
+`NewTarget.prototype` read from the generic construct path; the closed
+direct-returning classification is the bounded correctness repair.
+
+The pinned `constructor-tag-tostring.js` and `subclassing.js` leaves pass all
+`4/4` Wasm-AOT executions. `constructor-getter-order.js` remains `0/2` with
+Runtime bugs because this slice still ignores Locale options, as recorded in
+the non-claims above. The adjacent Locale filter, semantic snapshot and broad
+batch ladder were not run, and no published conformance count is changed.

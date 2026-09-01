@@ -3,6 +3,30 @@
 use crate::*;
 
 #[test]
+fn run_wasm_backend_assigns_for_await_bare_identifier_heads_without_shadowing() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_for_await_identifier_assignment_head.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "for-await identifier assignment head: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(262"), "{stdout}");
+    assert!(
+        !stdout.contains("uncaught throw") && !stderr.contains("uncaught throw"),
+        "stdout={stdout} stderr={stderr}"
+    );
+}
+
+#[test]
 fn run_wasm_backend_preserves_iteration_lexical_environments() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -52,6 +76,26 @@ fn run_wasm_backend_closes_iterators_for_return_and_outer_continue() {
 }
 
 #[test]
+fn run_wasm_backend_treats_retired_static_generator_spellings_as_source_properties() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_static_generator_property_spoof.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_routes_iterator_close_errors_through_outer_cleanup() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -68,6 +112,66 @@ fn run_wasm_backend_routes_iterator_close_errors_through_outer_cleanup() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_uses_borrowed_iterator_helper_realm_for_iterator_close_errors() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_iterator_close_generated_error_realm.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "iterator close generated error Realm: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_reports_direct_for_of_protocol_type_errors() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_for_of_protocol_type_errors.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "direct for-of protocol TypeErrors: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_preserves_direct_for_of_callable_proxy_methods() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_direct_for_of_callable_proxy_methods.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "direct for-of callable Proxy methods: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
     assert!(stdout.contains("boolean(true)"), "{stdout}");
 }
 
@@ -659,6 +763,200 @@ fn run_wasm_backend_succeeds_for_collection_iterator_receiver_realm_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_observes_array_iterator_protocol_in_for_of() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_for_of_array_iterator_protocol.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_persists_sync_iterator_records_across_plain_async_awaits() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_plain_async_sync_for_of_iterator_protocol.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(
+        stdout.contains("plain-async-sync-for-of:protocol=ok")
+            && !stdout.contains("plain-async-sync-for-of:protocol=FAILED"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_assigns_member_heads_before_plain_async_awaits() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_plain_async_sync_for_of_member_heads.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(
+        stdout.contains("plain-async-sync-for-of:member-heads=ok")
+            && !stdout.contains("plain-async-sync-for-of:member-heads=FAILED"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_destructures_nonlexical_pattern_heads_before_plain_async_awaits() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_plain_async_sync_for_of_nonlexical_pattern_heads.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(
+        stdout.contains("plain-async-sync-for-of:nonlexical-pattern-heads=ok")
+            && !stdout.contains("plain-async-sync-for-of:nonlexical-pattern-heads=FAILED"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_preserves_lexical_pattern_heads_across_plain_async_awaits() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_plain_async_sync_for_of_lexical_pattern_heads.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(
+        stdout.contains("plain-async-sync-for-of:lexical-pattern-heads=ok")
+            && !stdout.contains("plain-async-sync-for-of:lexical-pattern-heads=FAILED"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_applies_iterator_close_precedence_after_plain_async_awaits() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_plain_async_sync_for_of_iterator_close.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(
+        stdout.contains("plain-async-sync-for-of:close=ok")
+            && !stdout.contains("plain-async-sync-for-of:close=FAILED"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_does_not_close_after_sync_iterator_protocol_errors() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_plain_async_sync_for_of_iterator_errors.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(
+        stdout.contains("plain-async-sync-for-of:protocol-errors=ok")
+            && !stdout.contains("plain-async-sync-for-of:protocol-errors=FAILED"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn run_wasm_backend_observes_string_iterator_protocol_in_for_of() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_for_of_string_iterator_protocol.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_collection_data_receiver_realm_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -679,12 +977,132 @@ fn run_wasm_backend_succeeds_for_collection_data_receiver_realm_fixture() {
 }
 
 #[test]
+fn run_wasm_backend_succeeds_for_created_realm_weak_ref_publication() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_weak_ref_created_realm.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "created-Realm WeakRef publication: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_created_realm_finalization_registry_publication() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_finalization_registry_created_realm.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "created-Realm FinalizationRegistry publication: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_succeeds_for_created_realm_weak_collection_publication() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_weak_collections_created_realm.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "created-Realm weak collection publication: stdout={stdout} stderr={stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_uses_builtin_realm_for_collection_algorithm_errors() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path("wasm_collection_algorithm_error_realms.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_preserves_map_get_or_insert_value_sources() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_map_get_or_insert_value_source.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_distinguishes_map_and_object_group_by_results() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_group_by_result_kind.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
+fn run_wasm_backend_preserves_set_operation_domains() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_set_operation_domains.js"))
         .output()
         .expect("run command should run");
 

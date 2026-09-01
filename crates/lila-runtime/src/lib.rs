@@ -1,3 +1,4 @@
+use std::num::NonZeroU64;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -87,11 +88,11 @@ impl AgentId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RealmId(u64);
+pub struct RealmId(NonZeroU64);
 
 impl RealmId {
     pub const fn get(self) -> u64 {
-        self.0
+        self.0.get()
     }
 }
 
@@ -106,23 +107,73 @@ pub enum IntrinsicRole {
 pub struct IntrinsicFunctionMetadata {
     pub name: &'static str,
     pub length: u32,
-    pub length_name_configurable: bool,
-    pub constructable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntrinsicDescriptorShape {
+    Constructor(IntrinsicFunctionMetadata),
+    Function(IntrinsicFunctionMetadata),
+    CallablePrototype(IntrinsicFunctionMetadata),
+    Prototype,
+}
+
+impl IntrinsicDescriptorShape {
+    pub const fn role(self) -> IntrinsicRole {
+        match self {
+            Self::Constructor(_) => IntrinsicRole::Constructor,
+            Self::Function(_) => IntrinsicRole::Function,
+            Self::CallablePrototype(_) | Self::Prototype => IntrinsicRole::Prototype,
+        }
+    }
+
+    pub const fn function(self) -> Option<IntrinsicFunctionMetadata> {
+        match self {
+            Self::Constructor(function)
+            | Self::Function(function)
+            | Self::CallablePrototype(function) => Some(function),
+            Self::Prototype => None,
+        }
+    }
+
+    pub const fn is_callable(self) -> bool {
+        match self {
+            Self::Constructor(_) | Self::Function(_) | Self::CallablePrototype(_) => true,
+            Self::Prototype => false,
+        }
+    }
+
+    pub const fn is_constructable(self) -> bool {
+        match self {
+            Self::Constructor(_) => true,
+            Self::Function(_) | Self::CallablePrototype(_) | Self::Prototype => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IntrinsicDescriptor {
     pub kind: IntrinsicKind,
     pub spec_name: &'static str,
-    pub role: IntrinsicRole,
+    pub shape: IntrinsicDescriptorShape,
     pub prototype: Option<IntrinsicKind>,
-    pub function: Option<IntrinsicFunctionMetadata>,
     pub link: IntrinsicLink,
 }
 
 impl IntrinsicDescriptor {
+    pub const fn role(&self) -> IntrinsicRole {
+        self.shape.role()
+    }
+
+    pub const fn function(&self) -> Option<IntrinsicFunctionMetadata> {
+        self.shape.function()
+    }
+
     pub const fn is_callable(&self) -> bool {
-        self.function.is_some()
+        self.shape.is_callable()
+    }
+
+    pub const fn is_constructable(&self) -> bool {
+        self.shape.is_constructable()
     }
 }
 
@@ -181,11 +232,66 @@ impl IntrinsicPropertyAttributes {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IntrinsicPropertyDescriptor {
-    pub owner: IntrinsicKind,
-    pub key: IntrinsicPropertyKey,
-    pub value: IntrinsicPropertyValue,
-    pub attributes: IntrinsicPropertyAttributes,
+pub enum IntrinsicPropertyDescriptor {
+    FunctionName {
+        owner: IntrinsicKind,
+        name: &'static str,
+    },
+    FunctionLength {
+        owner: IntrinsicKind,
+        length: u32,
+    },
+    ConstructorPrototype {
+        owner: IntrinsicKind,
+        prototype: IntrinsicKind,
+    },
+    PrototypeConstructor {
+        owner: IntrinsicKind,
+        constructor: IntrinsicKind,
+    },
+}
+
+impl IntrinsicPropertyDescriptor {
+    pub const fn owner(self) -> IntrinsicKind {
+        match self {
+            Self::FunctionName { owner, .. }
+            | Self::FunctionLength { owner, .. }
+            | Self::ConstructorPrototype { owner, .. }
+            | Self::PrototypeConstructor { owner, .. } => owner,
+        }
+    }
+
+    pub const fn key(self) -> IntrinsicPropertyKey {
+        match self {
+            Self::FunctionName { .. } => IntrinsicPropertyKey::String("name"),
+            Self::FunctionLength { .. } => IntrinsicPropertyKey::String("length"),
+            Self::ConstructorPrototype { .. } => IntrinsicPropertyKey::String("prototype"),
+            Self::PrototypeConstructor { .. } => IntrinsicPropertyKey::String("constructor"),
+        }
+    }
+
+    pub const fn value(self) -> IntrinsicPropertyValue {
+        match self {
+            Self::FunctionName { name, .. } => IntrinsicPropertyValue::String(name),
+            Self::FunctionLength { length, .. } => IntrinsicPropertyValue::U32(length),
+            Self::ConstructorPrototype { prototype, .. } => {
+                IntrinsicPropertyValue::Intrinsic(prototype)
+            }
+            Self::PrototypeConstructor { constructor, .. } => {
+                IntrinsicPropertyValue::Intrinsic(constructor)
+            }
+        }
+    }
+
+    pub const fn attributes(self) -> IntrinsicPropertyAttributes {
+        match self {
+            Self::FunctionName { owner, .. } | Self::FunctionLength { owner, .. } => {
+                function_length_name_attributes(owner)
+            }
+            Self::ConstructorPrototype { .. } => IntrinsicPropertyAttributes::CONSTRUCTOR_PROTOTYPE,
+            Self::PrototypeConstructor { .. } => IntrinsicPropertyAttributes::PROTOTYPE_CONSTRUCTOR,
+        }
+    }
 }
 
 macro_rules! intrinsic_registry {
@@ -194,9 +300,8 @@ macro_rules! intrinsic_registry {
             IntrinsicDescriptor {
                 kind: IntrinsicKind::$kind:ident,
                 spec_name: $spec_name:literal,
-                role: IntrinsicRole::$role:ident,
+                shape: $shape:expr,
                 prototype: $prototype:expr,
-                function: $function:expr,
                 link: $link:expr,
             },
         )+
@@ -222,9 +327,8 @@ macro_rules! intrinsic_registry {
                 IntrinsicDescriptor {
                     kind: IntrinsicKind::$kind,
                     spec_name: $spec_name,
-                    role: IntrinsicRole::$role,
+                    shape: $shape,
                     prototype: $prototype,
-                    function: $function,
                     link: $link,
                 },
             )+
@@ -236,309 +340,234 @@ intrinsic_registry! {
     IntrinsicDescriptor {
         kind: IntrinsicKind::ObjectConstructor,
         spec_name: "%Object%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "Object",
             length: 1,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::ObjectPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::ObjectPrototype,
         spec_name: "%Object.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: None,
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::ObjectConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::FunctionConstructor,
         spec_name: "%Function%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "Function",
             length: 1,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::FunctionPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::FunctionPrototype,
         spec_name: "%Function.prototype%",
-        role: IntrinsicRole::Prototype,
-        prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::CallablePrototype(IntrinsicFunctionMetadata {
             name: "",
             length: 0,
-            length_name_configurable: true,
-            constructable: false,
         }),
+        prototype: Some(IntrinsicKind::ObjectPrototype),
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::FunctionConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::ArrayConstructor,
         spec_name: "%Array%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "Array",
             length: 1,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::ArrayPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::ArrayPrototype,
         spec_name: "%Array.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::ArrayConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::BigIntConstructor,
         spec_name: "%BigInt%",
-        role: IntrinsicRole::Function,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Function(IntrinsicFunctionMetadata {
             name: "BigInt",
             length: 1,
-            length_name_configurable: true,
-            constructable: false,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::BigIntPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::BigIntPrototype,
         spec_name: "%BigInt.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::BigIntConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::DateConstructor,
         spec_name: "%Date%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "Date",
             length: 7,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::DatePrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::DatePrototype,
         spec_name: "%Date.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::DateConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::ProxyConstructor,
         spec_name: "%Proxy%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "Proxy",
             length: 2,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::None,
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::ArrayBufferConstructor,
         spec_name: "%ArrayBuffer%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "ArrayBuffer",
             length: 1,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::ArrayBufferPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::ArrayBufferPrototype,
         spec_name: "%ArrayBuffer.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::ArrayBufferConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::DataViewConstructor,
         spec_name: "%DataView%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "DataView",
             length: 3,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::DataViewPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::DataViewPrototype,
         spec_name: "%DataView.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::DataViewConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::TypedArrayConstructor,
         spec_name: "%TypedArray%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "TypedArray",
             length: 0,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::TypedArrayPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::TypedArrayPrototype,
         spec_name: "%TypedArray.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::TypedArrayConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::Uint8ArrayConstructor,
         spec_name: "%Uint8Array%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::TypedArrayConstructor),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "Uint8Array",
             length: 3,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::TypedArrayConstructor),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::Uint8ArrayPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::Uint8ArrayPrototype,
         spec_name: "%Uint8Array.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::TypedArrayPrototype),
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::Uint8ArrayConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::TypeErrorConstructor,
         spec_name: "%TypeError%",
-        role: IntrinsicRole::Constructor,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Constructor(IntrinsicFunctionMetadata {
             name: "TypeError",
             length: 1,
-            length_name_configurable: true,
-            constructable: true,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::ConstructorToPrototype(IntrinsicKind::TypeErrorPrototype),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::TypeErrorPrototype,
         spec_name: "%TypeError.prototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: None,
         link: IntrinsicLink::PrototypeToConstructor(IntrinsicKind::TypeErrorConstructor),
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::IteratorPrototype,
         spec_name: "%IteratorPrototype%",
-        role: IntrinsicRole::Prototype,
+        shape: IntrinsicDescriptorShape::Prototype,
         prototype: Some(IntrinsicKind::ObjectPrototype),
-        function: None,
         link: IntrinsicLink::None,
     },
     IntrinsicDescriptor {
         kind: IntrinsicKind::ThrowTypeError,
         spec_name: "%ThrowTypeError%",
-        role: IntrinsicRole::Function,
-        prototype: Some(IntrinsicKind::FunctionPrototype),
-        function: Some(IntrinsicFunctionMetadata {
+        shape: IntrinsicDescriptorShape::Function(IntrinsicFunctionMetadata {
             name: "",
             length: 0,
-            length_name_configurable: false,
-            constructable: false,
         }),
+        prototype: Some(IntrinsicKind::FunctionPrototype),
         link: IntrinsicLink::None,
     },
 }
 
-const fn function_length_name_attributes(
-    function: IntrinsicFunctionMetadata,
-) -> IntrinsicPropertyAttributes {
-    if function.length_name_configurable {
-        IntrinsicPropertyAttributes::BUILTIN_FUNCTION_LENGTH_NAME_CONFIGURABLE
-    } else {
-        IntrinsicPropertyAttributes::BUILTIN_FUNCTION_LENGTH_NAME_FIXED
-    }
-}
-
-const fn function_name_descriptor(
-    owner: IntrinsicKind,
-    function: IntrinsicFunctionMetadata,
-) -> IntrinsicPropertyDescriptor {
-    IntrinsicPropertyDescriptor {
-        owner,
-        key: IntrinsicPropertyKey::String("name"),
-        value: IntrinsicPropertyValue::String(function.name),
-        attributes: function_length_name_attributes(function),
-    }
-}
-
-const fn function_length_descriptor(
-    owner: IntrinsicKind,
-    function: IntrinsicFunctionMetadata,
-) -> IntrinsicPropertyDescriptor {
-    IntrinsicPropertyDescriptor {
-        owner,
-        key: IntrinsicPropertyKey::String("length"),
-        value: IntrinsicPropertyValue::U32(function.length),
-        attributes: function_length_name_attributes(function),
-    }
-}
-
-const fn constructor_prototype_descriptor(
-    owner: IntrinsicKind,
-    prototype: IntrinsicKind,
-) -> IntrinsicPropertyDescriptor {
-    IntrinsicPropertyDescriptor {
-        owner,
-        key: IntrinsicPropertyKey::String("prototype"),
-        value: IntrinsicPropertyValue::Intrinsic(prototype),
-        attributes: IntrinsicPropertyAttributes::CONSTRUCTOR_PROTOTYPE,
-    }
-}
-
-const fn prototype_constructor_descriptor(
-    owner: IntrinsicKind,
-    constructor: IntrinsicKind,
-) -> IntrinsicPropertyDescriptor {
-    IntrinsicPropertyDescriptor {
-        owner,
-        key: IntrinsicPropertyKey::String("constructor"),
-        value: IntrinsicPropertyValue::Intrinsic(constructor),
-        attributes: IntrinsicPropertyAttributes::PROTOTYPE_CONSTRUCTOR,
+const fn function_length_name_attributes(owner: IntrinsicKind) -> IntrinsicPropertyAttributes {
+    match owner {
+        IntrinsicKind::ThrowTypeError => {
+            IntrinsicPropertyAttributes::BUILTIN_FUNCTION_LENGTH_NAME_FIXED
+        }
+        IntrinsicKind::ObjectConstructor
+        | IntrinsicKind::ObjectPrototype
+        | IntrinsicKind::FunctionConstructor
+        | IntrinsicKind::FunctionPrototype
+        | IntrinsicKind::ArrayConstructor
+        | IntrinsicKind::ArrayPrototype
+        | IntrinsicKind::BigIntConstructor
+        | IntrinsicKind::BigIntPrototype
+        | IntrinsicKind::DateConstructor
+        | IntrinsicKind::DatePrototype
+        | IntrinsicKind::ProxyConstructor
+        | IntrinsicKind::ArrayBufferConstructor
+        | IntrinsicKind::ArrayBufferPrototype
+        | IntrinsicKind::DataViewConstructor
+        | IntrinsicKind::DataViewPrototype
+        | IntrinsicKind::TypedArrayConstructor
+        | IntrinsicKind::TypedArrayPrototype
+        | IntrinsicKind::Uint8ArrayConstructor
+        | IntrinsicKind::Uint8ArrayPrototype
+        | IntrinsicKind::TypeErrorConstructor
+        | IntrinsicKind::TypeErrorPrototype
+        | IntrinsicKind::IteratorPrototype => {
+            IntrinsicPropertyAttributes::BUILTIN_FUNCTION_LENGTH_NAME_CONFIGURABLE
+        }
     }
 }
 
@@ -546,7 +575,7 @@ const fn intrinsic_property_descriptor_count() -> usize {
     let mut count = 0;
     let mut index = 0;
     while index < INTRINSIC_DESCRIPTORS.len() {
-        match INTRINSIC_DESCRIPTORS[index].function {
+        match INTRINSIC_DESCRIPTORS[index].function() {
             Some(_) => count += 2,
             None => {}
         }
@@ -562,12 +591,11 @@ const fn intrinsic_property_descriptor_count() -> usize {
 }
 
 const INTRINSIC_PROPERTY_DESCRIPTOR_COUNT: usize = intrinsic_property_descriptor_count();
-const INTRINSIC_PROPERTY_PLACEHOLDER: IntrinsicPropertyDescriptor = IntrinsicPropertyDescriptor {
-    owner: IntrinsicKind::ObjectConstructor,
-    key: IntrinsicPropertyKey::String("name"),
-    value: IntrinsicPropertyValue::Undefined,
-    attributes: IntrinsicPropertyAttributes::BUILTIN_FUNCTION_LENGTH_NAME_FIXED,
-};
+const INTRINSIC_PROPERTY_PLACEHOLDER: IntrinsicPropertyDescriptor =
+    IntrinsicPropertyDescriptor::FunctionName {
+        owner: IntrinsicKind::ObjectConstructor,
+        name: "Object",
+    };
 
 const fn build_intrinsic_property_descriptors(
 ) -> [IntrinsicPropertyDescriptor; INTRINSIC_PROPERTY_DESCRIPTOR_COUNT] {
@@ -577,11 +605,17 @@ const fn build_intrinsic_property_descriptors(
 
     while descriptor_index < INTRINSIC_DESCRIPTORS.len() {
         let descriptor = INTRINSIC_DESCRIPTORS[descriptor_index];
-        match descriptor.function {
+        match descriptor.function() {
             Some(function) => {
-                properties[property_index] = function_name_descriptor(descriptor.kind, function);
+                properties[property_index] = IntrinsicPropertyDescriptor::FunctionName {
+                    owner: descriptor.kind,
+                    name: function.name,
+                };
                 property_index += 1;
-                properties[property_index] = function_length_descriptor(descriptor.kind, function);
+                properties[property_index] = IntrinsicPropertyDescriptor::FunctionLength {
+                    owner: descriptor.kind,
+                    length: function.length,
+                };
                 property_index += 1;
             }
             None => {}
@@ -589,13 +623,17 @@ const fn build_intrinsic_property_descriptors(
         match descriptor.link {
             IntrinsicLink::None => {}
             IntrinsicLink::ConstructorToPrototype(prototype) => {
-                properties[property_index] =
-                    constructor_prototype_descriptor(descriptor.kind, prototype);
+                properties[property_index] = IntrinsicPropertyDescriptor::ConstructorPrototype {
+                    owner: descriptor.kind,
+                    prototype,
+                };
                 property_index += 1;
             }
             IntrinsicLink::PrototypeToConstructor(constructor) => {
-                properties[property_index] =
-                    prototype_constructor_descriptor(descriptor.kind, constructor);
+                properties[property_index] = IntrinsicPropertyDescriptor::PrototypeConstructor {
+                    owner: descriptor.kind,
+                    constructor,
+                };
                 property_index += 1;
             }
         }
@@ -630,33 +668,6 @@ const fn validate_intrinsic_registry() {
             panic!("intrinsic kind and descriptor order differ");
         }
 
-        match descriptor.role {
-            IntrinsicRole::Constructor => match descriptor.function {
-                Some(function) => {
-                    if !function.constructable {
-                        panic!("constructor intrinsic is not constructable");
-                    }
-                }
-                None => panic!("constructor intrinsic is not callable"),
-            },
-            IntrinsicRole::Function => match descriptor.function {
-                Some(function) => {
-                    if function.constructable {
-                        panic!("function intrinsic is unexpectedly constructable");
-                    }
-                }
-                None => panic!("function intrinsic is not callable"),
-            },
-            IntrinsicRole::Prototype => match descriptor.function {
-                Some(function) => {
-                    if function.constructable {
-                        panic!("prototype intrinsic is unexpectedly constructable");
-                    }
-                }
-                None => {}
-            },
-        }
-
         match descriptor.prototype {
             Some(prototype) => {
                 if prototype as usize == index {
@@ -669,11 +680,11 @@ const fn validate_intrinsic_registry() {
         match descriptor.link {
             IntrinsicLink::None => {}
             IntrinsicLink::ConstructorToPrototype(prototype) => {
-                if !role_is_constructor_side(descriptor.role) {
+                if !role_is_constructor_side(descriptor.role()) {
                     panic!("prototype property is owned by a prototype row");
                 }
                 let target = INTRINSIC_DESCRIPTORS[prototype as usize];
-                if !role_is_prototype_side(target.role) {
+                if !role_is_prototype_side(target.role()) {
                     panic!("prototype property does not target a prototype row");
                 }
                 match target.link {
@@ -691,11 +702,11 @@ const fn validate_intrinsic_registry() {
                 }
             }
             IntrinsicLink::PrototypeToConstructor(constructor) => {
-                if !role_is_prototype_side(descriptor.role) {
+                if !role_is_prototype_side(descriptor.role()) {
                     panic!("constructor property is not owned by a prototype row");
                 }
                 let target = INTRINSIC_DESCRIPTORS[constructor as usize];
-                if !role_is_constructor_side(target.role) {
+                if !role_is_constructor_side(target.role()) {
                     panic!("constructor property does not target a constructor/function row");
                 }
                 match target.link {
@@ -797,36 +808,32 @@ impl GlobalEnvironmentId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RealmGlobal {
-    global_object: RealmObjectId,
-    global_this: RealmObjectId,
-    global_environment: GlobalEnvironmentId,
+    realm_id: RealmId,
 }
 
 impl RealmGlobal {
     const fn new(realm_id: RealmId) -> Self {
-        Self {
-            global_object: RealmObjectId {
-                realm_id,
-                kind: RealmObjectKind::GlobalObject,
-            },
-            global_this: RealmObjectId {
-                realm_id,
-                kind: RealmObjectKind::GlobalThis,
-            },
-            global_environment: GlobalEnvironmentId { realm_id },
-        }
+        Self { realm_id }
     }
 
     pub const fn global_object(self) -> RealmObjectId {
-        self.global_object
+        RealmObjectId {
+            realm_id: self.realm_id,
+            kind: RealmObjectKind::GlobalObject,
+        }
     }
 
     pub const fn global_this(self) -> RealmObjectId {
-        self.global_this
+        RealmObjectId {
+            realm_id: self.realm_id,
+            kind: RealmObjectKind::GlobalThis,
+        }
     }
 
     pub const fn global_environment(self) -> GlobalEnvironmentId {
-        self.global_environment
+        GlobalEnvironmentId {
+            realm_id: self.realm_id,
+        }
     }
 }
 
@@ -1052,6 +1059,63 @@ impl ObservedNumber {
     }
 }
 
+/// One BigInt carried across the engine observation boundary as canonical
+/// decimal text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedBigInt(Box<str>);
+
+impl ObservedBigInt {
+    pub fn parse_canonical_decimal(decimal: Box<str>) -> Result<Self, InvalidObservedBigInt> {
+        let canonical = match decimal.as_bytes() {
+            [b'0'] => true,
+            [b'-', first, remaining @ ..] => {
+                first.is_ascii_digit()
+                    && *first != b'0'
+                    && remaining.iter().all(|digit| digit.is_ascii_digit())
+            }
+            [first, remaining @ ..] => {
+                first.is_ascii_digit()
+                    && *first != b'0'
+                    && remaining.iter().all(|digit| digit.is_ascii_digit())
+            }
+            [] => false,
+        };
+
+        if canonical {
+            Ok(Self(decimal))
+        } else {
+            Err(InvalidObservedBigInt { decimal })
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidObservedBigInt {
+    decimal: Box<str>,
+}
+
+impl InvalidObservedBigInt {
+    pub fn decimal(&self) -> &str {
+        &self.decimal
+    }
+}
+
+impl core::fmt::Display for InvalidObservedBigInt {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            formatter,
+            "observed BigInt decimal {:?} is not canonical",
+            self.decimal
+        )
+    }
+}
+
+impl std::error::Error for InvalidObservedBigInt {}
+
 /// Owned ECMAScript value data that both execution backends can report
 /// without retaining an engine heap or invoking user code.
 ///
@@ -1066,7 +1130,7 @@ pub enum ObservedJsValue {
     Boolean(bool),
     Number(ObservedNumber),
     String(Box<[u16]>),
-    BigInt(Box<str>),
+    BigInt(ObservedBigInt),
     Symbol,
     Object,
 }
@@ -1124,9 +1188,6 @@ impl HostHooks for NullHostHooks {}
 pub struct Realm {
     id: RealmId,
     agent_id: AgentId,
-    intrinsics: RealmIntrinsics,
-    global: RealmGlobal,
-    pub shell_name: String,
     host_clock: Arc<dyn HostClock>,
     host_random: Arc<dyn HostRandom>,
     host_hooks: Arc<dyn HostHooks>,
@@ -1137,7 +1198,7 @@ impl core::fmt::Debug for Realm {
         f.debug_struct("Realm")
             .field("id", &self.id)
             .field("agent_id", &self.agent_id)
-            .field("shell_name", &self.shell_name)
+            .field("shell_name", &self.shell_name())
             .finish()
     }
 }
@@ -1190,13 +1251,15 @@ impl RealmBuilder {
     }
 
     pub fn build(self) -> Realm {
-        let id = RealmId(NEXT_REALM_ID.fetch_add(1, Ordering::Relaxed));
+        let raw_id = NEXT_REALM_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                next.checked_add(1)
+            })
+            .unwrap_or_else(|exhausted| panic!("realm ID space exhausted at {exhausted}"));
+        let id = RealmId(NonZeroU64::new(raw_id).expect("realm ID allocator produced zero"));
         Realm {
             id,
             agent_id: self.agent_id,
-            intrinsics: RealmIntrinsics::new(id),
-            global: RealmGlobal::new(id),
-            shell_name: self.host_hooks.shell_name().to_string(),
             host_clock: Arc::from(self.host_clock),
             host_random: Arc::from(self.host_random),
             host_hooks: Arc::from(self.host_hooks),
@@ -1213,12 +1276,16 @@ impl Realm {
         self.agent_id
     }
 
-    pub const fn intrinsics(&self) -> &RealmIntrinsics {
-        &self.intrinsics
+    pub const fn intrinsics(&self) -> RealmIntrinsics {
+        RealmIntrinsics::new(self.id)
     }
 
     pub const fn global(&self) -> RealmGlobal {
-        self.global
+        RealmGlobal::new(self.id)
+    }
+
+    pub fn shell_name(&self) -> &'static str {
+        self.host_hooks.shell_name()
     }
 
     pub fn host_hooks(&self) -> Arc<dyn HostHooks> {
@@ -1311,6 +1378,8 @@ mod tests {
         let second = RealmBuilder::new().build();
 
         assert_ne!(first.id(), second.id());
+        assert_ne!(first.id().get(), 0);
+        assert_ne!(second.id().get(), 0);
         assert_eq!(first.agent_id(), AgentId::MAIN);
         assert_eq!(second.agent_id(), AgentId::MAIN);
     }
@@ -1321,9 +1390,11 @@ mod tests {
             .with_agent_id(AgentId::new(7))
             .with_host_hooks(Box::new(NamedHooks))
             .build();
+        let cloned_realm = realm.clone();
 
         assert_eq!(realm.agent_id(), AgentId::new(7));
-        assert_eq!(realm.shell_name, "named-shell");
+        assert_eq!(realm.shell_name(), "named-shell");
+        assert_eq!(cloned_realm.shell_name(), "named-shell");
         assert_eq!(realm.host_hooks().shell_name(), "named-shell");
     }
 
@@ -1429,6 +1500,30 @@ mod tests {
     }
 
     #[test]
+    fn observed_bigints_require_canonical_decimal_text() {
+        for decimal in [
+            "0",
+            "1",
+            "-1",
+            "123456789012345678901234567890",
+            "-123456789012345678901234567890",
+        ] {
+            let bigint = ObservedBigInt::parse_canonical_decimal(decimal.into())
+                .expect("canonical BigInt decimal should parse");
+            assert_eq!(bigint.as_str(), decimal);
+        }
+
+        for decimal in [
+            "", "-", "+1", "00", "01", "-0", "-01", "1n", " 1", "1 ", "١",
+        ] {
+            let error = ObservedBigInt::parse_canonical_decimal(decimal.into())
+                .expect_err("noncanonical BigInt decimal should be rejected");
+            assert_eq!(error.decimal(), decimal);
+            assert!(error.to_string().contains(&format!("{decimal:?}")));
+        }
+    }
+
+    #[test]
     fn observed_strings_retain_utf16_code_units_without_coercion() {
         let value = ObservedJsValue::String(vec![0x0061, 0xd800, 0x0062].into_boxed_slice());
         let ObservedJsValue::String(units) = value else {
@@ -1494,6 +1589,29 @@ mod tests {
     }
 
     #[test]
+    fn intrinsic_descriptor_shapes_preserve_callable_roles() {
+        let constructor = IntrinsicKind::ObjectConstructor.descriptor();
+        assert_eq!(constructor.role(), IntrinsicRole::Constructor);
+        assert!(constructor.is_callable());
+        assert!(constructor.is_constructable());
+
+        let function = IntrinsicKind::BigIntConstructor.descriptor();
+        assert_eq!(function.role(), IntrinsicRole::Function);
+        assert!(function.is_callable());
+        assert!(!function.is_constructable());
+
+        let callable_prototype = IntrinsicKind::FunctionPrototype.descriptor();
+        assert_eq!(callable_prototype.role(), IntrinsicRole::Prototype);
+        assert!(callable_prototype.is_callable());
+        assert!(!callable_prototype.is_constructable());
+
+        let prototype = IntrinsicKind::ObjectPrototype.descriptor();
+        assert_eq!(prototype.role(), IntrinsicRole::Prototype);
+        assert!(!prototype.is_callable());
+        assert!(!prototype.is_constructable());
+    }
+
+    #[test]
     fn intrinsic_registry_references_resolve_inside_realm() {
         let realm = RealmBuilder::new().build();
 
@@ -1512,26 +1630,57 @@ mod tests {
     fn property(owner: IntrinsicKind, key: IntrinsicPropertyKey) -> IntrinsicPropertyDescriptor {
         *INTRINSIC_PROPERTY_DESCRIPTORS
             .iter()
-            .find(|descriptor| descriptor.owner == owner && descriptor.key == key)
+            .find(|descriptor| descriptor.owner() == owner && descriptor.key() == key)
             .expect("intrinsic property descriptor should exist")
+    }
+
+    #[test]
+    fn intrinsic_property_templates_have_the_expected_shape_census() {
+        let mut function_names = 0;
+        let mut function_lengths = 0;
+        let mut constructor_prototypes = 0;
+        let mut prototype_constructors = 0;
+
+        for descriptor in INTRINSIC_PROPERTY_DESCRIPTORS {
+            match descriptor {
+                IntrinsicPropertyDescriptor::FunctionName { .. } => function_names += 1,
+                IntrinsicPropertyDescriptor::FunctionLength { .. } => function_lengths += 1,
+                IntrinsicPropertyDescriptor::ConstructorPrototype { .. } => {
+                    constructor_prototypes += 1
+                }
+                IntrinsicPropertyDescriptor::PrototypeConstructor { .. } => {
+                    prototype_constructors += 1
+                }
+            }
+        }
+
+        assert_eq!(
+            (
+                function_names,
+                function_lengths,
+                constructor_prototypes,
+                prototype_constructors,
+            ),
+            (13, 13, 10, 10)
+        );
     }
 
     #[test]
     fn intrinsic_property_templates_have_unique_owner_keys() {
         for (index, descriptor) in INTRINSIC_PROPERTY_DESCRIPTORS.iter().enumerate() {
             assert!(
-                IntrinsicKind::ALL.contains(&descriptor.owner),
+                IntrinsicKind::ALL.contains(&descriptor.owner()),
                 "{:?} owner should be an intrinsic",
-                descriptor.owner
+                descriptor.owner()
             );
 
             for other in &INTRINSIC_PROPERTY_DESCRIPTORS[index + 1..] {
                 assert_ne!(
-                    (descriptor.owner, descriptor.key),
-                    (other.owner, other.key),
+                    (descriptor.owner(), descriptor.key()),
+                    (other.owner(), other.key()),
                     "{:?}.{:?} should have one descriptor",
-                    descriptor.owner,
-                    descriptor.key
+                    descriptor.owner(),
+                    descriptor.key()
                 );
             }
         }
@@ -1543,11 +1692,11 @@ mod tests {
 
         for descriptor in INTRINSIC_PROPERTY_DESCRIPTORS {
             assert_eq!(
-                realm.intrinsics().get(descriptor.owner).realm_id(),
+                realm.intrinsics().get(descriptor.owner()).realm_id(),
                 realm.id()
             );
 
-            if let IntrinsicPropertyValue::Intrinsic(target) = descriptor.value {
+            if let IntrinsicPropertyValue::Intrinsic(target) = descriptor.value() {
                 assert!(
                     IntrinsicKind::ALL.contains(&target),
                     "{target:?} should be a known intrinsic"
@@ -1560,22 +1709,18 @@ mod tests {
     #[test]
     fn callable_intrinsics_have_name_and_length_templates() {
         for descriptor in INTRINSIC_DESCRIPTORS {
-            let Some(function) = descriptor.function else {
+            let Some(function) = descriptor.function() else {
                 continue;
             };
-            let expected_attributes = if function.length_name_configurable {
-                IntrinsicPropertyAttributes::BUILTIN_FUNCTION_LENGTH_NAME_CONFIGURABLE
-            } else {
-                IntrinsicPropertyAttributes::BUILTIN_FUNCTION_LENGTH_NAME_FIXED
-            };
+            let expected_attributes = function_length_name_attributes(descriptor.kind);
 
             let name = property(descriptor.kind, IntrinsicPropertyKey::String("name"));
-            assert_eq!(name.value, IntrinsicPropertyValue::String(function.name));
-            assert_eq!(name.attributes, expected_attributes);
+            assert_eq!(name.value(), IntrinsicPropertyValue::String(function.name));
+            assert_eq!(name.attributes(), expected_attributes);
 
             let length = property(descriptor.kind, IntrinsicPropertyKey::String("length"));
-            assert_eq!(length.value, IntrinsicPropertyValue::U32(function.length));
-            assert_eq!(length.attributes, expected_attributes);
+            assert_eq!(length.value(), IntrinsicPropertyValue::U32(function.length));
+            assert_eq!(length.attributes(), expected_attributes);
         }
     }
 
@@ -1587,9 +1732,12 @@ mod tests {
                 IntrinsicLink::ConstructorToPrototype(prototype) => {
                     let property =
                         property(descriptor.kind, IntrinsicPropertyKey::String("prototype"));
-                    assert_eq!(property.value, IntrinsicPropertyValue::Intrinsic(prototype));
                     assert_eq!(
-                        property.attributes,
+                        property.value(),
+                        IntrinsicPropertyValue::Intrinsic(prototype)
+                    );
+                    assert_eq!(
+                        property.attributes(),
                         IntrinsicPropertyAttributes::CONSTRUCTOR_PROTOTYPE
                     );
                 }
@@ -1597,11 +1745,11 @@ mod tests {
                     let property =
                         property(descriptor.kind, IntrinsicPropertyKey::String("constructor"));
                     assert_eq!(
-                        property.value,
+                        property.value(),
                         IntrinsicPropertyValue::Intrinsic(constructor)
                     );
                     assert_eq!(
-                        property.attributes,
+                        property.attributes(),
                         IntrinsicPropertyAttributes::PROTOTYPE_CONSTRUCTOR
                     );
                 }
@@ -1614,8 +1762,8 @@ mod tests {
         assert!(INTRINSIC_PROPERTY_DESCRIPTORS
             .iter()
             .all(
-                |descriptor| descriptor.owner != IntrinsicKind::ProxyConstructor
-                    || descriptor.key != IntrinsicPropertyKey::String("prototype")
+                |descriptor| descriptor.owner() != IntrinsicKind::ProxyConstructor
+                    || descriptor.key() != IntrinsicPropertyKey::String("prototype")
             ));
     }
 }

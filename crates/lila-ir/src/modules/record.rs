@@ -13,8 +13,9 @@
 use crate::*;
 
 use super::early::module_early_errors;
+use super::module_key::ANONYMOUS_MODULE_KEY;
 
-use boa_ast::declaration::{ImportKind, ImportPhase, ReExportKind};
+use boa_ast::declaration::{ImportKind, ReExportKind};
 use boa_ast::expression::{ImportCall, ImportMeta};
 use boa_ast::operations::{bound_names, var_declared_names};
 use boa_ast::{Module, Position, Span};
@@ -23,38 +24,6 @@ use lila_front::SourceSpan;
 
 /// Index of a module in [`ModuleGraphIr::units`](crate::ModuleGraphIr::units).
 pub type ModuleUnitId = u32;
-
-/// Phase of a module request (`import`, `import defer`, `import source`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum ImportPhaseIr {
-    /// A normal eager request.
-    #[default]
-    Evaluation,
-    /// `import defer * as ns from "m"`.
-    Defer,
-    /// `import source x from "m"`.
-    Source,
-}
-
-impl ImportPhaseIr {
-    /// Name used in diagnostics.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Evaluation => "evaluation",
-            Self::Defer => "defer",
-            Self::Source => "source",
-        }
-    }
-
-    pub(super) const fn from_ast(phase: ImportPhase) -> Self {
-        match phase {
-            ImportPhase::Evaluation => Self::Evaluation,
-            ImportPhase::Defer => Self::Defer,
-            ImportPhase::Source => Self::Source,
-        }
-    }
-}
 
 /// One `with { key: value }` import attribute.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1076,8 +1045,8 @@ fn build_module_record(
         let request = match item {
             ModuleItem::ImportDeclaration(import) => module_request(interner, import.request()),
             ModuleItem::ExportDeclaration(export) => match export.as_ref() {
-                ExportDeclaration::ReExport { specifier, .. } => {
-                    ModuleRequestIr::plain(resolved_name(interner, specifier.sym()))
+                ExportDeclaration::ReExport { request, .. } => {
+                    module_request(interner, request.module_request())
                 }
                 _ => continue,
             },
@@ -1141,29 +1110,8 @@ fn build_module_record(
             continue;
         };
         match export.as_ref() {
-            ExportDeclaration::ReExport { kind, specifier } => {
-                // KNOWN GAP, same weight as `ModuleLinkErrorIr::UnsupportedPhase`
-                // and tracked alongside it.
-                //
-                // `ExportDeclaration::ReExport` carries a bare `ModuleSpecifier`
-                // rather than a `ModuleRequest`
-                // (`vendor/boa_ast-0.21.1/src/declaration/export.rs:85`). boa's
-                // parser *does* read `export ... from "m" with { type: "json" }`
-                // and then throws the clause away —
-                // `parse_ignored_import_attributes`,
-                // `vendor/boa_parser-0.21.1/src/parser/statement/declaration/export.rs:226`.
-                // The attributes are therefore not in the AST at all and nothing
-                // here can recover them.
-                //
-                // Two things follow, both wrong, both invisible without this
-                // note. `ModuleRequestsEqual` sees every re-export request as
-                // attribute-less, so a module that both imports and re-exports
-                // one specifier with the same attributes records *two* distinct
-                // `[[RequestedModules]]` keys; and a host that keys its module
-                // map on attributes will resolve the re-export to the wrong
-                // module type. Fixing it needs a boa-side change (keep the
-                // `ModuleRequest`), not a change here.
-                let request = ModuleRequestIr::plain(resolved_name(interner, specifier.sym()));
+            ExportDeclaration::ReExport { kind, request } => {
+                let request = module_request(interner, request.module_request());
                 match kind {
                     ReExportKind::Namespaced { name: Some(name) } => {
                         record.indirect_export_entries.push(IndirectExportEntryIr {
@@ -2057,6 +2005,97 @@ mod tests {
                 ModuleRequestIr::plain("./first.mjs"),
                 ModuleRequestIr::plain("./second.mjs"),
             ]
+        );
+    }
+
+    #[test]
+    fn attributed_reexports_retain_each_request_and_entry_shape() {
+        let record = record_of(
+            "export * from './star.mjs' with { type: 'json', charset: 'utf8' };\n\
+             export * as namespace from './namespace.mjs' with { mode: 'strict' };\n\
+             export { value as renamed } from './named.mjs' with { type: 'text' };\n",
+        );
+        let star_request = attributed_request(
+            "./star.mjs",
+            ImportPhaseIr::Evaluation,
+            vec![attribute("charset", "utf8"), attribute("type", "json")],
+        );
+        let namespace_request = attributed_request(
+            "./namespace.mjs",
+            ImportPhaseIr::Evaluation,
+            vec![attribute("mode", "strict")],
+        );
+        let named_request = attributed_request(
+            "./named.mjs",
+            ImportPhaseIr::Evaluation,
+            vec![attribute("type", "text")],
+        );
+
+        assert_eq!(
+            record.requested_modules,
+            vec![
+                star_request.clone(),
+                namespace_request.clone(),
+                named_request.clone(),
+            ]
+        );
+        assert_eq!(
+            record.module_resolution_requests,
+            vec![
+                star_request.key().clone(),
+                namespace_request.key().clone(),
+                named_request.key().clone(),
+            ]
+        );
+        assert_eq!(
+            record.star_export_entries,
+            vec![StarExportEntryIr {
+                request: star_request,
+            }]
+        );
+        assert_eq!(
+            record.indirect_export_entries,
+            vec![
+                IndirectExportEntryIr {
+                    request: namespace_request,
+                    import_name: ImportNameIr::Namespace,
+                    export_name: ExportName::new("namespace"),
+                },
+                IndirectExportEntryIr {
+                    request: named_request,
+                    import_name: named("value"),
+                    export_name: ExportName::new("renamed"),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn attributed_import_and_reexport_share_one_canonical_request() {
+        let record = record_of(
+            "import { imported } from './shared.mjs' with { type: 'json', charset: 'utf8' };\n\
+             export { exported as renamed } from './shared.mjs' with { charset: 'utf8', type: 'json' };\n",
+        );
+        let request = attributed_request(
+            "./shared.mjs",
+            ImportPhaseIr::Evaluation,
+            vec![attribute("charset", "utf8"), attribute("type", "json")],
+        );
+
+        assert_eq!(record.requested_modules, vec![request.clone()]);
+        assert_eq!(
+            record.module_resolution_requests,
+            vec![request.key().clone()]
+        );
+        assert_eq!(record.import_entries.len(), 1);
+        assert_eq!(&record.import_entries[0].request, &request);
+        assert_eq!(
+            record.indirect_export_entries,
+            vec![IndirectExportEntryIr {
+                request,
+                import_name: named("exported"),
+                export_name: ExportName::new("renamed"),
+            }]
         );
     }
 

@@ -105,7 +105,7 @@
 
 use crate::*;
 
-use super::graph::ModuleMaterializationModeIr;
+use super::evaluation_mode::ModuleMaterializationModeIr;
 
 /// One entry of a module namespace object's export table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -381,8 +381,8 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
         text.push_str(
             &DescriptorSourceText::accessor()
                 .get(getter)
-                .enumerable(true)
-                .configurable(false)
+                .enumerable()
+                .non_configurable()
                 .render(),
         );
         text.push_str(");\n");
@@ -955,12 +955,12 @@ pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
             }
         }
     }
-    for component in &graph.components {
+    for component in graph.dynamic_components() {
         // A source-phase component hands out a module *source* object, and its
         // module is never instantiated: a namespace for it would carry getters
         // naming bindings the merged script never declares.
-        if component.request.phase() != ImportPhaseIr::Source {
-            observed.insert(component.module);
+        if component.request().phase() != ImportPhaseIr::Source {
+            observed.insert(component.target());
         }
     }
 

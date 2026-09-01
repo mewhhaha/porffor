@@ -38,8 +38,12 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::CallableNonSimpleParametersContainUseStrict
         | EarlyErrorCode::FunctionExpressionContainsSuper
         | EarlyErrorCode::FunctionDeclarationContainsSuper
+        | EarlyErrorCode::AsyncFunctionDeclarationContainsSuper
         | EarlyErrorCode::AsyncFunctionExpressionContainsSuper
         | EarlyErrorCode::GeneratorExpressionContainsSuper
+        | EarlyErrorCode::GeneratorDeclarationContainsSuper
+        | EarlyErrorCode::AsyncGeneratorExpressionContainsSuper
+        | EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper
         | EarlyErrorCode::DuplicateCatchParameter
         | EarlyErrorCode::CatchBodyDeclarationConflict
         | EarlyErrorCode::DuplicateClassConstructor

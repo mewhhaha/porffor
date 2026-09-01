@@ -57,10 +57,10 @@ receivers. The product regression
 Array, Function and Arguments layouts, both BigInt representations, and
 non-observation of live and revoked Proxies across all four families. Its
 created-realm Map and Set methods prove defining-realm provenance at runtime.
-WeakMap and WeakSet use the entry-realm methods because the created-realm host
-does not yet publish those two intrinsics; the exhaustive shared error emitter
-keeps their realm route structurally covered until that separate bootstrap seam
-lands.
+The separate created-Realm weak-collection fixture now supplies the matching
+WeakMap and WeakSet runtime evidence in both borrowing directions; the shared
+error emitter and private publication lifecycle are recorded in
+[`weak-collection-created-realm-publication.md`](weak-collection-created-realm-publication.md).
 
 ## Rust invariant
 
@@ -103,17 +103,15 @@ brand loads, messages or error-realm behavior through duplicated control flow.
 
 This seam does not change successful collection algorithms, key equality,
 mutation order, iterator cursor movement, weak reachability or cleanup jobs. It
-does not bootstrap WeakMap or WeakSet into created realms or claim cross-realm
-runtime evidence for their methods. It does not claim every collection error
-path is covered, that the full pinned collection trees are green, or that T21
-is complete.
+does not own created-Realm bootstrap; WeakMap and WeakSet publication is the
+separate boundary linked above. It does not claim every collection error path
+is covered, that the full pinned collection trees are green, or that T21 is
+complete.
 
 The focused CLI fixture passes on the current working tree, alongside the
-bounded source-structure checks and independent review. Remaining centralized
-verification is:
-
-1. `cargo fmt --all --check`;
-2. `cargo test -p lila-aot-wasm collection_ --quiet` and the bounded CLI
-   collection/iterator shard;
-3. focused pinned Map, Set, WeakMap and WeakSet receiver filters;
-4. the centralized broad Wasm-AOT checkpoint.
+bounded source-structure checks and independent review. At the 2026-08-31
+created-Realm weak-collection checkpoint, formatting is green and the broad
+backend library target retains its same seven unrelated baseline failures at
+`367/374`. The receiver-specific `collection_` target, bounded CLI
+collection/iterator shard, focused pinned receiver filters and broad Test262
+aggregate were not rerun for this documentation update.

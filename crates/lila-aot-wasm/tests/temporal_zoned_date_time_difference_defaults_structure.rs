@@ -27,8 +27,8 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 fn date_time_difference_settings_plan_is_closed_and_receiver_specific() {
     let plain_direction = bounded(
         PLAIN_DATE_TIME_SOURCE,
-        "pub(crate) enum PlainDateTimeDifference {",
-        "impl PlainDateTimeDifference {",
+        "pub(super) enum TemporalPlainDifferenceOperation {",
+        "/// The three compile-time consumers of the shared DateTime difference-settings",
     );
     let plain_variants = plain_direction
         .split_once('}')
@@ -160,13 +160,21 @@ fn shared_reader_gets_each_user_setting_once_in_spec_order() {
             .count(),
         1
     );
-    assert_before(reader, "\"largestUnit\"", "rounding_increment_option(");
+    assert_before(
+        reader,
+        "TemporalUnitOptionProperty::LargestUnit",
+        "rounding_increment_option(",
+    );
     assert_before(
         reader,
         "rounding_increment_option(",
         "rounding_mode_option(",
     );
-    assert_before(reader, "rounding_mode_option(", "\"smallestUnit\"");
+    assert_before(
+        reader,
+        "rounding_mode_option(",
+        "TemporalUnitOptionProperty::SmallestUnit",
+    );
     assert!(reader.contains("let fallback_largest_unit = plan.fallback_largest_unit();"));
     assert!(reader.contains("if plan.negates_rounding_mode()"));
 }
@@ -175,7 +183,7 @@ fn shared_reader_gets_each_user_setting_once_in_spec_order() {
 fn plain_arithmetic_and_zoned_transport_are_the_only_consumers() {
     let plain = bounded(
         PLAIN_DATE_TIME_SOURCE,
-        "    pub(crate) fn emit_temporal_plain_date_time_until_or_since(",
+        "    pub(super) fn emit_temporal_plain_date_time_until_or_since(",
         "    pub(crate) fn emit_temporal_plain_date_time_to_locale_string(",
     );
     assert_eq!(
@@ -184,14 +192,20 @@ fn plain_arithmetic_and_zoned_transport_are_the_only_consumers() {
             .count(),
         1
     );
-    assert!(plain.contains("difference.settings_plan()"));
+    assert!(plain.contains("let settings_plan = match operation {"));
+    assert!(plain.contains(
+        "TemporalPlainDifferenceOperation::Until => {\n                TemporalDateTimeDifferenceSettingsPlan::PlainUntil"
+    ));
+    assert!(plain.contains(
+        "TemporalPlainDifferenceOperation::Since => {\n                TemporalDateTimeDifferenceSettingsPlan::PlainSince"
+    ));
     assert!(!plain.contains("emit_temporal_duration_unit_option("));
     assert!(!plain.contains("emit_temporal_duration_rounding_mode_option("));
 
     let transport = bounded(
         PLAIN_DATE_TIME_SOURCE,
         "    pub(crate) fn emit_temporal_zoned_date_time_difference_delegate_options(",
-        "    pub(crate) fn emit_temporal_plain_date_time_until_or_since(",
+        "    pub(super) fn emit_temporal_plain_date_time_until_or_since(",
     );
     assert_eq!(
         transport
@@ -219,7 +233,7 @@ fn plain_arithmetic_and_zoned_transport_are_the_only_consumers() {
 #[test]
 fn zoned_delegate_receives_only_the_normalized_options_bag() {
     let zoned = ZONED_DATE_TIME_SOURCE
-        .split_once("    pub(crate) fn emit_temporal_zoned_date_time_until_or_since(")
+        .split_once("    fn emit_temporal_zoned_date_time_until_or_since(")
         .expect("ZonedDateTime difference emitter")
         .1;
     assert_eq!(
@@ -243,12 +257,10 @@ fn zoned_delegate_receives_only_the_normalized_options_bag() {
     assert!(delegate.contains("delegate_options_tag_local"));
     assert!(!delegate.contains("(options_payload_local, options_tag_local)"));
 
-    assert!(
-        STANDARD_SOURCE.contains("PlainDateTimeDifference::Until,\n                    function,")
-    );
-    assert!(
-        STANDARD_SOURCE.contains("PlainDateTimeDifference::Since,\n                    function,")
-    );
+    assert!(STANDARD_SOURCE
+        .contains("TemporalPlainDifferenceOperation::Until,\n                    function,"));
+    assert!(STANDARD_SOURCE
+        .contains("TemporalPlainDifferenceOperation::Since,\n                    function,"));
     assert!(
         !STANDARD_SOURCE.contains("emit_temporal_plain_date_time_until_or_since(false, function)")
     );

@@ -8,7 +8,7 @@
 //! refuted runner knobs, and why the split has to be by module file rather than
 //! by libtest filter.
 //!
-//! 33 tests, all heavy. Its chunk is `run_chunk language_errors
+//! 35 tests, all heavy. Its chunk is `run_chunk language_errors
 //! language_errors::` in `scripts/rung1c-chunks.sh`, and it needs BOTH that line
 //! and `mod language_errors;` in `main.rs`: a module with a chunk but no `mod`
 //! line is not compiled, its filter selects nothing, libtest exits 0 on
@@ -140,6 +140,65 @@ fn run_wasm_backend_preserves_catch_finally_derived_return_completions() {
 }
 
 #[test]
+fn run_wasm_backend_seeds_empty_catch_and_finally_clause_completions_with_undefined() {
+    for fixture in [
+        "wasm_try_clause_empty_break_completion.js",
+        "wasm_finally_clause_empty_break_completion.js",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+            .arg("run")
+            .arg("--execution-backend")
+            .arg("wasm")
+            .arg(fixture_path(fixture))
+            .output()
+            .expect("run command should run");
+
+        assert!(
+            output.status.success(),
+            "{fixture}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("backend_used: WasmAot"),
+            "{fixture}: {stdout}"
+        );
+        assert!(
+            stdout.contains("undefined(undefined"),
+            "{fixture}: {stdout}"
+        );
+    }
+}
+
+#[test]
+fn run_wasm_backend_preserves_catch_and_finally_clause_values_on_break() {
+    for fixture in [
+        "wasm_try_clause_value_break_completion.js",
+        "wasm_finally_clause_value_break_completion.js",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+            .arg("run")
+            .arg("--execution-backend")
+            .arg("wasm")
+            .arg(fixture_path(fixture))
+            .output()
+            .expect("run command should run");
+
+        assert!(
+            output.status.success(),
+            "{fixture}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("backend_used: WasmAot"),
+            "{fixture}: {stdout}"
+        );
+        assert!(stdout.contains("number(42"), "{fixture}: {stdout}");
+    }
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_non_callable_catchability_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
@@ -205,7 +264,7 @@ fn run_wasm_backend_succeeds_for_error_iserror_other_realm_fixture() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains(
-        "string(Error,EvalError,RangeError,ReferenceError,SyntaxError,TypeError,URIError,AggregateError)"
+        "string(Error,EvalError,RangeError,ReferenceError,SyntaxError,TypeError,URIError,AggregateError,SuppressedError)"
     ));
 }
 

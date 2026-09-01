@@ -84,10 +84,57 @@ they do not satisfy object/identity
 comparison, full-corpus replay, layered generation, a general AST reducer,
 fuzz, performance, or CI requirements.
 
+The protocol's private `OutputComparisonPolicy` now has no incidental debug,
+clone, copy, equality or default capability. Its exhaustive projection still
+selects captured-empty output for v1/v2 and captured print transcripts for v3;
+its exhaustive consumer still checks Wasm before spec-exec and runs before
+backend projection. A future protocol row must select a policy, while a future
+policy row must define its comparison. The recursive structure guard pins all
+seven source mentions, both producer mappings, both consumer rows and that
+ordering. The
+focused `either_backend_output_makes_a_no_output_case_red` and
+`v3_matches_primitive_completion_and_exact_ordered_print_transcript` witnesses
+cover both policy rows. The structure target passes 4/4, both exact owner
+witnesses pass 1/1 and the package formatting check is green. This derive-only
+closure changes no wire bytes, fingerprints, mismatch semantics or execution
+order. Its contract is
+`docs/rust-rewrite/contracts/differential-output-comparison-policy.md`.
+Independent review corrected one documentation-only exhaustiveness overclaim;
+the executable invariant was clean. The shared workspace compile and all
+repository gates are green.
+
 The replay source domain and closed schema-v3 comparison/signature rules are
 normative in
 `docs/rust-rewrite/contracts/differential-source-closure.md` and
 `docs/rust-rewrite/contracts/differential-primitive-print-transcript.md`.
+
+The private backend execution envelope and its closed result payload are now
+Debug-only owned authorities rather than cloneable or equality-comparable
+facts. Their seven production mentions and 12 production result mentions form
+one lifecycle: the sole producer constructs each complete envelope, comparison
+retains Wasm-before-spec-exec borrow-before-consume order, and the five-arm
+consuming projection moves every payload into the public observation. The
+Rust-lexical guard fingerprints each relevant body and prevents clone/equality
+bypasses or alternate projection routes. This capability-only closure changes
+no wire bytes, fingerprints, mismatch semantics, verdicts or execution order;
+the structure target passes `6/6`, the neighboring output-policy target remains
+`4/4`, and all four exact semantic witnesses pass `1/1`. The feature-gated
+two-backend replay remains deferred to the broader T25 checkpoint. Its focused
+contract is
+`docs/rust-rewrite/contracts/differential-backend-execution-ownership.md`.
+
+The in-process Test262 worker now carries one journal admission through the
+non-cloneable `RunPhase -> QueuedCase -> CaseAdmission -> AdmittedCase`
+ownership chain. Each transition consumes the previous authority, and
+`run_case_entry` now consumes the admitted proof instead of borrowing it, so a
+single durable admission cannot authorize a second runner entry. The worker
+retains only the path string needed by a possible retirement diagnostic; that
+string cannot enter the runner. The Rust-lexical closure and its scoped
+non-claims are recorded in
+[`test262-admitted-case-ownership.md`](../docs/rust-rewrite/contracts/test262-admitted-case-ownership.md).
+The focused structure target passes `4/4`; this source-equivalent ownership
+checkpoint changes no journal bytes, selected case, execution result, snapshot
+or published conformance count.
 
 ## Objective
 
@@ -174,6 +221,23 @@ and consumers must not rely on them. Differential replay shadows the existing
 realm output hook so all protocol versions can still report output emitted
 before an `EngineError`; the typed outcome is authoritative for completed
 normal and throw executions.
+
+The private replay/comparison implementation now has an explicit compile-time
+capability boundary: it exists only under unit tests or the off-by-default
+`spec-exec-oracle` feature, while public schemas and the typed feature-off
+`OracleNotLinked` result remain in default product builds. Test-only snapshot
+mutation and feature-only module-loader fixtures have matching narrow gates,
+and the uncalled template-source scanner is deleted. The focused
+[`differential oracle compile boundary contract`](../docs/rust-rewrite/contracts/differential-oracle-compile-boundary.md)
+records the original SHA-256 witnesses
+`8ed6a8721c8d157ea263418918138258a2e68a26670059923570f814b293b69e`
+and
+`bcecce80a7145d8c00525efc0bbfe0ec3b3a7110a6b7f8aa1590706231d21a89`.
+At the Batch BX checkpoint, default and `spec-exec-oracle` package checks are
+green without `lila-test262` warnings; the new boundary target passes `3/3`,
+the retained output-policy and backend-ownership targets pass `10/10`, the two
+focused comparison units pass `2/2`, and the feature-enabled committed
+two-backend replay passes `1/1`.
 
 ## Differential execution framework
 

@@ -35,6 +35,13 @@ pub(crate) enum BigIntNumberPolicy {
 }
 ```
 
+The policy derives no cloning, copying, equality or debug capability. Each
+outer consumer constructs one named policy and moves it into the value helper;
+that helper moves the same value through its sole forwarding edge, and the
+private primitive helper consumes it in the exhaustive Number-branch match.
+There is no reason to duplicate or compare the authority before that final
+projection.
+
 `emit_value_to_bigint_locals` accepts the policy, performs exactly one
 number-hinted `ToPrimitive`, preserves its abrupt-completion route, and forwards
 the policy unchanged to `emit_primitive_to_bigint_locals`. The primitive helper
@@ -99,9 +106,10 @@ only observe a few successful values. It must require:
 
 The witness must fail if the two policies are swapped at any inventoried site,
 if a caller reintroduces a literal Boolean, if a new bypass or caller appears,
-or if the exhaustive match is weakened. It should also pin that number-hinted
-`ToPrimitive` precedes the single policy forwarding call so a mechanical
-signature migration cannot silently change evaluation or completion order.
+if an incidental capability is added, or if the exhaustive match is weakened.
+It should also pin that number-hinted `ToPrimitive` precedes the single policy
+forwarding call so a mechanical signature migration cannot silently change
+evaluation or completion order.
 
 ## Focused verification
 

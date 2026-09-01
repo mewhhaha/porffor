@@ -140,6 +140,17 @@ drops the key tag or interchanges target/descriptor values therefore does not
 compile. This also prevents a frozen-target TypeError from replacing the value
 originally thrown by the trap.
 
+Batch Z removes the pending and normal roles' remaining debug and equality
+capabilities. Both are now must-use, non-copyable one-way lifecycle values. A
+four-test recursive guard pins their absent derived and manual capabilities,
+the sole raw-result producer, the sole completion-routing transition, the
+single consuming invariant, its borrowed observers and the exact existing CLI
+witness. At the 2026-08-28 Batch Z checkpoint, `cargo xc` is green and the
+recursive structure target passes `4/4`. The existing CLI fixture remains
+`0/1`: it throws at its pre-existing mapped-arguments current-value assertion,
+before the later abrupt-result identity controls. This derive-only lifecycle
+closure did not change any instruction body, and no Test262 rerun is claimed.
+
 For that normal result, Proxy `[[Get]]` accepts an absent or configurable
 descriptor. A present non-configurable, non-writable data descriptor requires
 `SameValue(trapResult, targetDesc.[[Value]])`; a present non-configurable
@@ -162,11 +173,12 @@ eventual implementation must perform that target's `GetMethod`, call,
 descriptor conversion and complete compatibility validation without allocating
 through the public builtin. The `has`, `deleteProperty`, `get` and `set`
 invariant consumers therefore make no nested-Proxy-target closure claim. Proxy
-`[[Delete]]` preserves the existing fixed-depth absent-trap target recursion,
-while Proxy `[[Get]]` trap lookup, absent-trap fallback and broader nested
-handler dispatch remain their existing bounded paths. Other Proxy internal
-methods, module-namespace descriptor behavior and broader `[[Get]]` closure
-remain T11 work.
+`[[Delete]]` absent/nullish-trap fallback now follows target Proxies in one
+unbounded runtime loop; its callable-trap descriptor validation remains the
+bounded direct fact described above. Proxy `[[Get]]` trap lookup, absent-trap
+fallback and broader nested handler dispatch retain their existing bounded
+paths. Other Proxy internal methods, module-namespace descriptor behavior and
+broader `[[Get]]` closure remain T11 work.
 
 ## Verification boundary
 

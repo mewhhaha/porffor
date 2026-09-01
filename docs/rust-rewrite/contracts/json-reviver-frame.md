@@ -52,8 +52,9 @@ The role is explicit at both static and dynamic reviver call sites. It is never
 derived from the key spelling: an ordinary nested property named the empty
 string is still `Nested`. Dynamic frames persist the role through its stable
 wire word, and frame creation accepts the typed role rather than a Boolean
-local. Only the shared post-call emitter consumes the distinction, so the
-static specialization and dynamic parser cannot drift into different root or
+local. Only the shared post-call emitter in `builtins/json.rs` consumes the
+distinction. The static caller in `builtins/json/static_reviver.rs` and the
+dynamic caller in the parent therefore cannot drift into different root or
 child mutation rules.
 
 ## Source context and abrupt completion
@@ -72,8 +73,11 @@ JavaScript abrupt completion into a parser error or a default result.
 ## Durable evidence owner
 
 `crates/lila-aot-wasm/tests/json_reviver_frame_structure.rs` is the bounded
-source owner for this protocol. Its four behavior-named tests pin:
+source owner for this protocol. Its five tests pin:
 
+- the private static-reviver child boundary, exact type/function inventory,
+  sole compiler entry, two expression callers and retained shared parent
+  operations;
 - the exact four-state and two-role wire domains, including their ordered
   words and generated `ALL` sets;
 - typed state/role persistence, exhaustive state and role dispatch, and an
@@ -120,6 +124,32 @@ discover twelve ordinary sloppy-and-strict executions. All `12/12` pass under
 Wasm-AOT at vendored suite content tree
 `aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every failure and
 non-success bucket at zero.
+
+Batch AM makes the three macro-generated domains capability-free JSON wire
+domains. `JsonReviverFrameState`, `JsonReviverPropertyRole` and
+`JsonParseFrameState` no longer derive clone, copy, debug, equality or any
+other incidental identity capability. Their stable wire projection borrows
+the selected identity, and all three complete-set traversals borrow the
+macro-owned identities instead of copying them. The wire words, complete sets,
+exhaustive dispatch and emitted instructions remain unchanged. The
+source-present, source-ineligible and source-absent static branches now borrow
+one role through their shared helper boundary. At the Batch AM checkpoint,
+`cargo xc` is green, the reviver and parse-frame structure targets pass `5/5`
+and `4/4`, and the exact dynamic-reviver CLI witness passes `1/1`. No focused
+Test262 leaf or semantic golden was required or run for this source-equivalent
+capability hardening.
+
+Batch AN makes the private static-reviver key a capability-free
+`JsonStaticPropertyKey`. Its exact string-or-array-index roles are now borrowed
+through key materialization, holder lookup and the final reviver-result stage;
+clone, copy, formatting, default, comparison, ordering and hashing cannot
+create a second key identity route. All three producers borrow their temporary
+closed role immediately. The key payloads, Array index words, lookup order,
+reviver calls and emitted instructions remain unchanged. At the Batch AN
+checkpoint, `cargo xc` is green, the five-test reviver structure owner passes
+`5/5`, and the exact forward-modification CLI witness passes `1/1`. No focused
+Test262 leaf or semantic golden was required or run for this source-equivalent
+capability hardening.
 
 ## Non-claims
 

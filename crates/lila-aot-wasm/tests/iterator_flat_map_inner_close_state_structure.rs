@@ -98,6 +98,39 @@ fn inner_state_is_closed_and_preserves_close_finalization_order() {
     );
     assert!(!CONTROL_FLOW_SOURCE.contains("pub(super) enum IteratorFlatMapInnerState"));
     assert!(!CONTROL_FLOW_SOURCE.contains("pub enum IteratorFlatMapInnerState"));
+    assert!(CONTROL_FLOW_SOURCE.contains(
+        "#[must_use = \"flatMap inner installation state must be consumed by outer-close finalization\"]"
+    ));
+    let declaration_offset = CONTROL_FLOW_SOURCE
+        .find("pub(crate) enum IteratorFlatMapInnerState {")
+        .expect("flatMap inner state declaration");
+    assert_eq!(
+        CONTROL_FLOW_SOURCE[..declaration_offset]
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(str::trim),
+        Some(
+            "#[must_use = \"flatMap inner installation state must be consumed by outer-close finalization\"]"
+        )
+    );
+    for capability in [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Default",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+    ] {
+        assert!(
+            !CONTROL_FLOW_SOURCE
+                .contains(&format!("impl {capability} for IteratorFlatMapInnerState")),
+            "flatMap inner state must not manually implement {capability}"
+        );
+    }
 
     let signature = bounded(
         CONTROL_FLOW_SOURCE,

@@ -55,6 +55,7 @@ impl<'a> ScriptLowerer<'a> {
         source_op: UpdateOp,
         access: &SuperPropertyAccess,
     ) -> TypedExpr {
+        self.record_caller_flow_invalidation();
         let Some((plan, read_info)) = self.lower_super_property_reference_plan(access) else {
             return TypedExpr::undefined();
         };
@@ -65,8 +66,8 @@ impl<'a> ScriptLowerer<'a> {
             UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
         };
         let value_kind = match read_info.kind {
-            ValueKind::Number => ValueKind::Number,
-            ValueKind::BigInt => ValueKind::BigInt,
+            ValueKind::Number => NumericUpdateValueKind::Number,
+            ValueKind::BigInt => NumericUpdateValueKind::BigInt,
             ValueKind::Undefined
             | ValueKind::Null
             | ValueKind::Boolean
@@ -76,7 +77,7 @@ impl<'a> ScriptLowerer<'a> {
             | ValueKind::Array
             | ValueKind::Function
             | ValueKind::Arguments
-            | ValueKind::Dynamic => ValueKind::Dynamic,
+            | ValueKind::Dynamic => NumericUpdateValueKind::Dynamic,
         };
         plan.numeric_update(op, return_mode, value_kind)
     }
@@ -87,6 +88,7 @@ impl<'a> ScriptLowerer<'a> {
         op: EagerCompoundAssignmentOp,
         rhs: &Expression,
     ) -> TypedExpr {
+        self.record_caller_flow_invalidation();
         let Some((plan, _)) = self.lower_super_property_reference_plan(access) else {
             return TypedExpr::undefined();
         };
@@ -203,7 +205,8 @@ mod tests {
                 SuperPropertyMutationOperationIr::NumericUpdate {
                     op,
                     return_mode,
-                    value_kind: ValueKind::Number | ValueKind::Dynamic,
+                    value_kind:
+                        NumericUpdateValueKind::Number | NumericUpdateValueKind::Dynamic,
                 } if *op == expected_op && *return_mode == expected_mode
             ));
         }

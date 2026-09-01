@@ -5,40 +5,8 @@ pub(crate) const COMPLETION_KIND_THROW: i64 = CompletionKindIr::Throw.abi_code()
 pub(crate) const COMPLETION_KIND_RETURN: i64 = CompletionKindIr::Return.abi_code();
 pub(crate) const COMPLETION_KIND_BREAK: i64 = CompletionKindIr::Break.abi_code();
 pub(crate) const COMPLETION_KIND_CONTINUE: i64 = CompletionKindIr::Continue.abi_code();
-pub(crate) const COMPLETION_KIND_EMPTY: i64 = CompletionKindIr::Empty.abi_code();
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CompletionKindSlot {
-    pub name: &'static str,
-    pub value: i64,
-}
-
-pub(crate) const COMPLETION_KIND_REGISTRY: &[CompletionKindSlot] = &[
-    CompletionKindSlot {
-        name: "normal",
-        value: COMPLETION_KIND_NORMAL,
-    },
-    CompletionKindSlot {
-        name: "throw",
-        value: COMPLETION_KIND_THROW,
-    },
-    CompletionKindSlot {
-        name: "return",
-        value: COMPLETION_KIND_RETURN,
-    },
-    CompletionKindSlot {
-        name: "break",
-        value: COMPLETION_KIND_BREAK,
-    },
-    CompletionKindSlot {
-        name: "continue",
-        value: COMPLETION_KIND_CONTINUE,
-    },
-    CompletionKindSlot {
-        name: "empty",
-        value: COMPLETION_KIND_EMPTY,
-    },
-];
+pub(crate) const COMPLETION_KIND_REGISTRY: &[CompletionKindIr] = CompletionKindIr::ALL;
 
 #[cfg(test)]
 mod tests {
@@ -47,11 +15,13 @@ mod tests {
 
     #[test]
     fn operations_completion_kind_registry_is_stable_and_dense() {
-        for (expected, slot) in COMPLETION_KIND_REGISTRY.iter().enumerate() {
+        for (expected, kind) in COMPLETION_KIND_REGISTRY.iter().enumerate() {
             assert_eq!(
-                slot.value, expected as i64,
+                kind.abi_code(),
+                expected as i64,
                 "completion kind {} should stay at {}",
-                slot.name, expected
+                kind.name(),
+                expected
             );
         }
     }
@@ -60,7 +30,7 @@ mod tests {
     fn operations_completion_kind_registry_names_t04_variants() {
         let names = COMPLETION_KIND_REGISTRY
             .iter()
-            .map(|slot| slot.name)
+            .map(|kind| kind.name())
             .collect::<Vec<_>>();
         assert_eq!(
             names,
@@ -75,8 +45,9 @@ mod tests {
             .iter()
             .zip(COMPLETION_ABI_SLOTS.iter())
         {
-            assert_eq!(backend.name, ir.name);
-            assert_eq!(backend.value, ir.code);
+            assert_eq!(*backend, ir.kind());
+            assert_eq!(backend.name(), ir.name());
+            assert_eq!(backend.abi_code(), ir.code());
         }
     }
 }

@@ -1,11 +1,12 @@
-const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const ENUMERABLE_OWN_PROPERTIES_SOURCE: &str =
+    include_str!("../src/builtins/object/enumerable_own_properties.rs");
 
 fn enumerable_own_properties_body() -> &'static str {
-    OBJECT_SOURCE
-        .split_once("    pub(super) fn compile_object_enumerable_own_properties_builtin(")
+    ENUMERABLE_OWN_PROPERTIES_SOURCE
+        .split_once("    fn compile_object_enumerable_own_properties_builtin(")
         .expect("Object.values/Object.entries compiler")
         .1
-        .split_once("    pub(super) fn compile_object_constructor_builtin(")
+        .split_once("    pub(in crate::builtins) fn compile_object_entries_builtin(")
         .expect("Object.values/Object.entries compiler end")
         .0
 }

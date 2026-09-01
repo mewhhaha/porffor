@@ -27,7 +27,7 @@ impl<'a> ScriptLowerer<'a> {
                     target.kind = ValueKind::Dynamic;
                     target.possible_kinds = KindSet::all_runtime_tags();
                     target.heap_shape = None;
-                    target.function_targets.clear();
+                    target.function_targets.widen_for_possible_replacement();
                 }
                 let key = match target.kind {
                     ValueKind::Object | ValueKind::Function | ValueKind::Dynamic => {
@@ -46,7 +46,7 @@ impl<'a> ScriptLowerer<'a> {
                                         lowered.kind = ValueKind::Dynamic;
                                         lowered.possible_kinds = KindSet::all_runtime_tags();
                                         lowered.heap_shape = None;
-                                        lowered.function_targets.clear();
+                                        lowered.function_targets.widen_for_possible_replacement();
                                     }
                                     if lowered.kind == ValueKind::Number {
                                         PropertyKeyIr::ArrayIndex(Box::new(lowered))
@@ -82,7 +82,7 @@ impl<'a> ScriptLowerer<'a> {
                                     lowered.kind = ValueKind::Dynamic;
                                     lowered.possible_kinds = KindSet::all_runtime_tags();
                                     lowered.heap_shape = None;
-                                    lowered.function_targets.clear();
+                                    lowered.function_targets.widen_for_possible_replacement();
                                 }
                                 if lowered.kind == ValueKind::Number {
                                     PropertyKeyIr::ArrayIndex(Box::new(lowered))

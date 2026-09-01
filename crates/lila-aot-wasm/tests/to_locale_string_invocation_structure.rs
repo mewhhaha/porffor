@@ -26,22 +26,35 @@ fn to_locale_string_receiver_kind_is_closed_and_owns_surface_text() {
         .collect::<Vec<_>>();
     assert_eq!(variants, ["ArrayLike,", "TypedArray,"]);
 
-    let mappings = ARRAY_SOURCE
-        .split_once("impl ToLocaleStringReceiverKind {")
-        .expect("receiver kind mappings")
+    let validator = ARRAY_SOURCE
+        .split_once("fn emit_validate_to_locale_string_invocation(")
+        .expect("invocation validator")
         .1
-        .split_once("struct ValidatedToLocaleStringInvocationLocals {")
-        .expect("receiver kind mappings end")
+        .split_once("fn emit_call_validated_to_locale_string_invocation(")
+        .expect("invocation validator end")
         .0;
-    assert_eq!(mappings.matches("match self {").count(), 2);
-    assert!(!mappings.contains("_ =>"));
+    assert_eq!(validator.matches("match receiver_kind {").count(), 1);
+    assert!(!validator.contains("_ =>"));
     for text in [
-        "\"Array.prototype.toLocaleString\",",
-        "\"TypedArray.prototype.toLocaleString\",",
         "\"Array.prototype.toLocaleString element method is not callable\"",
         "\"TypedArray.prototype.toLocaleString element method is not callable\"",
     ] {
-        assert_eq!(mappings.matches(text).count(), 1, "{text}");
+        assert_eq!(validator.matches(text).count(), 1, "{text}");
+    }
+
+    let shared = ARRAY_SOURCE
+        .split_once("fn compile_to_locale_string_builtin(")
+        .expect("shared toLocaleString emitter")
+        .1
+        .split_once("pub(crate) fn emit_object_has_array_index_key_in_range_i32(")
+        .expect("shared toLocaleString emitter end")
+        .0;
+    assert_eq!(shared.matches("match &receiver_kind {").count(), 2);
+    for text in [
+        "\"Array.prototype.toLocaleString\"",
+        "\"TypedArray.prototype.toLocaleString\"",
+    ] {
+        assert_eq!(shared.matches(text).count(), 1, "{text}");
     }
 }
 
@@ -92,7 +105,7 @@ fn invocation_token_has_one_validator_and_one_proxy_aware_consumer() {
             .count(),
         1
     );
-    assert!(validator.contains("receiver_kind.element_method_not_callable_message()"));
+    assert!(validator.contains("error_message,"));
     assert!(!validator.contains("emit_throw_runtime_error("));
     assert!(!validator.contains("ValueKind::Function"));
     assert_before(

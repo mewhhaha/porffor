@@ -81,7 +81,7 @@ fn ir_owns_one_closed_ordinary_property_numeric_update_reference() {
         "strictness: Strictness",
         "op: NumericUpdateOp",
         "return_mode: UpdateReturnMode",
-        "value_kind: ValueKind",
+        "value_kind: NumericUpdateValueKind",
         "possible_getters: PropertyHookTargets",
         "possible_setters: PropertyHookTargets",
     ] {
@@ -171,7 +171,9 @@ fn lowering_exhaustively_intercepts_simple_updates_before_decomposed_property_ac
             "self.lower_ordinary_property_reference_plan(access)",
             "self.record_ordinary_property_get(&metadata);",
             "let possible_getters = Self::possible_ordinary_property_getters(&metadata);",
-            "let possible_setters = self.possible_ordinary_property_setters(&metadata, true);",
+            "let coercion_may_call_user_code =",
+            "self.ordinary_property_numeric_coercion_may_call_user_code(&metadata);",
+            "self.possible_ordinary_property_setters(&metadata, coercion_may_call_user_code);",
             "plan.numeric_update(op, return_mode, possible_getters, possible_setters)",
             "self.record_ordinary_property_possible_write(",
         ],
@@ -233,7 +235,7 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
     let sealed = bounded(
         EXPRESSIONS_SOURCE,
         "trait OrdinaryPropertyReferenceSource {",
-        "#[derive(Debug)]\n#[must_use = \"a raw Super Property Reference",
+        "impl<'a> FunctionBuilder<'a> {",
     );
     assert_eq!(
         sealed
@@ -264,15 +266,15 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
             "self.emit_get_value_from_raw_ordinary_property_reference(",
             "let ReadOrdinaryPropertyReferenceLocals {",
             "match value_kind {",
-            "ValueKind::Dynamic =>",
+            "NumericUpdateValueKind::Dynamic =>",
             "self.emit_value_to_numeric_locals(old_value_payload, old_value_tag, function)?",
-            "ValueKind::Number =>",
-            "ValueKind::BigInt => {}",
-            "unreachable!(\"ordinary property numeric update requires Number, BigInt, or Dynamic\")",
+            "NumericUpdateValueKind::Number =>",
+            "NumericUpdateValueKind::BigInt => {}",
             "Ok(ReadOrdinaryPropertyNumericUpdateLocals {",
         ],
     );
     assert!(!get_numeric.contains("_ =>"));
+    assert!(!get_numeric.contains("unreachable!"));
 
     let delta = bounded(
         EXPRESSIONS_SOURCE,
@@ -320,7 +322,7 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
     let entry = bounded(
         EXPRESSIONS_SOURCE,
         "    fn compile_ordinary_property_numeric_update_to_locals(",
-        "    fn evaluate_raw_super_property_reference(",
+        "    pub(crate) fn compile_expr_payload(",
     );
     positions_in_order(
         entry,
@@ -361,7 +363,8 @@ fn exhaustive_consumers_and_temp_budget_name_each_numeric_update_phase() {
         budget,
         &[
             "let to_numeric_temps = match update.value_kind()",
-            "ValueKind::Dynamic => ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS",
+            "NumericUpdateValueKind::Dynamic =>",
+            "ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS",
             "let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS",
             ".max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)",
             ".max(to_numeric_temps)",

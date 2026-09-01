@@ -47,6 +47,17 @@ impl TemporalPartialDateType {
         }
     }
 
+    const fn receiver_error_message(self) -> &'static str {
+        match self {
+            TemporalPartialDateType::PlainYearMonth => {
+                "Temporal.PlainYearMonth receiver does not have [[InitializedTemporalYearMonth]]"
+            }
+            TemporalPartialDateType::PlainMonthDay => {
+                "Temporal.PlainMonthDay receiver does not have [[InitializedTemporalMonthDay]]"
+            }
+        }
+    }
+
     /// The realm intrinsic `%Temporal.PlainYearMonth.prototype%` /
     /// `%Temporal.PlainMonthDay.prototype%`.
     pub(crate) const fn prototype_global_index(self) -> u32 {
@@ -83,18 +94,18 @@ const TEMPORAL_PLAIN_YEAR_MONTH_MAXIMUM_MONTH: i64 = 9;
 
 impl<'a> FunctionBuilder<'a> {
     /// A brand check that any of the partial-date types can share: throws a
-    /// TypeError unless `this` is an object carrying `brand`, then leaves the
-    /// boxed record pointer in `record_local`.
+    /// TypeError unless `this` carries the requested partial-date brand, then
+    /// leaves the boxed record pointer in `record_local`.
     pub(crate) fn emit_temporal_branded_record_from_receiver(
         &mut self,
-        brand: u64,
-        message: &str,
+        partial_date_type: TemporalPartialDateType,
         record_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let receiver_payload_local = self.reserve_temp_local();
         let receiver_tag_local = self.reserve_temp_local();
         let receiver_brand_local = self.reserve_temp_local();
+        let message = partial_date_type.receiver_error_message();
 
         self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
@@ -116,7 +127,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(brand as i64));
+        function.instruction(&Instruction::I64Const(partial_date_type.brand() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -449,8 +460,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_temporal_branded_record_from_receiver(
-            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_YEAR_MONTH,
-            "Temporal.PlainYearMonth receiver does not have [[InitializedTemporalYearMonth]]",
+            TemporalPartialDateType::PlainYearMonth,
             record_local,
             function,
         )

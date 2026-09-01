@@ -1,4 +1,5 @@
 use super::super::*;
+use super::atomics::ATOMICS_PUBLICATION_ORDER;
 use crate::functions::{
     ErrorMessageConstructorKind, FunctionPrototypeMaterialization, NonArrayRealmIntrinsicSlot,
 };
@@ -579,16 +580,12 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Temporal proposal 2.2: the `Temporal.Now` namespace object. It is an
-    /// ordinary object, not a constructor, so it gets no prototype global and
-    /// no branded record — only `Object.prototype`, `Symbol.toStringTag` and
-    /// the clock functions this backend can actually answer.
-    ///
-    /// `plainDateISO`, `plainDateTimeISO` and `plainTimeISO` are deliberately
-    /// absent: `Temporal.PlainDate`, `Temporal.PlainDateTime` and
-    /// `Temporal.PlainTime` do not exist yet, so those functions would have no
-    /// honest value to return.
+    /// ordinary object, not a constructor, so it gets no prototype global or
+    /// branded record. The namespace witness makes every function advertised
+    /// by the IR shape available before this installer can be called.
     fn init_temporal_now_object(
         &mut self,
+        members: TemporalNamespaceMembers,
         object_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -625,20 +622,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(payload_local);
         self.release_temp_local(key_local);
 
-        for (name, builtin) in [
-            ("timeZoneId", StandardBuiltinId::TemporalNowTimeZoneId),
-            ("instant", StandardBuiltinId::TemporalNowInstant),
-            (
-                "zonedDateTimeISO",
-                StandardBuiltinId::TemporalNowZonedDateTimeIso,
-            ),
-        ] {
-            if !self
-                .runtime_bootstrap_plan
-                .should_initialize_standard_builtin(builtin)
-            {
-                continue;
-            }
+        for (name, builtin) in members.now_members_in_installation_order() {
             let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
@@ -652,6 +636,7 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn init_temporal_object(
         &mut self,
+        members: TemporalNamespaceMembers,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let object_local = self.reserve_temp_local();
@@ -667,177 +652,40 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::LocalSet(object_local));
-        if [
-            StandardBuiltinId::TemporalNowTimeZoneId,
-            StandardBuiltinId::TemporalNowInstant,
-            StandardBuiltinId::TemporalNowZonedDateTimeIso,
-        ]
-        .into_iter()
-        .any(|builtin| {
-            self.runtime_bootstrap_plan
-                .should_initialize_standard_builtin(builtin)
-        }) {
-            let now_local = self.reserve_temp_local();
-            let now_tag_local = self.reserve_temp_local();
-            self.init_temporal_now_object(now_local, function)?;
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::LocalSet(now_tag_local));
-            self.emit_object_append_local_data_property_with_flags(
-                object_local,
-                TEMPORAL_NOW_NAME,
-                now_local,
-                now_tag_local,
-                true,
-                false,
-                true,
-                function,
-            )?;
-            self.release_temp_local(now_tag_local);
-            self.release_temp_local(now_local);
-        }
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_INSTANT_CONSTRUCTOR_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(constructor_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        let now_local = self.reserve_temp_local();
+        let now_tag_local = self.reserve_temp_local();
+        self.init_temporal_now_object(members, now_local, function)?;
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(now_tag_local));
         self.emit_object_append_local_data_property_with_flags(
             object_local,
-            "Instant",
-            constructor_local,
-            constructor_tag_local,
+            TEMPORAL_NOW_NAME,
+            now_local,
+            now_tag_local,
             true,
             false,
             true,
             function,
         )?;
-        if self
-            .runtime_bootstrap_plan
-            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor)
-        {
-            function.instruction(&Instruction::GlobalGet(
-                TEMPORAL_PLAIN_DATE_CONSTRUCTOR_GLOBAL_INDEX,
-            ));
+        self.release_temp_local(now_tag_local);
+        self.release_temp_local(now_local);
+
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        for (name, builtin) in members.constructors_in_installation_order() {
+            let global_index =
+                standard_builtin_constructor_global_index(builtin).ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: \
+                         missing Temporal constructor global `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            function.instruction(&Instruction::GlobalGet(global_index));
             function.instruction(&Instruction::LocalSet(constructor_local));
             self.emit_object_append_local_data_property_with_flags(
                 object_local,
-                TEMPORAL_PLAIN_DATE_NAME,
-                constructor_local,
-                constructor_tag_local,
-                true,
-                false,
-                true,
-                function,
-            )?;
-        }
-        if self
-            .runtime_bootstrap_plan
-            .should_initialize_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor)
-        {
-            function.instruction(&Instruction::GlobalGet(
-                TEMPORAL_ZONED_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(constructor_local));
-            self.emit_object_append_local_data_property_with_flags(
-                object_local,
-                "ZonedDateTime",
-                constructor_local,
-                constructor_tag_local,
-                true,
-                false,
-                true,
-                function,
-            )?;
-        }
-        if self
-            .runtime_bootstrap_plan
-            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainTimeConstructor)
-        {
-            function.instruction(&Instruction::GlobalGet(
-                TEMPORAL_PLAIN_TIME_CONSTRUCTOR_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(constructor_local));
-            self.emit_object_append_local_data_property_with_flags(
-                object_local,
-                TEMPORAL_PLAIN_TIME_NAME,
-                constructor_local,
-                constructor_tag_local,
-                true,
-                false,
-                true,
-                function,
-            )?;
-        }
-        if self
-            .runtime_bootstrap_plan
-            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor)
-        {
-            function.instruction(&Instruction::GlobalGet(
-                TEMPORAL_PLAIN_DATE_TIME_CONSTRUCTOR_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(constructor_local));
-            self.emit_object_append_local_data_property_with_flags(
-                object_local,
-                TEMPORAL_PLAIN_DATE_TIME_NAME,
-                constructor_local,
-                constructor_tag_local,
-                true,
-                false,
-                true,
-                function,
-            )?;
-        }
-        if self
-            .runtime_bootstrap_plan
-            .should_initialize_standard_builtin(
-                StandardBuiltinId::TemporalPlainYearMonthConstructor,
-            )
-        {
-            function.instruction(&Instruction::GlobalGet(
-                TEMPORAL_PLAIN_YEAR_MONTH_CONSTRUCTOR_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(constructor_local));
-            self.emit_object_append_local_data_property_with_flags(
-                object_local,
-                TEMPORAL_PLAIN_YEAR_MONTH_NAME,
-                constructor_local,
-                constructor_tag_local,
-                true,
-                false,
-                true,
-                function,
-            )?;
-        }
-        if self
-            .runtime_bootstrap_plan
-            .should_initialize_standard_builtin(StandardBuiltinId::TemporalPlainMonthDayConstructor)
-        {
-            function.instruction(&Instruction::GlobalGet(
-                TEMPORAL_PLAIN_MONTH_DAY_CONSTRUCTOR_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(constructor_local));
-            self.emit_object_append_local_data_property_with_flags(
-                object_local,
-                TEMPORAL_PLAIN_MONTH_DAY_NAME,
-                constructor_local,
-                constructor_tag_local,
-                true,
-                false,
-                true,
-                function,
-            )?;
-        }
-        if self
-            .runtime_bootstrap_plan
-            .should_initialize_standard_builtin(StandardBuiltinId::TemporalDurationConstructor)
-        {
-            function.instruction(&Instruction::GlobalGet(
-                TEMPORAL_DURATION_CONSTRUCTOR_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(constructor_local));
-            self.emit_object_append_local_data_property_with_flags(
-                object_local,
-                TEMPORAL_DURATION_NAME,
+                name,
                 constructor_local,
                 constructor_tag_local,
                 true,
@@ -1186,29 +1034,44 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(payload_local);
         self.release_temp_local(key_local);
 
-        for (name, builtin) in [
-            ("add", StandardBuiltinId::AtomicsAdd),
-            ("and", StandardBuiltinId::AtomicsAnd),
-            ("compareExchange", StandardBuiltinId::AtomicsCompareExchange),
-            ("exchange", StandardBuiltinId::AtomicsExchange),
-            ("load", StandardBuiltinId::AtomicsLoad),
-            ("notify", StandardBuiltinId::AtomicsNotify),
-            ("or", StandardBuiltinId::AtomicsOr),
-            ("pause", StandardBuiltinId::AtomicsPause),
-            ("store", StandardBuiltinId::AtomicsStore),
-            ("sub", StandardBuiltinId::AtomicsSub),
-            ("wait", StandardBuiltinId::AtomicsWait),
-            ("waitAsync", StandardBuiltinId::AtomicsWaitAsync),
-            ("xor", StandardBuiltinId::AtomicsXor),
-            ("isLockFree", StandardBuiltinId::AtomicsIsLockFree),
-        ] {
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+        for builtin in ATOMICS_PUBLICATION_ORDER {
+            let name = builtin.native_function_name().ok_or_else(|| {
                 EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                    "unsupported in lila wasm-aot first slice: missing native name for `{}`",
                     builtin.debug_name()
                 ))
             })?;
-            self.emit_object_define_function_data(object_local, name, meta, function)?;
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            let method_payload_local = self.reserve_temp_local();
+            let method_tag_local = self.reserve_temp_local();
+            self.emit_function_value_payload(&meta, function)?;
+            function.instruction(&Instruction::LocalSet(method_payload_local));
+            self.store_i64_local_at_offset(
+                method_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_payload_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(method_tag_local));
+            self.emit_object_define_local_data(
+                object_local,
+                name,
+                method_payload_local,
+                method_tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_tag_local);
+            self.release_temp_local(method_payload_local);
         }
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(ATOMICS_OBJECT_GLOBAL_INDEX));
@@ -1226,15 +1089,19 @@ impl<'a> FunctionBuilder<'a> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
 
-        let function_meta = self
+        let typed_array_constructor_meta = self
             .functions
-            .get(&StandardBuiltinId::FunctionConstructor.function_id())
+            .get(&StandardBuiltinId::TypedArrayConstructor.function_id())
             .ok_or_else(|| {
                 EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Function`",
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `%TypedArray%`",
                 )
             })?;
-        self.emit_function_value_payload(function_meta, function)?;
+        self.emit_function_value_payload_with_prototype_materialization(
+            typed_array_constructor_meta,
+            FunctionPrototypeMaterialization::BootstrapSupplied,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(typed_array_constructor_local));
         function.instruction(&Instruction::LocalGet(typed_array_constructor_local));
         function.instruction(&Instruction::GlobalSet(
@@ -1258,13 +1125,14 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        self.emit_object_define_data(
+        self.emit_object_append_data_property_with_flags(
             typed_array_constructor_local,
             key_local,
             typed_array_prototype_local,
             tag_local,
+            false,
+            false,
+            false,
             function,
         )?;
         function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
@@ -2390,7 +2258,23 @@ impl<'a> FunctionBuilder<'a> {
                         builtin.debug_name()
                     ))
                 })?;
-            self.emit_object_define_function_data(prototype_local, name, &method_meta, function)?;
+            self.emit_function_value_payload(&method_meta, function)?;
+            function.instruction(&Instruction::LocalSet(payload_local));
+            self.store_i64_local_at_offset(
+                payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                payload_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_local_data(
+                prototype_local,
+                name,
+                payload_local,
+                tag_local,
+                function,
+            )?;
         }
 
         function.instruction(&Instruction::I64Const(
@@ -2636,6 +2520,11 @@ impl<'a> FunctionBuilder<'a> {
             })?;
         self.emit_function_value_payload(&function_prototype_meta, function)?;
         function.instruction(&Instruction::GlobalSet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            FUNCTION_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::FunctionPrototype,
+            function,
+        );
         let function_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(function_prototype_local));
@@ -2887,6 +2776,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            PROMISE_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::PromisePrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3764,6 +3658,11 @@ impl<'a> FunctionBuilder<'a> {
                 PROMISE_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
+            self.emit_store_current_realm_global_intrinsic(
+                PROMISE_CONSTRUCTOR_GLOBAL_INDEX,
+                NonArrayRealmIntrinsicSlot::PromiseConstructor,
+                function,
+            );
         }
         if self
             .runtime_bootstrap_plan
@@ -3953,10 +3852,10 @@ impl<'a> FunctionBuilder<'a> {
         {
             self.init_atomics_object(function)?;
         }
-        if self.runtime_bootstrap_plan.full_standard_globals
-            || self.runtime_bootstrap_plan.temporal_object
+        if let Some(temporal_namespace_members) =
+            self.runtime_bootstrap_plan.temporal_namespace_members()
         {
-            self.init_temporal_object(function)?;
+            self.init_temporal_object(temporal_namespace_members, function)?;
         }
         // Unlike its five siblings above, the `Intl` gate hands back the member
         // list rather than a bool: "install `Intl`" and "every member the IR

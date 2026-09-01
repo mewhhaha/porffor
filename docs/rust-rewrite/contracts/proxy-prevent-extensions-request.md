@@ -72,7 +72,7 @@ The product seam uses these exact names:
 - `PreventExtensionsTraversalTargetLocals` is the tagged value currently being
   traversed;
 - `PreventExtensionsResultLocal` is the Boolean result destination;
-- `ObjectPreventExtensionsRequest` is private, non-`Clone`, non-`Copy` and
+- `ObjectPreventExtensionsRequest` is private, capability-free and
   `#[must_use]`;
 - `PendingProxyPreventExtensionsTrapResultLocals` and
   `NormalProxyPreventExtensionsTrapResultLocals` close the trap-completion
@@ -87,7 +87,21 @@ The request constructor is the only public-in-crate way to pair the traversal
 and result roles. The main emitter consumes the request. Raw positional
 `payload`, `tag`, and `result` integers are not its public API, so swapping or
 omitting a role is a type error. The pending trap-result role is not accepted by
-the normal consumer, and none of these lifecycle types implements `Copy`.
+the normal consumer. The request, traversal target, result destination, pending
+trap result and normal trap result implement no clone, copy, debug, default,
+comparison, ordering or hashing capability. Their only usable surface is the
+one-way construction and consumption lifecycle.
+
+The normal-completion transition, normal-result consumer and recursive
+traversal bodies remain byte-identical at
+`08ec7efc44446238a2faa8a34163b212cad3de76427bc5d35dfb9c5429979616`,
+`158d5fa2f9ce31871ac1e711310b1167a126671eaa5d095a2470b04261de8c38`
+and `ffbac884ee4acaee1567677169776c5ad4417b9b182df24c9b3d4d356e4b5c5a`.
+Batch Y strengthens the existing three-test source guard to reject derived and
+manual incidental capabilities. At the 2026-08-28 Batch Y checkpoint, that
+guard passes `3/3`, the exact existing Proxy CLI fixture passes `1/1`, and
+`cargo xc` is green. This capability-only change did not rerun Test262 or alter
+the older complete-leaf evidence below.
 
 The outlined helper uses the standard four-result JavaScript helper ABI:
 parameters 0 and 1 carry the traversal payload and tag; the first result slot

@@ -33200,6 +33200,7 @@ pub(crate) fn rgi_emoji_sets() -> &'static [&'static [u32]] {
     RGI_EMOJI.as_slice()
 }
 
+/// An ECMAScript Unicode property of strings recognized by this provider.
 #[derive(Debug, Clone, Copy)]
 pub enum UnicodeStringProperty {
     BasicEmoji,
@@ -33211,7 +33212,10 @@ pub enum UnicodeStringProperty {
     RGIEmoji,
 }
 
-pub(crate) fn string_property_sets(value: &UnicodeStringProperty) -> &'static [&'static [u32]] {
+/// Returns the provider-owned code-point sequences for `property`.
+pub fn unicode_string_property_sequences(
+    value: UnicodeStringProperty,
+) -> &'static [&'static [u32]] {
     use UnicodeStringProperty::*;
     match value {
         BasicEmoji => basic_emoji_sets(),
@@ -33224,6 +33228,7 @@ pub(crate) fn string_property_sets(value: &UnicodeStringProperty) -> &'static [&
     }
 }
 
+/// Parses one exact ECMAScript Unicode property-of-strings name.
 pub fn unicode_string_property_from_str(s: &str) -> Option<UnicodeStringProperty> {
     use UnicodeStringProperty::*;
     match s {

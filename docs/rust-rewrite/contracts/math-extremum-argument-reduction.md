@@ -1,6 +1,7 @@
 # Math extremum argument reduction
 
-Status: normative for the Wasm-AOT `Math.min` and `Math.max` argument walk.
+Status: implemented and focused-verified for the Wasm-AOT `Math.min` and
+`Math.max` argument walk, 2026-08-27.
 
 ## Specification boundary
 
@@ -45,6 +46,12 @@ call site. Both projections match the enum exhaustively. Adding another
 extremum without choosing its identity or reduction is therefore a Rust
 compile error.
 
+The domain is capability-free: it cannot be cloned, copied, compared, hashed or
+formatted. The emitter owns one policy and borrows it first for identity
+selection and then for every combine instruction in the generated reduction
+loop. A second policy decision cannot be forked from the first. Exactly two
+producers own the domain: the `MathBuiltin::Min` and `MathBuiltin::Max` arms.
+
 The emitter initializes the accumulator from that policy and walks the
 runtime `argv` with an index local until `index == argc`. Each iteration reads
 exactly that internal argument entry, applies the shared `ToNumber` boundary,
@@ -79,21 +86,41 @@ or a static materialization.
 ## Owned files and verification
 
 - `crates/lila-aot-wasm/src/builtins/math.rs`
+- `crates/lila-aot-wasm/tests/math_extremum_domain_structure.rs`
 - `crates/lila-cli/tests/fixtures/wasm_math_min_max_arity.js`
 - `crates/lila-cli/tests/cli/language_numerics.rs`
 - `scripts/check-module-boundaries.sh`
 - this contract
 - `tasks/20-number-bigint-math-json.md`
 
-Static freeze gates are scoped `rustfmt --check`, `node --check`, source
-inventory and `git diff --check`. `scripts/check-module-boundaries.sh` pins the
-typed policy, full-vector loop and exact convert/store/throw-route/reduce/
-advance/backedge order. It also pins exact counts for both index reads, both
-index writes, the increment constant, addition and loop branch, so deleting or
-duplicating any part of the walk fails the static gate. Its complete run can
-still be blocked by an independently active shared-file budget. Cargo, the
-focused CLI regression, the pinned `Math/min` and `Math/max` trees, the complete
-Math tree and the broad batch ladder remain owned by the central verifier.
+The dedicated structure regression pins the exact private two-row domain,
+capability set, recursive source ownership, two producers, both exhaustive
+projection tables and the complete convert/store/throw-route/reduce/advance/
+backedge order. `scripts/check-module-boundaries.sh` independently retains the
+full-vector loop inventory and exact index-operation counts.
+
+Run the focused structure checks with:
+
+```console
+cargo test -p lila-aot-wasm --test math_extremum_domain_structure
+cargo test -p lila-aot-wasm --test math_hypot_argument_reduction_structure
+```
+
+The dedicated structure target passes `3/3`, the neighboring `Math.hypot`
+structure target passes `3/3`, and `cargo fmt --check -p lila-aot-wasm` is
+green. The exact CLI witness passes `1/1`, and six focused empty-identity,
+signed-zero and coercion-order Test262 leaves pass all `12/12` sloppy/strict
+Wasm-AOT executions with every failure bucket at zero. Independent dry review
+is clean, `cargo xc` passes, and the semantic golden and broad batch ladder
+remain deferred to the coordinated verification checkpoint.
+
+Batch AH removes the last `Clone` and `Copy` capabilities and changes only the
+two Rust projections from owned receivers to borrows. Both producers, both
+exhaustive tables and every emitted instruction remain unchanged. Shared
+`cargo xc` passes, the dedicated and neighboring structure targets pass `3/3`
+each, the exact CLI witness passes `1/1`, and the same six pinned leaves pass
+all `12/12` sloppy/strict Wasm-AOT executions with every failure bucket at
+zero. This source-equivalent capability closure needs no new semantic golden.
 
 ## Nonclaims
 

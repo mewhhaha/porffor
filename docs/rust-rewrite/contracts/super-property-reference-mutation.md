@@ -83,7 +83,9 @@ lifecycles, but must not decompose an eager Super mutation into independent
 
 ## Closed AOT lifecycle
 
-The AOT emitter reserves one non-`Copy` local carrier:
+`lila-aot-wasm/src/expressions/super_property_mutation.rs` is the sole owner of
+the complete AOT mutation lifecycle. The AOT emitter reserves one non-`Copy`
+local carrier:
 
 - `EvaluatedRawSuperPropertyReferenceLocals { receiver, base,
   referenced_name }`.
@@ -106,6 +108,10 @@ then consumes the coerced carrier for PutValue. For numeric update, the emitter
 uses the existing exhaustive numeric operation and return-mode domains while
 retaining old/new values until PutValue succeeds.
 
+The compiler entry is visible only to its parent `expressions` module, which
+retains the two exhaustive `ExprIr::SuperPropertyMutation` dispatch paths. The
+three state transitions and both carriers remain private to the child owner.
+
 Every exhaustive `ExprIr` consumer must name the fused mutation node, including
 throw inference, summaries, early-error traversal, planning, string/data
 collection, dynamic-result classification, and expression emission. Adding a
@@ -113,6 +119,11 @@ new mutation operation must create compile errors in both lowering and AOT
 operation consumers.
 
 ## Durable oracle
+
+The bounded source regression fixes the private file module, exact two-carrier
+and four-method inventory, sole parent entry visibility, closed helper/caller
+census, and the existing evaluation, coercion, GetValue, PutValue and result
+publication order.
 
 The fixture must use accessor-bearing `baseA` and `baseB`. A computed key's
 `toString` changes the object method's prototype from A to B and returns `p`.

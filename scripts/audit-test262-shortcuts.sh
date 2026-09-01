@@ -5,6 +5,7 @@ mode="report"
 ledger="test262/backlog/shortcut-allowlist.tsv"
 inventory="test262/backlog/shortcut-inventory.md"
 target="crates/lila-test262/src/lib.rs"
+scanner_source="scripts/audit-test262-shortcuts.rs"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -40,6 +41,16 @@ if [ ! -f "$target" ]; then
   exit 1
 fi
 
+if [ ! -f "$scanner_source" ]; then
+  printf 'audit-test262-shortcuts: missing scanner source: %s\n' "$scanner_source" >&2
+  exit 1
+fi
+
+if ! command -v rustc >/dev/null 2>&1; then
+  printf 'audit-test262-shortcuts: rustc is required\n' >&2
+  exit 1
+fi
+
 if command -v sha256sum >/dev/null 2>&1; then
   sha256() {
     sha256sum | cut -d ' ' -f 1
@@ -61,85 +72,10 @@ observations="$tmp_dir/observations.tsv"
 sorted_observations="$tmp_dir/observations.sorted.tsv"
 sorted_ledger="$tmp_dir/ledger.sorted.tsv"
 joined="$tmp_dir/joined.tsv"
+scanner="$tmp_dir/audit-test262-shortcuts"
 
-# Emit one record for every production occurrence. Rewrite entrypoints use the
-# called rewrite function as their stable identity, so deleting one entrypoint
-# does not renumber every later row in the dispatcher. Other observations use
-# their enclosing Rust declaration and ordinal. Source lines are display-only;
-# the SHA-256 fingerprint remains the drift identity.
-awk '
-BEGIN {
-  anchor = "module"
-  production = 1
-}
-
-/^mod tests \{/ {
-  production = 0
-}
-
-!production {
-  next
-}
-
-/^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?((const|async|unsafe)[[:space:]]+)*fn[[:space:]]+[A-Za-z0-9_]+/ {
-  declaration = $0
-  sub(/^.*fn[[:space:]]+/, "", declaration)
-  sub(/[^A-Za-z0-9_].*$/, "", declaration)
-  anchor = declaration
-}
-
-/^(pub(\([^)]*\))?[[:space:]]+)?const[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:/ {
-  declaration = $0
-  sub(/^.*const[[:space:]]+/, "", declaration)
-  sub(/[^A-Za-z0-9_].*$/, "", declaration)
-  anchor = declaration
-}
-
-/^(pub(\([^)]*\))?[[:space:]]+)?(struct|enum|union|trait|type)[[:space:]]+[A-Za-z0-9_]+/ {
-  declaration = $0
-  sub(/^.*(struct|enum|union|trait|type)[[:space:]]+/, "", declaration)
-  sub(/[^A-Za-z0-9_].*$/, "", declaration)
-  anchor = declaration
-}
-
-function emit(category, source, base, key) {
-  source = $0
-  gsub(/\t/, "\\t", source)
-  base = category "/" anchor
-  count[base] += 1
-  key = sprintf("%s/%03d", base, count[base])
-  print key "\t" NR "\t" anchor "\t" category "\t" source
-}
-
-function emit_named(category, identity, source, base, key) {
-  source = $0
-  gsub(/\t/, "\\t", source)
-  base = category "/" identity
-  count[base] += 1
-  key = sprintf("%s/%03d", base, count[base])
-  print key "\t" NR "\t" anchor "\t" category "\t" source
-}
-
-{
-  if ($0 ~ /rewrite_[A-Za-z0-9_]+\(&case\.path\)/) {
-    entrypoint = $0
-    sub(/^.*rewrite_/, "rewrite_", entrypoint)
-    sub(/\(.*/, "", entrypoint)
-    emit_named("path-rewrite-entrypoint", entrypoint)
-  }
-  if ($0 ~ /(case\.path|path)\.(starts_with|ends_with|contains|as_str\(\))/ ||
-      $0 ~ /path == "built-ins/ || $0 ~ /match path/) {
-    emit("direct-path-predicate")
-  }
-  if ($0 ~ /(case\.)?original_source\.(contains|replace)/ ||
-      $0 ~ /source\.contains/) {
-    emit("source-text-predicate")
-  }
-  if ($0 ~ /prelude\.contents|used_preludes|helper used|assert\.sameValue = function|assert\.throws = function|skips_test_typed_array/) {
-    emit("harness-helper-reduction")
-  }
-}
-' "$target" > "$raw_observations"
+rustc --edition=2021 -D warnings "$scanner_source" -o "$scanner"
+"$scanner" "$target" > "$raw_observations"
 
 while IFS=$'\t' read -r key line anchor category source; do
   fingerprint="$(printf '%s\n%s\n%s\n' "$category" "$anchor" "$source" | sha256)"
@@ -148,7 +84,7 @@ while IFS=$'\t' read -r key line anchor category source; do
 done < "$raw_observations" > "$observations"
 
 if [ "$mode" = "observations" ]; then
-  printf '# key\tfingerprint\tcategory\tline\tanchor\tsource\n'
+  printf '# key\tfingerprint\tcategory\tline\tanchor\tevidence\n'
   cat "$observations"
   exit 0
 fi
@@ -257,7 +193,7 @@ if [ -z "$new_entries" ] && [ -z "$missing_entries" ] \
   join -t $'\t' -1 1 -2 1 "$sorted_observations" "$sorted_ledger" > "$joined"
   drifted_entries="$(awk -F '\t' '$2 != $7 { print $1 }' "$joined")"
   if [ -n "$drifted_entries" ]; then
-    printf 'audit-test262-shortcuts: source fingerprints drifted:\n%s\n' \
+    printf 'audit-test262-shortcuts: selector fingerprints drifted:\n%s\n' \
       "$drifted_entries" >&2
     failures=$((failures + 1))
   fi
@@ -275,8 +211,10 @@ render_inventory() {
   printf 'Rewrite-entrypoint keys use the called function; other stable keys use the '
   printf 'enclosing Rust declaration and an occurrence ordinal; '
   printf 'line numbers are display-only. A SHA-256 fingerprint covers the category, '
-  printf 'declaration and exact matched source line, so source drift cannot inherit an '
-  printf 'old classification. Test-only assertions are excluded.\n'
+  printf 'declaration and exact selector evidence, so selector drift cannot inherit an '
+  printf 'old classification. Match evidence contains the scrutinee and every arm pattern '
+  printf 'while omitting replacement bodies. `test_path` report grouping and '
+  printf '`#[cfg(test)]` assertions are excluded.\n'
 
   printf '\n## Classification summary\n\n'
   printf '| Classification | Count |\n'
@@ -313,7 +251,7 @@ render_inventory() {
   printf '| `dynamic-source-substitution` | Replaces dynamic source generation with static source for selected harness/cases. |\n'
 
   printf '\n## Exact entries\n\n'
-  printf '| Stable key | Fingerprint | Classification | Owner | Removal | Line | Reason code | Matched source |\n'
+  printf '| Stable key | Fingerprint | Classification | Owner | Removal | Line | Reason code | Selector evidence |\n'
   printf '| --- | --- | --- | --- | --- | ---: | --- | --- |\n'
   LC_ALL=C sort -t $'\t' -k4,4n -k1,1 "$joined" \
     | awk -F '\t' '

@@ -119,7 +119,8 @@
 
 use crate::*;
 
-use super::graph::ModuleMaterializationModeIr;
+use super::evaluation_mode::ModuleMaterializationModeIr;
+use super::module_key::ANONYMOUS_MODULE_KEY;
 use super::namespace::{
     collect_observed_namespaces, deferred_body_source, namespace_prelude_source,
     namespace_target_reference, shadows_prelude_global,
@@ -1145,7 +1146,7 @@ mod tests {
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("import() should link");
 
-        assert_eq!(graph.components.len(), 1);
+        assert_eq!(graph.dynamic_components().len(), 1);
         assert!(graph.units[0].namespace.is_some());
         assert!(
             linked
@@ -1346,7 +1347,7 @@ mod tests {
             );
         }
         assert!(
-            graph.components.is_empty(),
+            graph.dynamic_components().is_empty(),
             "an import() in a source-only referrer is not an artifact component"
         );
         assert_eq!(

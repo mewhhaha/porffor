@@ -1,9 +1,9 @@
 use crate::codepointset::{CodePointSet, Interval};
 use crate::unicodetables::{
     FOLDS, TO_UPPERCASE, binary_property_ranges, general_category_property_value_ranges,
-    script_extensions_value_ranges, script_value_ranges, string_property_sets,
-    unicode_property_binary_from_str, unicode_property_value_general_category_from_str,
-    unicode_property_value_script_from_str, unicode_string_property_from_str,
+    script_extensions_value_ranges, script_value_ranges, unicode_property_binary_from_str,
+    unicode_property_value_general_category_from_str, unicode_property_value_script_from_str,
+    unicode_string_property_from_str, unicode_string_property_sequences,
 };
 use crate::util::SliceHelp;
 #[cfg(not(feature = "std"))]
@@ -384,7 +384,9 @@ pub(crate) fn unicode_property_from_str(
                 )));
             }
             if unicode_sets && let Some(value) = unicode_string_property_from_str(s) {
-                return Some(PropertyEscapeKind::StringSet(string_property_sets(&value)));
+                return Some(PropertyEscapeKind::StringSet(
+                    unicode_string_property_sequences(value),
+                ));
             }
             Some(PropertyEscapeKind::CharacterClass(
                 general_category_property_value_ranges(

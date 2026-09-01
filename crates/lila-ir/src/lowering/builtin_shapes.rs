@@ -27,7 +27,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: Some(Box::new(Self::empty_object_shape())),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -36,7 +36,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Array,
             possible_kinds: KindSet::from_kind(ValueKind::Array),
             heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -158,7 +158,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("ArrayBuffer")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -223,7 +223,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("SharedArrayBuffer")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -250,6 +250,12 @@ impl<'a> ScriptLowerer<'a> {
             ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
                 Self::synthetic_realm_global_shape(),
             ))),
+        );
+        properties.insert(
+            REALM_EVAL_SCRIPT_METHOD_NAME.to_string(),
+            ObjectShapeProperty::Data(Self::host_function_value_info(
+                HostBuiltinId::RealmEvalScript,
+            )),
         );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
@@ -443,7 +449,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("DataView")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -540,7 +546,7 @@ impl<'a> ScriptLowerer<'a> {
         // as `%Map.prototype%.entries`. Lifted out of the string-keyed loop
         // above because its key is a symbol, not a string.
         properties.insert(
-            WellKnownSymbol::Iterator.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Iterator),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::MapPrototypeEntries.function_id(),
                 false,
@@ -636,7 +642,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("WeakSet")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -673,7 +679,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("WeakRef")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -721,7 +727,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("FinalizationRegistry")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -794,7 +800,7 @@ impl<'a> ScriptLowerer<'a> {
         // as `%Set.prototype%.values`. Lifted out of the string-keyed loop
         // above because its key is a symbol, not a string.
         properties.insert(
-            WellKnownSymbol::Iterator.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Iterator),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::SetPrototypeValues.function_id(),
                 false,
@@ -946,6 +952,13 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             );
         }
+        properties.insert(
+            shape_namespace_key(WellKnownSymbol::ToPrimitive),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::DatePrototypeToPrimitive.function_id(),
+                false,
+            )),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -998,7 +1011,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Instant")),
         );
         properties.insert(
@@ -1075,7 +1088,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Intl.Locale")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1215,7 +1228,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.ZonedDateTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1415,7 +1428,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDate")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1544,7 +1557,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainYearMonth")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1630,7 +1643,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainMonthDay")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1731,7 +1744,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -1928,7 +1941,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.PlainDateTime")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2091,7 +2104,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Duration")),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2184,35 +2197,35 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::Match.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Match),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolMatch.function_id(),
                 false,
             )),
         );
         properties.insert(
-            WellKnownSymbol::MatchAll.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::MatchAll),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolMatchAll.function_id(),
                 false,
             )),
         );
         properties.insert(
-            WellKnownSymbol::Replace.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Replace),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolReplace.function_id(),
                 false,
             )),
         );
         properties.insert(
-            WellKnownSymbol::Search.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Search),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolSearch.function_id(),
                 false,
             )),
         );
         properties.insert(
-            WellKnownSymbol::Split.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Split),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::RegExpPrototypeSymbolSplit.function_id(),
                 false,
@@ -2258,7 +2271,7 @@ impl<'a> ScriptLowerer<'a> {
                 kind: ValueKind::Function,
                 possible_kinds: KindSet::from_kind(ValueKind::Function),
                 heap_shape: Some(Self::function_heap_shape(true)),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             }),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -2271,6 +2284,13 @@ impl<'a> ScriptLowerer<'a> {
 
     pub(super) fn typed_array_prototype_shape() -> Box<HeapShape> {
         let mut properties = BTreeMap::new();
+        properties.insert(
+            "constructor".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TypedArrayConstructor.function_id(),
+                true,
+            )),
+        );
         for (name, function_id) in [
             (
                 "buffer",
@@ -2298,7 +2318,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Accessor {
                 getter: Some(ObjectAccessorShape {
                     function_id: StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
@@ -2368,7 +2388,7 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         properties.insert(
-            WellKnownSymbol::Iterator.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Iterator),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::TypedArrayPrototypeValues,
             )),
@@ -2379,28 +2399,6 @@ impl<'a> ScriptLowerer<'a> {
             private_brands: BTreeSet::new(),
             boxed_primitive: None,
         }))
-    }
-
-    pub(super) fn typed_array_intrinsic_constructor_shape() -> Box<HeapShape> {
-        let mut shape = Self::function_heap_shape(false);
-        if let HeapShape::Object(object) = shape.as_mut() {
-            object.properties.insert(
-                WellKnownSymbol::Species.description().to_string(),
-                ObjectShapeProperty::Accessor {
-                    getter: Some(ObjectAccessorShape {
-                        function_id: StandardBuiltinId::TypedArraySpeciesGetter.function_id(),
-                    }),
-                    setter: None,
-                },
-            );
-            object.properties.insert(
-                "prototype".to_string(),
-                ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
-                    Self::typed_array_prototype_shape(),
-                ))),
-            );
-        }
-        shape
     }
 
     pub(super) fn typed_array_constructor_prototype_shape(
@@ -2472,7 +2470,7 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         properties.insert(
-            WellKnownSymbol::Iterator.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Iterator),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayPrototypeValues,
             )),
@@ -2502,10 +2500,16 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     pub(super) fn is_typed_array_constructor_target(target: &TypedExpr) -> bool {
-        target.function_targets.iter().any(|function_id| {
-            StandardBuiltinId::from_function_id(function_id)
-                .is_some_and(Self::is_typed_array_constructor)
-        })
+        target
+            .function_targets
+            .exact_targets()
+            .is_some_and(|targets| {
+                !targets.is_empty()
+                    && targets.iter().all(|function_id| {
+                        StandardBuiltinId::from_function_id(function_id)
+                            .is_some_and(Self::is_typed_array_constructor)
+                    })
+            })
     }
 
     pub(super) fn can_be_typed_array_constructor_target(target: &TypedExpr) -> bool {
@@ -2526,7 +2530,7 @@ impl<'a> ScriptLowerer<'a> {
                 private_brands,
                 boxed_primitive: None,
             }))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -2606,7 +2610,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Function,
             possible_kinds: KindSet::from_kind(ValueKind::Function),
             heap_shape: Some(Self::function_heap_shape(constructable)),
-            function_targets: BTreeSet::from([function_id]),
+            function_targets: FunctionTargetKnowledge::exact(function_id),
         }
     }
 
@@ -2637,7 +2641,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::String,
             possible_kinds: KindSet::from_kind(ValueKind::String),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -2662,7 +2666,7 @@ impl<'a> ScriptLowerer<'a> {
             possible_kinds: KindSet::from_kind(ValueKind::Undefined)
                 .union(KindSet::from_kind(ValueKind::String)),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -2738,7 +2742,7 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
             properties.insert(
-                WellKnownSymbol::Iterator.description().to_string(),
+                shape_namespace_key(WellKnownSymbol::Iterator),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                     StandardBuiltinId::ArrayPrototypeValues,
                 )),
@@ -2789,7 +2793,7 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
             properties.insert(
-                WellKnownSymbol::ToPrimitive.description().to_string(),
+                shape_namespace_key(WellKnownSymbol::ToPrimitive),
                 ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                     StandardBuiltinId::SymbolPrototypeToPrimitive,
                 )),
@@ -2831,7 +2835,7 @@ impl<'a> ScriptLowerer<'a> {
                 private_brands: BTreeSet::new(),
                 boxed_primitive: Some(Box::new(primitive)),
             }))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -2893,7 +2897,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Array,
                     possible_kinds: KindSet::from_kind(ValueKind::Array),
                     heap_shape: Some(Box::new(HeapShape::Array(ArrayShape::default()))),
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::none(),
                 }),
             );
         }
@@ -2916,7 +2920,7 @@ impl<'a> ScriptLowerer<'a> {
                 private_brands: BTreeSet::new(),
                 boxed_primitive: None,
             }))),
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -2944,10 +2948,40 @@ impl<'a> ScriptLowerer<'a> {
                     // retain the catalogued call target without treating symbol
                     // and string property keys as interchangeable.
                     object.properties.insert(
-                        WellKnownSymbol::HasInstance.description().to_string(),
+                        shape_namespace_key(WellKnownSymbol::HasInstance),
                         ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                             StandardBuiltinId::FunctionPrototypeSymbolHasInstance,
                         )),
+                    );
+                }
+                StandardBuiltinId::TypedArrayConstructor => {
+                    object.properties.insert(
+                        shape_namespace_key(WellKnownSymbol::Species),
+                        ObjectShapeProperty::Accessor {
+                            getter: Some(ObjectAccessorShape {
+                                function_id: StandardBuiltinId::TypedArraySpeciesGetter
+                                    .function_id(),
+                            }),
+                            setter: None,
+                        },
+                    );
+                    object.properties.insert(
+                        "from".to_string(),
+                        ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                            StandardBuiltinId::TypedArrayFrom,
+                        )),
+                    );
+                    object.properties.insert(
+                        "of".to_string(),
+                        ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                            StandardBuiltinId::TypedArrayOf,
+                        )),
+                    );
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::typed_array_prototype_shape(),
+                        ))),
                     );
                 }
                 StandardBuiltinId::PromiseConstructor => {
@@ -3028,7 +3062,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        WellKnownSymbol::Species.description().to_string(),
+                        shape_namespace_key(WellKnownSymbol::Species),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::PromiseSpeciesGetter.function_id(),
@@ -3052,7 +3086,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        WellKnownSymbol::Species.description().to_string(),
+                        shape_namespace_key(WellKnownSymbol::Species),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::MapSpeciesGetter.function_id(),
@@ -3101,7 +3135,7 @@ impl<'a> ScriptLowerer<'a> {
                         ))),
                     );
                     object.properties.insert(
-                        WellKnownSymbol::Species.description().to_string(),
+                        shape_namespace_key(WellKnownSymbol::Species),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::SetSpeciesGetter.function_id(),
@@ -3119,7 +3153,7 @@ impl<'a> ScriptLowerer<'a> {
                             heap_shape: Some(Self::standard_boxed_prototype_shape(
                                 BoxedPrimitiveKind::Number,
                             )),
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         }),
                     );
                     object.properties.insert(
@@ -3175,7 +3209,7 @@ impl<'a> ScriptLowerer<'a> {
                             heap_shape: Some(Self::standard_boxed_prototype_shape(
                                 BoxedPrimitiveKind::BigInt,
                             )),
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         }),
                     );
                     object.properties.insert(
@@ -3202,7 +3236,7 @@ impl<'a> ScriptLowerer<'a> {
                             heap_shape: Some(Self::standard_boxed_prototype_shape(
                                 BoxedPrimitiveKind::String,
                             )),
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         }),
                     );
                     object.properties.insert(
@@ -3222,7 +3256,7 @@ impl<'a> ScriptLowerer<'a> {
                             heap_shape: Some(Self::standard_boxed_prototype_shape(
                                 BoxedPrimitiveKind::Boolean,
                             )),
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         }),
                     );
                 }
@@ -3235,7 +3269,7 @@ impl<'a> ScriptLowerer<'a> {
                             heap_shape: Some(Self::standard_boxed_prototype_shape(
                                 BoxedPrimitiveKind::Symbol,
                             )),
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         }),
                     );
                     object.properties.insert(
@@ -3459,7 +3493,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Array,
                             possible_kinds: KindSet::from_kind(ValueKind::Array),
                             heap_shape: Some(Self::array_prototype_shape()),
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         }),
                     );
                     object.properties.insert(
@@ -3491,7 +3525,7 @@ impl<'a> ScriptLowerer<'a> {
                         )),
                     );
                     object.properties.insert(
-                        WellKnownSymbol::Species.description().to_string(),
+                        shape_namespace_key(WellKnownSymbol::Species),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::ArraySpeciesGetter.function_id(),
@@ -3519,7 +3553,7 @@ impl<'a> ScriptLowerer<'a> {
                             ),
                         );
                         object.properties.insert(
-                            WellKnownSymbol::Species.description().to_string(),
+                            shape_namespace_key(WellKnownSymbol::Species),
                             ObjectShapeProperty::Accessor {
                                 getter: Some(ObjectAccessorShape {
                                     function_id: StandardBuiltinId::ArrayBufferSpeciesGetter
@@ -3757,7 +3791,7 @@ impl<'a> ScriptLowerer<'a> {
                         ))),
                     );
                     object.properties.insert(
-                        WellKnownSymbol::Species.description().to_string(),
+                        shape_namespace_key(WellKnownSymbol::Species),
                         ObjectShapeProperty::Accessor {
                             getter: Some(ObjectAccessorShape {
                                 function_id: StandardBuiltinId::RegExpSpeciesGetter.function_id(),
@@ -3832,24 +3866,12 @@ impl<'a> ScriptLowerer<'a> {
                 | StandardBuiltinId::Uint8ClampedArrayConstructor
                 | StandardBuiltinId::BigInt64ArrayConstructor
                 | StandardBuiltinId::BigUint64ArrayConstructor => {
-                    object.prototype = Some(Self::typed_array_intrinsic_constructor_shape());
+                    object.prototype = Some(Self::standard_builtin_function_shape(
+                        StandardBuiltinId::TypedArrayConstructor,
+                    ));
                     object.properties.insert(
                         "BYTES_PER_ELEMENT".to_string(),
                         ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
-                    );
-                    object.properties.insert(
-                        "from".to_string(),
-                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                            StandardBuiltinId::TypedArrayFrom.function_id(),
-                            false,
-                        )),
-                    );
-                    object.properties.insert(
-                        "of".to_string(),
-                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                            StandardBuiltinId::TypedArrayOf.function_id(),
-                            false,
-                        )),
                     );
                     object.properties.insert(
                         "prototype".to_string(),
@@ -3916,7 +3938,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Function,
             possible_kinds: KindSet::from_kind(ValueKind::Function),
             heap_shape: Some(Self::standard_builtin_function_shape(builtin)),
-            function_targets: BTreeSet::from([builtin.function_id()]),
+            function_targets: FunctionTargetKnowledge::exact(builtin.function_id()),
         }
     }
 
@@ -3936,19 +3958,19 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         properties.insert(
-            WellKnownSymbol::Iterator.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Iterator),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayIteratorIdentity,
             )),
         );
         properties.insert(
-            WellKnownSymbol::Dispose.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Dispose),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::IteratorPrototypeSymbolDispose,
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Accessor {
                 getter: Some(ObjectAccessorShape {
                     function_id: StandardBuiltinId::IteratorPrototypeToStringTagGetter
@@ -4049,7 +4071,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(ValueInfo::new(ValueKind::String)),
         );
         Box::new(HeapShape::Object(ObjectShape {
@@ -4148,7 +4170,7 @@ impl<'a> ScriptLowerer<'a> {
             )),
         );
         properties.insert(
-            WellKnownSymbol::Iterator.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::Iterator),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
                 StandardBuiltinId::ArrayIteratorIdentity,
             )),
@@ -4377,7 +4399,7 @@ impl<'a> ScriptLowerer<'a> {
     pub(super) fn json_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info(JSON_NAME)),
         );
         for (name, builtin) in [
@@ -4407,19 +4429,12 @@ impl<'a> ScriptLowerer<'a> {
     pub(super) fn temporal_now_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Temporal.Now")),
         );
-        for (name, builtin) in [
-            ("timeZoneId", StandardBuiltinId::TemporalNowTimeZoneId),
-            ("instant", StandardBuiltinId::TemporalNowInstant),
-            (
-                "zonedDateTimeISO",
-                StandardBuiltinId::TemporalNowZonedDateTimeIso,
-            ),
-        ] {
+        for (name, builtin) in TEMPORAL_NOW_NAMESPACE_MEMBERS {
             properties.insert(
-                name.to_string(),
+                (*name).to_string(),
                 ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                     builtin.function_id(),
                     false,
@@ -4435,64 +4450,22 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     pub(super) fn temporal_object_value_info() -> ValueInfo {
-        let properties = BTreeMap::from([
+        let mut properties = BTreeMap::from([
             (
                 TEMPORAL_NOW_NAME.to_string(),
                 ObjectShapeProperty::Data(Self::temporal_now_object_value_info()),
             ),
             (
-                TEMPORAL_INSTANT_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::TemporalInstantConstructor,
-                )),
-            ),
-            (
-                TEMPORAL_PLAIN_DATE_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::TemporalPlainDateConstructor,
-                )),
-            ),
-            (
-                TEMPORAL_PLAIN_TIME_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::TemporalPlainTimeConstructor,
-                )),
-            ),
-            (
-                TEMPORAL_PLAIN_DATE_TIME_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::TemporalPlainDateTimeConstructor,
-                )),
-            ),
-            (
-                TEMPORAL_PLAIN_YEAR_MONTH_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::TemporalPlainYearMonthConstructor,
-                )),
-            ),
-            (
-                TEMPORAL_PLAIN_MONTH_DAY_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::TemporalPlainMonthDayConstructor,
-                )),
-            ),
-            (
-                TEMPORAL_ZONED_DATE_TIME_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::TemporalZonedDateTimeConstructor,
-                )),
-            ),
-            (
-                TEMPORAL_DURATION_NAME.to_string(),
-                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
-                    StandardBuiltinId::TemporalDurationConstructor,
-                )),
-            ),
-            (
-                WellKnownSymbol::ToStringTag.description().to_string(),
+                shape_namespace_key(WellKnownSymbol::ToStringTag),
                 ObjectShapeProperty::Data(Self::string_value_info(TEMPORAL_NAME)),
             ),
         ]);
+        for (name, builtin) in TEMPORAL_NAMESPACE_CONSTRUCTORS {
+            properties.insert(
+                (*name).to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(*builtin)),
+            );
+        }
         Self::value_info_from_shape(Some(Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -4517,7 +4490,7 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
-                WellKnownSymbol::ToStringTag.description().to_string(),
+                shape_namespace_key(WellKnownSymbol::ToStringTag),
                 ObjectShapeProperty::Data(Self::string_value_info(INTL_NAME)),
             ),
         ]);
@@ -4538,7 +4511,7 @@ impl<'a> ScriptLowerer<'a> {
     pub(super) fn atomics_object_value_info() -> ValueInfo {
         let mut properties = BTreeMap::new();
         properties.insert(
-            WellKnownSymbol::ToStringTag.description().to_string(),
+            shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info(ATOMICS_NAME)),
         );
         properties.insert(
@@ -4669,6 +4642,12 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::FunctionPrototypeSymbolHasInstance => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TypedArrayConstructor => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),
@@ -4859,7 +4838,7 @@ impl<'a> ScriptLowerer<'a> {
                                     possible_kinds: KindSet::from_kind(ValueKind::String)
                                         .union(KindSet::from_kind(ValueKind::Object)),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::none(),
                                 }),
                             ),
                         ]),
@@ -6660,10 +6639,15 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::DatePrototypeToJson
-            | StandardBuiltinId::DatePrototypeToPrimitive => (
+            StandardBuiltinId::DatePrototypeToJson => (
                 ValueKind::Dynamic,
                 KindSet::all_runtime_tags(),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::DatePrototypeToPrimitive => (
+                ValueKind::Dynamic,
+                KindSet::PRIMITIVE_ONLY,
                 None,
                 ValueInfo::undefined(),
             ),
@@ -7302,11 +7286,12 @@ impl<'a> ScriptLowerer<'a> {
             params: Vec::new(),
             return_kind,
             return_possible_kinds,
-            return_shape,
-            return_targets: BTreeSet::new(),
+            return_shape: FunctionReturnShape::flow_sensitive(return_shape),
+            return_targets: FunctionTargetKnowledge::unknown(),
             constructor_instance,
             this_info: current_this_info,
             this_observed: false,
+            source_call_flow_effects: SourceCallFlowEffects::unobserved(),
         }
     }
 }

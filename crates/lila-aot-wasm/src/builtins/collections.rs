@@ -2,6 +2,8 @@ use super::super::*;
 use crate::functions::NewTargetPrototypeFallback;
 use crate::operations::PrimitiveToStringAbruptRoute;
 
+mod map_get_or_insert;
+
 macro_rules! collection_wire_domain {
     ($name:ident { $($variant:ident = $word:literal),+ $(,)? }) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,7 +110,6 @@ enum CollectionReceiverRequirement {
     Iterator(StrongCollectionCursor),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CollectionReceiverError {
     NonObject,
     MissingInternalSlots,
@@ -252,19 +253,19 @@ impl StrongCollectionCursor {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum GroupByResult {
     Map,
     Object,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum MapCollectionKind {
     Map,
     WeakMap,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum SetCollectionKind {
     Set,
     WeakSet,
@@ -291,7 +292,7 @@ enum SetConstructorTypeError {
     IteratorNextResultNotObject,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum CollectionAlgorithmTypeError {
     MapConstructor(MapCollectionKind, MapConstructorTypeError),
     SetConstructor(SetCollectionKind, SetConstructorTypeError),
@@ -495,7 +496,7 @@ impl MapCollectionKind {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum SetAlgebraOperation {
     Difference,
     Intersection,
@@ -503,10 +504,28 @@ enum SetAlgebraOperation {
     Union,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
+enum SetAlgebraReceiverIterationOperation {
+    Difference,
+    Intersection,
+}
+
+#[derive(Clone, Copy)]
 enum SetPredicateOperation {
     IsDisjointFrom,
     IsSubsetOf,
+    IsSupersetOf,
+}
+
+#[derive(Clone, Copy)]
+enum SetPredicateReceiverIterationOperation {
+    IsDisjointFrom,
+    IsSubsetOf,
+}
+
+#[derive(Clone, Copy)]
+enum SetPredicateOtherIterationOperation {
+    IsDisjointFrom,
     IsSupersetOf,
 }
 
@@ -1953,14 +1972,17 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::End);
-        if result_kind == GroupByResult::Map {
-            self.emit_load_realm_intrinsic_prototype_or_global(
-                function_realm_local,
-                HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET,
-                MAP_PROTOTYPE_GLOBAL_INDEX,
-                map_prototype_local,
-                function,
-            );
+        match result_kind {
+            GroupByResult::Map => {
+                self.emit_load_realm_intrinsic_prototype_or_global(
+                    function_realm_local,
+                    HEAP_REALM_INTRINSICS_MAP_PROTOTYPE_OFFSET,
+                    MAP_PROTOTYPE_GLOBAL_INDEX,
+                    map_prototype_local,
+                    function,
+                );
+            }
+            GroupByResult::Object => {}
         }
         self.emit_load_realm_intrinsic_prototype_or_global(
             function_realm_local,
@@ -1970,64 +1992,71 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        if result_kind == GroupByResult::Map {
-            self.emit_alloc_plain_object_with_prototype(Some(map_prototype_local), None, function)?;
-            function.instruction(&Instruction::LocalSet(map_payload_local));
-            self.emit_heap_alloc_const(HEAP_MAP_RECORD_SIZE, function)?;
-            function.instruction(&Instruction::LocalSet(map_record_local));
-            self.emit_heap_alloc_const(MIN_HEAP_CAPACITY * HEAP_MAP_ENTRY_SIZE, function)?;
-            function.instruction(&Instruction::LocalSet(initial_entries_ptr_local));
-            self.store_i64_local_at_offset(
-                map_record_local,
-                HEAP_MAP_ENTRIES_PTR_OFFSET,
-                initial_entries_ptr_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                map_record_local,
-                HEAP_MAP_ENTRIES_LEN_OFFSET,
-                0,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                map_record_local,
-                HEAP_MAP_ENTRIES_CAP_OFFSET,
-                MIN_HEAP_CAPACITY,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                map_record_local,
-                HEAP_MAP_LIVE_COUNT_OFFSET,
-                0,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                map_payload_local,
-                HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-                CollectionDataReceiverKind::Map.brand(),
-                function,
-            );
-            self.store_i64_const_at_offset(
-                map_payload_local,
-                HEAP_OBJECT_BOXED_KIND_OFFSET,
-                BOXED_PRIMITIVE_KIND_NONE,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                map_payload_local,
-                HEAP_OBJECT_BOXED_TAG_OFFSET,
-                ValueKind::Object.tag() as u64,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                map_payload_local,
-                HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-                map_record_local,
-                function,
-            );
-        } else {
-            self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-            function.instruction(&Instruction::LocalSet(map_payload_local));
+        match result_kind {
+            GroupByResult::Map => {
+                self.emit_alloc_plain_object_with_prototype(
+                    Some(map_prototype_local),
+                    None,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(map_payload_local));
+                self.emit_heap_alloc_const(HEAP_MAP_RECORD_SIZE, function)?;
+                function.instruction(&Instruction::LocalSet(map_record_local));
+                self.emit_heap_alloc_const(MIN_HEAP_CAPACITY * HEAP_MAP_ENTRY_SIZE, function)?;
+                function.instruction(&Instruction::LocalSet(initial_entries_ptr_local));
+                self.store_i64_local_at_offset(
+                    map_record_local,
+                    HEAP_MAP_ENTRIES_PTR_OFFSET,
+                    initial_entries_ptr_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    map_record_local,
+                    HEAP_MAP_ENTRIES_LEN_OFFSET,
+                    0,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    map_record_local,
+                    HEAP_MAP_ENTRIES_CAP_OFFSET,
+                    MIN_HEAP_CAPACITY,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    map_record_local,
+                    HEAP_MAP_LIVE_COUNT_OFFSET,
+                    0,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    map_payload_local,
+                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+                    CollectionDataReceiverKind::Map.brand(),
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    map_payload_local,
+                    HEAP_OBJECT_BOXED_KIND_OFFSET,
+                    BOXED_PRIMITIVE_KIND_NONE,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    map_payload_local,
+                    HEAP_OBJECT_BOXED_TAG_OFFSET,
+                    ValueKind::Object.tag() as u64,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    map_payload_local,
+                    HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+                    map_record_local,
+                    function,
+                );
+            }
+            GroupByResult::Object => {
+                self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+                function.instruction(&Instruction::LocalSet(map_payload_local));
+            }
         }
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(map_tag_local));
@@ -2150,276 +2179,287 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        if result_kind == GroupByResult::Object {
-            self.emit_tagged_to_primitive_locals(
-                ToPrimitiveHint::String,
-                group_key_payload_local,
-                group_key_tag_local,
-                primitive_key_payload_local,
-                primitive_key_tag_local,
-                ToPrimitiveAbruptRoute::IteratorCloseAndReturn(iterator_close),
-                function,
-            )?;
+        match result_kind {
+            GroupByResult::Object => {
+                self.emit_tagged_to_primitive_locals(
+                    ToPrimitiveHint::String,
+                    group_key_payload_local,
+                    group_key_tag_local,
+                    primitive_key_payload_local,
+                    primitive_key_tag_local,
+                    ToPrimitiveAbruptRoute::IteratorCloseAndReturn(iterator_close),
+                    function,
+                )?;
 
-            function.instruction(&Instruction::LocalGet(primitive_key_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            // A symbol property key is stored under the marked internal payload.
-            function.instruction(&Instruction::LocalGet(primitive_key_payload_local));
-            function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(group_key_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-            function.instruction(&Instruction::LocalSet(group_key_tag_local));
-            function.instruction(&Instruction::Else);
-            self.emit_primitive_to_string_payload(
-                primitive_key_payload_local,
-                primitive_key_tag_local,
-                PrimitiveToStringAbruptRoute::IteratorCloseAndReturn(iterator_close),
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(group_key_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-            function.instruction(&Instruction::LocalSet(group_key_tag_local));
-            function.instruction(&Instruction::End);
-        } else {
-            function.instruction(&Instruction::LocalGet(group_key_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(group_key_payload_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Const(0.0.into()));
-            function.instruction(&Instruction::F64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(group_key_payload_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(primitive_key_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                // A symbol property key is stored under the marked internal payload.
+                function.instruction(&Instruction::LocalGet(primitive_key_payload_local));
+                function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+                function.instruction(&Instruction::I64Or);
+                function.instruction(&Instruction::LocalSet(group_key_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::LocalSet(group_key_tag_local));
+                function.instruction(&Instruction::Else);
+                self.emit_primitive_to_string_payload(
+                    primitive_key_payload_local,
+                    primitive_key_tag_local,
+                    PrimitiveToStringAbruptRoute::IteratorCloseAndReturn(iterator_close),
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalSet(group_key_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(group_key_tag_local));
+                function.instruction(&Instruction::End);
+            }
+            GroupByResult::Map => {
+                function.instruction(&Instruction::LocalGet(group_key_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(group_key_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(0.0.into()));
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(group_key_payload_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+            }
         }
 
-        if result_kind == GroupByResult::Map {
-            self.emit_find_map_entry(
-                map_record_local,
-                group_key_payload_local,
-                group_key_tag_local,
-                found_entry_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(found_entry_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                found_entry_local,
-                HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
-                group_array_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(group_array_index_local));
-            self.emit_alloc_array_payload_with_length(
-                group_array_index_local,
-                group_array_payload_local,
-                function,
-            )?;
-            self.store_i64_local_at_offset(
-                group_array_payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                array_prototype_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                group_array_payload_local,
-                HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
-                ValueKind::Array.tag() as u64,
-                function,
-            );
+        match result_kind {
+            GroupByResult::Map => {
+                self.emit_find_map_entry(
+                    map_record_local,
+                    group_key_payload_local,
+                    group_key_tag_local,
+                    found_entry_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(found_entry_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    found_entry_local,
+                    HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
+                    group_array_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(group_array_index_local));
+                self.emit_alloc_array_payload_with_length(
+                    group_array_index_local,
+                    group_array_payload_local,
+                    function,
+                )?;
+                self.store_i64_local_at_offset(
+                    group_array_payload_local,
+                    HEAP_PROTOTYPE_OFFSET,
+                    array_prototype_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    group_array_payload_local,
+                    HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
+                    ValueKind::Array.tag() as u64,
+                    function,
+                );
 
-            self.load_i64_to_local_from_offset(
-                map_record_local,
-                HEAP_MAP_ENTRIES_PTR_OFFSET,
-                entries_ptr_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                map_record_local,
-                HEAP_MAP_ENTRIES_LEN_OFFSET,
-                entries_len_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                map_record_local,
-                HEAP_MAP_ENTRIES_CAP_OFFSET,
-                entries_cap_local,
-                function,
-            );
-            self.emit_ensure_map_capacity(
-                map_record_local,
-                entries_ptr_local,
-                entries_len_local,
-                entries_cap_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(entries_ptr_local));
-            function.instruction(&Instruction::LocalGet(entries_len_local));
-            function.instruction(&Instruction::I64Const(HEAP_MAP_ENTRY_SIZE as i64));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(entry_local));
-            self.store_i64_const_at_offset(entry_local, HEAP_MAP_ENTRY_PRESENT_OFFSET, 1, function);
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_MAP_ENTRY_KEY_TAG_OFFSET,
-                group_key_tag_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_MAP_ENTRY_KEY_PAYLOAD_OFFSET,
-                group_key_payload_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_MAP_ENTRY_VALUE_TAG_OFFSET,
-                group_array_tag_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                entry_local,
-                HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
-                group_array_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(entries_len_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(entries_len_local));
-            self.store_i64_local_at_offset(
-                map_record_local,
-                HEAP_MAP_ENTRIES_LEN_OFFSET,
-                entries_len_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                map_record_local,
-                HEAP_MAP_LIVE_COUNT_OFFSET,
-                live_count_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(live_count_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(live_count_local));
-            self.store_i64_local_at_offset(
-                map_record_local,
-                HEAP_MAP_LIVE_COUNT_OFFSET,
-                live_count_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        } else {
-            self.load_i64_to_local_from_offset(
-                map_payload_local,
-                HEAP_PTR_OFFSET,
-                entries_ptr_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                map_payload_local,
-                HEAP_LEN_OFFSET,
-                entries_len_local,
-                function,
-            );
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(found_entry_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(entries_cap_local));
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(entries_cap_local));
-            function.instruction(&Instruction::LocalGet(entries_len_local));
-            function.instruction(&Instruction::I64GeU);
-            function.instruction(&Instruction::BrIf(1));
-            function.instruction(&Instruction::LocalGet(entries_ptr_local));
-            function.instruction(&Instruction::LocalGet(entries_cap_local));
-            function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(entry_local));
-            self.load_i64_to_local_from_offset(
-                entry_local,
-                HEAP_OBJECT_KEY_OFFSET,
-                stored_group_key_local,
-                function,
-            );
-            function.instruction(&Instruction::LocalGet(group_key_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-            function.instruction(&Instruction::LocalGet(stored_group_key_local));
-            function.instruction(&Instruction::LocalGet(group_key_payload_local));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::Else);
-            self.emit_string_payload_equality_i32(
-                stored_group_key_local,
-                group_key_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(entry_local));
-            function.instruction(&Instruction::LocalSet(found_entry_local));
-            function.instruction(&Instruction::Br(2));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(entries_cap_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(entries_cap_local));
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+                self.load_i64_to_local_from_offset(
+                    map_record_local,
+                    HEAP_MAP_ENTRIES_PTR_OFFSET,
+                    entries_ptr_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    map_record_local,
+                    HEAP_MAP_ENTRIES_LEN_OFFSET,
+                    entries_len_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    map_record_local,
+                    HEAP_MAP_ENTRIES_CAP_OFFSET,
+                    entries_cap_local,
+                    function,
+                );
+                self.emit_ensure_map_capacity(
+                    map_record_local,
+                    entries_ptr_local,
+                    entries_len_local,
+                    entries_cap_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(entries_ptr_local));
+                function.instruction(&Instruction::LocalGet(entries_len_local));
+                function.instruction(&Instruction::I64Const(HEAP_MAP_ENTRY_SIZE as i64));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(entry_local));
+                self.store_i64_const_at_offset(
+                    entry_local,
+                    HEAP_MAP_ENTRY_PRESENT_OFFSET,
+                    1,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    entry_local,
+                    HEAP_MAP_ENTRY_KEY_TAG_OFFSET,
+                    group_key_tag_local,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    entry_local,
+                    HEAP_MAP_ENTRY_KEY_PAYLOAD_OFFSET,
+                    group_key_payload_local,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    entry_local,
+                    HEAP_MAP_ENTRY_VALUE_TAG_OFFSET,
+                    group_array_tag_local,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    entry_local,
+                    HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
+                    group_array_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(entries_len_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(entries_len_local));
+                self.store_i64_local_at_offset(
+                    map_record_local,
+                    HEAP_MAP_ENTRIES_LEN_OFFSET,
+                    entries_len_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    map_record_local,
+                    HEAP_MAP_LIVE_COUNT_OFFSET,
+                    live_count_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(live_count_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(live_count_local));
+                self.store_i64_local_at_offset(
+                    map_record_local,
+                    HEAP_MAP_LIVE_COUNT_OFFSET,
+                    live_count_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+            }
+            GroupByResult::Object => {
+                self.load_i64_to_local_from_offset(
+                    map_payload_local,
+                    HEAP_PTR_OFFSET,
+                    entries_ptr_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    map_payload_local,
+                    HEAP_LEN_OFFSET,
+                    entries_len_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(found_entry_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(entries_cap_local));
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(entries_cap_local));
+                function.instruction(&Instruction::LocalGet(entries_len_local));
+                function.instruction(&Instruction::I64GeU);
+                function.instruction(&Instruction::BrIf(1));
+                function.instruction(&Instruction::LocalGet(entries_ptr_local));
+                function.instruction(&Instruction::LocalGet(entries_cap_local));
+                function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(entry_local));
+                self.load_i64_to_local_from_offset(
+                    entry_local,
+                    HEAP_OBJECT_KEY_OFFSET,
+                    stored_group_key_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(group_key_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+                function.instruction(&Instruction::LocalGet(stored_group_key_local));
+                function.instruction(&Instruction::LocalGet(group_key_payload_local));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::Else);
+                self.emit_string_payload_equality_i32(
+                    stored_group_key_local,
+                    group_key_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(entry_local));
+                function.instruction(&Instruction::LocalSet(found_entry_local));
+                function.instruction(&Instruction::Br(2));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(entries_cap_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(entries_cap_local));
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
 
-            function.instruction(&Instruction::LocalGet(found_entry_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(group_array_index_local));
-            self.emit_alloc_array_payload_with_length(
-                group_array_index_local,
-                group_array_payload_local,
-                function,
-            )?;
-            self.store_i64_local_at_offset(
-                group_array_payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                array_prototype_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                group_array_payload_local,
-                HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
-                ValueKind::Array.tag() as u64,
-                function,
-            );
-            self.emit_object_define_enumerable_data(
-                map_payload_local,
-                group_key_payload_local,
-                group_array_payload_local,
-                group_array_tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            self.load_i64_to_local_from_offset(
-                found_entry_local,
-                HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
-                group_array_payload_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalGet(found_entry_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(group_array_index_local));
+                self.emit_alloc_array_payload_with_length(
+                    group_array_index_local,
+                    group_array_payload_local,
+                    function,
+                )?;
+                self.store_i64_local_at_offset(
+                    group_array_payload_local,
+                    HEAP_PROTOTYPE_OFFSET,
+                    array_prototype_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    group_array_payload_local,
+                    HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
+                    ValueKind::Array.tag() as u64,
+                    function,
+                );
+                self.emit_object_define_enumerable_data(
+                    map_payload_local,
+                    group_key_payload_local,
+                    group_array_payload_local,
+                    group_array_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
+                self.load_i64_to_local_from_offset(
+                    found_entry_local,
+                    HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
+                    group_array_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+            }
         }
 
         self.load_i64_to_local_from_offset(
@@ -2598,16 +2638,19 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
-        if collection_kind == MapCollectionKind::WeakMap {
-            self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match collection_kind {
+            MapCollectionKind::Map => {}
+            MapCollectionKind::WeakMap => {
+                self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
         self.emit_find_map_entry(
             map_record_local,
@@ -2687,16 +2730,19 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
-        if collection_kind == MapCollectionKind::WeakMap {
-            self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match collection_kind {
+            MapCollectionKind::Map => {}
+            MapCollectionKind::WeakMap => {
+                self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
         self.emit_find_map_entry(
             map_record_local,
@@ -2735,291 +2781,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_map_prototype_get_or_insert(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_map_prototype_get_or_insert_inner(MapCollectionKind::Map, false, function)
-    }
-
-    pub(crate) fn emit_map_prototype_get_or_insert_computed(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_map_prototype_get_or_insert_inner(MapCollectionKind::Map, true, function)
-    }
-
-    pub(crate) fn emit_weak_map_prototype_get_or_insert(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_map_prototype_get_or_insert_inner(MapCollectionKind::WeakMap, false, function)
-    }
-
-    pub(crate) fn emit_weak_map_prototype_get_or_insert_computed(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_map_prototype_get_or_insert_inner(MapCollectionKind::WeakMap, true, function)
-    }
-
-    fn emit_map_prototype_get_or_insert_inner(
-        &mut self,
-        collection_kind: MapCollectionKind,
-        computed: bool,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let map_record_local = self.reserve_temp_local();
-        let key_payload_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let callback_payload_local = self.reserve_temp_local();
-        let callback_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
-        let found_entry_local = self.reserve_temp_local();
-        let entries_ptr_local = self.reserve_temp_local();
-        let entries_len_local = self.reserve_temp_local();
-        let entries_cap_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let live_count_local = self.reserve_temp_local();
-
-        self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
-        self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
-        if collection_kind == MapCollectionKind::WeakMap && !computed {
-            self.emit_require_weak_key(
-                key_payload_local,
-                key_tag_local,
-                "WeakMap key must be an object or unregistered symbol",
-                function,
-            )?;
-        }
-        if computed {
-            self.emit_builtin_arg_to_locals(
-                1,
-                callback_payload_local,
-                callback_tag_local,
-                function,
-            );
-            self.emit_is_callable_i32(callback_tag_local, callback_payload_local, function)?;
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_type_error(
-                match collection_kind {
-                    MapCollectionKind::Map => {
-                        "Map.prototype.getOrInsertComputed callback must be callable"
-                    }
-                    MapCollectionKind::WeakMap => {
-                        "WeakMap.prototype.getOrInsertComputed callback must be callable"
-                    }
-                },
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            if collection_kind == MapCollectionKind::WeakMap {
-                self.emit_require_weak_key(
-                    key_payload_local,
-                    key_tag_local,
-                    "WeakMap key must be an object or unregistered symbol",
-                    function,
-                )?;
-            }
-        } else {
-            self.emit_builtin_arg_to_locals(1, value_payload_local, value_tag_local, function);
-        }
-
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(key_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(0.0.into()));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(key_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_find_map_entry(
-            map_record_local,
-            key_payload_local,
-            key_tag_local,
-            found_entry_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(found_entry_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            found_entry_local,
-            HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
-            self.result_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            found_entry_local,
-            HEAP_MAP_ENTRY_VALUE_TAG_OFFSET,
-            self.result_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-
-        if computed {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(undefined_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(undefined_tag_local));
-            self.emit_function_or_proxy_call_leave_throw_completion(
-                callback_payload_local,
-                callback_tag_local,
-                undefined_payload_local,
-                undefined_tag_local,
-                &[(key_payload_local, key_tag_local)],
-                value_payload_local,
-                value_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
-        }
-
-        self.emit_find_map_entry(
-            map_record_local,
-            key_payload_local,
-            key_tag_local,
-            found_entry_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(found_entry_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_local_at_offset(
-            found_entry_local,
-            HEAP_MAP_ENTRY_VALUE_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            found_entry_local,
-            HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
-            value_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            map_record_local,
-            HEAP_MAP_ENTRIES_PTR_OFFSET,
-            entries_ptr_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            map_record_local,
-            HEAP_MAP_ENTRIES_LEN_OFFSET,
-            entries_len_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            map_record_local,
-            HEAP_MAP_ENTRIES_CAP_OFFSET,
-            entries_cap_local,
-            function,
-        );
-        self.emit_ensure_map_capacity(
-            map_record_local,
-            entries_ptr_local,
-            entries_len_local,
-            entries_cap_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(entries_ptr_local));
-        function.instruction(&Instruction::LocalGet(entries_len_local));
-        function.instruction(&Instruction::I64Const(HEAP_MAP_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.store_i64_const_at_offset(entry_local, HEAP_MAP_ENTRY_PRESENT_OFFSET, 1, function);
-        self.store_i64_local_at_offset(
-            entry_local,
-            HEAP_MAP_ENTRY_KEY_TAG_OFFSET,
-            key_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            entry_local,
-            HEAP_MAP_ENTRY_KEY_PAYLOAD_OFFSET,
-            key_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            entry_local,
-            HEAP_MAP_ENTRY_VALUE_TAG_OFFSET,
-            value_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            entry_local,
-            HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
-            value_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(entries_len_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entries_len_local));
-        self.store_i64_local_at_offset(
-            map_record_local,
-            HEAP_MAP_ENTRIES_LEN_OFFSET,
-            entries_len_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            map_record_local,
-            HEAP_MAP_LIVE_COUNT_OFFSET,
-            live_count_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(live_count_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(live_count_local));
-        self.store_i64_local_at_offset(
-            map_record_local,
-            HEAP_MAP_LIVE_COUNT_OFFSET,
-            live_count_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(live_count_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(entries_cap_local);
-        self.release_temp_local(entries_len_local);
-        self.release_temp_local(entries_ptr_local);
-        self.release_temp_local(found_entry_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(callback_tag_local);
-        self.release_temp_local(callback_payload_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(key_payload_local);
-        self.release_temp_local(map_record_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_map_prototype_has(
         &mut self,
         function: &mut Function,
@@ -3046,16 +2807,19 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
-        if collection_kind == MapCollectionKind::WeakMap {
-            self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match collection_kind {
+            MapCollectionKind::Map => {}
+            MapCollectionKind::WeakMap => {
+                self.emit_can_be_held_weakly_i32(key_payload_local, key_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
         self.emit_find_map_entry(
             map_record_local,
@@ -3263,13 +3027,16 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_map_collection_record_from_receiver(collection_kind, map_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, key_payload_local, key_tag_local, function);
         self.emit_builtin_arg_to_locals(1, value_payload_local, value_tag_local, function);
-        if collection_kind == MapCollectionKind::WeakMap {
-            self.emit_require_weak_key(
-                key_payload_local,
-                key_tag_local,
-                "WeakMap key must be an object or unregistered symbol",
-                function,
-            )?;
+        match collection_kind {
+            MapCollectionKind::Map => {}
+            MapCollectionKind::WeakMap => {
+                self.emit_require_weak_key(
+                    key_payload_local,
+                    key_tag_local,
+                    "WeakMap key must be an object or unregistered symbol",
+                    function,
+                )?;
+            }
         }
         function.instruction(&Instruction::LocalGet(key_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
@@ -4938,13 +4705,16 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
         self.emit_set_collection_record_from_receiver(collection_kind, set_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        if collection_kind == SetCollectionKind::WeakSet {
-            self.emit_require_weak_key(
-                value_payload_local,
-                value_tag_local,
-                "WeakSet value must be an object or unregistered symbol",
-                function,
-            )?;
+        match collection_kind {
+            SetCollectionKind::Set => {}
+            SetCollectionKind::WeakSet => {
+                self.emit_require_weak_key(
+                    value_payload_local,
+                    value_tag_local,
+                    "WeakSet value must be an object or unregistered symbol",
+                    function,
+                )?;
+            }
         }
         function.instruction(&Instruction::LocalGet(value_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
@@ -5159,16 +4929,19 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_set_collection_record_from_receiver(collection_kind, set_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        if collection_kind == SetCollectionKind::WeakSet {
-            self.emit_can_be_held_weakly_i32(value_payload_local, value_tag_local, function);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match collection_kind {
+            SetCollectionKind::Set => {}
+            SetCollectionKind::WeakSet => {
+                self.emit_can_be_held_weakly_i32(value_payload_local, value_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
         self.emit_find_set_collection_entry(
             collection_kind,
@@ -5247,16 +5020,19 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_set_collection_record_from_receiver(collection_kind, set_record_local, function)?;
         self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-        if collection_kind == SetCollectionKind::WeakSet {
-            self.emit_can_be_held_weakly_i32(value_payload_local, value_tag_local, function);
-            function.instruction(&Instruction::I32Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match collection_kind {
+            SetCollectionKind::Set => {}
+            SetCollectionKind::WeakSet => {
+                self.emit_can_be_held_weakly_i32(value_payload_local, value_tag_local, function);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
         self.emit_find_set_collection_entry(
             collection_kind,
@@ -5413,7 +5189,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_set_predicate_iterate_receiver(
         &mut self,
-        operation: SetPredicateOperation,
+        operation: SetPredicateReceiverIterationOperation,
         receiver_record_local: u32,
         other_payload_local: u32,
         other_tag_local: u32,
@@ -5431,10 +5207,6 @@ impl<'a> FunctionBuilder<'a> {
         let call_result_payload_local = self.reserve_temp_local();
         let call_result_tag_local = self.reserve_temp_local();
 
-        debug_assert!(matches!(
-            operation,
-            SetPredicateOperation::IsDisjointFrom | SetPredicateOperation::IsSubsetOf
-        ));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(index_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -5495,8 +5267,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion_if_throw(function);
         self.compile_truthy_tagged_i32(call_result_tag_local, call_result_payload_local, function)?;
-        if operation == SetPredicateOperation::IsSubsetOf {
-            function.instruction(&Instruction::I32Eqz);
+        match operation {
+            SetPredicateReceiverIterationOperation::IsDisjointFrom => {}
+            SetPredicateReceiverIterationOperation::IsSubsetOf => {
+                function.instruction(&Instruction::I32Eqz);
+            }
         }
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
@@ -5528,7 +5303,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_set_predicate_iterate_other(
         &mut self,
-        operation: SetPredicateOperation,
+        operation: SetPredicateOtherIterationOperation,
         receiver_record_local: u32,
         other_payload_local: u32,
         other_tag_local: u32,
@@ -5553,10 +5328,6 @@ impl<'a> FunctionBuilder<'a> {
         let close_result_payload_local = self.reserve_temp_local();
         let close_result_tag_local = self.reserve_temp_local();
 
-        debug_assert!(matches!(
-            operation,
-            SetPredicateOperation::IsDisjointFrom | SetPredicateOperation::IsSupersetOf
-        ));
         self.emit_function_or_proxy_call_leave_throw_completion(
             keys_payload_local,
             keys_tag_local,
@@ -5669,10 +5440,13 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(found_entry_local));
         function.instruction(&Instruction::I64Const(0));
-        if operation == SetPredicateOperation::IsDisjointFrom {
-            function.instruction(&Instruction::I64Ne);
-        } else {
-            function.instruction(&Instruction::I64Eq);
+        match operation {
+            SetPredicateOtherIterationOperation::IsDisjointFrom => {
+                function.instruction(&Instruction::I64Ne);
+            }
+            SetPredicateOtherIterationOperation::IsSupersetOf => {
+                function.instruction(&Instruction::I64Eq);
+            }
         }
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_iterator_close(
@@ -5778,7 +5552,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64Le);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_set_predicate_iterate_receiver(
-                    operation,
+                    SetPredicateReceiverIterationOperation::IsDisjointFrom,
                     receiver_record_local,
                     other_payload_local,
                     other_tag_local,
@@ -5788,7 +5562,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::Else);
                 self.emit_set_predicate_iterate_other(
-                    operation,
+                    SetPredicateOtherIterationOperation::IsDisjointFrom,
                     receiver_record_local,
                     other_payload_local,
                     other_tag_local,
@@ -5812,7 +5586,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
                 self.emit_set_predicate_iterate_receiver(
-                    operation,
+                    SetPredicateReceiverIterationOperation::IsSubsetOf,
                     receiver_record_local,
                     other_payload_local,
                     other_tag_local,
@@ -5835,7 +5609,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
                 self.emit_set_predicate_iterate_other(
-                    operation,
+                    SetPredicateOtherIterationOperation::IsSupersetOf,
                     receiver_record_local,
                     other_payload_local,
                     other_tag_local,
@@ -5865,7 +5639,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_set_algebra_iterate_receiver(
         &mut self,
-        operation: SetAlgebraOperation,
+        operation: SetAlgebraReceiverIterationOperation,
         receiver_record_local: u32,
         result_record_local: u32,
         other_payload_local: u32,
@@ -5946,21 +5720,18 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_truthy_tagged_i32(call_result_tag_local, call_result_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         match operation {
-            SetAlgebraOperation::Difference => self.emit_delete_set_record_value(
+            SetAlgebraReceiverIterationOperation::Difference => self.emit_delete_set_record_value(
                 result_record_local,
                 value_payload_local,
                 value_tag_local,
                 function,
             )?,
-            SetAlgebraOperation::Intersection => self.emit_add_set_record_value(
+            SetAlgebraReceiverIterationOperation::Intersection => self.emit_add_set_record_value(
                 result_record_local,
                 value_payload_local,
                 value_tag_local,
                 function,
             )?,
-            SetAlgebraOperation::SymmetricDifference | SetAlgebraOperation::Union => {
-                unreachable!("receiver iteration is only used by difference and intersection")
-            }
         }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -6257,12 +6028,26 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        if operation != SetAlgebraOperation::Intersection {
-            self.emit_copy_set_record(receiver_record_local, result_record_local, function)?;
+        match operation {
+            SetAlgebraOperation::Intersection => {}
+            SetAlgebraOperation::Difference
+            | SetAlgebraOperation::SymmetricDifference
+            | SetAlgebraOperation::Union => {
+                self.emit_copy_set_record(receiver_record_local, result_record_local, function)?;
+            }
         }
 
-        match operation {
-            SetAlgebraOperation::Difference | SetAlgebraOperation::Intersection => {
+        let receiver_iteration = match operation {
+            SetAlgebraOperation::Difference => {
+                Some(SetAlgebraReceiverIterationOperation::Difference)
+            }
+            SetAlgebraOperation::Intersection => {
+                Some(SetAlgebraReceiverIterationOperation::Intersection)
+            }
+            SetAlgebraOperation::SymmetricDifference | SetAlgebraOperation::Union => None,
+        };
+        match receiver_iteration {
+            Some(receiver_iteration) => {
                 function.instruction(&Instruction::LocalGet(receiver_size_local));
                 function.instruction(&Instruction::F64ConvertI64U);
                 function.instruction(&Instruction::LocalGet(other_size_payload_local));
@@ -6270,7 +6055,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64Le);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_set_algebra_iterate_receiver(
-                    operation,
+                    receiver_iteration,
                     receiver_record_local,
                     result_record_local,
                     other_payload_local,
@@ -6292,7 +6077,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::End);
             }
-            SetAlgebraOperation::SymmetricDifference | SetAlgebraOperation::Union => {
+            None => {
                 self.emit_set_algebra_iterate_other(
                     operation,
                     receiver_record_local,

@@ -52,7 +52,6 @@ use boa_parser::{Parser, Source};
 use lila_front::{ParseGoal, ParsedModule, ParsedScript, ParsedSource, SourceUnit};
 use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::ToPrimitive;
-use regress::Regex;
 
 mod analysis;
 /// Environment Record binding lifecycle (ECMA-262 9.1.1.1): the `Initialization`
@@ -81,13 +80,14 @@ mod operations;
 /// `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
 pub mod property_descriptor;
 mod regexp;
+mod source_call_flow_proof;
 mod task;
 mod well_known;
 pub(crate) use analysis::*;
 pub(crate) use binding_lifecycle::*;
 pub use builtins::{
-    CallableToStringRepresentation, HostBuiltinExposure, HostBuiltinId, HostBuiltinRealmScope,
-    HostBuiltinSurface, HostSurfacePolicy, StandardBuiltinId, StandardBuiltinInstaller,
+    CallableToStringRepresentation, HostBuiltinExposure, HostBuiltinId, HostBuiltinSurface,
+    HostSurfacePolicy, StandardBuiltinId, StandardBuiltinInstaller,
 };
 pub use diagnostics::{
     IrDiagnostic, IrDiagnosticKind, IrDiagnosticPhase, LoweringStage, UnsupportedFeature,
@@ -129,23 +129,24 @@ pub use modules::{
     StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
 };
 pub use operations::{
-    completion_abi_slots, find_completion_abi_slot, find_spec_operation, spec_operation_catalog,
-    AbruptCapability, ArithmeticBinaryOp, BigIntBitwiseOp, BindingMode, BitwiseBinaryOp,
-    CompletionAbiSlot, CompletionAbruptKind, CompletionKindIr, CompletionRecordIr, DoneSlot,
-    EcmaLanguageType, EmitterEvidence, EqualityBinaryOp, IteratorRecordIr, IteratorSlot,
-    LogicalBinaryOp, NextMethodSlot, NormalResult, NumericUpdateOp, OperationDescriptor,
-    OperationDomain, OperationLoweringStatus, RelationalBinaryOp, RowSource,
-    SpecOperationCatalogEntry, SpecOperationFamily, SpecOperationIr, ToPrimitiveHint,
-    TrackedGapReason, UnaryBitwiseOp, UnaryNumericOp, UpdateReturnMode, COMPLETION_ABI_SLOTS,
-    SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
+    completion_abi_slot, completion_abi_slots, find_spec_operation, spec_operation_catalog,
+    AbruptCapability, ArithmeticBinaryOp, BackendEmitterEvidence, BackendSpecOperation,
+    BigIntBitwiseOp, BindingMode, BitwiseBinaryOp, CompletionAbiSlot, CompletionAbruptKind,
+    CompletionKindIr, CompletionRecordIr, DoneSlot, EcmaLanguageType, EmitterEvidence,
+    EqualityBinaryOp, IteratorRecordIr, IteratorSlot, LogicalBinaryOp, NextMethodSlot,
+    NormalResult, NumericUpdateOp, NumericUpdateValueKind, OperationDescriptor, OperationDomain,
+    OperationLoweringStatus, RelationalBinaryOp, RowSource, SpecOperationCatalogEntry,
+    SpecOperationFamily, SpecOperationIr, ToPrimitiveHint, TrackedGapReason, UnaryBitwiseOp,
+    UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
 };
 pub use regexp::{
-    RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction, RegExpNamedGroup,
-    RegExpProgram, RegExpUnicodeMode, REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT,
-    REGEXP_OPCODE_ASSERT_END, REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END,
-    REGEXP_OPCODE_CAPTURE_START, REGEXP_OPCODE_CLEAR_CAPTURE_RANGE, REGEXP_OPCODE_DOT,
-    REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
-    REGEXP_OPCODE_LOOKBEHIND_END, REGEXP_OPCODE_LOOKBEHIND_FAILURE, REGEXP_OPCODE_LOOKBEHIND_START,
+    RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction,
+    RegExpModifierOverride, RegExpNamedGroup, RegExpProgram, RegExpUnicodeMode,
+    REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
+    REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START,
+    REGEXP_OPCODE_CLEAR_CAPTURE_RANGE, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
+    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKBEHIND_END,
+    REGEXP_OPCODE_LOOKBEHIND_FAILURE, REGEXP_OPCODE_LOOKBEHIND_START,
     REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
     REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
@@ -202,7 +203,6 @@ mod tests {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
         lower(&source)
     }
-
     fn lower_module(source: &str) -> ProgramIr {
         let source = parse(source, ParseOptions::module()).expect("module should parse");
         lower(&source)
@@ -211,6 +211,17 @@ mod tests {
     fn lower_test262_script(source: &str) -> ProgramIr {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
         lower_with_host_surface_policy(&source, HostSurfacePolicy::Test262)
+    }
+
+    fn dynamic_source_gaps(program: &ProgramIr) -> Vec<DynamicSourceGap> {
+        program
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| match diagnostic.unsupported_feature() {
+                Some(UnsupportedFeature::DynamicSource(gap)) => Some(gap),
+                _ => None,
+            })
+            .collect()
     }
 
     fn assert_zero_suspension_generator(function: &FunctionIr) {
@@ -246,6 +257,49 @@ mod tests {
                 StatementIr::Return(value) => Some(value),
                 _ => None,
             })
+    }
+
+    fn assert_caller_flow_invalidation_reaches_final_addition(source: &str) {
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected the final addition: {source}");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "{source}: {result:?}"
+        );
+    }
+
+    fn assert_caller_flow_preservation_reaches_final_addition(source: &str) {
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected the final addition: {source}");
+        };
+        assert!(
+            matches!(
+                result.expr,
+                ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                } | ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                }
+            ),
+            "{source}: {result:?}"
+        );
     }
 
     fn collect_annex_b_copies(
@@ -295,8 +349,6 @@ mod tests {
                 StatementIr::While { body, .. }
                 | StatementIr::DoWhile { body, .. }
                 | StatementIr::For { body, .. }
-                | StatementIr::ForOfArray { body, .. }
-                | StatementIr::ForOfString { body, .. }
                 | StatementIr::ForOfIterator { body, .. }
                 | StatementIr::ForInArray { body, .. }
                 | StatementIr::ForInString { body, .. }
@@ -304,6 +356,16 @@ mod tests {
                 | StatementIr::Labelled {
                     statement: body, ..
                 } => collect(body, copies),
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
+                    for statement in plan
+                        .before_await()
+                        .iter()
+                        .chain(std::iter::once(plan.await_statement()))
+                        .chain(plan.after_await())
+                    {
+                        collect(statement, copies);
+                    }
+                }
                 StatementIr::Switch {
                     lexical_declarations,
                     cases,
@@ -537,11 +599,6 @@ mod tests {
                         collect(statement, names);
                     }
                 }
-                StatementIr::ForOfArray { head, body, .. }
-                | StatementIr::ForOfString { head, body, .. } => {
-                    names.insert(head.name.clone());
-                    collect(body, names);
-                }
                 StatementIr::ForOfIterator { head, body, .. } => {
                     let name = match head {
                         ForOfIteratorHeadIr::Assignment { binding, .. } => &binding.name,
@@ -550,6 +607,17 @@ mod tests {
                     };
                     names.insert(name.to_string());
                     collect(body, names);
+                }
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
+                    names.insert(plan.value_name().to_string());
+                    for statement in plan
+                        .before_await()
+                        .iter()
+                        .chain(std::iter::once(plan.await_statement()))
+                        .chain(plan.after_await())
+                    {
+                        collect(statement, names);
+                    }
                 }
                 StatementIr::ForInArray { name, body, .. }
                 | StatementIr::ForInString { name, body, .. }
@@ -708,17 +776,7 @@ mod tests {
                             .any(|binding| binding.name == name && binding.slot == slot)
                     }) || statement_owns_binding(body, name, slot)
                 }
-                StatementIr::ForOfArray {
-                    body,
-                    lexical_environment,
-                    ..
-                }
-                | StatementIr::ForOfString {
-                    body,
-                    lexical_environment,
-                    ..
-                }
-                | StatementIr::ForOfIterator {
+                StatementIr::ForOfIterator {
                     body,
                     lexical_environment,
                     ..
@@ -749,6 +807,27 @@ mod tests {
                             slot,
                         )
                     }) || statement_owns_binding(body, name, slot)
+                }
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
+                    let environment_owns_binding =
+                        plan.head_environment().is_some_and(|environment| {
+                            lexical_environment_owns_binding(
+                                environment.tdz_environment.as_ref(),
+                                name,
+                                slot,
+                            ) || lexical_environment_owns_binding(
+                                environment.iteration_environment.as_ref(),
+                                name,
+                                slot,
+                            )
+                        });
+                    environment_owns_binding
+                        || plan
+                            .before_await()
+                            .iter()
+                            .chain(std::iter::once(plan.await_statement()))
+                            .chain(plan.after_await())
+                            .any(|statement| statement_owns_binding(statement, name, slot))
                 }
                 StatementIr::Switch {
                     lexical_environment,
@@ -1808,7 +1887,10 @@ mod tests {
         for (expression, (expected_builtin, expected_key, expected_kind)) in
             calls.into_iter().zip(expected_calls)
         {
-            assert_eq!(expression.kind, expected_kind);
+            assert_eq!(
+                expression.kind, expected_kind,
+                "transferred {expected_builtin:?} at property {expected_key}"
+            );
             let ExprIr::MaterializeBinding {
                 name, body: call, ..
             } = &expression.expr
@@ -1823,15 +1905,18 @@ mod tests {
             else {
                 panic!("expected callee and this argument: {call:?}");
             };
-            assert_eq!(call.kind, expected_kind);
+            assert_eq!(
+                call.kind, expected_kind,
+                "transferred {expected_builtin:?} at property {expected_key}"
+            );
             assert!(matches!(
                 this_arg.expr,
                 ExprIr::Identifier(ref this_name) if this_name == name
             ));
-            assert_eq!(callee.function_targets.len(), 1);
-            assert!(callee
-                .function_targets
-                .contains(&expected_builtin.function_id()));
+            assert_eq!(
+                callee.function_targets.exact_single_target(),
+                Some(&expected_builtin.function_id())
+            );
             assert!(
                 match &callee.expr {
                     ExprIr::PropertyRead { target, key } => matches!(
@@ -1896,7 +1981,8 @@ mod tests {
         else {
             panic!("expected acquired-callee indirect call: {call:?}");
         };
-        assert!(callee.function_targets.is_empty());
+        assert!(callee.function_targets.known_targets().is_empty());
+        assert!(callee.function_targets.exact_targets().is_none());
         assert!(matches!(
             this_arg.expr,
             ExprIr::Identifier(ref this_name) if this_name == name
@@ -3014,35 +3100,58 @@ mod tests {
     }
 
     #[test]
-    fn lowers_for_of_array_assignment_pattern_as_iteration_prefix() {
+    fn lowers_for_of_array_assignment_pattern_through_generic_iterator() {
         let program = lower_script("var x; for ([x] of [[1]]) {}");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script IR should exist");
-        let StatementIr::ForOfArray { body, .. } = &script.body.statements[1] else {
-            panic!("expected array for-of statement");
+        let StatementIr::ForOfIterator {
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: None,
+                    protocol,
+                    ..
+                },
+            body,
+            ..
+        } = &script.body.statements[1]
+        else {
+            panic!("expected generic for-of statement");
         };
+        assert_eq!(*protocol, IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL);
         let StatementIr::Block(block) = body.as_ref() else {
             panic!("expected assignment prefix block");
         };
-        assert!(matches!(
-            block.statements[0],
-            StatementIr::Expression(TypedExpr {
-                expr: ExprIr::ArrayDestructure {
+        let StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::ArrayDestructure {
+                    value,
                     evaluation: ArrayDestructuringEvaluationIr::AssignmentEvaluation,
                     ..
                 },
-                ..
-            })
-        ));
+            ..
+        }) = &block.statements[0]
+        else {
+            panic!("expected semantic array assignment");
+        };
+        assert_eq!(value.kind, ValueKind::Dynamic);
+        assert_eq!(value.possible_kinds, KindSet::all_runtime_tags());
     }
 
     #[test]
-    fn lowers_for_of_array_lexical_pattern_as_binding_initialization_prefix() {
+    fn lowers_for_of_array_lexical_pattern_through_generic_iterator() {
         let program = lower_script("for (let [value] of [[1]]) {}");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script IR should exist");
-        let StatementIr::ForOfArray { body, .. } = &script.body.statements[0] else {
-            panic!("expected array for-of statement");
+        let StatementIr::ForOfIterator {
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: None, ..
+                },
+            body,
+            ..
+        } = &script.body.statements[0]
+        else {
+            panic!("expected generic for-of statement");
         };
         let StatementIr::Block(block) = body.as_ref() else {
             panic!("expected lexical binding prefix block");
@@ -3057,6 +3166,38 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn lowers_synchronous_string_for_of_through_generic_iterator_with_dynamic_values() {
+        let program = lower_script("for (const value of \"ab\") { value; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::ForOfIterator {
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    async_plan: None,
+                    protocol,
+                    ..
+                },
+            iterable,
+            body,
+            ..
+        } = &script.body.statements[0]
+        else {
+            panic!("expected generic for-of statement");
+        };
+        assert_eq!(*protocol, IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL);
+        assert_eq!(iterable.kind, ValueKind::String);
+
+        let StatementIr::Block(block) = body.as_ref() else {
+            panic!("expected loop body block");
+        };
+        let StatementIr::Expression(value) = &block.statements[0] else {
+            panic!("expected loop binding read");
+        };
+        assert_eq!(value.kind, ValueKind::Dynamic);
+        assert_eq!(value.possible_kinds, KindSet::all_runtime_tags());
     }
 
     #[test]
@@ -3081,7 +3222,7 @@ mod tests {
         let mut private_loop_count = 0;
         for statement in &function.body.statements {
             let body = match statement {
-                StatementIr::ForOfArray { body, .. } | StatementIr::ForInObject { body, .. } => {
+                StatementIr::ForOfIterator { body, .. } | StatementIr::ForInObject { body, .. } => {
                     body
                 }
                 _ => continue,
@@ -3542,8 +3683,8 @@ mod tests {
             }));
         }
 
-        let StatementIr::ForOfArray { body, .. } = &script.body.statements[0] else {
-            panic!("expected array for-of loop");
+        let StatementIr::ForOfIterator { body, .. } = &script.body.statements[0] else {
+            panic!("expected generic for-of loop");
         };
         let StatementIr::Block(block) = body.as_ref() else {
             panic!("expected destructuring loop body block");
@@ -3566,8 +3707,8 @@ mod tests {
             lower_script("for (var { value = fallback() } of [{ value: undefined }]) {} value;");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::ForOfArray { body, .. } = &script.body.statements[0] else {
-            panic!("expected array for-of loop");
+        let StatementIr::ForOfIterator { body, .. } = &script.body.statements[0] else {
+            panic!("expected generic for-of loop");
         };
         let StatementIr::Block(block) = body.as_ref() else {
             panic!("expected destructuring loop body block");
@@ -3784,7 +3925,10 @@ mod tests {
         let ExprIr::CallIndirect { callee, .. } = &call.expr else {
             unreachable!("indirect_call_body only returns indirect calls");
         };
-        assert!(callee.function_targets.contains(&function_id));
+        assert_eq!(
+            callee.function_targets.exact_single_target(),
+            Some(&function_id)
+        );
     }
 
     #[test]
@@ -3808,6 +3952,167 @@ mod tests {
             ExprIr::TypeOfUnresolvedIdentifier { .. }
         ));
         assert_eq!(expr.kind, ValueKind::String);
+    }
+
+    #[test]
+    fn lowers_builtin_typeof_through_runtime_globals_after_arbitrary_effects() {
+        let program = lower_script(
+            "function observe() {} observe(); typeof Number; typeof Symbol; typeof BigInt;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let runtime_global_names = script
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| {
+                let StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::TypeOf { expr },
+                    ..
+                }) = statement
+                else {
+                    return None;
+                };
+                let ExprIr::GlobalPropertyRead { name } = &expr.expr else {
+                    return None;
+                };
+                Some(name.as_str())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(runtime_global_names, ["Number", "Symbol", "BigInt"]);
+    }
+
+    #[test]
+    fn an_effect_free_exact_source_call_keeps_untracked_typeof_unresolved() {
+        let program = lower_script("function observe() {} observe(); typeof createdAfterCall;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let typeof_expression = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| {
+                let StatementIr::Expression(expression) = statement else {
+                    return None;
+                };
+                matches!(&expression.expr, ExprIr::TypeOfUnresolvedIdentifier { .. })
+                    .then_some(expression)
+            })
+            .expect("untracked identifier should retain unresolved typeof lowering");
+
+        assert_eq!(typeof_expression.kind, ValueKind::String);
+    }
+
+    #[test]
+    fn precise_definition_and_deletion_make_untracked_global_typeof_runtime_reads() {
+        let program = lower_script(
+            r#"Object.defineProperty(globalThis, "accessorAfterCall", { get: function() { return 1; } });
+typeof accessorAfterCall;
+delete globalThis.accessorAfterCall;
+typeof accessorAfterCall;"#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let runtime_global_names = script
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| {
+                let StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::TypeOf { expr },
+                    ..
+                }) = statement
+                else {
+                    return None;
+                };
+                let ExprIr::GlobalPropertyRead { name } = &expr.expr else {
+                    return None;
+                };
+                Some(name.as_str())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            runtime_global_names,
+            ["accessorAfterCall", "accessorAfterCall"]
+        );
+    }
+
+    #[test]
+    fn lowers_conditionally_deleted_global_typeof_through_runtime_property_read() {
+        let program = lower_script(
+            "let remove = globalThis.removeNumber; if (remove) delete globalThis.Number; typeof Number;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let runtime_global_name = script.body.statements.iter().find_map(|statement| {
+            let StatementIr::Expression(TypedExpr {
+                expr: ExprIr::TypeOf { expr },
+                ..
+            }) = statement
+            else {
+                return None;
+            };
+            let ExprIr::GlobalPropertyRead { name } = &expr.expr else {
+                return None;
+            };
+            Some(name.as_str())
+        });
+
+        assert_eq!(runtime_global_name, Some("Number"));
+    }
+
+    #[test]
+    fn lowers_with_typeof_global_created_during_unscopables_resolution() {
+        let program = lower_script(
+            r#"let globalName = "createdDuringWithTypeof";
+with ({
+    createdDuringWithTypeof: 0,
+    get [Symbol.unscopables]() {
+        globalThis[globalName] = 1;
+        return { createdDuringWithTypeof: true };
+    }
+}) {
+    typeof createdDuringWithTypeof;
+}"#,
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let with_block = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::LexicalBlock(statements) => Some(statements),
+                _ => None,
+            })
+            .expect("with statement should lower through a lexical block");
+        let StatementIr::Block(with_scope) = &with_block[1] else {
+            panic!("with lexical block should contain its body block");
+        };
+        let StatementIr::Block(with_body) = &with_scope.statements[1] else {
+            panic!("with scope should contain its statement body");
+        };
+        let expr = with_body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::TypeOf { expr },
+                    ..
+                }) => Some(expr),
+                _ => None,
+            })
+            .expect("with body should contain its typeof expression");
+        let ExprIr::Conditional { else_expr, .. } = &expr.expr else {
+            panic!("with lookup should select between its object and global fallback");
+        };
+
+        assert!(matches!(
+            else_expr.expr,
+            ExprIr::GlobalPropertyRead { ref name } if name == "createdDuringWithTypeof"
+        ));
     }
 
     #[test]
@@ -3867,7 +4172,10 @@ mod tests {
         let ExprIr::CallIndirect { callee, .. } = &call.expr else {
             unreachable!("indirect_call_body only returns indirect calls");
         };
-        assert!(callee.function_targets.contains(&function_id));
+        assert_eq!(
+            callee.function_targets.exact_single_target(),
+            Some(&function_id)
+        );
     }
 
     #[test]
@@ -3904,7 +4212,10 @@ mod tests {
         let ExprIr::CallIndirect { callee, .. } = &call.expr else {
             unreachable!("indirect_call_body only returns indirect calls");
         };
-        assert!(callee.function_targets.contains(&function_id));
+        assert_eq!(
+            callee.function_targets.exact_single_target(),
+            Some(&function_id)
+        );
     }
 
     #[test]
@@ -5090,7 +5401,11 @@ mod tests {
             let StatementIr::Expression(expression) = statement else {
                 panic!("expected runtime indirect call for {expected_key}: {statement:?}");
             };
-            assert_eq!(expression.kind, ValueKind::String);
+            assert_eq!(
+                expression.kind,
+                ValueKind::String,
+                "expected the {expected_key} override result, got {expression:?}"
+            );
             let Some(TypedExpr {
                 expr:
                     ExprIr::CallIndirect {
@@ -5116,6 +5431,26 @@ mod tests {
                 Some(HeapShape::Array(shape)) if shape.prototype.is_some()
             ));
         }
+    }
+
+    #[test]
+    fn array_subclass_method_write_invalidates_a_later_override_result() {
+        let program = lower_script(
+            "class A extends Array {
+                replaceJoin() { this.join = function replacement() { return 1; }; }
+                join() { return 'custom join'; }
+             }
+             const a = new A();
+             a.replaceJoin();
+             a.join();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(call) = script.body.statements.last().unwrap() else {
+            panic!("expected the post-mutation join call");
+        };
+
+        assert_eq!(call.kind, ValueKind::Dynamic, "{call:?}");
     }
 
     #[test]
@@ -5491,12 +5826,36 @@ target[Symbol.asyncIterator];"#,
         let StatementIr::Expression(symbol_read) = &script.body.statements[1] else {
             panic!("expected symbol property read");
         };
-        assert_eq!(symbol_read.kind, ValueKind::Dynamic);
+        assert_eq!(symbol_read.kind, ValueKind::Number);
 
         let StatementIr::Expression(string_read) = &script.body.statements[2] else {
             panic!("expected string property read");
         };
         assert_eq!(string_read.kind, ValueKind::String);
+    }
+
+    #[test]
+    fn similarly_named_string_property_cannot_supply_a_symbol_read() {
+        let program = lower_script(
+            "function stringNamed() {} let target = { 'Symbol.iterator': stringNamed }; target[Symbol.iterator];",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let string_named = script
+            .functions
+            .iter()
+            .find(|function| function.name == "stringNamed")
+            .expect("source function should be lowered");
+        let StatementIr::Expression(symbol_read) = script.body.statements.last().unwrap() else {
+            panic!("expected symbol property read");
+        };
+        assert!(
+            !symbol_read
+                .function_targets
+                .known_targets()
+                .contains(&string_named.id),
+            "a string-keyed property must not satisfy a Symbol-keyed read"
+        );
     }
 
     #[test]
@@ -5804,10 +6163,42 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn iterator_from_callable_symbol_iterator_retains_heap_mutation_authority() {
+        let program = lower_script(
+            "function iteratorMethod() { return this; }
+             const iter = {
+               [Symbol.iterator]: iteratorMethod,
+               next() { return { done: true, value: undefined }; }
+             };
+             const tracked = { value: {} };
+             Iterator.from(iter);
+             const observed = tracked.value;",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let observed = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Lexical { name, init, .. } if name == "observed" => Some(init),
+                _ => None,
+            })
+            .expect("observed lexical should be present");
+        assert!(
+            observed.heap_shape.is_none(),
+            "a callable @@iterator may mutate a previously tracked heap shape: {observed:?}"
+        );
+    }
+
+    #[test]
     fn iterator_from_preserves_existing_iterator_instances() {
         let program = lower_script(
-            "const GeneratorPrototype = Object.getPrototypeOf((function* () {})());
-             const FromPrototype = Object.getPrototypeOf(Iterator.from((function* () {})()));",
+            "const getPrototypeOf = Object.getPrototypeOf;
+             const iteratorFrom = Iterator.from;
+             const iterator = (function* () {})();
+             const GeneratorPrototype = getPrototypeOf(iterator);
+             const FromPrototype = getPrototypeOf(iteratorFrom(iterator));",
         );
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
@@ -5833,7 +6224,8 @@ target[Symbol.iterator];"#,
             .expect("from prototype lexical should be present");
         assert_eq!(
             generator_prototype.heap_shape.as_deref(),
-            from_prototype.heap_shape.as_deref()
+            from_prototype.heap_shape.as_deref(),
+            "Iterator.from must preserve the existing iterator prototype"
         );
     }
 
@@ -7422,10 +7814,9 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
-    fn plain_async_for_of_array_body_await_lowers_to_an_index_loop() {
-        let program = lower_script(
-            "(async function(){ const out = []; for (const x of [1,2,3]) { out.push(await Promise.resolve(x)); } print(out); })();",
-        );
+    fn plain_async_for_of_body_await_owns_a_synchronous_iterator_record() {
+        let program =
+            lower_script("(async function(){ for (const x of \"ab\") { await 0; x; } })();");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let function = program
             .script
@@ -7435,46 +7826,727 @@ target[Symbol.iterator];"#,
             .first()
             .expect("async function expression should be collected");
 
-        let Some(StatementIr::GeneratorLoop {
-            init: Some(ForInitIr::LexicalBlock(head)),
-            test: Some(_),
-            update: Some(_),
-            iteration_environment,
-            before_suspension,
-            ..
-        }) = function
-            .body
-            .statements
-            .iter()
-            .find(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
+        let Some(StatementIr::AsyncFunctionForOfIterator { plan, .. }) =
+            function.body.statements.iter().find(|statement| {
+                matches!(statement, StatementIr::AsyncFunctionForOfIterator { .. })
+            })
         else {
             panic!(
-                "for-of with a body await should become an index loop: {:#?}",
+                "for-of with a body await should own a resumable Iterator Record: {:#?}",
                 function.body.statements
             );
         };
-        // The array and the cursor both have to survive the suspension, so they
-        // are hoisted into the loop head and given activation-record slots.
-        assert_eq!(head.len(), 2);
-        for binding in head {
+        assert_eq!(plan.entry_state(), 0);
+        assert_eq!(plan.resume_state(), 1);
+        assert_eq!(plan.exit_state(), 2);
+        assert!(matches!(
+            plan.value_storage(),
+            AsyncFunctionForOfIteratorValueStorageIr::Activation(binding)
+                if binding.mode == BindingMode::Const && binding.name == plan.value_name()
+        ));
+        assert!(matches!(
+            plan.await_statement(),
+            StatementIr::AsyncAwait {
+                suspend_state: 0,
+                resume_state: 1,
+                ..
+            }
+        ));
+        assert_eq!(
+            plan.iteration_environment(),
+            &ResumableLoopIterationEnvironmentIr::StorageOnly
+        );
+        for name in [
+            plan.value_name(),
+            plan.record().iterator().as_str(),
+            plan.record().next_method().as_str(),
+            plan.record().done().as_str(),
+        ] {
             assert!(
                 function
                     .owned_env_bindings
                     .iter()
-                    .any(|owned| owned.name == binding.name),
-                "`{}` must live in the activation record: {:?}",
-                binding.name,
+                    .any(|owned| owned.name == name),
+                "`{name}` must live in the activation record: {:?}",
                 function.owned_env_bindings
             );
         }
+        let yielded_value_use = plan
+            .after_await()
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(value) => match &value.expr {
+                    ExprIr::Identifier(name) if name == plan.value_name() => Some(value),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("the loop body should read the yielded value after resuming");
+        assert_eq!(yielded_value_use.kind, ValueKind::Dynamic);
+        assert_eq!(
+            yielded_value_use.possible_kinds,
+            KindSet::all_runtime_tags()
+        );
+    }
+
+    #[test]
+    fn plain_async_for_of_assignment_head_runs_before_the_body_await() {
+        let program =
+            lower_script("(async function(){ let x; for (x of \"ab\") { await 0; x; } })();");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .first()
+            .expect("async function expression should be collected");
+        let plan = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan),
+                _ => None,
+            })
+            .expect("for-of assignment head should use the resumable iterator plan");
+
         assert!(matches!(
-            before_suspension.first(),
-            Some(StatementIr::Lexical { .. })
+            plan.value_storage(),
+            AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name }
+                if name == plan.value_name()
+        ));
+        assert!(matches!(
+            plan.before_await(),
+            [StatementIr::Expression(TypedExpr {
+                expr: ExprIr::AssignIdentifier { value, .. },
+                ..
+            })] if matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name())
+        ));
+        assert!(matches!(
+            plan.await_statement(),
+            StatementIr::AsyncAwait { .. }
+        ));
+    }
+
+    #[test]
+    fn plain_async_for_of_static_member_head_writes_before_the_body_await() {
+        let program = lower_script(
+            "(async function(){ const target = {}; for (target.value of [1]) { await 0; } })();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .first()
+            .expect("async function expression should be collected");
+        let plan = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan),
+                _ => None,
+            })
+            .expect("static member head should use the resumable iterator plan");
+        let [StatementIr::Expression(TypedExpr {
+            expr: ExprIr::PropertyWrite {
+                target, key, value, ..
+            },
+            ..
+        })] = plan.before_await()
+        else {
+            panic!(
+                "static member head should be the sole pre-await write: {:?}",
+                plan.before_await()
+            );
+        };
+
+        assert!(matches!(&target.expr, ExprIr::Identifier(name) if name == "target"));
+        assert!(matches!(key, PropertyKeyIr::StaticString(name) if name == "value"));
+        assert!(matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name()));
+        assert!(plan.value_name().starts_with("$forof.access"));
+    }
+
+    #[test]
+    fn plain_async_for_of_computed_member_head_captures_its_reference() {
+        let program = lower_script(
+            "function owner() {
+                let target = {};
+                let key = \"value\";
+                async function assign(iterable) {
+                    for (target[key] of iterable) { await 0; }
+                }
+                return assign;
+            }
+            owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "assign")
+            .expect("nested async function should be collected");
+        let captured = function
+            .captured_bindings
+            .iter()
+            .map(|binding| binding.source_name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(captured.contains("target"));
+        assert!(captured.contains("key"));
+        let plan = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan),
+                _ => None,
+            })
+            .expect("computed member head should use the resumable iterator plan");
+        let [StatementIr::Expression(TypedExpr {
+            expr: ExprIr::PropertyWrite {
+                target, key, value, ..
+            },
+            ..
+        })] = plan.before_await()
+        else {
+            panic!(
+                "computed member head should be the sole pre-await write: {:?}",
+                plan.before_await()
+            );
+        };
+
+        assert!(matches!(&target.expr, ExprIr::Identifier(name) if name == "target"));
+        assert!(matches!(
+            key,
+            PropertyKeyIr::StringExpr(key)
+                if matches!(&key.expr, ExprIr::Identifier(name) if name == "key")
+        ));
+        assert!(matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name()));
+    }
+
+    #[test]
+    fn plain_async_for_of_private_member_head_writes_before_the_body_await() {
+        let program = lower_script(
+            "class C {
+                #value = 0;
+                async assign() {
+                    for (this.#value of [1]) { await 0; }
+                }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "C.assign")
+            .expect("async class method should be collected");
+        let plan = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan),
+                _ => None,
+            })
+            .expect("private member head should use the resumable iterator plan");
+        let [StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::PrivateWrite {
+                    target,
+                    private_name_id,
+                    value,
+                },
+            ..
+        })] = plan.before_await()
+        else {
+            panic!(
+                "private member head should be the sole pre-await write: {:?}",
+                plan.before_await()
+            );
+        };
+
+        assert!(matches!(target.expr, ExprIr::This));
+        assert_eq!(*private_name_id, function.private_name_ids["value"]);
+        assert!(matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name()));
+    }
+
+    #[test]
+    fn plain_async_for_of_var_pattern_bindings_survive_the_body_await() {
+        let program = lower_script(
+            "(async function(){
+                for (var [selected = 3, ...remaining] of [[undefined, 4, 5]]) {
+                    await 0;
+                    selected;
+                    remaining;
+                }
+            })();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .first()
+            .expect("async function expression should be collected");
+        let plan = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan),
+                _ => None,
+            })
+            .expect("var pattern head should use the resumable iterator plan");
+
+        assert!(matches!(
+            plan.value_storage(),
+            AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name }
+                if name == plan.value_name()
         ));
         assert_eq!(
-            iteration_environment,
+            plan.iteration_environment(),
             &ResumableLoopIterationEnvironmentIr::StorageOnly
         );
+        assert!(matches!(
+            plan.before_await(),
+            [StatementIr::Expression(TypedExpr {
+                expr: ExprIr::ArrayDestructure {
+                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
+                    ..
+                },
+                ..
+            })]
+        ));
+        for name in ["selected", "remaining"] {
+            assert!(
+                function
+                    .owned_env_bindings
+                    .iter()
+                    .any(|binding| binding.name == name),
+                "`{name}` must survive the body await: {:?}",
+                function.owned_env_bindings
+            );
+        }
+        assert!(
+            function
+                .owned_env_bindings
+                .iter()
+                .all(|binding| binding.name != plan.value_name()),
+            "the pre-await iterator value sink must remain entry-local: {:?}",
+            function.owned_env_bindings
+        );
+        assert!(plan.after_await().iter().any(|statement| {
+            matches!(
+                statement,
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::Identifier(name),
+                    ..
+                }) if name == "selected"
+            )
+        }));
+        assert!(plan.after_await().iter().any(|statement| {
+            matches!(
+                statement,
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::Identifier(name),
+                    ..
+                }) if name == "remaining"
+            )
+        }));
+    }
+
+    #[test]
+    fn plain_async_for_of_nested_lexical_pattern_owns_every_iteration_binding() {
+        let program = lower_script(
+            "async function collect(values) {
+                for (const { first, nested: [second, { third }], ...rest } of values) {
+                    await 0;
+                }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "collect")
+            .expect("async function should be collected");
+        let [StatementIr::AsyncFunctionForOfIterator { plan, .. }] =
+            function.body.statements.as_slice()
+        else {
+            panic!(
+                "nested lexical pattern should own a resumable iterator plan: {:?}",
+                function.body.statements
+            );
+        };
+
+        assert_eq!(plan.value_mode(), BindingMode::Const);
+        assert!(matches!(
+            plan.value_storage(),
+            AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name }
+                if name == plan.value_name()
+        ));
+        let ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment) =
+            plan.iteration_environment()
+        else {
+            panic!("a nonempty lexical pattern must allocate a fresh iteration environment");
+        };
+        let environment_names = environment
+            .bindings
+            .iter()
+            .map(|binding| binding.name.clone())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(environment_names.len(), 4);
+        for source_name in ["first", "second", "third", "rest"] {
+            assert!(
+                environment_names
+                    .iter()
+                    .any(|name| name.ends_with(&format!(".{source_name}"))),
+                "iteration environment is missing `{source_name}`: {environment_names:?}"
+            );
+        }
+        assert_eq!(
+            environment
+                .bindings
+                .iter()
+                .map(|binding| binding.slot)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([0, 1, 2, 3])
+        );
+
+        let head_environment = plan
+            .head_environment()
+            .expect("a lexical pattern must retain its head environment witness");
+        assert_eq!(
+            head_environment
+                .tdz_binding_names
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["$tdz.first", "$tdz.rest", "$tdz.second", "$tdz.third"])
+        );
+        assert_eq!(
+            head_environment.iteration_environment.as_ref(),
+            Some(environment)
+        );
+
+        let [StatementIr::Expression(TypedExpr {
+            expr: ExprIr::ObjectDestructure { value, pattern },
+            ..
+        })] = plan.before_await()
+        else {
+            panic!(
+                "nested object pattern must initialize before the body await: {:?}",
+                plan.before_await()
+            );
+        };
+        assert!(matches!(
+            &value.expr,
+            ExprIr::Identifier(name) if name == plan.value_name()
+        ));
+        let mut initialized = Vec::new();
+        pattern.visit_bindings(&mut |mode, name| initialized.push((mode, name.to_string())));
+        assert!(initialized
+            .iter()
+            .all(|(mode, _)| *mode == BindingMode::Const));
+        assert_eq!(
+            initialized
+                .into_iter()
+                .map(|(_, name)| name)
+                .collect::<BTreeSet<_>>(),
+            environment_names
+        );
+    }
+
+    #[test]
+    fn plain_async_for_of_lexical_pattern_forward_default_reads_the_iteration_tdz() {
+        let program = lower_script(
+            "async function defaults(values) {
+                for (let { first = second, second = 1 } of values) {
+                    await 0;
+                }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "defaults")
+            .expect("async function should be collected");
+        let [StatementIr::AsyncFunctionForOfIterator { plan, .. }] =
+            function.body.statements.as_slice()
+        else {
+            panic!("forward-default loop should own a resumable iterator plan");
+        };
+        let [StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name: first,
+            init,
+        }, StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name: second,
+            ..
+        }] = plan.before_await()
+        else {
+            panic!(
+                "object BindingInitialization must precede the body await: {:?}",
+                plan.before_await()
+            );
+        };
+        assert!(first.ends_with(".first"));
+        assert!(second.ends_with(".second"));
+        assert!(matches!(
+            &init.expr,
+            ExprIr::Conditional { then_expr, .. }
+                if matches!(
+                    then_expr.expr,
+                    ExprIr::RuntimeThrow {
+                        name: NativeErrorKind::ReferenceError,
+                        ..
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn plain_async_for_of_empty_lexical_patterns_keep_semantic_initialization() {
+        let program = lower_script(
+            "async function emptyArray(values) {
+                for (let [] of values) { await 0; }
+            }
+            async function emptyObject(values) {
+                for (const {} of values) { await 0; }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+
+        for (function_name, expected_mode) in [
+            ("emptyArray", BindingMode::Let),
+            ("emptyObject", BindingMode::Const),
+        ] {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("missing `{function_name}`"));
+            let [StatementIr::AsyncFunctionForOfIterator { plan, .. }] =
+                function.body.statements.as_slice()
+            else {
+                panic!("`{function_name}` should own a resumable iterator plan");
+            };
+            assert_eq!(plan.value_mode(), expected_mode);
+            assert!(matches!(
+                plan.value_storage(),
+                AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name }
+                    if name == plan.value_name()
+            ));
+            assert_eq!(
+                plan.iteration_environment(),
+                &ResumableLoopIterationEnvironmentIr::StorageOnly
+            );
+            let head_environment = plan
+                .head_environment()
+                .expect("an empty lexical pattern still requires a head witness");
+            assert!(head_environment.tdz_binding_names.is_empty());
+            assert!(head_environment.tdz_environment.is_none());
+            assert!(head_environment.iteration_environment.is_none());
+
+            let [StatementIr::Expression(initialization)] = plan.before_await() else {
+                panic!(
+                    "`{function_name}` must preserve one semantic initialization: {:?}",
+                    plan.before_await()
+                );
+            };
+            match (function_name, &initialization.expr) {
+                (
+                    "emptyArray",
+                    ExprIr::ArrayDestructure {
+                        value,
+                        pattern,
+                        evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
+                    },
+                ) => {
+                    assert!(pattern.elements.is_empty());
+                    assert!(matches!(
+                        &value.expr,
+                        ExprIr::Identifier(name) if name == plan.value_name()
+                    ));
+                }
+                ("emptyObject", ExprIr::ObjectDestructure { value, pattern }) => {
+                    assert!(pattern.properties.is_empty());
+                    assert!(pattern.rest.is_none());
+                    assert!(matches!(
+                        &value.expr,
+                        ExprIr::Identifier(name) if name == plan.value_name()
+                    ));
+                }
+                (_, initialization) => {
+                    panic!("wrong empty-pattern initialization: {initialization:?}")
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn plain_async_for_of_assignment_pattern_keeps_typed_targets_before_await() {
+        let program = lower_script(
+            "class C {
+                #value;
+                async assign(iterable) {
+                    let identifier;
+                    const target = {};
+                    for ([identifier, target.value, this.#value] of iterable) {
+                        await 0;
+                    }
+                }
+            }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "C.assign")
+            .expect("async class method should be collected");
+        let plan = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some(plan),
+                _ => None,
+            })
+            .expect("assignment pattern head should use the resumable iterator plan");
+        let [StatementIr::Expression(TypedExpr {
+            expr:
+                ExprIr::ArrayDestructure {
+                    pattern,
+                    evaluation: ArrayDestructuringEvaluationIr::AssignmentEvaluation,
+                    ..
+                },
+            ..
+        })] = plan.before_await()
+        else {
+            panic!(
+                "assignment pattern should be the sole pre-await prefix: {:?}",
+                plan.before_await()
+            );
+        };
+
+        assert!(matches!(
+            pattern.elements[0],
+            ArrayDestructuringElementIr::Target {
+                target: DestructuringTargetIr::AssignmentIdentifier(_),
+                ..
+            }
+        ));
+        assert!(matches!(
+            pattern.elements[1],
+            ArrayDestructuringElementIr::Target {
+                target: DestructuringTargetIr::AssignmentProperty { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            pattern.elements[2],
+            ArrayDestructuringElementIr::Target {
+                target: DestructuringTargetIr::AssignmentPrivate { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn plain_async_for_of_assignment_patterns_capture_top_level_and_nested_objects() {
+        let program = lower_script(
+            "function owner() {
+                let objectSourceKey = 'value';
+                let objectTarget = {};
+                let objectTargetKey = 'slot';
+                let objectFallback = 1;
+                let objectRestTarget = {};
+                let nestedObjectSourceKey = 'value';
+                let nestedObjectTarget = {};
+                let nestedObjectTargetKey = 'slot';
+                let nestedObjectFallback = 3;
+                let nestedObjectRestTarget = {};
+                async function assignObject(iterable) {
+                    for ({ [objectSourceKey]: objectTarget[objectTargetKey] = objectFallback, ...objectRestTarget.rest } of iterable) {
+                        await 0;
+                    }
+                }
+                async function assignArray(iterable) {
+                    for ([{ [nestedObjectSourceKey]: nestedObjectTarget[nestedObjectTargetKey] = nestedObjectFallback, ...nestedObjectRestTarget.rest }] of iterable) {
+                        await 0;
+                    }
+                }
+                return [assignObject, assignArray];
+            }
+            owner();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        for (function_name, expected_captures) in [
+            (
+                "assignObject",
+                &[
+                    "objectSourceKey",
+                    "objectTarget",
+                    "objectTargetKey",
+                    "objectFallback",
+                    "objectRestTarget",
+                ][..],
+            ),
+            (
+                "assignArray",
+                &[
+                    "nestedObjectSourceKey",
+                    "nestedObjectTarget",
+                    "nestedObjectTargetKey",
+                    "nestedObjectFallback",
+                    "nestedObjectRestTarget",
+                ][..],
+            ),
+        ] {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("`{function_name}` should be collected"));
+            let captured = function
+                .captured_bindings
+                .iter()
+                .map(|binding| binding.source_name.as_str())
+                .collect::<BTreeSet<_>>();
+            for name in expected_captures {
+                assert!(
+                    captured.contains(*name),
+                    "`{function_name}` must capture `{name}`: {:?}",
+                    function.captured_bindings
+                );
+            }
+            assert!(function.body.statements.iter().any(|statement| {
+                matches!(statement, StatementIr::AsyncFunctionForOfIterator { .. })
+            }));
+        }
     }
 
     #[test]
@@ -7491,23 +8563,22 @@ target[Symbol.iterator];"#,
             .iter()
             .find(|function| {
                 function.protocol.execution_kind() == FunctionExecutionKind::Async
-                    && function
-                        .body
-                        .statements
-                        .iter()
-                        .any(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
+                    && function.body.statements.iter().any(|statement| {
+                        matches!(statement, StatementIr::AsyncFunctionForOfIterator { .. })
+                    })
             })
-            .expect("async function expression should own the resumable loop");
-        let StatementIr::GeneratorLoop {
-            iteration_environment:
-                ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment),
-            ..
-        } = function
+            .expect("async function expression should own the resumable iterator plan");
+        let StatementIr::AsyncFunctionForOfIterator { plan, .. } = function
             .body
             .statements
             .iter()
-            .find(|statement| matches!(statement, StatementIr::GeneratorLoop { .. }))
-            .expect("captured async for-of should lower to a resumable loop")
+            .find(|statement| matches!(statement, StatementIr::AsyncFunctionForOfIterator { .. }))
+            .expect("captured async for-of should lower to a resumable iterator plan")
+        else {
+            unreachable!("the search selected the resumable iterator-plan variant");
+        };
+        let ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment) =
+            plan.iteration_environment()
         else {
             panic!("captured async for-of must require a fresh iteration environment");
         };
@@ -7517,14 +8588,10 @@ target[Symbol.iterator];"#,
 
     #[test]
     fn rejects_async_loop_awaits_with_no_resumable_shape() {
-        // The first five used to compile to a loop that ran its body once and
+        // These used to compile to a loop that ran its body once and
         // then reused the first resumed value for every later iteration. This
         // test is the map of what is deliberately still out, so a case leaves it
         // only by being implemented, never to make room.
-        //
-        // The last one is not that: it never miscompiled, it is refused. What
-        // batch 7 changed is only the *reason* it is given — see
-        // `AsyncForOfArrayWalkForm` in `lowering/for_of.rs`.
         for (source, message) in [
             (
                 "(async function(){ for (let i = 0; i < 2; i++) { try { await 0; } catch (e) {} } })();",
@@ -7546,16 +8613,9 @@ target[Symbol.iterator];"#,
                 "(async function(){ for (const k in { a: 1 }) { await 0; } })();",
                 "await inside a for-in loop",
             ),
-            // A string iterable is genuinely not an array walk: it has to reach
-            // `GetIterator` and `String.prototype[@@iterator]`, whose own
-            // suspension points this specialization does not have. This case
-            // must stay rejected, and its expected substring is narrowed rather
-            // than weakened — batch 7 split the one four-premise message into
-            // one message per premise, so the tail "and a plain binding" is no
-            // longer part of the answer for a head that binds a plain `const c`.
             (
-                "(async function(){ for (const c of \"ab\") { await 0; } })();",
-                "async for-of with a body await requires an array iterable",
+                "(async function(){ const target = {}; for (target[await 0] of [1]) { await 0; } })();",
+                "async for-of with a body await requires an eager assignment target",
             ),
         ] {
             let program = lower_script(source);
@@ -8934,6 +9994,179 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn for_await_identifier_assignment_head_writes_the_existing_binding() {
+        let program = lower_script(
+            "async function collect() {
+                 let outer = 0;
+                 for await (outer of [7]) {}
+                 return outer;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "collect")
+            .expect("async function should be registered");
+        let [StatementIr::Lexical {
+            name: outer_storage,
+            ..
+        }, StatementIr::ForOfIterator {
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    binding: head,
+                    async_plan: Some(_),
+                    ..
+                },
+            body,
+            ..
+        }, StatementIr::Return(_)] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "expected declaration, for-await assignment, and return: {:?}",
+                function.body.statements
+            );
+        };
+
+        assert_eq!(head.mode, BindingMode::Let);
+        assert!(head.name.starts_with("$forof.assignment"));
+        assert_ne!(&head.name, outer_storage);
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(BlockIr { statements, .. })
+                if matches!(
+                    statements.first(),
+                    Some(StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::AssignIdentifier { name, value },
+                        ..
+                    })) if name == outer_storage
+                        && matches!(&value.expr, ExprIr::Identifier(name) if name == &head.name)
+                )
+        ));
+    }
+
+    #[test]
+    fn for_await_identifier_write_alone_captures_the_outer_binding() {
+        let program = lower_script(
+            "let async;
+             async function collect() {
+                 for await (async of [7]) {}
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "collect")
+            .expect("async function should be registered");
+        let capture = function
+            .captured_bindings
+            .iter()
+            .find(|binding| binding.source_name == "async")
+            .expect("the assignment head alone must capture its outer target");
+        assert_eq!(capture.mode, BindingMode::Let);
+        let [StatementIr::ForOfIterator { head, body, .. }] = function.body.statements.as_slice()
+        else {
+            panic!("function should contain only the for-await loop");
+        };
+        let ForOfIteratorHeadIr::Assignment { binding, .. } = head else {
+            panic!("bare identifier should use an ordinary assignment head");
+        };
+        assert!(binding.name.starts_with("$forof.assignment"));
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(BlockIr { statements, .. })
+                if matches!(
+                    statements.first(),
+                    Some(StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::AssignIdentifier { name, .. },
+                        ..
+                    })) if name == &capture.name
+                )
+        ));
+    }
+
+    #[test]
+    fn for_await_identifier_heads_keep_assignment_and_declaration_failures_distinct() {
+        let program = lower_script(
+            "async function assignImmutable() {
+                 const immutable = 0;
+                 for await (immutable of [7]) {}
+             }
+             async function shadow() {
+                 let outer = 0;
+                 for await (let outer of [7]) {}
+                 return outer;
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let immutable_owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "assignImmutable")
+            .expect("immutable assignment owner should be registered");
+        let StatementIr::ForOfIterator { head, body, .. } = &immutable_owner.body.statements[1]
+        else {
+            panic!("immutable assignment should remain a for-await loop");
+        };
+        let ForOfIteratorHeadIr::Assignment { binding, .. } = head else {
+            panic!("immutable assignment should use an ordinary assignment head");
+        };
+        assert!(binding.name.starts_with("$forof.assignment"));
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(BlockIr { statements, .. })
+                if matches!(
+                    statements.first(),
+                    Some(StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::Comma { lhs, rhs },
+                        ..
+                    })) if matches!(&lhs.expr, ExprIr::Identifier(name) if name == &binding.name)
+                        && matches!(
+                            &rhs.expr,
+                            ExprIr::RuntimeThrow {
+                                name: NativeErrorKind::TypeError,
+                                message: "assignment to immutable binding",
+                            }
+                        )
+                )
+        ));
+
+        let shadow_owner = script
+            .functions
+            .iter()
+            .find(|function| function.name == "shadow")
+            .expect("declaration owner should be registered");
+        let StatementIr::Lexical {
+            name: outer_storage,
+            ..
+        } = &shadow_owner.body.statements[0]
+        else {
+            panic!("outer declaration should remain explicit");
+        };
+        let StatementIr::ForOfIterator { head, body, .. } = &shadow_owner.body.statements[1] else {
+            panic!("declaration should remain a for-await loop");
+        };
+        let ForOfIteratorHeadIr::Assignment { binding, .. } = head else {
+            panic!("let declaration should use an ordinary assignment head");
+        };
+        assert_eq!(binding.mode, BindingMode::Let);
+        assert!(binding.name.starts_with("$forof.lex."));
+        assert_ne!(&binding.name, outer_storage);
+        assert!(matches!(
+            body.as_ref(),
+            StatementIr::Block(BlockIr { statements, .. }) if statements.is_empty()
+        ));
+    }
+
+    #[test]
     fn records_for_await_sync_iterator_resume_boundaries_and_owned_state() {
         let program = lower_script(
             "async function collect(iterable) {
@@ -9320,7 +10553,7 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
-    fn typed_array_constructor_prototype_is_inferred_as_a_function() {
+    fn typed_array_constructor_prototype_keeps_the_hidden_intrinsic_identity() {
         let program = lower_script("var TypedArray = Object.getPrototypeOf(Int8Array);");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
@@ -9333,6 +10566,33 @@ target[Symbol.iterator];"#,
             .expect("TypedArray should have an initializer");
         assert_eq!(init.kind, ValueKind::Function);
         assert_eq!(init.possible_kinds, KindSet::from_kind(ValueKind::Function));
+        assert_eq!(
+            init.function_targets.exact_single_target(),
+            Some(&StandardBuiltinId::TypedArrayConstructor.function_id())
+        );
+        assert!(StandardBuiltinId::TypedArrayConstructor.constructable());
+        let Some(HeapShape::Object(constructor_shape)) = init.heap_shape.as_deref() else {
+            panic!("hidden TypedArray constructor should have a function shape");
+        };
+        assert!(constructor_shape.properties.contains_key("from"));
+        assert!(constructor_shape.properties.contains_key("of"));
+        let Some(ObjectShapeProperty::Data(prototype)) =
+            constructor_shape.properties.get("prototype")
+        else {
+            panic!("hidden TypedArray constructor should expose its prototype");
+        };
+        let Some(HeapShape::Object(prototype_shape)) = prototype.heap_shape.as_deref() else {
+            panic!("TypedArray prototype should have an object shape");
+        };
+        let Some(ObjectShapeProperty::Data(constructor)) =
+            prototype_shape.properties.get("constructor")
+        else {
+            panic!("TypedArray prototype should refer back to its constructor");
+        };
+        assert_eq!(
+            constructor.function_targets.exact_single_target(),
+            Some(&StandardBuiltinId::TypedArrayConstructor.function_id())
+        );
     }
 
     #[test]
@@ -9724,8 +10984,8 @@ target[Symbol.iterator];"#,
         let program = lower_script("let x = 1; for (let { x } of [{ x }]) {}");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script IR should exist");
-        let StatementIr::ForOfArray { iterable, .. } = &script.body.statements[1] else {
-            panic!("expected for-of array statement");
+        let StatementIr::ForOfIterator { iterable, .. } = &script.body.statements[1] else {
+            panic!("expected generic for-of statement");
         };
         let ExprIr::ArrayLiteral(elements) = &iterable.expr else {
             panic!("expected array iterable");
@@ -9767,7 +11027,7 @@ target[Symbol.iterator];"#,
     #[test]
     fn infers_array_buffer_new_shape_for_closure_capture() {
         let program = lower_script(
-            "const rab = new ArrayBuffer(64, { maxByteLength: 1024 }); const f = () => rab.resize; f();",
+            "const rab = new ArrayBuffer(64, { maxByteLength: 1024 }); const f = () => rab.resize;",
         );
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
@@ -9779,9 +11039,41 @@ target[Symbol.iterator];"#,
         let Some(StatementIr::Return(expr)) = arrow.body.statements.first() else {
             panic!("expression arrow should lower to return");
         };
-        assert!(expr
-            .function_targets
-            .contains(&StandardBuiltinId::ArrayBufferPrototypeResize.function_id()));
+        assert!(
+            expr.function_targets
+                .exact_single_target()
+                .is_some_and(|target| {
+                    target == &StandardBuiltinId::ArrayBufferPrototypeResize.function_id()
+                }),
+            "captured ArrayBuffer shape must retain resize: {expr:?}"
+        );
+    }
+
+    #[test]
+    fn captured_function_does_not_publish_a_stale_intrinsic_return_target() {
+        let program = lower_script(
+            "const rab = new ArrayBuffer(64, { maxByteLength: 1024 });
+             const f = () => rab.resize;
+             rab.resize = function replacement() {};
+             f();",
+        );
+        assert!(program.is_wasm_supported());
+        let script = program.script.as_ref().expect("script ir should exist");
+        let intrinsic = StandardBuiltinId::ArrayBufferPrototypeResize.function_id();
+        let arrow = script
+            .functions
+            .iter()
+            .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .expect("arrow function should be lowered");
+        let Some(StatementIr::Return(expr)) = arrow.body.statements.first() else {
+            panic!("expression arrow should lower to return");
+        };
+        assert!(!expr.function_targets.known_targets().contains(&intrinsic));
+        assert!(!arrow.return_targets.known_targets().contains(&intrinsic));
+        let StatementIr::Expression(call) = script.body.statements.last().unwrap() else {
+            panic!("final statement should be the closure call");
+        };
+        assert!(!call.function_targets.known_targets().contains(&intrinsic));
     }
 
     #[test]
@@ -9793,8 +11085,8 @@ target[Symbol.iterator];"#,
             panic!("property read should remain the script result");
         };
         assert!(
-            expr.function_targets
-                .contains(&StandardBuiltinId::TypedArrayPrototypeToString.function_id()),
+            expr.function_targets.exact_single_target()
+                == Some(&StandardBuiltinId::TypedArrayPrototypeToString.function_id()),
             "unexpected property expression: {expr:?}"
         );
     }
@@ -9842,11 +11134,11 @@ target[Symbol.iterator];"#,
     fn class_members_preserve_scoped_capture_source_names() {
         for (source, member_name) in [
             (
-                "function owner() { let x = \"outer\"; { let x = 2; class C { m() { return x + 3; } } return new C().m(); } } owner();",
+                "function owner() { let x = \"outer\"; { let x = 2; class C { m() { return x + 3; } } x = \"later\"; return new C().m(); } } owner();",
                 "C.m",
             ),
             (
-                "function owner() { let x = \"outer\"; { let x = 2; class C { constructor() { this.value = x + 3; } } return new C().value; } } owner();",
+                "function owner() { let x = \"outer\"; { let x = 2; class C { constructor() { this.value = x + 3; } } x = \"later\"; return new C().value; } } owner();",
                 "C",
             ),
         ] {
@@ -9870,6 +11162,7 @@ target[Symbol.iterator];"#,
                 .expect("class member should capture the scoped binding");
 
             assert!(capture.name.starts_with("$scoped.lex."));
+            assert_eq!(capture.mode, BindingMode::Let);
             assert_eq!(capture.hops, 1);
             assert!(
                 !owner
@@ -9988,7 +11281,7 @@ target[Symbol.iterator];"#,
     #[test]
     fn instance_field_capture_uses_the_class_definition_environment() {
         let program = lower_script(
-            "function owner() { let x = 7; class C { constructor() { let local = 1; (() => local)(); } value = x; } return C; } owner();",
+            "function owner() { let x = 7; class C { constructor() { let local = 1; (() => local)(); } value = x; } x = \"later\"; return C; } owner();",
         );
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script IR should exist");
@@ -10011,7 +11304,9 @@ target[Symbol.iterator];"#,
             .owned_env_bindings
             .iter()
             .any(|binding| binding.name == "local"));
+        assert_eq!(field_capture.mode, BindingMode::Let);
         assert_eq!(field_capture.hops, 1);
+        assert_eq!(field.return_kind, ValueKind::Dynamic);
         assert!(!constructor
             .captured_bindings
             .iter()
@@ -10038,6 +11333,7 @@ target[Symbol.iterator];"#,
 
         assert_eq!(capture.mode, BindingMode::Let);
         assert_ne!(capture.name, capture.source_name);
+        assert_eq!(field.return_kind, ValueKind::Number);
     }
 
     #[test]
@@ -11110,24 +12406,20 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
-    fn retains_nested_function_script_global_value_info_after_root_update() {
+    fn root_update_replaces_an_earlier_nested_script_global_value() {
         let program = lower_script(
-            "var args = null; var close = function() { args = arguments; }; close(); args = 1; args.length;",
+            "var args = null; var close = function() { args = arguments; }; close(); args = 1; args;",
         );
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
         let StatementIr::Expression(expression) = script.body.statements.last().unwrap() else {
             panic!("expected final expression");
         };
-        let ExprIr::SpecOperation { operands, .. } = &expression.expr else {
-            panic!(
-                "expected final property read operation: {:?}",
-                expression.expr
-            );
-        };
-        let target = operands.first().expect("property read target");
-        assert!(target.possible_kinds.contains(ValueKind::Arguments));
-        assert!(target.possible_kinds.contains(ValueKind::Number));
+        assert_eq!(expression.kind, ValueKind::Number);
+        assert_eq!(
+            expression.possible_kinds,
+            KindSet::from_kind(ValueKind::Number)
+        );
     }
 
     #[test]
@@ -11144,6 +12436,34 @@ target[Symbol.iterator];"#,
             "var args = null; function reader() { args.length; } function writer() { args = arguments; } reader(); writer(); args.length;",
         );
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    }
+
+    #[test]
+    fn script_global_compound_assignments_remain_runtime_read_modify_writes_at_every_owner() {
+        let program = lower_script(
+            "var trace = \"\"; function append() { trace += \"nested;\"; } append(); trace += \"root;\"; trace;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let append = script
+            .functions
+            .iter()
+            .find(|function| function.name == "append")
+            .expect("append function should be lowered");
+        assert!(append.body.statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::GlobalPropertyCompoundAssign { name, .. },
+                ..
+            }) if name == "trace"
+        )));
+        assert!(script.body.statements.iter().any(|statement| matches!(
+            statement,
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::GlobalPropertyCompoundAssign { name, .. },
+                ..
+            }) if name == "trace"
+        )));
     }
 
     #[test]
@@ -11260,7 +12580,339 @@ target[Symbol.iterator];"#,
         let StatementIr::Expression(expr) = &script.body.statements[1] else {
             panic!("expected JSON.parse expression");
         };
-        assert!(matches!(expr.expr, ExprIr::JsonParseStaticReviver { .. }));
+        assert!(
+            matches!(expr.expr, ExprIr::JsonParseStaticReviver { .. }),
+            "expected a static JSON.parse reviver, got {:?}",
+            expr.expr
+        );
+    }
+
+    #[test]
+    fn json_parse_spread_arguments_do_not_specialize() {
+        let program = lower_script(
+            "function firstReviver(key, value) { return value; } \
+             function secondReviver(key, value) { return value; } \
+             JSON.parse(...['[1]', firstReviver]); \
+             JSON.parse('[2]', ...[secondReviver]);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let calls = script
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                StatementIr::Expression(expression) => Some(expression),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2, "expected both spread calls: {calls:?}");
+
+        for call in calls {
+            assert!(
+                !matches!(call.expr, ExprIr::JsonParseStaticReviver { .. }),
+                "spread arguments must retain ordinary call evaluation: {call:?}"
+            );
+            let call = indirect_call_body(call).expect("spread JSON.parse should remain a call");
+            let ExprIr::CallIndirect { args, .. } = &call.expr else {
+                unreachable!("indirect_call_body only returns indirect calls");
+            };
+            assert!(
+                args.iter()
+                    .any(|argument| matches!(argument.expr, ExprIr::SpreadArgument(_))),
+                "the spread operand must remain explicit: {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mutable_static_json_binding_in_a_repeated_for_test_does_not_specialize() {
+        let program = lower_script(
+            "let json = '[1]'; \
+             function reviver(key, value) { return value; } \
+             for (; JSON.parse(json, reviver); json = '[2]') { \
+                 if (json === '[2]') break; \
+             }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let test = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::For {
+                    test: Some(test), ..
+                } => Some(test),
+                _ => None,
+            })
+            .expect("expected the repeated for-loop test");
+
+        assert!(
+            !matches!(test.expr, ExprIr::JsonParseStaticReviver { .. }),
+            "a mutable input read on every loop test must stay dynamic: {test:?}"
+        );
+        assert!(
+            indirect_call_body(test).is_some(),
+            "the repeated JSON.parse call must be retained: {test:?}"
+        );
+    }
+
+    #[test]
+    fn tdz_shadowed_json_input_retains_its_reference_error() {
+        let program = lower_script(
+            "function run() { \
+                 const json = '[1]'; \
+                 { \
+                     JSON.parse(json, function reviver(key, value) { return value; }); \
+                     let json = '[2]'; \
+                 } \
+             } \
+             run();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let run = script
+            .functions
+            .iter()
+            .find(|function| function.name == "run")
+            .expect("run function should be lowered");
+        let block = run
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Block(block) => Some(block),
+                _ => None,
+            })
+            .expect("run should contain the shadowing block");
+        let StatementIr::Expression(call) = &block.statements[0] else {
+            panic!("expected JSON.parse before the inner declaration");
+        };
+
+        assert!(
+            !matches!(call.expr, ExprIr::JsonParseStaticReviver { .. }),
+            "a TDZ input must not become a parsed constant: {call:?}"
+        );
+        let call = indirect_call_body(call).expect("TDZ JSON.parse should remain a call");
+        let ExprIr::CallIndirect { args, .. } = &call.expr else {
+            unreachable!("indirect_call_body only returns indirect calls");
+        };
+        assert!(matches!(
+            args.first().map(|argument| &argument.expr),
+            Some(ExprIr::RuntimeThrow {
+                name: NativeErrorKind::ReferenceError,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn static_json_parse_retains_non_property_callee_evaluation() {
+        let program = lower_script(
+            "function run() { \
+                 let hits = 0; \
+                 (hits++, JSON.parse)('[1]', function firstReviver(key, value) { return value; }); \
+             } \
+             run();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let run = script
+            .functions
+            .iter()
+            .find(|function| function.name == "run")
+            .expect("run function should be lowered");
+        let non_property_call = run
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => Some(expression),
+                _ => None,
+            })
+            .expect("run should contain its JSON.parse call");
+
+        let ExprIr::JsonParseStaticReviver {
+            callee,
+            input,
+            value: JsonStaticValueIr::Array(non_property_value),
+            reviver,
+        } = &non_property_call.expr
+        else {
+            panic!("expected non-property JSON.parse specialization: {non_property_call:?}");
+        };
+        let ExprIr::Comma {
+            lhs: callee_effect,
+            rhs: acquired_callee,
+        } = &callee.expr
+        else {
+            panic!("non-property call must retain its comma callee: {callee:?}");
+        };
+        assert!(matches!(
+            callee_effect.expr,
+            ExprIr::UpdateIdentifier { .. }
+        ));
+        assert!(matches!(
+            &acquired_callee.expr,
+            ExprIr::PropertyRead {
+                target,
+                key: PropertyKeyIr::StaticString(key),
+            } if matches!(&target.expr, ExprIr::GlobalPropertyRead { name } if name == JSON_NAME)
+                && key == "parse"
+        ));
+        assert!(matches!(&input.expr, ExprIr::String(source) if source == "[1]"));
+        assert!(matches!(reviver.expr, ExprIr::FunctionValue(_)));
+        assert!(matches!(
+            non_property_value.as_slice(),
+            [JsonStaticValueIr::Number { bits, source }]
+                if *bits == 1.0f64.to_bits() && source == "1"
+        ));
+    }
+
+    #[test]
+    fn static_json_parse_retains_property_callee_evaluation() {
+        let program = lower_script(
+            "function run() { \
+                 let hits = 0; \
+                 (hits++, JSON).parse('[2]', function secondReviver(key, value) { return value; }); \
+             } \
+             run();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let run = script
+            .functions
+            .iter()
+            .find(|function| function.name == "run")
+            .expect("run function should be lowered");
+        let property_call = run
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => Some(expression),
+                _ => None,
+            })
+            .expect("run should contain its JSON.parse call");
+
+        let ExprIr::JsonParseStaticReviver {
+            callee,
+            input,
+            value: JsonStaticValueIr::Array(property_value),
+            reviver,
+        } = &property_call.expr
+        else {
+            panic!("expected property JSON.parse specialization: {property_call:?}");
+        };
+        let ExprIr::PropertyRead {
+            target: receiver,
+            key: PropertyKeyIr::StaticString(key),
+        } = &callee.expr
+        else {
+            panic!("property call must retain explicit parse acquisition: {callee:?}");
+        };
+        assert_eq!(key, "parse");
+        let ExprIr::Comma {
+            lhs: receiver_effect,
+            rhs: json_receiver,
+        } = &receiver.expr
+        else {
+            panic!("property call must retain its comma receiver: {receiver:?}");
+        };
+        assert!(matches!(
+            receiver_effect.expr,
+            ExprIr::UpdateIdentifier { .. }
+        ));
+        assert!(matches!(
+            &json_receiver.expr,
+            ExprIr::GlobalPropertyRead { name } if name == JSON_NAME
+        ));
+        assert!(matches!(&input.expr, ExprIr::String(source) if source == "[2]"));
+        assert!(matches!(reviver.expr, ExprIr::FunctionValue(_)));
+        assert!(matches!(
+            property_value.as_slice(),
+            [JsonStaticValueIr::Number { bits, source }]
+                if *bits == 2.0f64.to_bits() && source == "2"
+        ));
+    }
+
+    #[test]
+    fn leaving_a_shadowing_scope_restores_the_outer_static_json_fact() {
+        let program = lower_script(
+            "function run() { \
+                 var json = '[1]'; \
+                 { let json = '[2]'; } \
+                 return JSON.parse(json, function reviver(key, value) { return value; }); \
+             } \
+             run();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let run = script
+            .functions
+            .iter()
+            .find(|function| function.name == "run")
+            .expect("run function should be lowered");
+        let returned = function_return(run).expect("run should return JSON.parse");
+
+        let ExprIr::JsonParseStaticReviver {
+            value: JsonStaticValueIr::Array(values),
+            ..
+        } = &returned.expr
+        else {
+            panic!("post-scope JSON.parse should use the outer static fact: {returned:?}");
+        };
+        assert!(matches!(
+            values.as_slice(),
+            [JsonStaticValueIr::Number { bits, source }]
+                if *bits == 1.0f64.to_bits() && source == "1"
+        ));
+    }
+
+    #[test]
+    fn json_parse_snapshots_its_input_before_reviver_effects() {
+        let program = lower_script(
+            "let json = '[1]'; \
+             let first = JSON.parse(json, function(k, v) { json = '[2]'; return v; }); \
+             let second = JSON.parse(json, function(k, v) { return v; });",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let [StatementIr::Lexical { name: json, .. }, StatementIr::Lexical {
+            name: first,
+            init: first_init,
+            ..
+        }, StatementIr::Lexical {
+            name: second,
+            init: second_init,
+            ..
+        }] = script.body.statements.as_slice()
+        else {
+            panic!(
+                "expected three lexical declarations: {:?}",
+                script.body.statements
+            );
+        };
+        assert_eq!(
+            (json.as_str(), first.as_str(), second.as_str()),
+            ("json", "first", "second")
+        );
+        let ExprIr::JsonParseStaticReviver {
+            value: JsonStaticValueIr::Array(values),
+            ..
+        } = &first_init.expr
+        else {
+            panic!("expected the first parse to own its captured input: {first_init:?}");
+        };
+        assert!(matches!(
+            values.as_slice(),
+            [JsonStaticValueIr::Number { bits, source }] if *bits == 1.0f64.to_bits() && source == "1"
+        ));
+        assert!(
+            !matches!(second_init.expr, ExprIr::JsonParseStaticReviver { .. }),
+            "the reviver's write must make the later parse dynamic: {second_init:?}"
+        );
     }
 
     #[test]
@@ -11270,11 +12922,29 @@ target[Symbol.iterator];"#,
         );
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
+        let parse = script
+            .functions
+            .iter()
+            .find(|function| function.name == "parse")
+            .expect("parse should be lowered");
+        let returned = function_return(parse).expect("parse should return JSON.parse");
+        let call = indirect_call_body(returned).expect("parse should call JSON.parse");
+        let ExprIr::CallIndirect { callee, args, .. } = &call.expr else {
+            unreachable!("indirect_call_body only returns indirect calls");
+        };
+        assert_eq!(
+            callee.function_targets.exact_single_target(),
+            Some(&StandardBuiltinId::JsonParse.function_id())
+        );
+        let reviver_id = args
+            .get(1)
+            .and_then(|reviver| reviver.function_targets.exact_single_target())
+            .expect("JSON.parse should receive the lowered reviver");
         let reviver = script
             .functions
             .iter()
-            .find(|function| function.name == "reviver")
-            .expect("reviver should be lowered");
+            .find(|function| &function.id == reviver_id)
+            .expect("the JSON.parse reviver should be lowered");
         let StatementIr::Expression(TypedExpr {
             expr: ExprIr::OrdinaryPropertyAssignment(assignment),
             ..
@@ -11291,6 +12961,46 @@ target[Symbol.iterator];"#,
             assignment.referenced_name(),
             PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Number
         ));
+    }
+
+    #[test]
+    fn captured_json_parse_reviver_remains_conservative_without_specialization() {
+        let program = lower_script(
+            "function parse(text) { let captured; return JSON.parse(text, function reviver(key, value) { captured = value; this[1] = value; return value; }); } parse('[1, 2]');",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let reviver = script
+            .functions
+            .iter()
+            .find(|function| function.name == "reviver")
+            .expect("captured reviver should be lowered");
+        assert_eq!(
+            script
+                .functions
+                .iter()
+                .filter(|function| function.name == "reviver")
+                .count(),
+            1
+        );
+        let assignment = reviver
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::OrdinaryPropertyAssignment(assignment),
+                    ..
+                }) => Some(assignment),
+                _ => None,
+            })
+            .expect("captured reviver should write to its holder");
+
+        assert_eq!(assignment.base_and_receiver().kind, ValueKind::Dynamic);
+        assert_eq!(
+            assignment.base_and_receiver().possible_kinds,
+            KindSet::all_runtime_tags()
+        );
     }
 
     #[test]
@@ -11791,6 +13501,57 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn optional_call_argument_effects_discard_the_captured_receiver_shape() {
+        let source = "const o = { x: 1, f() { return this.x; } }; o?.f(o.x = 's') + 1;";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected optional-call addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the argument write must invalidate the receiver shape before `f` observes `this`: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn optional_getter_effects_precede_argument_analysis() {
+        let source = "const observed = { x: 1 }; function result() { return 0; } const o = { get f() { delete observed.x; return result; } }; o?.f(observed.x + 1);";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(call) = script.body.statements.last().unwrap() else {
+            panic!("expected optional call");
+        };
+        let ExprIr::OptionalPropertyChain { chain, .. } = &call.expr else {
+            panic!("expected optional-property-chain IR, got {:?}", call.expr);
+        };
+        let Some(OptionalChainOperationIr::Call { args, .. }) = chain.last() else {
+            panic!("expected optional call operation, got {chain:?}");
+        };
+        assert!(
+            matches!(
+                args.as_slice(),
+                [TypedExpr {
+                    expr: ExprIr::CoerciveAdd { .. },
+                    ..
+                }]
+            ),
+            "the getter can invalidate `observed.x` before its argument is evaluated: {args:?}"
+        );
+    }
+
+    #[test]
     fn optional_method_calls_preserve_reference_and_shorted_flags() {
         for (source, expected) in [
             (
@@ -12137,6 +13898,977 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn later_erased_eval_does_not_widen_an_earlier_callsite_return() {
+        let source = r#"
+let object = { marker: 1 };
+let order = "";
+function mark(value, label) { order += label; return value; }
+eval(mark(object, "a"), mark(0, "b"));
+eval(7);
+"#;
+        let program = lower_script(source);
+        assert!(
+            !program.diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.unsupported_feature(),
+                Some(UnsupportedFeature::DynamicSource(_))
+            )),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+    }
+
+    #[test]
+    fn unknown_effects_keep_known_nested_script_global_function_candidates() {
+        let source = r#"
+var candidate;
+function install(hook) {
+    candidate = eval;
+    hook();
+}
+function invoke() {
+    candidate("source");
+}
+install(globalThis.unknownHook);
+invoke();
+"#;
+        let program = lower_script(source);
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| {
+                diagnostic.unsupported_feature()
+                    == Some(UnsupportedFeature::DynamicSource(
+                        DynamicSourceGap::aot_known_source(DynamicSourceKind::IndirectEval),
+                    ))
+            }),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+    }
+
+    #[test]
+    fn exact_mixed_and_open_eval_candidates_keep_dynamic_source_authority() {
+        for source in [
+            "let candidate = unknown ? eval : undefined; candidate('source');",
+            "let holder = { candidate: unknown ? eval : undefined }; holder.candidate('source');",
+            "var candidate = eval; globalThis.unknownHook(); candidate('source');",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.unsupported_feature()
+                        == Some(UnsupportedFeature::DynamicSource(
+                            DynamicSourceGap::aot_known_source(DynamicSourceKind::IndirectEval),
+                        ))
+                }),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn open_non_eval_candidate_keeps_the_residual_direct_eval_authority() {
+        let source = r#"
+function mark() {}
+eval = mark;
+globalThis.unknownHook();
+eval("source");
+"#;
+        let program = lower_script(source);
+        let matching_diagnostics = program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.unsupported_feature()
+                    == Some(UnsupportedFeature::DynamicSource(
+                        DynamicSourceGap::aot_known_source(DynamicSourceKind::DirectEval),
+                    ))
+            })
+            .count();
+        assert_eq!(
+            matching_diagnostics, 1,
+            "{source}: {:?}",
+            program.diagnostics
+        );
+    }
+
+    #[test]
+    fn spread_eval_candidate_keeps_the_runtime_source_gap() {
+        let source = "let candidate = unknown ? eval : undefined; candidate(...['source']);";
+        let program = lower_script(source);
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| {
+                diagnostic.unsupported_feature()
+                    == Some(UnsupportedFeature::DynamicSource(
+                        DynamicSourceGap::runtime_source(DynamicSourceKind::IndirectEval),
+                    ))
+            }),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+    }
+
+    #[test]
+    fn exact_mixed_call_result_excludes_the_throwing_non_function_branch() {
+        let source = "function returnsNumber() { return 1; } let candidate = unknown ? returnsNumber : undefined; candidate();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let call = script
+            .body
+            .statements
+            .iter()
+            .rev()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => indirect_call_body(expression),
+                _ => None,
+            })
+            .expect("mixed target call should remain in IR");
+        assert_eq!(call.possible_kinds, KindSet::from_kind(ValueKind::Number));
+    }
+
+    #[test]
+    fn pure_exact_source_candidates_preserve_a_later_receiver_shape() {
+        let source = "class A extends Array { join() { return 'custom join'; } } const a = new A(); function left() { return 1; } function right() { return 2; } const candidate = unknown ? left : right; candidate(); a.join();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(call) = script.body.statements.last().unwrap() else {
+            panic!("expected the call after the pure candidates");
+        };
+
+        assert_eq!(call.kind, ValueKind::String, "{call:?}");
+    }
+
+    #[test]
+    fn a_mutating_exact_source_candidate_invalidates_a_later_receiver_shape() {
+        let source = "class A extends Array { join() { return 'custom join'; } } let a = new A(); function keep() { return 0; } function replace() { a = { join() { return 1; } }; return 0; } const candidate = unknown ? keep : replace; candidate(); a.join();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(call) = script.body.statements.last().unwrap() else {
+            panic!("expected the call after the mixed candidates");
+        };
+
+        assert_eq!(call.kind, ValueKind::Dynamic, "{call:?}");
+    }
+
+    #[test]
+    fn a_later_argument_invalidates_an_earlier_descriptor_subject_shape() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let object = { value: 1 }; const descriptor = Object.getOwnPropertyDescriptor(object, 'value', (object.value = 's')); descriptor.value + 1;",
+        );
+    }
+
+    #[test]
+    fn a_later_argument_invalidates_a_captured_method_receiver_shape() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let object = { value: 1, read() { return this.value; } }; object.read(object.value = 's') + 1;",
+        );
+    }
+
+    #[test]
+    fn a_later_argument_invalidates_the_default_this_shape() {
+        let source = "var value = 1; function read() { return this.value; } read(value = 's') + 1;";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected the final addition: {source}");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::StringConcat { .. }),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn a_later_argument_invalidates_a_constructor_prototype_shape() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "function Constructor() {} Constructor.prototype = { value: 1 }; const instance = new Constructor(Constructor.prototype = {}); instance.value + 1;",
+        );
+    }
+
+    #[test]
+    fn function_apply_array_like_access_invalidates_caller_flow() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let holder = { value: 1 }; function inspect() {} const argumentsList = new Proxy([], { get(target, key, receiver) { holder = {}; return Reflect.get(target, key, receiver); } }); inspect.apply(null, argumentsList); holder.value + 1;",
+        );
+    }
+
+    #[test]
+    fn mutating_source_forwarded_with_call_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let values = [1]; function replace() { values = {}; } replace.call(undefined); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn mutating_source_forwarded_with_apply_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let values = [1]; function replace() { values = {}; } replace.apply(undefined, []); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn mixed_source_targets_forwarded_with_call_invalidate_later_property_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const holder = { value: 1 }; function inspect() { return 0; } function remove() { delete holder.value; } const candidate = unknown ? inspect : remove; candidate.call(undefined); holder.value + 1;",
+        );
+    }
+
+    #[test]
+    fn mixed_source_targets_forwarded_with_apply_invalidate_later_property_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const holder = { value: 1 }; function inspect() { return 0; } function remove() { delete holder.value; } const candidate = unknown ? inspect : remove; candidate.apply(undefined, []); holder.value + 1;",
+        );
+    }
+
+    #[test]
+    fn erased_target_forwarded_with_call_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const values = [1]; unknown.call(undefined); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn mixed_array_fill_call_candidate_invalidates_later_property_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const candidate = unknown ? Array.prototype.at : Array.prototype.fill; (function readAfterCall() { const holder = { value: 1 }; candidate('x'); return holder.value; })() + 1;",
+        );
+    }
+
+    #[test]
+    fn pure_source_forwarded_with_call_preserves_caller_flow_facts() {
+        let source = "const holder = { value: 1 }; (function inspect() { return 1; }).call(undefined); holder.value + 1;";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected the call after the pure forwarded source");
+        };
+
+        assert!(
+            matches!(
+                result.expr,
+                ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                } | ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                }
+            ),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn captured_array_fill_fast_path_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let values = [1]; function mutate() { values.fill('x'); } mutate(); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn captured_array_pop_fast_path_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let values = [1]; function mutate() { values.pop(); } mutate(); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn captured_array_splice_fast_path_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let values = [1]; function mutate() { values.splice(0, 1); } mutate(); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn forwarded_array_push_with_call_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let values = [1]; function mutate() { Array.prototype.push.call(values, 2); } mutate(); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn forwarded_array_pop_with_apply_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let values = [1]; function mutate() { Array.prototype.pop.apply(values, []); } mutate(); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn forwarded_fill_with_call_invalidates_current_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const values = [1]; Array.prototype.fill.call(values, 'x'); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn forwarded_fill_with_apply_invalidates_current_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const values = [1]; Array.prototype.fill.apply(values, ['x']); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn forwarded_nonmutating_callback_builtin_invalidates_later_return_shape() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "let target = { value: 1 }; function readTarget() { return target; } function callback() { delete target.value; } Array.prototype.forEach.call([0], callback); readTarget().value + 1;",
+        );
+    }
+
+    #[test]
+    fn array_spread_iterator_effects_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const iterable = { [Symbol.iterator]() { values = {}; return [][Symbol.iterator](); } }; let values = [1]; [...iterable]; values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn for_of_iterator_effects_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const iterable = { [Symbol.iterator]() { values = {}; return [][Symbol.iterator](); } }; let values = [1]; for (const value of iterable) {} values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn object_spread_getter_effects_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const source = { get value() { values = {}; return 0; } }; let values = [1]; ({ ...source }); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn array_parameter_iterator_effects_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const iterable = { [Symbol.iterator]() { values = {}; return [][Symbol.iterator](); } }; function consume([value]) {} let values = [1]; consume(iterable); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn object_parameter_getter_effects_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const source = { get value() { values = {}; return 0; } }; function consume({ value }) {} let values = [1]; consume(source); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn number_conversion_hooks_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const coercible = { valueOf() { values = {}; return 1; } }; let values = [1]; Number(coercible); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn string_conversion_hooks_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const coercible = { toString() { values = {}; return 'x'; } }; let values = [1]; String(coercible); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn symbol_description_conversion_hooks_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const coercible = { toString() { values = {}; return 'x'; } }; let values = [1]; Symbol(coercible); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn for_in_proxy_hooks_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const proxy = new Proxy({}, { ownKeys() { values = {}; return []; } }); let values = [1]; for (const key in proxy) {} values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn in_operator_proxy_hooks_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const proxy = new Proxy({}, { has() { values = {}; return false; } }); let values = [1]; 'key' in proxy; values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn instanceof_hooks_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const candidate = { [Symbol.hasInstance]() { values = {}; return false; } }; let values = [1]; 0 instanceof candidate; values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn await_then_getter_effects_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const thenable = { get then() { values = {}; return undefined; } }; async function observe() { await thenable; } let values = [1]; observe(); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn using_disposal_effects_invalidate_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const resource = { [Symbol.dispose]() { values = {}; } }; function release() { { using acquired = resource; } } let values = [1]; release(); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn object_from_entries_iteration_invalidates_later_element_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const iterable = { [Symbol.iterator]() { values = {}; return [][Symbol.iterator](); } }; let values = [1]; Object.fromEntries(iterable); values[0] + 1;",
+        );
+    }
+
+    #[test]
+    fn collection_construction_iteration_invalidates_later_property_analysis() {
+        for constructor in ["Map", "Set", "WeakMap", "WeakSet"] {
+            let source = format!(
+                "const iterable = {{ [Symbol.iterator]() {{ holder = {{}}; return [][Symbol.iterator](); }} }}; let holder = {{ value: 1 }}; new {constructor}(iterable); holder.value + 1;"
+            );
+            assert_caller_flow_invalidation_reaches_final_addition(&source);
+        }
+    }
+
+    #[test]
+    fn empty_and_nullish_collection_construction_preserves_caller_flow_facts() {
+        for construction in [
+            "new Map()",
+            "new Map(null)",
+            "new Set()",
+            "new Set(undefined)",
+            "new WeakMap()",
+            "new WeakMap(null)",
+            "new WeakSet()",
+            "new WeakSet(undefined)",
+        ] {
+            let source =
+                format!("const holder = {{ value: 1 }}; {construction}; holder.value + 1;");
+            assert_caller_flow_preservation_reaches_final_addition(&source);
+        }
+    }
+
+    #[test]
+    fn ordinary_collection_constructor_calls_do_not_inspect_the_iterable() {
+        for constructor in ["Map", "Set", "WeakMap", "WeakSet"] {
+            let source = format!(
+                "let holder = {{ value: 1 }}; {constructor}({{ [Symbol.iterator]() {{ holder = {{}}; return [][Symbol.iterator](); }} }}); holder.value + 1;"
+            );
+            assert_caller_flow_preservation_reaches_final_addition(&source);
+        }
+    }
+
+    #[test]
+    fn iterator_from_next_getter_invalidates_later_property_analysis() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const iterator = { [Symbol.iterator]: null, get next() { holder = {}; return function () { return { done: true }; }; } }; let holder = { value: 1 }; Iterator.from(iterator); holder.value + 1;",
+        );
+    }
+
+    #[test]
+    fn iterator_from_data_next_property_preserves_caller_flow_facts() {
+        assert_caller_flow_preservation_reaches_final_addition(
+            "const iterator = { [Symbol.iterator]: null, next() { return { done: true }; } }; const holder = { value: 1 }; Iterator.from(iterator); holder.value + 1;",
+        );
+    }
+
+    #[test]
+    fn iterator_from_noncallable_method_throws_before_reading_next() {
+        assert_caller_flow_preservation_reaches_final_addition(
+            "const iterator = { [Symbol.iterator]: 0, get next() { holder = {}; return function () { return { done: true }; }; } }; let holder = { value: 1 }; Iterator.from(iterator); holder.value + 1;",
+        );
+    }
+
+    #[test]
+    fn iterator_helper_creation_observes_the_iterator_next_property() {
+        for method in ["map", "filter", "flatMap", "take", "drop"] {
+            let argument = if matches!(method, "take" | "drop") {
+                "1"
+            } else {
+                "function (value) { return value; }"
+            };
+            let source = format!(
+                "let values = [1]; Iterator.prototype.{method}.call({{ get next() {{ values = {{}}; }} }}, {argument}); values[0] + 1;"
+            );
+            assert_caller_flow_invalidation_reaches_final_addition(&source);
+        }
+    }
+
+    #[test]
+    fn set_algebra_observes_the_set_like_argument() {
+        for method in [
+            "difference",
+            "intersection",
+            "isDisjointFrom",
+            "isSubsetOf",
+            "isSupersetOf",
+            "symmetricDifference",
+            "union",
+        ] {
+            let source = format!(
+                "let values = [1]; new Set().{method}({{ get size() {{ values = {{}}; return 0; }}, has() {{ return false; }}, keys() {{ return [][Symbol.iterator](); }} }}); values[0] + 1;"
+            );
+            assert_caller_flow_invalidation_reaches_final_addition(&source);
+        }
+    }
+
+    #[test]
+    fn a_shadowed_number_callee_is_not_lowered_as_the_intrinsic() {
+        let program = lower_script("function run(Number) { return Number(1); }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let run = script
+            .functions
+            .iter()
+            .find(|function| function.name == "run")
+            .expect("run function should be lowered");
+        let returned = function_return(run).expect("run should return its call");
+
+        assert!(indirect_call_body(returned).is_some(), "{returned:?}");
+    }
+
+    #[test]
+    fn a_shadowed_parse_float_callee_is_not_lowered_as_the_intrinsic() {
+        let program = lower_script("function run(parseFloat) { return parseFloat('1'); }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let run = script
+            .functions
+            .iter()
+            .find(|function| function.name == "run")
+            .expect("run function should be lowered");
+        let returned = function_return(run).expect("run should return its call");
+
+        assert!(indirect_call_body(returned).is_some(), "{returned:?}");
+    }
+
+    #[test]
+    fn a_symbol_factory_body_proves_caller_flow_preservation() {
+        let program = lower_script(
+            "Symbol.prototype.q = function q() {}; function makeSymbol() { return Symbol('marker'); }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let factory = script
+            .functions
+            .iter()
+            .find(|function| function.name == "makeSymbol")
+            .expect("makeSymbol should be lowered");
+
+        assert!(
+            crate::source_call_flow_proof::prove_no_caller_flow_invalidation(
+                &factory.params,
+                &factory.body,
+            )
+            .is_some(),
+            "{:?}",
+            factory.body
+        );
+    }
+
+    #[test]
+    fn exact_mixed_call_result_excludes_the_throwing_class_constructor_branch() {
+        let source = "function returnsNumber() { return 1; } class Constructor {} let candidate = unknown ? returnsNumber : Constructor; candidate();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let call = script
+            .body
+            .statements
+            .iter()
+            .rev()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => indirect_call_body(expression),
+                _ => None,
+            })
+            .expect("mixed target call should remain in IR");
+        assert_eq!(call.possible_kinds, KindSet::from_kind(ValueKind::Number));
+    }
+
+    #[test]
+    fn exact_mixed_call_result_excludes_the_always_throwing_typed_array_intrinsic() {
+        let source = "function returnsNumber() { return 1; } let TypedArray = Object.getPrototypeOf(Int8Array); let candidate = unknown ? returnsNumber : TypedArray; candidate();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let call = script
+            .body
+            .statements
+            .iter()
+            .rev()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => indirect_call_body(expression),
+                _ => None,
+            })
+            .expect("mixed target call should remain in IR");
+        assert_eq!(call.possible_kinds, KindSet::from_kind(ValueKind::Number));
+    }
+
+    #[test]
+    fn exact_mixed_construct_result_excludes_the_always_throwing_typed_array_intrinsic() {
+        let source = "function Constructor() { this.value = 1; } let TypedArray = Object.getPrototypeOf(Int8Array); let candidate = unknown ? Constructor : TypedArray; new candidate();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(construct) = script.body.statements.last().unwrap() else {
+            panic!("construct should be an expression statement");
+        };
+        assert!(matches!(construct.expr, ExprIr::Construct { .. }));
+        assert_eq!(
+            construct.possible_kinds,
+            KindSet::from_kind(ValueKind::Object)
+        );
+    }
+
+    #[test]
+    fn spread_call_candidates_do_not_reuse_narrow_parameter_returns() {
+        let source = r#"
+function A(value) { return value; }
+function B(value) { return value; }
+A(1);
+B(1);
+let candidate = unknown ? A : B;
+candidate(...[{ marker: 1 }]);
+"#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let call = script
+            .body
+            .statements
+            .iter()
+            .rev()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => indirect_call_body(expression),
+                _ => None,
+            })
+            .expect("spread call should remain in IR");
+        assert!(call.possible_kinds.contains(ValueKind::Object));
+        for function_name in ["A", "B"] {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == function_name)
+                .unwrap_or_else(|| panic!("{function_name} should be lowered"));
+            assert_eq!(function.params[0].kind, ValueKind::Dynamic);
+        }
+    }
+
+    #[test]
+    fn spread_direct_call_does_not_reuse_a_narrow_parameter_return() {
+        let source = r#"
+function identity(value) { return value; }
+identity(1);
+identity(...[{ marker: 1 }]);
+"#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let call = script
+            .body
+            .statements
+            .iter()
+            .rev()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => indirect_call_body(expression),
+                _ => None,
+            })
+            .expect("spread call should remain in IR");
+        assert!(call.possible_kinds.contains(ValueKind::Object));
+        let identity = script
+            .functions
+            .iter()
+            .find(|function| function.name == "identity")
+            .expect("identity should be lowered");
+        assert_eq!(identity.params[0].kind, ValueKind::Dynamic);
+    }
+
+    #[test]
+    fn spread_construct_candidates_include_unknown_explicit_object_returns() {
+        let source = r#"
+function A(value) { return value; }
+function B(value) { return value; }
+A(1);
+B(1);
+function ReturnedFunction() {}
+let Constructor = unknown ? A : B;
+new Constructor(...[ReturnedFunction]);
+"#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(construct) = script.body.statements.last().unwrap() else {
+            panic!("construct should be an expression statement");
+        };
+        assert!(matches!(construct.expr, ExprIr::Construct { .. }));
+        assert!(construct.possible_kinds.contains(ValueKind::Function));
+    }
+
+    #[test]
+    fn spread_direct_construct_includes_unknown_explicit_object_returns() {
+        let source = r#"
+function Constructor(value) { return value; }
+Constructor(1);
+function ReturnedFunction() {}
+new Constructor(...[ReturnedFunction]);
+"#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(construct) = script.body.statements.last().unwrap() else {
+            panic!("construct should be an expression statement");
+        };
+        assert!(matches!(construct.expr, ExprIr::Construct { .. }));
+        assert!(construct.possible_kinds.contains(ValueKind::Function));
+    }
+
+    #[test]
+    fn multi_target_constructor_does_not_reuse_replaced_prototype_shapes() {
+        let source = r#"
+function A() {}
+function B() {}
+A.prototype = { a: 1 };
+B.prototype = { b: 2 };
+let Constructor = unknown ? A : B;
+new Constructor().a;
+"#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(property) = script.body.statements.last().unwrap() else {
+            panic!("property read should be an expression statement");
+        };
+        assert!(property.possible_kinds.contains(ValueKind::Number));
+    }
+
+    #[test]
+    fn multi_target_builtin_without_specialized_analysis_keeps_its_signature_result() {
+        let source = r#"
+let locale = new Intl.Locale("en");
+let scriptGetter = Object.getOwnPropertyDescriptor(
+    Intl.Locale.prototype,
+    "script",
+).get;
+function returnsNumber() { return 1; }
+locale.candidate = unknown ? scriptGetter : returnsNumber;
+locale.candidate();
+"#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let call = script
+            .body
+            .statements
+            .iter()
+            .rev()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => indirect_call_body(expression),
+                _ => None,
+            })
+            .expect("mixed target call should remain in IR");
+        assert!(call.possible_kinds.contains(ValueKind::String));
+        assert!(call.possible_kinds.contains(ValueKind::Undefined));
+        assert!(call.possible_kinds.contains(ValueKind::Number));
+    }
+
+    #[test]
+    fn optional_exact_mixed_call_merges_only_the_short_circuit_branch() {
+        let source = "function returnsNumber() { return 1; } let candidate = unknown ? returnsNumber : undefined; candidate?.();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(call) = script.body.statements.last().unwrap() else {
+            panic!("optional call should be an expression statement");
+        };
+        assert_eq!(
+            call.possible_kinds,
+            KindSet::from_kind(ValueKind::Number).union(KindSet::from_kind(ValueKind::Undefined))
+        );
+    }
+
+    #[test]
+    fn mixed_and_open_function_constructor_candidates_keep_dynamic_source_authority() {
+        for source in [
+            "let Constructor = unknown ? Function : undefined; new Constructor('return 1');",
+            "var Constructor = Function; globalThis.unknownHook(); new Constructor('return 1');",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.unsupported_feature()
+                        == Some(UnsupportedFeature::DynamicSource(
+                            DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
+                                DynamicFunctionKind::Ordinary,
+                            )),
+                        ))
+                }),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn multi_target_constructor_propagates_non_string_arguments_before_body_analysis() {
+        let source = "function Constructor(value) { this.value = value; } let Target = unknown ? Constructor : Array; new Target(7);";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let constructor = script
+            .functions
+            .iter()
+            .find(|function| function.name == "Constructor")
+            .expect("Constructor function should exist");
+        assert_eq!(constructor.params[0].kind, ValueKind::Number);
+    }
+
+    #[test]
+    fn multi_target_constructor_uses_the_reusable_exact_context_return_kind() {
+        let source = r#"
+const ArrayConstructor = Array;
+function ReturnedFunction() {}
+function C(value) { return value; }
+C(ReturnedFunction);
+let Target = unknown ? C : ArrayConstructor;
+new Target([]);
+"#;
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(construct) = script.body.statements.last().unwrap() else {
+            panic!("construct should be an expression statement");
+        };
+        assert!(matches!(construct.expr, ExprIr::Construct { .. }));
+        assert!(construct.possible_kinds.contains(ValueKind::Object));
+        assert!(construct.possible_kinds.contains(ValueKind::Array));
+        assert!(!construct.possible_kinds.contains(ValueKind::Function));
+    }
+
+    #[test]
+    fn missing_class_candidate_signatures_invalidate_static_initializer_facts() {
+        for source in [
+            "const holder = { f: eval }; class C { static m() {} static x = ((unknown ? C.m : Math.abs)(), holder.f); }",
+            "const holder = { f: eval }; class C { static x = (new (unknown ? C : Array)(), holder.f); }",
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script IR should exist");
+            let initializer = script
+                .functions
+                .iter()
+                .find(|function| function.name == "C.field.x")
+                .expect("static field initializer should be lowered");
+            assert!(initializer.return_targets.exact_targets().is_none(), "{source}");
+            assert!(initializer.return_targets.known_targets().is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn construct_results_exclude_primitive_return_branches() {
+        for source in [
+            "function A() { return unknown ? {} : 1; } new A();",
+            "function A() { return unknown ? {} : 1; } function B() { return []; } let C = unknown ? A : B; new C();",
+        ] {
+            let program = lower_script(source);
+            assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+            let script = program.script.as_ref().expect("script IR should exist");
+            let StatementIr::Expression(construct) = script.body.statements.last().unwrap() else {
+                panic!("construct should be an expression statement");
+            };
+            assert!(matches!(construct.expr, ExprIr::Construct { .. }));
+            let object_like_kinds = KindSet::from_kind(ValueKind::Object)
+                .union(KindSet::from_kind(ValueKind::Array))
+                .union(KindSet::from_kind(ValueKind::Function))
+                .union(KindSet::from_kind(ValueKind::Arguments));
+            assert_ne!(construct.possible_kinds, KindSet::EMPTY, "{source}");
+            assert!(construct.possible_kinds.is_subset_of(object_like_kinds), "{source}");
+            assert!(!construct.possible_kinds.contains(ValueKind::Number), "{source}");
+        }
+    }
+
+    #[test]
+    fn possible_proxy_constructor_candidates_seed_literal_trap_parameters() {
+        let source = "function target() {} function Other() {} let C = unknown ? Proxy : Other; new C(target, { apply(target, thisArg, args) { return args.length; } }, ...[]);";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let apply = script
+            .functions
+            .iter()
+            .find(|function| function.name == "apply")
+            .expect("literal apply trap should be lowered");
+        assert_eq!(apply.params[2].kind, ValueKind::Array);
+    }
+
+    #[test]
     fn no_source_eval_works_through_alias_optional_and_safe_multi_target_calls() {
         for source in [
             "let indirect = eval; indirect(1);",
@@ -12345,6 +15077,168 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn direct_eval_after_a_user_constructor_keeps_its_typed_dynamic_source_gap() {
+        let program = lower_script(
+            r#"
+function Factory() {
+  this.toString = function () { return "wizard"; };
+}
+Factory.prototype.charAt = String.prototype.charAt;
+let instance = new Factory();
+instance.charAt(eval("1"));
+"#,
+        );
+
+        assert_eq!(
+            dynamic_source_gaps(&program),
+            vec![DynamicSourceGap::aot_known_source(
+                DynamicSourceKind::DirectEval,
+            )]
+        );
+    }
+
+    #[test]
+    fn direct_eval_callee_is_captured_before_an_argument_replaces_the_global() {
+        let program = lower_script(
+            r#"
+function Factory() {}
+function replacement(source) { return source; }
+new Factory();
+eval((eval = replacement, "source"));
+"#,
+        );
+
+        assert_eq!(
+            dynamic_source_gaps(&program),
+            vec![DynamicSourceGap::runtime_source(
+                DynamicSourceKind::DirectEval,
+            )]
+        );
+    }
+
+    #[test]
+    fn conditionally_deleted_eval_retains_its_intrinsic_possibility() {
+        let program = lower_script(
+            r#"
+if (unknown) delete eval;
+eval("source");
+"#,
+        );
+
+        assert_eq!(
+            dynamic_source_gaps(&program),
+            vec![DynamicSourceGap::aot_known_source(
+                DynamicSourceKind::DirectEval,
+            )]
+        );
+    }
+
+    #[test]
+    fn definitely_deleted_eval_is_not_dynamic_source() {
+        let program = lower_script(
+            r#"
+delete eval;
+eval("source");
+"#,
+        );
+
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.unsupported_feature(),
+                Some(UnsupportedFeature::DynamicSource(_))
+            )
+        }));
+    }
+
+    #[test]
+    fn a_definitely_replaced_eval_binding_is_not_dynamic_source() {
+        let program = lower_script(
+            r#"
+function replacement(source) { return source; }
+eval = replacement;
+eval("source");
+"#,
+        );
+
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.unsupported_feature(),
+                Some(UnsupportedFeature::DynamicSource(_))
+            )
+        }));
+    }
+
+    #[test]
+    fn non_string_eval_after_a_user_constructor_needs_no_dynamic_source() {
+        let program = lower_script(
+            r#"
+function Factory() {}
+new Factory();
+eval(1);
+"#,
+        );
+
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.unsupported_feature(),
+                Some(UnsupportedFeature::DynamicSource(_))
+            )
+        }));
+        let script = program.script.as_ref().expect("script IR should exist");
+        let call = script
+            .body
+            .statements
+            .iter()
+            .rev()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expression) => indirect_call_body(expression),
+                _ => None,
+            })
+            .expect("the no-source eval call should remain in IR");
+        let ExprIr::CallIndirect { callee, args, .. } = &call.expr else {
+            unreachable!("indirect_call_body returned a non-call")
+        };
+        assert!(matches!(
+            &callee.expr,
+            ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name }
+                if name == "eval"
+        ));
+        assert!(matches!(
+            args.as_slice(),
+            [TypedExpr {
+                expr: ExprIr::Number(value),
+                ..
+            }] if *value == 1.0f64.to_bits()
+        ));
+    }
+
+    #[test]
+    fn a_parenthesized_eval_identifier_keeps_direct_eval_authority() {
+        let program = lower_script("(eval)(\"source\");");
+        let gaps = dynamic_source_gaps(&program);
+
+        assert_eq!(
+            gaps,
+            vec![DynamicSourceGap::aot_known_source(
+                DynamicSourceKind::DirectEval,
+            )]
+        );
+    }
+
+    #[test]
+    fn an_eval_property_call_has_indirect_eval_authority() {
+        let program = lower_script("(globalThis.eval)(\"source\");");
+        let gaps = dynamic_source_gaps(&program);
+
+        assert_eq!(
+            gaps,
+            vec![DynamicSourceGap::aot_known_source(
+                DynamicSourceKind::IndirectEval,
+            )]
+        );
+    }
+
+    #[test]
     fn grouped_optional_dynamic_source_prefix_is_accounted_once() {
         let program = lower_script("(Function?.('return 1'))();");
         let gaps = program
@@ -12427,6 +15321,853 @@ target[Symbol.iterator];"#,
             .expect("script ir should exist")
             .host_builtins
             .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn created_realm_eval_script_preserves_typed_dynamic_source_identity() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let $262 = {{ createRealm: function () {{ return {create_realm}(); }} }}; \
+             let other = $262.createRealm(); other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(script.host_builtins.contains(&HostBuiltinId::CreateRealm));
+        assert!(script
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn created_realm_shape_survives_an_earlier_heap_effect() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "Object.defineProperty({{}}, 'x', {{ value: 0 }}); \
+             let $262 = {{ createRealm: function () {{ return {create_realm}(); }} }}; \
+             let other = $262.createRealm(); other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn created_realm_shape_survives_an_earlier_callback_effect() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "function createRealm(callback) {{ callback(); return {create_realm}(); }} \
+             createRealm(function () {{}}).evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn unaccounted_proxy_trap_invalidates_a_created_realm_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let other = {create_realm}(); \
+             let proxy = new Proxy({{}}, {{ getPrototypeOf: function () {{ \
+                 delete other.evalScript; return null; \
+             }} }}); \
+             Object.getPrototypeOf(proxy); \
+             other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn spread_object_assign_accounts_for_proxy_trap_effects() {
+        assert_caller_flow_invalidation_reaches_final_addition(
+            "const proxy = new Proxy({}, { ownKeys() { holder = {}; return []; } }); let holder = { value: 1 }; Object.assign(...[{}, proxy]); holder.value + 1;",
+        );
+    }
+
+    #[test]
+    fn spread_define_property_call_cannot_claim_precisely_accounted_effects() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let other; \
+             let proxy = new Proxy({{}}, {{ defineProperty: function () {{ \
+                 delete other.evalScript; return true; \
+             }} }}); \
+             Object.defineProperty(...[], proxy, (other = {create_realm}(), 'x'), {{ value: 0 }}); \
+             other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn spread_define_property_alias_invalidates_effects_after_later_arguments() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let other; \
+             let proxy = new Proxy({{}}, {{ defineProperty: function () {{ \
+                 delete other.evalScript; return true; \
+             }} }}); \
+             let define = Object.defineProperty; \
+             define(...[], proxy, (other = {create_realm}(), 'x'), {{ value: 0 }}); \
+             other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn multi_target_define_property_call_invalidates_a_created_realm_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let define = Math.random() < 0.5 \
+                 ? Object.defineProperty \
+                 : Reflect.defineProperty; \
+             let other = {create_realm}(); \
+             define(other, 'evalScript', {{ value: 0 }}); \
+             other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn define_property_on_a_named_global_invalidates_a_wrapper_dependency() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let cached = {create_realm}(); \
+             function makeRealm() {{ return {create_realm}(); }} \
+             Object.defineProperty(globalThis, '{create_realm}', {{ \
+                 value: function () {{ return cached; }} \
+             }}); \
+             delete cached.evalScript; \
+             makeRealm().evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn define_property_on_an_unrelated_global_preserves_a_wrapper_dependency() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "function makeRealm() {{ return {create_realm}(); }} \
+             Object.defineProperty(globalThis, 'unrelated', {{ value: 0 }}); \
+             makeRealm().evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn mutable_factory_wrapper_does_not_publish_a_recreated_return() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let cached = {create_realm}(); \
+             let factory = {create_realm}; \
+             function createRealm() {{ return factory(); }} \
+             factory = function () {{ return cached; }}; \
+             delete cached.evalScript; \
+             createRealm().evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn wrapper_dependency_includes_intermediate_script_global_targets() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let cached = {create_realm}(); \
+             var factory = {create_realm}; \
+             function makeRealm() {{ return factory(); }} \
+             factory = function () {{ return cached; }}; \
+             delete cached.evalScript; \
+             makeRealm().evalScript('source'); \
+             factory = {create_realm};"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn implicit_fallthrough_is_part_of_a_recreated_return_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "function maybeRealm(flag) {{ \
+                 if (flag) return {create_realm}(); \
+             }} \
+             maybeRealm(false).evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(!script
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+        let maybe_realm = script
+            .functions
+            .iter()
+            .find(|function| function.name == "maybeRealm")
+            .expect("maybeRealm should be lowered");
+        assert_eq!(maybe_realm.return_kind, ValueKind::Dynamic);
+        assert!(maybe_realm.return_shape.is_none());
+    }
+
+    #[test]
+    fn explicit_undefined_is_part_of_a_recreated_return_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "function maybeRealm(flag) {{ \
+                 if (flag) return undefined; \
+                 return {create_realm}(); \
+             }} \
+             maybeRealm(false).evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(!script
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+        let maybe_realm = script
+            .functions
+            .iter()
+            .find(|function| function.name == "maybeRealm")
+            .expect("maybeRealm should be lowered");
+        assert_eq!(maybe_realm.return_kind, ValueKind::Dynamic);
+        assert!(maybe_realm.return_shape.is_none());
+    }
+
+    #[test]
+    fn generated_method_fallthrough_is_part_of_a_recreated_return_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "class Factory {{ \
+                 maybeRealm(flag) {{ if (flag) return {create_realm}(); }} \
+             }} \
+             new Factory().maybeRealm(false).evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        let script = program.script.as_ref().expect("script ir should exist");
+        assert!(!script
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+        let maybe_realm = script
+            .functions
+            .iter()
+            .find(|function| function.name == "Factory.maybeRealm")
+            .expect("maybeRealm should be lowered");
+        assert_eq!(maybe_realm.return_kind, ValueKind::Dynamic);
+        assert!(maybe_realm.return_shape.is_none());
+    }
+
+    #[test]
+    fn rebound_create_realm_global_invalidates_the_wrapper_dependency() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let cached = {create_realm}(); \
+             function createRealm() {{ return {create_realm}(); }} \
+             {create_realm} = function () {{ return cached; }}; \
+             delete cached.evalScript; \
+             createRealm().evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn reflective_function_mutation_does_not_alias_an_unrelated_function_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "function AbstractModuleSource() {{}} \
+             Object.defineProperty(AbstractModuleSource, 'x', {{ value: 0 }}); \
+             let $262 = {{ createRealm: function () {{ return {create_realm}(); }} }}; \
+             function assert() {{}} assert.sameValue = function () {{}}; \
+             let other = $262.createRealm(); other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn nested_global_alias_mutation_preserves_a_sibling_realm_factory_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var $262 = {{ \
+                 global: globalThis, \
+                 createRealm: function () {{ return {create_realm}(); }} \
+             }}; \
+             function assert() {{}} assert.sameValue = function () {{}}; \
+             let other = $262.createRealm(); other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn uncalled_function_bodies_do_not_erase_a_script_global_realm_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let receive_broadcast = HostBuiltinId::AgentReceiveBroadcast
+            .global_name()
+            .expect("receive broadcast must have a harness global name");
+        let source = format!(
+            "var $262 = {{ \
+                 agent: {{ receiveBroadcast: function (callback) {{ \
+                     return callback({receive_broadcast}()); \
+                 }} }}, \
+                 createRealm: function () {{ return {create_realm}(); }} \
+             }}; \
+             var dormant = function (callback) {{ callback(); }}; \
+             let other = $262.createRealm(); other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn global_object_property_read_observes_the_live_script_global_value() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var other = {create_realm}(); \
+             function run() {{ globalThis.other.evalScript('source'); }} \
+             other = {{}}; \
+             try {{ run(); }} catch {{}} \
+             other = {create_realm}();"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn called_generated_method_observes_the_live_script_global_value() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var other = {create_realm}(); \
+             class Runner {{ run() {{ other.evalScript('source'); }} }} \
+             other = {{}}; \
+             try {{ new Runner().run(); }} catch {{}} \
+             other = {create_realm}();"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn called_getter_observes_the_live_script_global_value() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var other = {create_realm}(); \
+             var holder = {{ get value() {{ other.evalScript('source'); }} }}; \
+             other = {{}}; \
+             try {{ holder.value; }} catch {{}} \
+             other = {create_realm}();"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn builtin_callback_observes_the_live_script_global_value() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var other = {create_realm}(); \
+             function callback() {{ other.evalScript('source'); }} \
+             other = {{}}; \
+             try {{ [0].forEach(callback); }} catch {{}} \
+             other = {create_realm}();"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn with_fallback_call_observes_the_live_script_global_value() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var other = {create_realm}(); \
+             function run() {{ other.evalScript('source'); }} \
+             var fallback = run; \
+             other = {{}}; \
+             try {{ with ({{}}) {{ fallback(); }} }} catch {{}} \
+             other = {create_realm}();"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn script_global_initializer_updates_the_global_object_shape() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var $262 = {{ createRealm: function () {{ return {create_realm}(); }} }}; \
+             var dormant = function (callback) {{ callback(); }}; \
+             let other = globalThis.$262.createRealm(); other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn static_field_initializer_updates_later_script_global_flow() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var $262; \
+             class Harness {{ \
+                 static realm = ($262 = {{ \
+                     createRealm: function () {{ return {create_realm}(); }} \
+                 }}); \
+             }} \
+             let other = $262.createRealm(); other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn static_block_live_flow_excludes_an_unexecuted_instance_initializer_summary() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "var $262; \
+             class Harness {{ \
+                 static {{ \
+                     $262 = {{ \
+                         createRealm: function () {{ return {create_realm}(); }} \
+                     }}; \
+                     class NeverInstantiated {{ field = ($262 = {{}}); }} \
+                 }} \
+             }} \
+             let other = $262.createRealm(); other.evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+    }
+
+    #[test]
+    fn static_block_transfers_a_non_var_global_property_effect() {
+        let create_realm = HostBuiltinId::CreateRealm
+            .global_name()
+            .expect("create realm must have a harness global name");
+        let source = format!(
+            "let cached = {create_realm}(); \
+             function makeRealm() {{ return {create_realm}(); }} \
+             class Harness {{ \
+                 static {{ \
+                     globalThis.{create_realm} = function () {{ return cached; }}; \
+                 }} \
+             }} \
+             delete cached.evalScript; \
+             makeRealm().evalScript('source');"
+        );
+
+        let program = lower_test262_script(&source);
+        assert!(!program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.unsupported_feature()
+                == Some(UnsupportedFeature::DynamicSource(
+                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
+                ))
+        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .host_builtins
+            .contains(&HostBuiltinId::RealmEvalScript));
+    }
+
+    #[test]
+    fn static_block_invalidates_number_prototype_to_string_state() {
+        let program = lower_script(
+            "class Harness { static { Number.prototype.toString = Object.prototype.toString; } } (1).toString();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up call");
+        };
+        assert!(
+            !matches!(&result.expr, ExprIr::String(value) if value == "1"),
+            "the static block's prototype write must prevent stale intrinsic folding: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn static_block_function_declaration_does_not_create_a_global_binding() {
+        let program =
+            lower_script("class Harness { static { function hidden() {} } } typeof hidden;");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up typeof expression");
+        };
+        assert!(
+            matches!(
+                &result.expr,
+                ExprIr::TypeOfUnresolvedIdentifier { name } if name == "hidden"
+            ),
+            "the static block's local function must not become a global property: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn static_block_boolean_write_does_not_reuse_the_previous_literal_fold() {
+        let program = lower_script(
+            "var flag = true; class Harness { static { flag = false; } } flag.toString();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up Boolean method call");
+        };
+        assert!(
+            !matches!(&result.expr, ExprIr::String(value) if value == "true"),
+            "the static block's false write must prevent the stale true fold: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn static_block_replays_boolean_alias_invalidation_in_the_enclosing_function() {
+        let program = lower_script(
+            "function run() { var boxed = new Boolean(true); var alias = boxed; class Harness { static { boxed.toString = Number.prototype.toString; } } return alias.toString(); }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let run = script
+            .functions
+            .iter()
+            .find(|function| function.name == "run")
+            .expect("run function should be lowered");
+        let StatementIr::Return(result) = run.body.statements.last().unwrap() else {
+            panic!("expected run to return the aliased Boolean method call");
+        };
+        assert!(
+            !matches!(&result.expr, ExprIr::String(value) if value == "true"),
+            "the static block's property write must invalidate the enclosing alias fold: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn static_field_this_write_updates_a_later_static_field() {
+        let program = lower_script(
+            "class Harness { static method() {} static first = (this.method = 1); static second = this.method; } Harness.second;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected final static field read");
+        };
+        assert_eq!(
+            result.possible_kinds,
+            KindSet::from_kind(ValueKind::Function).union(KindSet::from_kind(ValueKind::Number)),
+            "the later field must include the write through this without losing the class shape: {result:?}"
+        );
+    }
+
+    #[test]
+    fn static_field_class_name_write_updates_a_later_static_field() {
+        let program = lower_script(
+            "class Harness { static method() {} static first = (Harness.method = 1); static second = Harness.method; } Harness.second;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected final static field read");
+        };
+        assert_eq!(
+            result.possible_kinds,
+            KindSet::from_kind(ValueKind::Function).union(KindSet::from_kind(ValueKind::Number)),
+            "the later field must include the write through the class name without losing the class shape: {result:?}"
+        );
     }
 
     #[test]
@@ -14579,12 +18320,23 @@ target[Symbol.iterator];"#,
         let program = lower_script("for (using [resource] of [[null]]) {}");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script IR should exist");
-        let [StatementIr::ForOfArray { head, body, .. }] = script.body.statements.as_slice() else {
+        let [StatementIr::ForOfIterator {
+            head:
+                ForOfIteratorHeadIr::Assignment {
+                    binding: head,
+                    async_plan: None,
+                    protocol,
+                },
+            body,
+            ..
+        }] = script.body.statements.as_slice()
+        else {
             panic!(
                 "using[resource] is an element-access assignment head: {:?}",
                 script.body.statements
             );
         };
+        assert_eq!(*protocol, IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL);
         assert_eq!(head.mode, BindingMode::Let);
         assert!(head.name.starts_with("$forof.access"));
         assert!(matches!(

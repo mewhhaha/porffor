@@ -27,6 +27,10 @@ enqueue Break, Continue or an empty completion. Those completion kinds are
 meaningful inside ECMAScript evaluation, but cannot cross this request
 boundary.
 
+The Promise capability stored beside this completion now has a separate Realm
+ownership contract in `async-generator-request-promise-realm.md`. This document
+continues to own only the closed completion-kind word.
+
 The consumers preserve the same three-way distinction:
 
 - [`AsyncGeneratorYield`](https://tc39.es/ecma262/2026/multipage/control-abstraction-objects.html#sec-asyncgeneratoryield)

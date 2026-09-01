@@ -405,7 +405,6 @@ fn typed_array_sort_family_uses_one_validated_method_entry_witness() {
         r#"
         self.emit_typed_array_element_write_from_locals(
             result_payload_local,
-            result_tag_local,
             copy_index_local,
             copy_payload_local,
             copy_tag_local,
@@ -463,7 +462,6 @@ fn typed_array_sort_family_uses_one_validated_method_entry_witness() {
         self.emit_return_current_completion_if_throw(function);
         self.emit_typed_array_element_write_from_locals(
             result_payload_local,
-            result_tag_local,
             copy_index_local,
             copy_payload_local,
             copy_tag_local,

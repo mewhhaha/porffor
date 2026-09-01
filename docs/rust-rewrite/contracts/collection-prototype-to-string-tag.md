@@ -25,16 +25,22 @@ the tag the final collection-prototype property installed by the family.
 ## Typed installation authority
 
 `CollectionPrototypeIntrinsic` is the closed four-family domain. Exhaustive
-matches derive both the prototype global and the tag value from the same
-variant, so an installer cannot pair the Map prototype with the WeakMap
-spelling through independent raw constants.
+matches derive the prototype global, Realm intrinsic slot and tag value from
+the same variant. The created-Realm WeakMap/WeakSet materializer therefore
+cannot pair its family tag with the other weak family's Realm slot through
+independent raw constants. Entry-Realm installers borrow the authority to load
+the matching prototype global; the created-Realm weak-collection materializer
+borrows it to select the Realm slot. Every producer then moves the authority
+exactly once into the descriptor emitter. Entry bootstrap and created-Realm
+Map/Set slot storage remain outside this Realm-slot projection. The domain
+derives no cloning, copying, formatting, equality or default capabilities.
 
 One emitter accepts that domain and owns the well-known-symbol key, String
-value tag and descriptor flags. The Map, Set, WeakMap and WeakSet installers
-each call it exactly once. Adding a fifth variant requires both exhaustive
-projections to be updated before the backend builds; duplicating a raw
-collection tag descriptor outside the authority is rejected by the structural
-regression.
+value tag and descriptor flags. The four entry-Realm installers and the two
+created-Realm weak-collection producers each call it exactly once. Adding a
+fifth variant requires all exhaustive projections to be updated before the
+backend builds; duplicating a raw collection tag descriptor outside the
+authority is rejected by the structural regressions.
 
 The helper reserves its temporary locals after the caller's retained
 prototype/method locals and releases them in reverse order. It therefore
@@ -42,21 +48,25 @@ preserves the backend's local-stack discipline.
 
 ## Durable evidence
 
-The source-structure regression pins the closed variants, exhaustive
-prototype/tag projections, one descriptor emitter, exact flags, reverse local
-release and one call from each installer. The CLI fixture checks all four
-values and descriptors, plus the resulting built-in object tags.
-
-Once the resource-bounded matrix releases Cargo and Test262, verification must
-run the focused structure/CLI regressions, the four pinned
-`prototype/Symbol.toStringTag.js` cases, and the adjacent
-`Object.prototype.toString` built-in-tag cases. Static gates alone do not claim
-runtime closure.
+The source-structure regression recursively pins the ten domain mentions,
+bans manual capability implementations, binds the six producers, checks the
+three exact four-row projection tables, and preserves each producer's borrowed
+projection before its single consuming emitter call. It also pins the exact
+descriptor flags, property order and reverse local release. The entry-Realm CLI
+fixture checks all four values and descriptors, plus the resulting built-in
+object tags. The created-Realm weak-collection fixture checks the matching
+WeakMap and WeakSet properties and their constructor-before-method order. The
+four exact `prototype/Symbol.toStringTag.js` leaves remain the focused entry-Realm
+pinned-suite witnesses. The original structure target passes `2/2`; the
+created-Realm publication target passes `6/6`, and both exact CLI owners pass.
+The Map, Set, WeakMap and WeakSet leaves pass all `8/8` sloppy/strict Wasm-AOT
+executions, with every failure bucket at zero.
 
 ## Nonclaims
 
-This seam does not change collection construction, `NewTarget` prototype
-fallbacks, method behavior, iterator closing, SameValueZero, Proxy behavior,
-weak reachability, GC or cleanup jobs. It does not make any full collection
-tree green, complete T21, refresh the aggregate or justify a README status
-change.
+This authority extension does not change collection algorithms, iterator
+closing, SameValueZero, Proxy behavior, weak reachability, GC or cleanup jobs.
+Created-Realm WeakMap and WeakSet publication is owned by
+[`weak-collection-created-realm-publication.md`](weak-collection-created-realm-publication.md).
+No full collection-tree, T21-completion or published aggregate claim follows
+from the descriptor authority alone.

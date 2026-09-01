@@ -2,6 +2,7 @@ const BOOTSTRAP_SOURCE: &str = include_str!("../src/builtins/bootstrap.rs");
 const FUNCTION_BODY_SOURCE: &str = include_str!("../src/builtins/function.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
+const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const MODULE_SOURCE: &str = include_str!("../src/module.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
@@ -47,7 +48,19 @@ fn function_prototype_is_one_rooted_nonconstructable_builtin_body() {
     );
     assert_eq!(
         function_roots
-            .matches("self.require_standard_builtin(StandardBuiltinId::FunctionPrototype)")
+            .matches("StandardBuiltinId::FunctionPrototype,")
+            .count(),
+        1
+    );
+    assert_eq!(
+        function_roots
+            .matches("StandardBuiltinId::FunctionPrototypeSymbolHasInstance,")
+            .count(),
+        1
+    );
+    assert_eq!(
+        function_roots
+            .matches("self.require_standard_builtin(dependency);")
             .count(),
         1
     );
@@ -66,7 +79,7 @@ fn function_prototype_is_one_rooted_nonconstructable_builtin_body() {
     );
     assert_eq!(
         dispatch
-            .matches("self.emit_function_builtin(FunctionBuiltin::Prototype, function)?")
+            .matches("self.emit_function_prototype_builtin(function)?")
             .count(),
         1
     );
@@ -74,7 +87,7 @@ fn function_prototype_is_one_rooted_nonconstructable_builtin_body() {
     let body = bounded(
         FUNCTION_BODY_SOURCE,
         "            FunctionBuiltin::Prototype => {",
-        "            FunctionBuiltin::PrototypeCall => {",
+        "            FunctionBuiltin::PrototypeSymbolHasInstance => {",
     );
     assert!(body.contains("self.emit_undefined_payload(function)"));
     assert!(body.contains("ValueKind::Undefined.tag()"));
@@ -200,7 +213,7 @@ fn created_realm_context_couples_identity_realm_and_object_prototype() {
     let context = bounded(
         FUNCTIONS_SOURCE,
         "/// The inseparable realm/default-function-prototype inputs",
-        "/// Storage reserved for a created realm's `%Array.prototype%`",
+        "/// A realm-intrinsic slot whose representation is not constrained by the",
     );
     assert!(context.contains("#[must_use]"));
     assert!(context.contains("struct RealmFunctionMaterializationContext"));
@@ -285,7 +298,9 @@ fn created_realm_bootstrap_consumes_the_coupled_context_before_publication() {
     );
     assert_eq!(
         create_realm
-            .matches("let realm_functions = self.emit_initialize_realm_function_materialization_context(")
+            .matches(
+                "let realm_functions = self.emit_initialize_realm_function_materialization_context("
+            )
             .count(),
         1
     );
@@ -319,6 +334,36 @@ fn created_realm_bootstrap_consumes_the_coupled_context_before_publication() {
 }
 
 #[test]
+fn created_realm_records_publish_their_typed_eval_script_function() {
+    let host_dependencies = bounded(
+        EMIT_SOURCE,
+        "    let mut compiled_host_builtins = script.host_builtins.clone();",
+        "    for builtin in HostBuiltinId::ALL {",
+    );
+    assert!(host_dependencies.contains("HostBuiltinId::CreateRealm"));
+    assert!(host_dependencies.contains("HostBuiltinId::RealmEvalScript"));
+
+    let create_realm = bounded(
+        HOST_SOURCE,
+        "    pub(crate) fn compile_host_create_realm_builtin(",
+        "    pub(crate) fn compile_host_realm_eval_script_builtin(",
+    );
+    assert_eq!(
+        create_realm
+            .matches("HostBuiltinId::RealmEvalScript.function_id()")
+            .count(),
+        1
+    );
+    assert!(create_realm.contains("HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET"));
+    assert!(create_realm.contains("REALM_EVAL_SCRIPT_METHOD_NAME"));
+    assert_before(
+        create_realm,
+        "self.emit_function_value_payload_in_realm(\n            &realm_eval_script_meta,",
+        "REALM_EVAL_SCRIPT_METHOD_NAME",
+    );
+}
+
+#[test]
 fn consumer_oracle_pins_entry_and_created_realm_observables() {
     for witness in [
         "entry Function.prototype",
@@ -335,6 +380,8 @@ fn consumer_oracle_pins_entry_and_created_realm_observables() {
         "label + \" own prototype\"",
         "label + \" construct error\"",
         "Function.prototype realm identity",
+        "first realm evalScript",
+        "second realm evalScript",
     ] {
         assert!(
             FIXTURE.contains(witness),

@@ -1,10 +1,12 @@
-# `Array.prototype.pop` algorithm ownership
+# `Array.prototype.pop` algorithm and dispatch ownership
+
+Status: routing invariant implemented and verified for the Wasm-AOT compiler
+on 2026-08-28.
 
 ## Semantic boundary
 
-ECMA-262 defines
-[`Array.prototype.pop`](https://tc39.es/ecma262/multipage/indexed-collections.html#sec-array.prototype.pop)
-as one generic sequence of observable operations:
+ECMA-262 defines `Array.prototype.pop` as one generic sequence of observable
+operations:
 
 1. apply `ToObject` to the receiver;
 2. obtain one `LengthOfArrayLike` snapshot;
@@ -24,39 +26,66 @@ empty object with a non-writable `+0` length throws.
 
 `StandardBuiltinId::ArrayPrototypePop` in
 `crates/lila-aot-wasm/src/builtins/standard.rs` is the sole product algorithm
-owner. Its body performs the receiver conversion, length observation, last
-property read, deletion, current-function-realm deletion error, and strict
-length write in specification order.
+owner. Its body performs receiver conversion, length observation, last-property
+read, deletion, current-function-realm deletion error, and strict length write
+in specification order.
+
+The canonical Pop arm remains pinned at
+`240862a71152eef7a1373e0bfd98b928ccad87dd1daf057851c099e437c91038`.
+
+## Closed static dispatch
 
 The `ExprIr::CallMethod` lowering in `functions.rs` is only a dispatch
-optimization. A statically named `pop` call delegates through
-`emit_array_direct_builtin_method_call` to that standard built-in. It must not
-read or write Array heap length fields, read dense slots, or implement a second
-partial `pop` algorithm. This makes later corrections to the standard body
-apply equally to direct method syntax and first-class built-in calls.
+optimization. Its static `pop()` seam locally owns the capability-free
+`PopMethodDispatch::{ArrayCanonical, GenericGetCall}` authority. A data property
+whose function-target set contains exactly the one
+`StandardBuiltinId::ArrayPrototypePop` target constructs `ArrayCanonical`.
+Every absent, accessor or ambiguous target constructs `GenericGetCall`.
+
+One exhaustive match owns the sole canonical direct call and ordinary property
+Get/Call fallthrough. The authority has no derives, wildcard, default,
+kind-only shortcut or independently reusable target Boolean. Array kind and
+Array heap shape therefore cannot bypass an own `pop` method or accessor.
+
+The canonical arm delegates the complete source argument list through
+`emit_array_direct_builtin_method_call`. It does not read or write Array heap
+length fields, read dense slots, or implement a second partial Pop algorithm.
+The generic state emits nothing in the optimized seam, allowing the shared
+EvaluateCall tail to acquire and call the actual property.
 
 ## Durable evidence
 
-A bounded source-structure test proves that the direct `pop` branch delegates
-exactly once and contains none of the former raw heap-length or dense-slot
-operations. The same test fixes the canonical standard body's operation order:
-receiver conversion, `length` read and `ToLength`, last-element `Get`, delete,
-current-function-realm deletion TypeError, then strict `length` write.
+`array_pop_algorithm_owner_structure.rs` recursively pins the exact
+capability-free two-state authority, one producer and one exhaustive consumer
+per state, one singleton shape-target proof, one direct canonical call, generic
+fallthrough, and zero parallel Pop emitters. It also fixes the canonical
+standard body's operation order: receiver conversion, `length` read and
+`ToLength`, last-element `Get`, delete, current-function-realm deletion
+TypeError, then strict `length` write.
 
-The focused CLI fixture covers the observable failures of a second algorithm
-owner: a dense element cannot reappear after `pop` followed by length regrowth;
-a configurable accessor is read and deleted; a non-configurable last property
-throws without mutation; a non-writable length observes deletion before its
-throw; and even an empty non-writable `+0` length throws.
+The existing `wasm_array_pop_algorithm_owner.js` fixture covers the observable
+failures of a second algorithm owner: dense elements cannot reappear after
+length regrowth, accessors are read and deleted, non-configurable properties
+throw without mutation, deletion precedes a non-writable-length throw, and an
+empty non-writable `+0` length still throws.
+
+`wasm_array_pop_own_method_dispatch.js` installs an own `pop` method on an
+Array, observes its receiver and ordinary/spread arguments, returns a custom
+result and requires the elements and length to remain unchanged. It fails if a
+kind or heap-shape heuristic restores unconditional canonical routing.
 
 ## Verification boundary and nonclaims
 
-The focused structure test and CLI fixture pass on the current working tree,
-alongside scoped formatting, JavaScript syntax and task/module bookkeeping
-checks. The pinned `Array.prototype.pop` leaf and broader Array checkpoint
-remain centralized verification obligations.
+The recursive `array_pop_algorithm_owner_structure` target passes `5/5`. The
+exact own-method dispatch and canonical-algorithm CLI controls each pass `1/1`.
+The shared `cargo xc` checkpoint is green.
 
-It removes no Test262 materializer, changes no published conformance count, and
-does not claim a current-SHA snapshot delta or a green Array subtree. It does
-not by itself complete generic primitive receivers, Proxy observation, Array
-exotic descriptors, or any other Array mutator.
+Pinned Test262 controls are `set-length-array-length-is-non-writable.js`,
+`set-length-zero-array-length-is-non-writable.js` and
+`throws-with-string-receiver.js`. Each leaf passes both ordinary Wasm-AOT
+executions, for `6/6` total.
+
+This closure removes no Test262 materializer, changes no published conformance
+count, and does not claim a green Array subtree. It does not complete generic
+primitive receivers, Proxy observation, Array exotic descriptors, or any other
+Array mutator.

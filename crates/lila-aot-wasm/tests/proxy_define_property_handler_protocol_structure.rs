@@ -1,5 +1,5 @@
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
-const OBJECT_BUILTINS_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const OBJECT_BUILTINS_SOURCE: &str = include_str!("../src/builtins/object/define_property.rs");
 const REFLECT_BUILTINS_SOURCE: &str = include_str!("../src/builtins/reflect.rs");
 const CLI_OBJECT_SOURCE: &str = include_str!("../../lila-cli/tests/cli/object.rs");
 const HANDLER_PROTOCOL_FIXTURE: &str =
@@ -433,7 +433,7 @@ fn object_and_reflect_each_have_one_typed_consumer() {
 
     let object = braced_rust_function(
         OBJECT_BUILTINS_SOURCE,
-        "pub(super) fn compile_object_define_property_builtin(",
+        "pub(in crate::builtins) fn compile_object_define_property_builtin(",
     );
     assert_typed_consumer(
         object,

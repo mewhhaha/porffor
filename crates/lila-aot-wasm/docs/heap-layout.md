@@ -39,16 +39,16 @@ registry before compaction.
 
 ## Collector Contract
 
-`HEAP_COLLECTOR_CONTRACT` records the checked collector boundary. The current
-contract is a non-moving tracing collector with metadata validation only; it is
-not executable. `gc()` must continue to throw until the contract capability is
-advanced to executable and every phase required by `HEAP_COLLECTOR_PHASES` is
-implemented.
+`HEAP_COLLECTOR_POLICY` records the checked collector boundary. The sole
+current policy is a non-moving tracing collector with metadata validation
+only; it is not executable. `gc()` must continue to throw until an explicit
+executable policy is added and every phase required by
+`REQUIRED_HEAP_COLLECTOR_PHASES` is implemented.
 
 The required phases are stop-the-world, root scan, strong graph marking,
 ephemeron processing, WeakRef clearing, finalizer queueing, sweep and resume.
-The registry ties those phases to `HEAP_ROOT_SOURCES` and
-`HEAP_WEAK_EDGE_SLOTS`, so a future implementation cannot expose `gc()` without
+The closed policy projects those phases together with `HEAP_ROOT_SOURCES` and
+`HEAP_WEAK_EDGES`, so a future implementation cannot expose `gc()` without
 accounting for roots, ephemerons, weak targets and finalizer holdings in one
 place.
 
@@ -204,7 +204,7 @@ properties.
 
 ## Weak Reachability
 
-`HEAP_WEAK_EDGE_SLOTS` records the weak and ephemeron edge families required by
+`HEAP_WEAK_EDGES` records the weak and ephemeron edge families required by
 WeakMap, WeakSet, WeakRef and FinalizationRegistry. WeakMap values are modeled
 as ephemeron values that become live only when their corresponding key is live.
 WeakSet entries use a distinct record family whose value payload is excluded
@@ -216,8 +216,8 @@ receive them.
 
 The records are a contract for the future collector; the collector itself is
 not executable yet. When `gc()` is wired to a real collection cycle, it must use
-these weak-edge kinds and advance `HEAP_COLLECTOR_CONTRACT` rather than
-test-specific shortcuts.
+these weak-edge kinds and add an explicit executable `HeapCollectorPolicy`
+rather than test-specific shortcuts.
 
 `WeakRef` construction and synchronous `deref()` use the registered weak target
 record today. The target cannot clear while no collector runs, and the exposed

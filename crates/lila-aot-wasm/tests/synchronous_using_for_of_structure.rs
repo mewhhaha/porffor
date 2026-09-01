@@ -52,20 +52,16 @@ fn closed_head_forces_resources_onto_the_generic_synchronous_protocol() {
     assert!(heads.contains("protocol: IteratorProtocolWitness"));
     assert!(heads.contains("SyncDisposable(SyncDisposableForOfHeadIr)"));
 
-    let statements = bounded(IR_SOURCE, "    ForOfArray {", "    ForInArray {");
-    assert_eq!(
-        statements.matches("head: ForOfAssignmentIr").count(),
-        2,
-        "only Array and String index walks accept an ordinary assignment head"
-    );
-    let iterator = bounded(statements, "    ForOfIterator {", "    },");
+    assert!(!IR_SOURCE.contains("    ForOfArray {"));
+    assert!(!IR_SOURCE.contains("    ForOfString {"));
+    let iterator = bounded(IR_SOURCE, "    ForOfIterator {", "    ForInArray {");
     assert!(iterator.contains("head: ForOfIteratorHeadIr"));
     assert!(!iterator.contains("async_plan:"));
     assert!(!iterator.contains("protocol:"));
 }
 
 #[test]
-fn lowering_keeps_tdz_and_specialization_decisions_at_the_closed_head_boundary() {
+fn lowering_keeps_tdz_and_protocol_decisions_at_the_closed_head_boundary() {
     let lowering = bounded(
         FOR_OF_LOWERING_SOURCE,
         "    fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {",
@@ -76,10 +72,8 @@ fn lowering_keeps_tdz_and_specialization_decisions_at_the_closed_head_boundary()
         "LoweredForOfHeadKind::SyncDisposable",
         "BindingMode::Const",
         "self.lower_for_head_expression_with_tdz(mode, &name, for_of.iterable())",
-        "&& head_kind == LoweredForOfHeadKind::Assignment",
         "match head_kind",
         "ForOfIteratorHeadIr::SyncDisposable(",
-        "SyncDisposableForOfHeadIr::new(storage_name)",
         "IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL",
     ] {
         assert!(
@@ -87,12 +81,17 @@ fn lowering_keeps_tdz_and_specialization_decisions_at_the_closed_head_boundary()
             "missing lowering boundary: {boundary}"
         );
     }
+    let compact_lowering = lowering
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    assert!(compact_lowering.contains("SyncDisposableForOfHeadIr::new(storage_name,)"));
     assert_eq!(
         lowering
             .matches("&& head_kind == LoweredForOfHeadKind::Assignment")
             .count(),
-        2,
-        "both Array and String specializations must reject resource heads"
+        0,
+        "ordinary for-of heads must not select an iterator-protocol bypass"
     );
     assert_before(
         lowering,
@@ -146,7 +145,7 @@ fn backend_consumes_each_closed_head_and_disposes_before_loop_continue_or_close(
     let lifecycle_witness = bounded(
         CONTROL_FLOW_SOURCE,
         "#[must_use = \"a synchronous for-of iteration must finish assignment or disposal\"]",
-        "#[derive(Clone, Copy)]\nenum SyncDisposeCompletionContinuation",
+        "#[must_use = \"a sync disposal continuation must be consumed after completion restoration\"]",
     );
     assert!(lifecycle_witness.contains("enum SyncForOfIterationLifecycleLocals<'a>"));
     assert!(lifecycle_witness.contains("acquired: AcquiredSyncDisposableResourceLocals"));

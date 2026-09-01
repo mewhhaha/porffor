@@ -8,6 +8,17 @@ function check(actual, expected, label) {
   }
 }
 
+function assertThrows(expectedConstructor, thunk, label) {
+  let thrown = false;
+  try {
+    thunk();
+  } catch (error) {
+    thrown = true;
+    check(error instanceof expectedConstructor, true, label + " constructor");
+  }
+  check(thrown, true, label + " completion");
+}
+
 let a = 0x123456789abcdef0fedcba9876543210n;
 let b = 0xffff0000ffff0000ffff0000ffff0000n;
 check(a & b, 0x123400009abc0000fedc000076540000n, "multi-limb and");
@@ -61,9 +72,9 @@ try {
 }
 check(complementThrowTrace, "12", "complement preserves ToNumeric throw order");
 check(complementCaught, complementThrown, "complement preserves thrown identity");
-__lilaAssertThrows(TypeError, function () {
+assertThrows(TypeError, function () {
   ~Symbol("complement");
-});
+}, "Symbol complement");
 
 check(0x123456789abcdefn << 32n, 0x123456789abcdef00000000n, "left word shift");
 check(0x123456789abcdef00000000n >> 32n, 0x123456789abcdefn, "right word shift");
@@ -79,21 +90,21 @@ check(-5n >> 0x10000000000000000n, -1n, "huge right count saturates negative");
 check(0n << 0x10000000000000000n, 0n, "huge zero left shift needs no allocation");
 check(0x10000000000000000n >> 2n, 0x4000000000000000n, "heap result returns inline");
 
-__lilaAssertThrows(RangeError, function () {
+assertThrows(RangeError, function () {
   1n << 0x10000000000000000n;
-});
-__lilaAssertThrows(TypeError, function () {
+}, "oversized left shift");
+assertThrows(TypeError, function () {
   1n & 1;
-});
-__lilaAssertThrows(TypeError, function () {
+}, "BigInt and Number");
+assertThrows(TypeError, function () {
   1 | 1n;
-});
-__lilaAssertThrows(TypeError, function () {
+}, "Number or BigInt");
+assertThrows(TypeError, function () {
   1n >>> 0n;
-});
-__lilaAssertThrows(TypeError, function () {
+}, "BigInt unsigned shift");
+assertThrows(TypeError, function () {
   Object(1n) >>> Object(0n);
-});
+}, "boxed BigInt unsigned shift");
 
 let trace = "";
 let orderedLeft = {

@@ -54,7 +54,13 @@ const TEMPORAL_DURATION_INTEGER_FIELD_BOUNDS: [i64; 10] = [
 /// `abs(totalSeconds)` must stay strictly below this.
 const TEMPORAL_DURATION_MAXIMUM_SECONDS: i64 = 9_007_199_254_740_992;
 
-pub(crate) const TEMPORAL_DURATION_FIELD_OFFSETS: [u64; 10] = [
+#[derive(Clone, Copy)]
+enum TemporalDurationFieldTransform {
+    Negate,
+    AbsoluteValue,
+}
+
+const TEMPORAL_DURATION_FIELD_OFFSETS: [u64; 10] = [
     HEAP_TEMPORAL_DURATION_YEARS_OFFSET,
     HEAP_TEMPORAL_DURATION_MONTHS_OFFSET,
     HEAP_TEMPORAL_DURATION_WEEKS_OFFSET,
@@ -724,32 +730,55 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// `Temporal.Duration.prototype.negated` and `.abs`. Both rebuild the
-    /// duration from transformed fields, and neither can leave the valid range
-    /// that the receiver already occupies, so no re-validation is needed.
-    pub(crate) fn emit_temporal_duration_negated_or_abs(
+    pub(crate) fn emit_temporal_duration_negated(
         &mut self,
-        negate: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_duration_with_field_transform(
+            TemporalDurationFieldTransform::Negate,
+            function,
+        )
+    }
+
+    pub(crate) fn emit_temporal_duration_abs(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_duration_with_field_transform(
+            TemporalDurationFieldTransform::AbsoluteValue,
+            function,
+        )
+    }
+
+    /// Both unary transforms rebuild the duration from transformed fields, and
+    /// neither can leave the valid range that the receiver already occupies,
+    /// so no re-validation is needed.
+    fn emit_temporal_duration_with_field_transform(
+        &mut self,
+        transform: TemporalDurationFieldTransform,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let field_locals = self.reserve_temporal_duration_field_locals();
         self.emit_temporal_duration_fields_from_receiver(&field_locals, function)?;
         for local in field_locals.iter() {
-            if negate {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalGet(*local));
-                function.instruction(&Instruction::I64Sub);
-            } else {
-                function.instruction(&Instruction::LocalGet(*local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64LtS);
-                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalGet(*local));
-                function.instruction(&Instruction::I64Sub);
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(*local));
-                function.instruction(&Instruction::End);
+            match transform {
+                TemporalDurationFieldTransform::Negate => {
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalGet(*local));
+                    function.instruction(&Instruction::I64Sub);
+                }
+                TemporalDurationFieldTransform::AbsoluteValue => {
+                    function.instruction(&Instruction::LocalGet(*local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64LtS);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalGet(*local));
+                    function.instruction(&Instruction::I64Sub);
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::LocalGet(*local));
+                    function.instruction(&Instruction::End);
+                }
             }
             function.instruction(&Instruction::LocalSet(*local));
         }

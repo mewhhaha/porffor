@@ -27,6 +27,17 @@ AsyncGeneratorFunction while suppressing their automatically generated
 `prototype` object. The exact matrix and boundary choices are recorded in
 `docs/rust-rewrite/contracts/function-protocol.md`.
 
+The built-in-function `Function.prototype.toString` materializer has been
+removed. Both unchanged pinned sources now execute with the LocalMerged
+native-function matcher; the broad case also retains the full
+`wellKnownIntrinsicObjects.js` traversal. All four sloppy/strict Wasm-AOT
+executions pass. The separate Sputnik materializer has also been removed. Its
+nine unchanged pinned sources execute with the complete vendored harness, and
+all 18 sloppy/strict Wasm-AOT executions pass. The generated inventory assigns
+one T09 observation to the reduced native-function-matcher path gate. The
+token-aware scanner exposes that previously uncounted selector; neither removed
+materializer has returned.
+
 Class auto-accessors now preserve their public/private and instance/static AST
 kinds and lower through a closed descriptor-plus-backing plan. Every element
 owns an inseparable generated getter/setter pair and a fresh typed backing name
@@ -112,6 +123,21 @@ corrupt rows rather than treating an unknown kind as a brand. The stable wire
 words and backend/spec boundary are recorded in
 `docs/rust-rewrite/contracts/private-element-entry-protocol.md`.
 
+`PrivateElementEntryLocals` is now one owned row with no incidental cloning,
+copying, debugging, equality, or default capability. Its borrowed exhaustive projections
+copy only raw locals before the owned writer preserves the existing validation,
+allocation, storage, and Realm-list publication order. The exact 13 lexical mentions and
+five product producers are guarded alongside five test rows, shape assertions,
+and reverse local releases; the contract remains
+`docs/rust-rewrite/contracts/private-element-entry-protocol.md`. The embedded
+row unit is green `1/1`, the focused structure target is green `5/5`, and the
+exact callable-definition, duplicate-installation, and non-extensible-receiver
+CLI witnesses are green `3/3`; broader workspace and Test262 verification
+remain centralized. Independent review is clean after exact-normalizing all
+five producer wrappers and the complete writer lifecycle. The shared workspace
+formatter, `cargo xc`, diff, module-boundary, and task-plan checks all pass;
+broader Test262 verification remains deferred.
+
 Arguments-object construction now has the closed backend protocol
 `Absent | Present(Unmapped | Mapped(plan))`. Arrow functions have no own
 binding; strict or non-simple ordinary functions are unmapped; sloppy simple
@@ -121,6 +147,16 @@ silently changing the function to unmapped, duplicate names retain only their
 last occurrence, and an empty simple list remains `Mapped(empty)`. The semantic
 and storage boundaries are recorded in
 `docs/rust-rewrite/contracts/arguments-object-construction-protocol.md`.
+
+Ordinary property assignment now discovers the `length` and `callee` special
+properties of a same-receiver Arguments object before entering the ordinary
+named-property scan. Their stored accessors therefore run through the existing
+Arguments writer instead of being missed by the shared OrdinarySet helper. The
+restored mapped-descriptor fixture passes unchanged, and an independent
+fixture covers captured setter bindings for both special properties. At
+`2026-08-27`, the focused structure test, mapped-descriptor CLI regression,
+special-accessor CLI regression, and neighboring callee CLI regression pass
+`1/1` each with fresh explicit cache directories for the CLI runs.
 
 Bound-function creation now preserves `[[BoundThis]]` as the exact tagged
 ECMAScript value supplied to `bind`. A private two-source domain admits only
@@ -178,6 +214,17 @@ lowering already preserves their acquired callees through the general
 indirect-call path. The boundary is recorded in
 `docs/rust-rewrite/contracts/non-generic-builtin-method-callee-identity.md`.
 
+Exact-context return facts are no longer applied to a source function whose
+captures are absent from the context key. The finalized lowered body remains
+authoritative for `FunctionIr` and aggregate return metadata instead of being
+overwritten after lowering by a stale context signature. The positive captured
+`ArrayBuffer` shape witness remains exact when no later effect invalidates it;
+the mutation-before-call control proves that the body, function return targets
+and call result all omit the stale intrinsic `ArrayBuffer.prototype.resize`
+identity. Both focused regressions pass `1/1`, and the complete `lila-ir` unit
+suite passes `892/892`. Context-sensitive captured-state specialization remains
+future work.
+
 The `%Function.prototype%[@@hasInstance]` source batch now gives the ordinary
 algorithm and the `instanceof` operator a shared closed request domain rather
 than a boolean-selected helper. The operator entry owns observable
@@ -190,10 +237,101 @@ intrinsic leaf passes 22/22 strict and sloppy Wasm-AOT executions, and the
 adjacent four-file operator-hook prefix passes 8/8. These are focused results,
 not a replacement for the complete current-pin publication.
 
+The request's private runtime-state authority no longer derives cloning or
+copying capability or relies on Rust discriminant order for its numeric code.
+One borrowed exhaustive projection owns the existing operator 0 and ordinary 1
+codes at the initial store, operator gate, absent-handler transition and bound
+target redispatch. The bounded guard separately pins the raw Wasm `i64` local's
+single comparison and three writes; this is source-equivalent encoding
+hardening, not a claim that Wasm locals carry the Rust type. The structure
+target passes `5/5`, the exact CLI consumer passes `1/1`, and four selected
+intrinsic/operator Test262 leaves pass all `8/8` Wasm-AOT variants with every
+failure bucket at zero. Independent dry re-review is clean after the first
+reservation and complete reverse-release tail were pinned. The following
+shared workspace compile, formatter, module-boundary, task-plan and diff gates
+all pass.
+
 Cross-realm Function construction remains an explicit dynamic-source
 exclusion, and complete Function/class/private-element subtrees have not been
 verified against the current pin without materializations. This remains an
 active foundation task.
+
+Function-object prototype allocation now consumes the capability-free
+`FunctionPrototypeMaterialization::{Automatic, BootstrapSupplied}` policy
+through an exhaustive two-arm projection instead of equality that let a future
+policy inherit bootstrap's no-allocation default. The recursive, bounded guard
+pins the six existing producers and the automatic allocation/store/publication
+order. This is source-equivalent T09 hardening, recorded in
+[`function-prototype-materialization.md`](../docs/rust-rewrite/contracts/function-prototype-materialization.md),
+not new function or constructor behavior. The structure target passes `4/4`,
+and the automatic-prototype and created-Realm bootstrap CLI witnesses each pass
+`1/1`. Independent review hardened the guard to pin the exact allocation,
+function-header stores, both property-publication rows and release order, then
+finished clean. The coordinated workspace checkpoint passes
+`cargo fmt --all -- --check`, `cargo xc`, `git diff --check`, the module
+boundary check and the task-plan check; the compile retains the repository's
+existing warnings.
+
+The function-object representation now distinguishes a compiler-owned builtin
+closure capture from the environment handle used by Realm/error/proxy paths.
+Promise's fourteen escaping internal functions use the new GC-visible capture
+slot and self-backed environment identity through one typed materializer. Both
+function allocation paths initialize the slot, while non-Promise functions
+retain their existing environment representations. This is a function-header
+ABI seam for T06/T14, not broader call/class closure.
+
+Async invocation now derives one opaque execution-Realm context from the
+callee function object before allocating its returned Promise. The same
+authority is stored in the ordinary async activation and later consumed by
+captured reactions; async generators recover it from their retained function
+object. This closes the defining-Realm handoff at the call boundary without
+changing PromiseResolve constructor catalogs or unrelated async builtins. The
+shared semantic golden passes `2/2`
+across 663 dumps; its three additions are the focused callback/async Realm
+witnesses, and all 660 retained structural summaries match after expected
+code-size and local-accounting normalization.
+
+Async-generator request allocation now obtains the intrinsic Promise
+constructor from the executing `next`, `return` or `throw` function object's
+defining Realm. A private non-copyable constructor proof is the only input to
+the request-specific capability wrapper; the generator activation's retained
+function is deliberately not used as method Realm authority. Entry publication
+self-backs all three request-method identities so their call ABI carries the
+required defining-Realm proof. Created-Realm async-generator function
+materialization remains outside this boundary. The focused runtime witness
+passes `1/1`; the shared 664-dump semantic golden passes `2/2`, adds one
+Temporal fixture, removes none and records only the strengthened async Realm
+witness's intentional five-function structural expansion among retained dumps.
+
+Five Function prototype methods now obtain their invocation receiver through
+one paired Function prototype receiver authority. Its private non-copy carrier
+can be constructed only from the builder's payload-and-tag `this` slots, so
+`@@hasInstance`, `call`, `apply`, `bind`, and `toString`
+cannot mix payload and tag sources or substitute `new.target` while creating
+the receiver proof. The
+recursive Rust-lexical
+`function_prototype_receiver_ownership_structure` guard pins the sole paired
+constructor, all five producers, the absence of raw receiver/new-target reads
+inside those branches and every typed projection. This source-equivalent
+hardening does not change callability, receiver adaptation, Proxy or Realm
+behavior and does not claim wider T09 conformance. The receiver guard passes
+`4/4`, the neighboring private-element ownership target passes `5/5`, and the
+exact CLI test passes `1/1`, running the Function-builtin fixture through
+Wasm-AOT with `boolean(true)`. The full focused evidence is recorded in the
+contract.
+
+Batch AV makes the outer family a private `FunctionBuiltin` with no derived
+capabilities and exposes only eight fixed Function entries to standard
+dispatch. Seven entries are public intrinsic operations; the eighth is the
+separately named hidden bound-function invoker. The frozen 409-line
+domain/emitter selection has SHA-256
+`f922e7edf4c8c1626a9b40920c2a9f418c8b3badcce3c347ffb09b55109d2093`;
+restoring only the former derive and visibility reproduces that source exactly.
+`cargo xc` passes. The receiver-ownership, callable-prototype and
+`Symbol.hasInstance` structure targets pass `4/4`, `8/8` and `5/5`; the exact
+Function-builtin Wasm-AOT CLI fixture passes `1/1`. No Test262 or Wasm golden
+was required for this source-equivalent boundary, which claims no new Function behavior,
+conformance result or published-count change.
 
 ## Objective
 

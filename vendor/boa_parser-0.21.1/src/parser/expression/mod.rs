@@ -197,7 +197,7 @@ struct ShortCircuitExpression {
     previous: PreviousExpr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 enum PreviousExpr {
     None,
     Logical,
@@ -255,13 +255,16 @@ where
         while let Some(tok) = cursor.peek(0, interner)? {
             match tok.kind() {
                 TokenKind::Punctuator(Punctuator::BoolAnd) => {
-                    if previous == PreviousExpr::Coalesce {
-                        return Err(Error::expected(
-                            ["??".to_owned()],
-                            tok.to_string(interner),
-                            tok.span(),
-                            "logical expression (cannot use '??' without parentheses within '||' or '&&')",
-                        ));
+                    match previous {
+                        PreviousExpr::None | PreviousExpr::Logical => {}
+                        PreviousExpr::Coalesce => {
+                            return Err(Error::expected(
+                                ["??".to_owned()],
+                                tok.to_string(interner),
+                                tok.span(),
+                                "logical expression (cannot use '??' without parentheses within '||' or '&&')",
+                            ));
+                        }
                     }
                     cursor.advance(interner);
                     previous = PreviousExpr::Logical;
@@ -273,13 +276,16 @@ where
                         Binary::new(BinaryOp::Logical(LogicalOp::And), current_node, rhs).into();
                 }
                 TokenKind::Punctuator(Punctuator::BoolOr) => {
-                    if previous == PreviousExpr::Coalesce {
-                        return Err(Error::expected(
-                            ["??".to_owned()],
-                            tok.to_string(interner),
-                            tok.span(),
-                            "logical expression (cannot use '??' without parentheses within '||' or '&&')",
-                        ));
+                    match previous {
+                        PreviousExpr::None | PreviousExpr::Logical => {}
+                        PreviousExpr::Coalesce => {
+                            return Err(Error::expected(
+                                ["??".to_owned()],
+                                tok.to_string(interner),
+                                tok.span(),
+                                "logical expression (cannot use '??' without parentheses within '||' or '&&')",
+                            ));
+                        }
                     }
                     cursor.advance(interner);
                     previous = PreviousExpr::Logical;
@@ -294,13 +300,16 @@ where
                         Binary::new(BinaryOp::Logical(LogicalOp::Or), current_node, rhs).into();
                 }
                 TokenKind::Punctuator(Punctuator::Coalesce) => {
-                    if previous == PreviousExpr::Logical {
-                        return Err(Error::expected(
-                            ["&&".to_owned(), "||".to_owned()],
-                            tok.to_string(interner),
-                            tok.span(),
-                            "cannot use '??' unparenthesized within '||' or '&&'",
-                        ));
+                    match previous {
+                        PreviousExpr::None | PreviousExpr::Coalesce => {}
+                        PreviousExpr::Logical => {
+                            return Err(Error::expected(
+                                ["&&".to_owned(), "||".to_owned()],
+                                tok.to_string(interner),
+                                tok.span(),
+                                "cannot use '??' unparenthesized within '||' or '&&'",
+                            ));
+                        }
                     }
                     cursor.advance(interner);
                     previous = PreviousExpr::Coalesce;

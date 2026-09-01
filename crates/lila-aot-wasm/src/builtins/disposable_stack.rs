@@ -5,15 +5,10 @@
 use super::super::*;
 use crate::functions::NewTargetPrototypeFallback;
 
+mod capability_transfer;
+
 #[must_use = "a pending DisposableStack record must be consumed by the instance finalizer"]
 struct PendingDisposableStackRecordLocal(u32);
-
-#[must_use = "a transferred DisposableStack capability must be installed exactly once"]
-struct TransferredDisposableStackCapabilityLocals {
-    entries_ptr: u32,
-    entries_len: u32,
-    entries_cap: u32,
-}
 
 #[must_use = "an active DisposableStack disposal must be consumed by its LIFO walker"]
 struct DisposableStackDisposalLocals {
@@ -27,6 +22,16 @@ struct DisposableStackDisposalLocals {
 enum DisposableStackReturnDisposition {
     ReturnCurrentFunction,
     LeaveInCompletion,
+}
+
+enum DisposableStackTypeError {
+    UseValueNotObject,
+    UseValueNotDisposable,
+    AdoptCallbackNotCallable,
+    DeferCallbackNotCallable,
+    DisposeMethodNotCallable,
+    ReceiverNotObject,
+    ReceiverMissingDisposableState,
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -114,7 +119,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_disposable_stack_type_error(
-            "DisposableStack.prototype.use value is not an object",
+            DisposableStackTypeError::UseValueNotObject,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -136,7 +141,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_disposable_stack_type_error(
-            "DisposableStack.prototype.use value is not disposable",
+            DisposableStackTypeError::UseValueNotDisposable,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -184,7 +189,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_disposable_stack_type_error(
-            "DisposableStack.prototype.adopt onDispose is not callable",
+            DisposableStackTypeError::AdoptCallbackNotCallable,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -230,7 +235,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_disposable_stack_type_error(
-            "DisposableStack.prototype.defer onDispose is not callable",
+            DisposableStackTypeError::DeferCallbackNotCallable,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -401,83 +406,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.set_completion_kind(CompletionKind::Normal, function);
         self.release_temp_local(record.0);
-    }
-
-    fn emit_take_disposable_stack_capability(
-        &mut self,
-        source_record_local: u32,
-        function: &mut Function,
-    ) -> TransferredDisposableStackCapabilityLocals {
-        let entries_ptr = self.reserve_temp_local();
-        let entries_len = self.reserve_temp_local();
-        let entries_cap = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(
-            source_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            entries_ptr,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            source_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            entries_len,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            source_record_local,
-            HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-            entries_cap,
-            function,
-        );
-        for offset in [
-            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-            HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-        ] {
-            self.store_i64_const_at_offset(source_record_local, offset, 0, function);
-        }
-        self.store_i64_const_at_offset(
-            source_record_local,
-            HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-            DisposableStackState::Disposed.word(),
-            function,
-        );
-
-        TransferredDisposableStackCapabilityLocals {
-            entries_ptr,
-            entries_len,
-            entries_cap,
-        }
-    }
-
-    fn emit_install_transferred_disposable_stack_capability(
-        &mut self,
-        record: PendingDisposableStackRecordLocal,
-        transfer: TransferredDisposableStackCapabilityLocals,
-        function: &mut Function,
-    ) -> PendingDisposableStackRecordLocal {
-        for (offset, local) in [
-            (
-                HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-                transfer.entries_ptr,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-                transfer.entries_len,
-            ),
-            (
-                HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-                transfer.entries_cap,
-            ),
-        ] {
-            self.store_i64_local_at_offset(record.0, offset, local, function);
-        }
-
-        self.release_temp_local(transfer.entries_cap);
-        self.release_temp_local(transfer.entries_len);
-        self.release_temp_local(transfer.entries_ptr);
-        record
     }
 
     /// The Pending -> Disposed transition precedes every callback. The record's
@@ -961,7 +889,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_disposable_stack_type_error(
-            "DisposableStack.prototype.use dispose method is not callable",
+            DisposableStackTypeError::DisposeMethodNotCallable,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -984,7 +912,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_disposable_stack_type_error(
-            "DisposableStack method receiver is not an object",
+            DisposableStackTypeError::ReceiverNotObject,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -1001,7 +929,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_disposable_stack_type_error(
-            "DisposableStack method receiver does not have [[DisposableState]]",
+            DisposableStackTypeError::ReceiverMissingDisposableState,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -1091,9 +1019,32 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_disposable_stack_type_error(
         &mut self,
-        message: &'static str,
+        error: DisposableStackTypeError,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let message = match error {
+            DisposableStackTypeError::UseValueNotObject => {
+                "DisposableStack.prototype.use value is not an object"
+            }
+            DisposableStackTypeError::UseValueNotDisposable => {
+                "DisposableStack.prototype.use value is not disposable"
+            }
+            DisposableStackTypeError::AdoptCallbackNotCallable => {
+                "DisposableStack.prototype.adopt onDispose is not callable"
+            }
+            DisposableStackTypeError::DeferCallbackNotCallable => {
+                "DisposableStack.prototype.defer onDispose is not callable"
+            }
+            DisposableStackTypeError::DisposeMethodNotCallable => {
+                "DisposableStack.prototype.use dispose method is not callable"
+            }
+            DisposableStackTypeError::ReceiverNotObject => {
+                "DisposableStack method receiver is not an object"
+            }
+            DisposableStackTypeError::ReceiverMissingDisposableState => {
+                "DisposableStack method receiver does not have [[DisposableState]]"
+            }
+        };
         self.emit_throw_current_function_realm_type_error(
             message,
             self.result_local,

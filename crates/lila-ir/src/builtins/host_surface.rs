@@ -1,6 +1,17 @@
 use super::{HostBuiltinExposure, HostBuiltinId, HostBuiltinSurface};
 use crate::DynamicSourceIntrinsic;
 
+impl HostBuiltinExposure {
+    pub(super) const fn realm_scope(self) -> super::HostBuiltinRealmScope {
+        match self {
+            Self::EcmaGlobal => super::HostBuiltinRealmScope::EveryRealm,
+            Self::ProductExtension | Self::Test262Capability => {
+                super::HostBuiltinRealmScope::EntryRealmOnly
+            }
+        }
+    }
+}
+
 /// The host-global surface an IR compilation is authorized to expose.
 ///
 /// This is deliberately a closed policy over [`HostBuiltinExposure`], not a
@@ -20,7 +31,7 @@ impl Default for HostSurfacePolicy {
 
 impl HostSurfacePolicy {
     pub const fn allows(self, builtin: HostBuiltinId) -> bool {
-        let HostBuiltinSurface::Global { exposure, .. } = builtin.surface() else {
+        let HostBuiltinSurface::Global(exposure) = builtin.surface() else {
             return false;
         };
         match self {

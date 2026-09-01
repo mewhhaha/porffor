@@ -46,10 +46,11 @@ ever required, adding it must also update the exhaustive conversion to
 completion kinds and every backend routing match.
 
 The type records capability, not proof that an emitter arm is correct. That
-cross-crate proof remains T04 ledger L2. The first backend consumers therefore
-use a deliberately private `MayThrowOperation`: its const constructor rejects
-an `Infallible` descriptor, and migrated wrappers always finish routing before
-returning to their caller.
+cross-crate proof remains T04 ledger L2. Migrated backend wrappers own their
+operation identity in named boundaries and always finish routing before
+returning to their caller. An earlier ignored `MayThrowOperation` parameter was
+removed because mismatched operation constants still compiled and had no
+effect on emission.
 
 ## Migrated abrupt routes
 

@@ -1,13 +1,12 @@
 use super::super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum GlobalNumericBuiltin {
+enum GlobalNumericBuiltin {
     IsFinite,
     IsNaN,
 }
 
 impl<'a> FunctionBuilder<'a> {
-    pub(super) fn emit_global_numeric_builtin(
+    fn emit_global_numeric_builtin(
         &mut self,
         builtin: GlobalNumericBuiltin,
         function: &mut Function,
@@ -47,5 +46,19 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn emit_global_is_finite_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_global_numeric_builtin(GlobalNumericBuiltin::IsFinite, function)
+    }
+
+    pub(super) fn emit_global_is_nan_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_global_numeric_builtin(GlobalNumericBuiltin::IsNaN, function)
     }
 }

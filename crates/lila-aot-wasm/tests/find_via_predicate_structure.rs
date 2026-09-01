@@ -1,5 +1,10 @@
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
+const FIND_VIA_PREDICATE_SOURCE: &str = include_str!("../src/builtins/array/find_via_predicate.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
+const CONTRACT: &str =
+    include_str!("../../../docs/rust-rewrite/contracts/array-find-via-predicate.md");
+const TASK_T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
+const TASK_T16: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 const TYPED_BRAND_WIRING: &str = r#"
         function.instruction(&Instruction::LocalGet(receiver_brand_local));
@@ -126,7 +131,7 @@ const TYPED_CALLBACK_WIRING: &str = r#"
         )?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_project_find_match(
-            projection,
+            &projection,
             TaggedLocals::new(element_payload_local, element_tag_local),
             TaggedLocals::new(index_payload_local, index_tag_local),
             function,
@@ -134,7 +139,7 @@ const TYPED_CALLBACK_WIRING: &str = r#"
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.emit_advance_find_index(direction, index_local, function);
+        self.emit_advance_find_index(&direction, index_local, function);
 "#;
 
 const ARRAY_CALLBACK_WIRING: &str = r#"
@@ -162,7 +167,7 @@ const ARRAY_CALLBACK_WIRING: &str = r#"
         )?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_project_find_match(
-            projection,
+            &projection,
             TaggedLocals::new(element_payload_local, element_tag_local),
             TaggedLocals::new(index_number_payload_local, number_tag_local),
             function,
@@ -170,7 +175,7 @@ const ARRAY_CALLBACK_WIRING: &str = r#"
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.emit_advance_find_index(direction, index_local, function);
+        self.emit_advance_find_index(&direction, index_local, function);
 "#;
 
 fn assert_before(source: &str, earlier: &str, later: &str) {
@@ -198,9 +203,337 @@ fn unique_normalized_position(body: &str, snippet: &str, label: &str) -> usize {
 }
 
 #[test]
+fn find_via_predicate_has_one_private_child_owner() {
+    assert_eq!(
+        ARRAY_SOURCE.matches("\nmod find_via_predicate;\n").count(),
+        1
+    );
+    assert!(!ARRAY_SOURCE.contains("\npub mod find_via_predicate;\n"));
+    assert!(!ARRAY_SOURCE.contains("\npub(crate) mod find_via_predicate;\n"));
+    assert!(!ARRAY_SOURCE.contains("FindViaPredicateKind"));
+    assert!(FIND_VIA_PREDICATE_SOURCE.starts_with("use super::*;\n\n"));
+
+    for declaration in [
+        "enum FindViaPredicateKind {",
+        "enum FindDirection {",
+        "enum FindProjection {",
+        "struct ValidatedFindPredicateLocals(TaggedLocals);",
+        "mod find_via_predicate_tests {",
+    ] {
+        assert_eq!(
+            FIND_VIA_PREDICATE_SOURCE.matches(declaration).count(),
+            1,
+            "child must own exactly one `{declaration}`"
+        );
+        assert!(
+            !ARRAY_SOURCE.contains(declaration),
+            "parent must not retain `{declaration}`"
+        );
+    }
+
+    let kind_impl = FIND_VIA_PREDICATE_SOURCE
+        .split_once("impl FindViaPredicateKind {")
+        .expect("find kind projections")
+        .1
+        .split_once("\n}\n\n/// Predicate locals")
+        .expect("find kind projections end")
+        .0;
+    assert_eq!(
+        kind_impl
+            .lines()
+            .filter(|line| line.starts_with("    const fn "))
+            .count(),
+        7
+    );
+    for projection in [
+        "    const fn direction(&self)",
+        "    const fn projection(&self)",
+        "    const fn array_method_name(&self)",
+        "    const fn typed_array_method_name(&self)",
+        "    const fn array_nullish_message(&self)",
+        "    const fn array_predicate_not_callable_message(&self)",
+        "    const fn typed_array_predicate_not_callable_message(&self)",
+    ] {
+        assert_eq!(
+            kind_impl.matches(projection).count(),
+            1,
+            "find kind must borrow through `{projection}`"
+        );
+    }
+    for forbidden in [
+        "const fn direction(self)",
+        "const fn projection(self)",
+        "find_kind.clone()",
+        "find_kind ==",
+        "find_kind !=",
+        "matches!(find_kind",
+        "if find_kind",
+    ] {
+        assert!(
+            !FIND_VIA_PREDICATE_SOURCE.contains(forbidden),
+            "find kind authority must not escape through `{forbidden}`"
+        );
+    }
+
+    let direction_declaration = FIND_VIA_PREDICATE_SOURCE
+        .split_once("enum FindDirection {")
+        .expect("find direction")
+        .1
+        .split_once('}')
+        .expect("find direction end")
+        .0;
+    let direction_variants = direction_declaration
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(direction_variants, ["Ascending,", "Descending,"]);
+    let direction_offset = FIND_VIA_PREDICATE_SOURCE
+        .find("enum FindDirection {")
+        .expect("find direction declaration");
+    assert_eq!(
+        FIND_VIA_PREDICATE_SOURCE[..direction_offset]
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(str::trim),
+        Some("}")
+    );
+    for capability in [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Default",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+    ] {
+        assert!(
+            !FIND_VIA_PREDICATE_SOURCE.contains(&format!("impl {capability} for FindDirection")),
+            "find direction must not implement {capability}"
+        );
+    }
+
+    let normalized_kind_impl = without_whitespace(kind_impl);
+    for mapping in [
+        "Self::Find|Self::FindIndex=>FindDirection::Ascending",
+        "Self::FindLast|Self::FindLastIndex=>FindDirection::Descending",
+    ] {
+        assert_eq!(
+            normalized_kind_impl.matches(mapping).count(),
+            1,
+            "find direction producer must retain `{mapping}`"
+        );
+    }
+    assert_eq!(
+        FIND_VIA_PREDICATE_SOURCE
+            .matches("direction: &FindDirection,")
+            .count(),
+        2
+    );
+    assert_eq!(
+        FIND_VIA_PREDICATE_SOURCE
+            .matches("match direction {")
+            .count(),
+        2
+    );
+    assert_eq!(FIND_VIA_PREDICATE_SOURCE.matches("&direction").count(), 4);
+    for forbidden in [
+        "direction: FindDirection,",
+        "direction.clone()",
+        "direction ==",
+        "direction !=",
+        "matches!(direction",
+        "if direction",
+        "assert_eq!(kind.direction(), direction)",
+        "_ =>",
+    ] {
+        assert!(
+            !FIND_VIA_PREDICATE_SOURCE.contains(forbidden),
+            "find direction authority must not escape through `{forbidden}`"
+        );
+    }
+    for evidence in [CONTRACT, TASK_T02, TASK_T16] {
+        assert!(evidence.contains("capability-free `FindDirection`"));
+    }
+
+    let projection_declaration = FIND_VIA_PREDICATE_SOURCE
+        .split_once("enum FindProjection {")
+        .expect("find projection")
+        .1
+        .split_once('}')
+        .expect("find projection end")
+        .0;
+    let projection_variants = projection_declaration
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(projection_variants, ["Value,", "Index,"]);
+    let projection_offset = FIND_VIA_PREDICATE_SOURCE
+        .find("enum FindProjection {")
+        .expect("find projection declaration");
+    assert_eq!(
+        FIND_VIA_PREDICATE_SOURCE[..projection_offset]
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(str::trim),
+        Some("}")
+    );
+    for capability in [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Default",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+    ] {
+        assert!(
+            !FIND_VIA_PREDICATE_SOURCE.contains(&format!("impl {capability} for FindProjection")),
+            "find projection must not implement {capability}"
+        );
+    }
+
+    for mapping in [
+        "Self::Find|Self::FindLast=>FindProjection::Value",
+        "Self::FindIndex|Self::FindLastIndex=>FindProjection::Index",
+    ] {
+        assert_eq!(
+            normalized_kind_impl.matches(mapping).count(),
+            1,
+            "find projection producer must retain `{mapping}`"
+        );
+    }
+    assert_eq!(
+        FIND_VIA_PREDICATE_SOURCE
+            .matches("projection: &FindProjection,")
+            .count(),
+        2
+    );
+    assert_eq!(
+        FIND_VIA_PREDICATE_SOURCE
+            .matches("match projection {")
+            .count(),
+        2
+    );
+    assert_eq!(FIND_VIA_PREDICATE_SOURCE.matches("&projection").count(), 4);
+    for forbidden in [
+        "projection: FindProjection,",
+        "projection.clone()",
+        "projection ==",
+        "projection !=",
+        "matches!(projection",
+        "if projection",
+        "assert_eq!(kind.projection(), projection)",
+        "_ =>",
+    ] {
+        assert!(
+            !FIND_VIA_PREDICATE_SOURCE.contains(forbidden),
+            "find projection authority must not escape through `{forbidden}`"
+        );
+    }
+    for evidence in [CONTRACT, TASK_T02, TASK_T16] {
+        assert!(evidence.contains("capability-free `FindProjection`"));
+    }
+
+    let builder_impl = FIND_VIA_PREDICATE_SOURCE
+        .split_once("impl<'a> FunctionBuilder<'a> {")
+        .expect("find builder owner")
+        .1
+        .rsplit_once("\n}")
+        .expect("find builder owner end")
+        .0;
+    assert_eq!(
+        builder_impl
+            .lines()
+            .filter(|line| line.starts_with("    pub(in crate::builtins) fn "))
+            .count(),
+        8
+    );
+    assert_eq!(
+        builder_impl
+            .lines()
+            .filter(|line| line.starts_with("    fn "))
+            .count(),
+        8
+    );
+    for definition in [
+        "    fn emit_validate_find_predicate(",
+        "    fn emit_call_validated_find_predicate(",
+        "    fn emit_initialize_find_result(",
+        "    fn emit_initialize_find_index(",
+        "    fn emit_project_find_match(",
+        "    fn emit_advance_find_index(",
+        "    fn compile_typed_array_find_with_kind(",
+        "    fn compile_array_find_with_kind(",
+    ] {
+        assert_eq!(
+            FIND_VIA_PREDICATE_SOURCE.matches(definition).count(),
+            1,
+            "child must own exactly one `{definition}`"
+        );
+        assert!(
+            !ARRAY_SOURCE.contains(definition),
+            "parent must not retain `{definition}`"
+        );
+    }
+    for fixed_entry in [
+        "compile_array_prototype_find_builtin",
+        "compile_array_prototype_find_index_builtin",
+        "compile_array_prototype_find_last_builtin",
+        "compile_array_prototype_find_last_index_builtin",
+        "compile_typed_array_prototype_find_builtin",
+        "compile_typed_array_prototype_find_index_builtin",
+        "compile_typed_array_prototype_find_last_builtin",
+        "compile_typed_array_prototype_find_last_index_builtin",
+    ] {
+        let definition = format!("    pub(in crate::builtins) fn {fixed_entry}(");
+        assert_eq!(FIND_VIA_PREDICATE_SOURCE.matches(&definition).count(), 1);
+        assert!(!ARRAY_SOURCE.contains(&definition));
+    }
+
+    for retained_parent_method in [
+        "    pub(crate) fn emit_array_direct_builtin_method_call(",
+        "    fn emit_array_iteration_to_object(",
+    ] {
+        assert_eq!(ARRAY_SOURCE.matches(retained_parent_method).count(), 1);
+        assert!(!FIND_VIA_PREDICATE_SOURCE.contains(retained_parent_method));
+    }
+}
+
+#[test]
 fn find_via_predicate_kind_has_exactly_four_inhabitants() {
-    let body = ARRAY_SOURCE
-        .split_once("pub(crate) enum FindViaPredicateKind {")
+    let declaration_header = FIND_VIA_PREDICATE_SOURCE
+        .split_once("enum FindViaPredicateKind {")
+        .expect("find kind declaration")
+        .0;
+    assert_eq!(declaration_header.trim(), "use super::*;");
+    for capability in [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Default",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+    ] {
+        assert!(
+            !FIND_VIA_PREDICATE_SOURCE
+                .contains(&format!("impl {capability} for FindViaPredicateKind")),
+            "find kind must not implement {capability}"
+        );
+    }
+
+    let body = FIND_VIA_PREDICATE_SOURCE
+        .split_once("enum FindViaPredicateKind {")
         .expect("find kind")
         .1
         .split_once('}')
@@ -215,12 +548,28 @@ fn find_via_predicate_kind_has_exactly_four_inhabitants() {
         variants,
         ["Find,", "FindIndex,", "FindLast,", "FindLastIndex,"]
     );
+
+    for evidence in [CONTRACT, TASK_T02, TASK_T16] {
+        assert!(evidence.contains("capability-free `FindViaPredicateKind`"));
+        assert!(
+            evidence.contains("3989f2ebe1ce925d23b20d4e06eb35f00e1e840f7509b8226b9b425a639c4e5c")
+        );
+        assert!(
+            evidence.contains("40be1db2dd3ccb1f35a9e022061f4fb23a8adc8fac8e446f06fdb93879b3e92d")
+        );
+        assert!(
+            evidence.contains("b71e9cfcea61c77cdbef9aeb68917c65e1e54ab1bbe735e49a4175d82f00673e")
+        );
+        assert!(evidence.contains("no new Array behavior"));
+    }
+    assert!(CONTRACT.contains("eight fixed entries"));
+    assert!(CONTRACT.contains("does not close T16"));
 }
 
 #[test]
 fn typed_array_find_brand_error_has_one_source_owner() {
     assert_eq!(
-        ARRAY_SOURCE
+        FIND_VIA_PREDICATE_SOURCE
             .matches(r#""TypedArray find method requires a TypedArray""#)
             .count(),
         1
@@ -229,7 +578,7 @@ fn typed_array_find_brand_error_has_one_source_owner() {
 
 #[test]
 fn predicate_witness_has_one_validator_and_one_proxy_aware_consumer() {
-    let declaration = ARRAY_SOURCE
+    let declaration = FIND_VIA_PREDICATE_SOURCE
         .split_once("struct ValidatedFindPredicateLocals")
         .expect("validated predicate declaration")
         .0
@@ -238,15 +587,15 @@ fn predicate_witness_has_one_validator_and_one_proxy_aware_consumer() {
         .1;
     assert!(!declaration.contains("derive"));
     assert!(!declaration.contains("pub"));
-    assert!(!ARRAY_SOURCE.contains("impl Copy for ValidatedFindPredicateLocals"));
+    assert!(!FIND_VIA_PREDICATE_SOURCE.contains("impl Copy for ValidatedFindPredicateLocals"));
     assert_eq!(
-        ARRAY_SOURCE
+        FIND_VIA_PREDICATE_SOURCE
             .matches("ValidatedFindPredicateLocals(")
             .count(),
         3
     );
 
-    let validator = ARRAY_SOURCE
+    let validator = FIND_VIA_PREDICATE_SOURCE
         .split_once("fn emit_validate_find_predicate(")
         .expect("validator")
         .1
@@ -256,7 +605,7 @@ fn predicate_witness_has_one_validator_and_one_proxy_aware_consumer() {
     assert_eq!(validator.matches("emit_is_callable_i32").count(), 1);
     assert!(!validator.contains("ValueKind::Function"));
 
-    let consumer = ARRAY_SOURCE
+    let consumer = FIND_VIA_PREDICATE_SOURCE
         .split_once("fn emit_call_validated_find_predicate(")
         .expect("consumer")
         .1
@@ -279,18 +628,18 @@ fn predicate_witness_has_one_validator_and_one_proxy_aware_consumer() {
 
 #[test]
 fn array_and_typed_array_entries_share_the_closed_four_kind_dispatch() {
-    let typed_entry = ARRAY_SOURCE
-        .split_once("pub(crate) fn compile_typed_array_prototype_find_builtin(")
+    let typed_entry = FIND_VIA_PREDICATE_SOURCE
+        .split_once("fn compile_typed_array_find_with_kind(")
         .expect("typed entry")
         .1
-        .split_once("pub(crate) fn compile_array_prototype_find_builtin(")
+        .split_once("pub(in crate::builtins) fn compile_array_prototype_find_builtin(")
         .expect("typed entry end")
         .0;
-    let array_entry = ARRAY_SOURCE
-        .split_once("pub(crate) fn compile_array_prototype_find_builtin(")
+    let array_entry = FIND_VIA_PREDICATE_SOURCE
+        .split_once("fn compile_array_find_with_kind(")
         .expect("array entry")
         .1
-        .split_once("fn emit_array_iteration_to_object(")
+        .rsplit_once("\n}")
         .expect("array entry end")
         .0;
     let normalized_typed_entry = without_whitespace(typed_entry);
@@ -439,77 +788,47 @@ fn array_and_typed_array_entries_share_the_closed_four_kind_dispatch() {
     }
 
     let normalized_standard = without_whitespace(STANDARD_SOURCE).replace(",)", ")");
-    for (builtin, compiler, variant) in [
-        (
-            "ArrayPrototypeFind",
-            "compile_array_prototype_find_builtin",
-            "Find",
-        ),
+    for (builtin, compiler) in [
+        ("ArrayPrototypeFind", "compile_array_prototype_find_builtin"),
         (
             "ArrayPrototypeFindIndex",
-            "compile_array_prototype_find_builtin",
-            "FindIndex",
+            "compile_array_prototype_find_index_builtin",
         ),
         (
             "ArrayPrototypeFindLast",
-            "compile_array_prototype_find_builtin",
-            "FindLast",
+            "compile_array_prototype_find_last_builtin",
         ),
         (
             "ArrayPrototypeFindLastIndex",
-            "compile_array_prototype_find_builtin",
-            "FindLastIndex",
+            "compile_array_prototype_find_last_index_builtin",
         ),
         (
             "TypedArrayPrototypeFind",
             "compile_typed_array_prototype_find_builtin",
-            "Find",
         ),
         (
             "TypedArrayPrototypeFindIndex",
-            "compile_typed_array_prototype_find_builtin",
-            "FindIndex",
+            "compile_typed_array_prototype_find_index_builtin",
         ),
         (
             "TypedArrayPrototypeFindLast",
-            "compile_typed_array_prototype_find_builtin",
-            "FindLast",
+            "compile_typed_array_prototype_find_last_builtin",
         ),
         (
             "TypedArrayPrototypeFindLastIndex",
-            "compile_typed_array_prototype_find_builtin",
-            "FindLastIndex",
+            "compile_typed_array_prototype_find_last_index_builtin",
         ),
     ] {
-        let mapping = format!(
-            "StandardBuiltinId::{builtin}=>{{self.{compiler}(function,FindViaPredicateKind::{variant})?;}}"
-        );
+        let mapping = format!("StandardBuiltinId::{builtin}=>{{self.{compiler}(function)?;}}");
         unique_normalized_position(
             &normalized_standard,
             &mapping,
-            &format!("StandardBuiltinId::{builtin} -> FindViaPredicateKind::{variant}"),
+            &format!("StandardBuiltinId::{builtin} -> {compiler}"),
         );
+        assert_eq!(STANDARD_SOURCE.matches(&format!("{compiler}(")).count(), 1);
     }
-    assert_eq!(
-        STANDARD_SOURCE
-            .matches("compile_array_prototype_find_builtin(")
-            .count(),
-        4
-    );
-    assert_eq!(
-        STANDARD_SOURCE
-            .matches("compile_typed_array_prototype_find_builtin(")
-            .count(),
-        4
-    );
-    for variant in ["Find", "FindIndex", "FindLast", "FindLastIndex"] {
-        let comma_uses = STANDARD_SOURCE
-            .matches(&format!("FindViaPredicateKind::{variant},"))
-            .count();
-        let closing_uses = STANDARD_SOURCE
-            .matches(&format!("FindViaPredicateKind::{variant})"))
-            .count();
-        assert_eq!(comma_uses + closing_uses, 2);
-    }
+    assert!(!STANDARD_SOURCE.contains("FindViaPredicateKind"));
+    assert!(!STANDARD_SOURCE.contains("compile_array_find_with_kind("));
+    assert!(!STANDARD_SOURCE.contains("compile_typed_array_find_with_kind("));
     assert!(!STANDARD_SOURCE.contains("TypedArrayFindKind"));
 }

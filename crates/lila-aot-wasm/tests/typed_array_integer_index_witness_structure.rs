@@ -37,8 +37,8 @@ fn valid_integer_index_body() -> &'static str {
         .split_once("pub(crate) fn emit_typed_array_valid_integer_index_i32(")
         .expect("missing TypedArray integer-index validity emitter")
         .1
-        .split_once("pub(crate) fn emit_validate_typed_array_current_byte_length(")
-        .expect("missing validator after TypedArray integer-index validity emitter")
+        .split_once("pub(super) fn emit_array_buffer_slice_index_to_local(")
+        .expect("missing ArrayBuffer slice emitter after TypedArray integer-index validity emitter")
         .0
 }
 

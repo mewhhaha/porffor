@@ -21,6 +21,16 @@ descriptor store is unsound: the store is permitted to replace the descriptor
 word, so a later read can silently turn every nonzero parameter slot into slot
 zero.
 
+## Private lifecycle owner
+
+`functions/arguments_index_mapping.rs` is the sole owner of the non-`Copy`
+carrier and its capture, read, write, restore and consuming-release methods.
+The parent declares the child privately and neither imports nor re-exports the
+carrier. Callers use the existing inherent methods and infer the returned type;
+only the child can construct the paired `mapped`/`slot` locals or inspect their
+fields. This makes a mapping assembled from unrelated scratch locals a privacy
+error instead of a convention violation.
+
 ## DefineOwnProperty protocol
 
 The backend protocol is the specification order, with the invisible
@@ -89,6 +99,9 @@ shortcut.
   `#[must_use]`. Its constructor extracts both presence and slot from the same
   pre-mutation descriptor word. ParameterMap reads/writes and mapping restore
   accept that carrier rather than an index whose slot they rediscover.
+- The carrier literal and every `mapped`/`slot` projection remain in the private
+  lifecycle child. The five capture sites, three reads, four writes, one restore
+  and five consuming releases are the complete recursive caller census.
 - The Arguments index define boundary accepts one validated `WasmDescriptor`;
   the former data/accessor helpers with positional presence Booleans do not
   exist.
@@ -116,7 +129,12 @@ shortcut.
 The structural regression pins the typed descriptor boundary, mapping carrier,
 validation-before-mutation order, complete slot restoration, accessor
 materialization, Arguments-aware ordinary named `[[Set]]` dispatch and the
-absent-index extensibility guard. The existing CLI Arguments fixture owns
+absent-index extensibility guard. The exact 153 moved source lines retain
+SHA-256
+`1866bb0a7938406f35929397e94c201335092e48a0cd9f631e36803b30511195`;
+the 158-line private child has SHA-256
+`7d68d462b7a5419a1306d21cb0ddcef8ebcfc886a396199db2a1fb7a9a25fa43`.
+The existing CLI Arguments fixture owns
 consumer-level mapped/detached behavior, nonzero mapped slots,
 deleted-index/accessor redefinition, own and inherited named setters,
 non-writable named data, non-extensible absent-index rejection, and Arguments
@@ -133,3 +151,9 @@ The focused current-pin witnesses are
 `15.2.3.7-6-a-280.js`, in both sloppy and strict variants. They prove only
 their two exact cases; they are not evidence for the complete Arguments or
 Object descriptor subtrees.
+
+This source-equivalent extraction uses only the focused structure target,
+module-boundary and task-plan audits, scoped formatting and `git diff --check`.
+The structure target passes `4/4`, and each dry audit is green.
+The CLI witness, semantic golden, workspace compilation and broad suites remain
+owned by the coordinated shared verification checkpoint.

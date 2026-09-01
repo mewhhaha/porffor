@@ -1,7 +1,15 @@
 use super::*;
 
+pub(super) enum BuiltinGetterReceiverProvenance {
+    ProvenNonProxy,
+    MayBeProxy,
+}
+
 pub(super) struct OrdinaryPropertyReferenceMetadata {
     base_value_info: ValueInfo,
+    base_binding_name: Option<String>,
+    possible_receiver_values: Box<[ValueInfo]>,
+    possible_mutation_authorities: BTreeSet<OrdinaryPropertyMutationAuthority>,
     base_evaluation_may_have_intervening_effects: bool,
     key_may_call_user_code: bool,
     key_evaluation_may_have_intervening_effects: bool,
@@ -9,6 +17,78 @@ pub(super) struct OrdinaryPropertyReferenceMetadata {
     getter_may_dispatch_transitive_property_hooks: bool,
     possible_getters: PropertyHookTargets,
     possible_setters: PropertyHookTargets,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum OrdinaryPropertyMutationAuthority {
+    GlobalObject,
+    ArrayPrototype,
+    NumberPrototype,
+    BooleanPrototype,
+    WellKnownSymbolPrototype,
+}
+
+impl OrdinaryPropertyMutationAuthority {
+    const ALL: [Self; 5] = [
+        Self::GlobalObject,
+        Self::ArrayPrototype,
+        Self::NumberPrototype,
+        Self::BooleanPrototype,
+        Self::WellKnownSymbolPrototype,
+    ];
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExpressionEffectAccounting {
+    ProvenEffectFree,
+    TrackedByLowering,
+    UntrackedUserCodePossible,
+}
+
+impl ExpressionEffectAccounting {
+    fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::UntrackedUserCodePossible, _) | (_, Self::UntrackedUserCodePossible) => {
+                Self::UntrackedUserCodePossible
+            }
+            (Self::TrackedByLowering, _) | (_, Self::TrackedByLowering) => Self::TrackedByLowering,
+            (Self::ProvenEffectFree, Self::ProvenEffectFree) => Self::ProvenEffectFree,
+        }
+    }
+
+    pub(super) fn intervening_effects_observed(
+        self,
+        before_effect_epoch: u64,
+        after_effect_epoch: u64,
+    ) -> bool {
+        match self {
+            Self::ProvenEffectFree => false,
+            Self::TrackedByLowering => after_effect_epoch != before_effect_epoch,
+            Self::UntrackedUserCodePossible => true,
+        }
+    }
+}
+
+#[must_use = "a possible post-Set fact must be published after alias invalidation"]
+enum PendingOrdinaryPropertyPublication {
+    CurrentThisShape {
+        value_info: ValueInfo,
+    },
+    BindingShape {
+        root_name: String,
+        root_value_info: ValueInfo,
+    },
+    IntrinsicPrototypeShape {
+        constructor_name: String,
+        constructor_value_info: ValueInfo,
+    },
+    WellKnownSymbolPrototype {
+        constructor_name: String,
+        constructor_value_info: ValueInfo,
+        primitive_receiver_kind: Option<ValueKind>,
+        symbol: WellKnownSymbol,
+        value: ValueInfo,
+    },
 }
 
 impl<'a> ScriptLowerer<'a> {
@@ -23,18 +103,17 @@ impl<'a> ScriptLowerer<'a> {
         PropertyKeyIr,
         OrdinaryPropertyReferenceMetadata,
     ) {
-        let base_evaluation_may_invoke_user_code =
-            self.prepare_potentially_effectful_expression(access.target());
+        let base_effect_accounting = self.prepare_potentially_effectful_expression(access.target());
         let before_base_effect_epoch = self.intervening_effect_epoch;
         let base_and_receiver = Box::new(self.lower_property_target(access.target()));
-        let base_evaluation_may_have_intervening_effects = base_evaluation_may_invoke_user_code
-            || self.intervening_effect_epoch != before_base_effect_epoch;
+        let base_evaluation_may_have_intervening_effects = base_effect_accounting
+            .intervening_effects_observed(before_base_effect_epoch, self.intervening_effect_epoch);
         if base_evaluation_may_have_intervening_effects {
             self.observe_all_planned_source_as_unknown_property_hooks();
             self.invalidate_unknown_user_code_effects();
         }
-        let key_evaluation_may_invoke_user_code = match access.field() {
-            PropertyAccessField::Const(_) => false,
+        let key_effect_accounting = match access.field() {
+            PropertyAccessField::Const(_) => ExpressionEffectAccounting::ProvenEffectFree,
             PropertyAccessField::Expr(expression) => {
                 self.prepare_potentially_effectful_expression(expression)
             }
@@ -55,34 +134,125 @@ impl<'a> ScriptLowerer<'a> {
                     PropertyKeyIr::StringExpr(Box::new(self.lower_expression(expression)))
                 }),
         };
-        let key_evaluation_may_have_intervening_effects = key_evaluation_may_invoke_user_code
-            || self.intervening_effect_epoch != before_key_effect_epoch;
-        let (known_getters, known_setters) = match &referenced_name {
-            PropertyKeyIr::StaticString(name) => {
-                match self.read_object_shape_property(&base_and_receiver, name) {
-                    Some(ObjectShapeProperty::Accessor { getter, setter }) => {
-                        let getters = getter
-                            .map(|getter| BTreeSet::from([getter.function_id]))
-                            .unwrap_or_default();
-                        let setters = setter
-                            .map(|setter| BTreeSet::from([setter.function_id]))
-                            .unwrap_or_default();
-                        (getters, setters)
-                    }
-                    Some(ObjectShapeProperty::Data(_)) | None => (BTreeSet::new(), BTreeSet::new()),
+        let key_evaluation_may_have_intervening_effects = key_effect_accounting
+            .intervening_effects_observed(before_key_effect_epoch, self.intervening_effect_epoch);
+        fn collect_property_accessors(
+            property: Option<ObjectShapeProperty>,
+            getters: &mut BTreeSet<FunctionId>,
+            setters: &mut BTreeSet<FunctionId>,
+        ) {
+            let Some(ObjectShapeProperty::Accessor { getter, setter }) = property else {
+                return;
+            };
+            if let Some(getter) = getter {
+                getters.insert(getter.function_id);
+            }
+            if let Some(setter) = setter {
+                setters.insert(setter.function_id);
+            }
+        }
+
+        fn collect_receiver_accessors(
+            receiver: &TypedExpr,
+            referenced_name: &PropertyKeyIr,
+            getters: &mut BTreeSet<FunctionId>,
+            setters: &mut BTreeSet<FunctionId>,
+            possible_receiver_values: &mut Vec<ValueInfo>,
+        ) {
+            if let ExprIr::Conditional {
+                then_expr,
+                else_expr,
+                ..
+            } = &receiver.expr
+            {
+                collect_receiver_accessors(
+                    then_expr,
+                    referenced_name,
+                    getters,
+                    setters,
+                    possible_receiver_values,
+                );
+                collect_receiver_accessors(
+                    else_expr,
+                    referenced_name,
+                    getters,
+                    setters,
+                    possible_receiver_values,
+                );
+                return;
+            }
+
+            possible_receiver_values.push(receiver.value_info());
+
+            match referenced_name {
+                PropertyKeyIr::StaticString(name) => collect_property_accessors(
+                    receiver
+                        .heap_shape
+                        .as_deref()
+                        .and_then(|shape| read_heap_shape_property(shape, name)),
+                    getters,
+                    setters,
+                ),
+                PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol => {
+                    let property = match &key.expr {
+                        ExprIr::String(description) => {
+                            WellKnownSymbol::from_description(SymbolDescription::new(description))
+                                .and_then(|symbol| {
+                                    ScriptLowerer::read_well_known_symbol_shape_property(
+                                        receiver.heap_shape.as_deref(),
+                                        symbol,
+                                    )
+                                })
+                        }
+                        _ => None,
+                    };
+                    collect_property_accessors(property, getters, setters);
                 }
+                PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayIndex(_) => {
+                    let (shape_getters, shape_setters) =
+                        ScriptLowerer::possible_shape_accessors(receiver.heap_shape.as_deref());
+                    getters.extend(shape_getters);
+                    setters.extend(shape_setters);
+                }
+                PropertyKeyIr::ArrayLength => {}
             }
-            PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayIndex(_) => {
-                Self::possible_shape_accessors(base_and_receiver.heap_shape.as_deref())
-            }
-            PropertyKeyIr::ArrayLength => (BTreeSet::new(), BTreeSet::new()),
+        }
+
+        let mut known_getters = BTreeSet::new();
+        let mut known_setters = BTreeSet::new();
+        let mut possible_receiver_values = Vec::new();
+        collect_receiver_accessors(
+            &base_and_receiver,
+            &referenced_name,
+            &mut known_getters,
+            &mut known_setters,
+            &mut possible_receiver_values,
+        );
+        if matches!(
+            &referenced_name,
+            PropertyKeyIr::StaticString(name) if name == "__proto__"
+        ) && Self::value_info_may_be_object(&base_and_receiver.value_info())
+        {
+            known_getters.insert(StandardBuiltinId::ObjectPrototypeProtoGetter.function_id());
+            known_setters.insert(StandardBuiltinId::ObjectPrototypeProtoSetter.function_id());
+        }
+        let receiver_shapes_are_known = possible_receiver_values
+            .iter()
+            .all(|receiver| receiver.heap_shape.is_some());
+        let receiver_provenance = if receiver_shapes_are_known {
+            BuiltinGetterReceiverProvenance::ProvenNonProxy
+        } else {
+            BuiltinGetterReceiverProvenance::MayBeProxy
         };
         let mut possible_getters = PropertyHookTargets::from_known(known_getters);
         let mut possible_setters = PropertyHookTargets::from_known(known_setters);
-        let base_may_be_object = Self::value_info_may_be_object(&base_and_receiver.value_info());
+        let base_value_info = base_and_receiver.value_info();
+        let base_may_be_object = Self::value_info_may_be_object(&base_value_info);
+        let possible_mutation_authorities =
+            self.ordinary_property_mutation_authorities(&possible_receiver_values);
         let key_may_call_user_code = Self::property_key_may_call_user_code(&referenced_name);
         let prior_unknown_effects = self.unknown_user_code_effects_observed;
-        if base_and_receiver.heap_shape.is_none()
+        if !receiver_shapes_are_known
             || base_evaluation_may_have_intervening_effects
             || key_may_call_user_code
             || key_evaluation_may_have_intervening_effects
@@ -105,19 +275,31 @@ impl<'a> ScriptLowerer<'a> {
         possible_setters.extend_known(self.dynamically_installed_setters.iter().cloned());
         let getter_may_dispatch_transitive_property_hooks = possible_getters
             .iter()
-            .any(|getter| StandardBuiltinId::from_function_id(getter).is_some());
+            .filter_map(|getter| StandardBuiltinId::from_function_id(getter))
+            .any(|getter| {
+                Self::standard_builtin_getter_may_call_user_code(getter, &receiver_provenance)
+            });
         if getter_may_dispatch_transitive_property_hooks {
             possible_getters
                 .include_all_planned_source(self.analysis.planned_source_function_ids.clone());
         }
 
         let metadata = OrdinaryPropertyReferenceMetadata {
-            base_value_info: base_and_receiver.value_info(),
+            base_value_info,
+            base_binding_name: match Self::unwrap_parenthesized_expr(access.target()) {
+                Expression::Identifier(identifier) => {
+                    Some(self.interner.resolve_expect(identifier.sym()).to_string())
+                }
+                Expression::This(_) => Some(LEXICAL_THIS_NAME.to_string()),
+                _ => None,
+            },
+            possible_receiver_values: possible_receiver_values.into_boxed_slice(),
+            possible_mutation_authorities,
             base_evaluation_may_have_intervening_effects,
             key_may_call_user_code,
             key_evaluation_may_have_intervening_effects,
             unknown_property_hooks_possible: base_may_be_object
-                && (base_and_receiver.heap_shape.is_none()
+                && (!receiver_shapes_are_known
                     || base_evaluation_may_have_intervening_effects
                     || key_may_call_user_code
                     || key_evaluation_may_have_intervening_effects
@@ -132,6 +314,23 @@ impl<'a> ScriptLowerer<'a> {
             self.reference_strictness(),
         );
         (plan, referenced_name, metadata)
+    }
+
+    pub(super) fn standard_builtin_getter_may_call_user_code(
+        builtin: StandardBuiltinId,
+        receiver_provenance: &BuiltinGetterReceiverProvenance,
+    ) -> bool {
+        match builtin {
+            StandardBuiltinId::MapPrototypeSizeGetter
+            | StandardBuiltinId::SetPrototypeSizeGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter => false,
+            StandardBuiltinId::ObjectPrototypeProtoGetter => match receiver_provenance {
+                BuiltinGetterReceiverProvenance::ProvenNonProxy => false,
+                BuiltinGetterReceiverProvenance::MayBeProxy => true,
+            },
+            _ => true,
+        }
     }
 
     pub(super) fn pre_write_global_property_value(
@@ -170,6 +369,27 @@ impl<'a> ScriptLowerer<'a> {
         metadata.possible_getters.clone()
     }
 
+    pub(super) fn ordinary_property_numeric_coercion_may_call_user_code(
+        &self,
+        metadata: &OrdinaryPropertyReferenceMetadata,
+    ) -> bool {
+        if metadata.unknown_property_hooks_possible
+            || self.source_functions_may_run(&metadata.possible_getters)
+            || metadata.possible_getters.is_empty()
+        {
+            return true;
+        }
+        metadata.possible_getters.iter().any(|getter| {
+            !matches!(
+                StandardBuiltinId::from_function_id(getter),
+                Some(
+                    StandardBuiltinId::MapPrototypeSizeGetter
+                        | StandardBuiltinId::SetPrototypeSizeGetter
+                )
+            )
+        })
+    }
+
     /// A read/modify/write carrier always performs GetValue before deciding
     /// whether or how to write, so a statically known getter observes the
     /// original Reference receiver on every normal path.
@@ -198,8 +418,158 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         }
-        if !metadata.possible_getters.is_empty() {
+        if metadata.unknown_property_hooks_possible
+            || metadata.getter_may_dispatch_transitive_property_hooks
+            || self.source_functions_may_run(&metadata.possible_getters)
+        {
             self.invalidate_unknown_user_code_effects();
+        }
+    }
+
+    pub(super) fn ordinary_property_mutation_authorities(
+        &self,
+        possible_receivers: &[ValueInfo],
+    ) -> BTreeSet<OrdinaryPropertyMutationAuthority> {
+        let mut authorities = BTreeSet::new();
+        for receiver in possible_receivers {
+            if !Self::value_info_may_be_object(receiver) {
+                continue;
+            }
+            let Some(base_shape) = receiver.heap_shape.as_deref() else {
+                authorities.extend(OrdinaryPropertyMutationAuthority::ALL);
+                break;
+            };
+            if self.global_this_info().heap_shape.as_deref() == Some(base_shape) {
+                authorities.insert(OrdinaryPropertyMutationAuthority::GlobalObject);
+            }
+            for (constructor_name, authority) in [
+                (
+                    ARRAY_NAME,
+                    OrdinaryPropertyMutationAuthority::ArrayPrototype,
+                ),
+                (
+                    NUMBER_NAME,
+                    OrdinaryPropertyMutationAuthority::NumberPrototype,
+                ),
+                (
+                    BOOLEAN_NAME,
+                    OrdinaryPropertyMutationAuthority::BooleanPrototype,
+                ),
+            ] {
+                let prototype_shape = self
+                    .lookup_global_property(constructor_name)
+                    .and_then(|constructor| {
+                        read_heap_shape_property(constructor.heap_shape.as_deref()?, "prototype")
+                    })
+                    .and_then(|prototype| match prototype {
+                        ObjectShapeProperty::Data(prototype) => prototype.heap_shape,
+                        ObjectShapeProperty::Accessor { .. } => None,
+                    });
+                if prototype_shape.as_deref() == Some(base_shape) {
+                    authorities.insert(authority);
+                }
+            }
+            let well_known_symbol_prototype_matches = self
+                .well_known_symbol_prototype_properties
+                .keys()
+                .map(|(constructor_name, _)| constructor_name)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .any(|constructor_name| {
+                    self.lookup_global_property(constructor_name)
+                        .and_then(|constructor| {
+                            read_heap_shape_property(
+                                constructor.heap_shape.as_deref()?,
+                                "prototype",
+                            )
+                        })
+                        .and_then(|prototype| match prototype {
+                            ObjectShapeProperty::Data(prototype) => prototype.heap_shape,
+                            ObjectShapeProperty::Accessor { .. } => None,
+                        })
+                        .as_deref()
+                        == Some(base_shape)
+                });
+            if well_known_symbol_prototype_matches {
+                authorities.insert(OrdinaryPropertyMutationAuthority::WellKnownSymbolPrototype);
+            }
+        }
+        authorities
+    }
+
+    pub(super) fn record_ordinary_property_mutation_authority_effects(
+        &mut self,
+        referenced_name: &PropertyKeyIr,
+        possible_authorities: &BTreeSet<OrdinaryPropertyMutationAuthority>,
+    ) {
+        if possible_authorities.contains(&OrdinaryPropertyMutationAuthority::ArrayPrototype) {
+            self.array_prototype_mutated = true;
+        }
+
+        match referenced_name {
+            PropertyKeyIr::StaticString(name) => {
+                if possible_authorities.contains(&OrdinaryPropertyMutationAuthority::GlobalObject) {
+                    self.invalidate_possible_global_property_value_info(name);
+                }
+                match name.as_str() {
+                    "toString" => {
+                        if possible_authorities
+                            .contains(&OrdinaryPropertyMutationAuthority::NumberPrototype)
+                        {
+                            self.number_prototype_to_string_state = PrototypeToStringState::Unknown;
+                        }
+                        if possible_authorities
+                            .contains(&OrdinaryPropertyMutationAuthority::BooleanPrototype)
+                        {
+                            self.boolean_prototype_to_string_state =
+                                PrototypeToStringState::Unknown;
+                        }
+                    }
+                    "match"
+                        if possible_authorities
+                            .contains(&OrdinaryPropertyMutationAuthority::NumberPrototype) =>
+                    {
+                        self.number_prototype_match_is_string_match = false;
+                    }
+                    "split"
+                        if possible_authorities
+                            .contains(&OrdinaryPropertyMutationAuthority::NumberPrototype) =>
+                    {
+                        self.number_prototype_split_is_string_split = false;
+                    }
+                    _ => {}
+                }
+            }
+            PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol => {
+                if possible_authorities
+                    .contains(&OrdinaryPropertyMutationAuthority::WellKnownSymbolPrototype)
+                {
+                    self.well_known_symbol_prototype_properties.clear();
+                }
+            }
+            PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayIndex(_) => {
+                if possible_authorities.contains(&OrdinaryPropertyMutationAuthority::GlobalObject) {
+                    self.invalidate_all_possible_global_property_value_infos();
+                }
+                if possible_authorities
+                    .contains(&OrdinaryPropertyMutationAuthority::NumberPrototype)
+                {
+                    self.number_prototype_to_string_state = PrototypeToStringState::Unknown;
+                    self.number_prototype_match_is_string_match = false;
+                    self.number_prototype_split_is_string_split = false;
+                }
+                if possible_authorities
+                    .contains(&OrdinaryPropertyMutationAuthority::BooleanPrototype)
+                {
+                    self.boolean_prototype_to_string_state = PrototypeToStringState::Unknown;
+                }
+                if possible_authorities
+                    .contains(&OrdinaryPropertyMutationAuthority::WellKnownSymbolPrototype)
+                {
+                    self.well_known_symbol_prototype_properties.clear();
+                }
+            }
+            PropertyKeyIr::ArrayLength => {}
         }
     }
 
@@ -212,36 +582,11 @@ impl<'a> ScriptLowerer<'a> {
         intervening_user_code: bool,
         written_value_info: ValueInfo,
     ) -> bool {
-        let base_may_be_object = Self::value_info_may_be_object(&metadata.base_value_info);
-        if base_may_be_object {
-            self.array_prototype_mutated = true;
-        }
-
-        if base_may_be_object {
-            match referenced_name {
-                PropertyKeyIr::StaticString(name) => {
-                    self.invalidate_possible_global_property_value_info(name);
-                    match name.as_str() {
-                        "toString" => {
-                            self.number_prototype_to_string_state = PrototypeToStringState::Unknown;
-                            self.boolean_prototype_to_string_state =
-                                PrototypeToStringState::Unknown;
-                        }
-                        "match" => self.number_prototype_match_is_string_match = false,
-                        "split" => self.number_prototype_split_is_string_split = false,
-                        _ => {}
-                    }
-                }
-                PropertyKeyIr::StringExpr(_) | PropertyKeyIr::ArrayIndex(_) => {
-                    self.invalidate_all_possible_global_property_value_infos();
-                    self.number_prototype_to_string_state = PrototypeToStringState::Unknown;
-                    self.number_prototype_match_is_string_match = false;
-                    self.number_prototype_split_is_string_split = false;
-                    self.boolean_prototype_to_string_state = PrototypeToStringState::Unknown;
-                }
-                PropertyKeyIr::ArrayLength => {}
-            }
-        }
+        self.record_caller_flow_invalidation();
+        self.record_ordinary_property_mutation_authority_effects(
+            referenced_name,
+            &metadata.possible_mutation_authorities,
+        );
         let possible_setters =
             self.possible_ordinary_property_setters(metadata, intervening_user_code);
         let mut receiver_info = metadata.base_value_info.clone();
@@ -273,7 +618,12 @@ impl<'a> ScriptLowerer<'a> {
         if setter_may_call_user_code {
             self.invalidate_unknown_user_code_effects();
         }
-        self.invalidate_ordinary_property_shape_aliases(&metadata.base_value_info);
+        if let Some(base_binding_name) = metadata.base_binding_name.as_deref() {
+            self.invalidate_static_boolean_alias_shapes(base_binding_name);
+        }
+        for receiver in &metadata.possible_receiver_values {
+            self.invalidate_ordinary_property_shape_aliases(receiver);
+        }
         setter_may_call_user_code
     }
 
@@ -283,8 +633,7 @@ impl<'a> ScriptLowerer<'a> {
         receiver_info: ValueInfo,
     ) {
         let fallback = self
-            .function_signatures
-            .get(function_id)
+            .function_signature_for_current_flow(function_id)
             .map(|signature| signature.this_info.clone())
             .unwrap_or_else(|| receiver_info.clone());
         let receiver = TypedExpr::from_info(receiver_info, ExprIr::Undefined);
@@ -312,93 +661,244 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    pub(super) fn reference_operand_evaluation_may_invoke_user_code(
+    pub(super) fn expression_effect_accounting(
         &self,
         expression: &Expression,
-    ) -> bool {
+    ) -> ExpressionEffectAccounting {
         match Self::unwrap_parenthesized_expr(expression) {
-            Expression::Literal(_) | Expression::This(_) => false,
+            Expression::Literal(_)
+            | Expression::FunctionExpression(_)
+            | Expression::GeneratorExpression(_)
+            | Expression::AsyncFunctionExpression(_)
+            | Expression::AsyncGeneratorExpression(_)
+            | Expression::ArrowFunction(_)
+            | Expression::AsyncArrowFunction(_)
+            | Expression::RegExpLiteral(_)
+            | Expression::This(_)
+            | Expression::NewTarget(_) => ExpressionEffectAccounting::ProvenEffectFree,
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                !self.with_environment_chain.is_empty()
-                    || self.lookup_binding(&name).is_none()
-                    || self
-                        .var_bindings
-                        .get(&name)
-                        .is_some_and(|binding| binding.is_script_global)
+                if self.with_environment_chain.is_empty()
+                    && (self.lookup_binding(&name).is_some()
+                        || self
+                            .lookup_global_property_info(&name)
+                            .is_some_and(|property| {
+                                property.proven_present && !self.unknown_user_code_effects_observed
+                            }))
+                {
+                    ExpressionEffectAccounting::ProvenEffectFree
+                } else {
+                    ExpressionEffectAccounting::UntrackedUserCodePossible
+                }
             }
-            _ => true,
+            Expression::PropertyAccess(PropertyAccess::Simple(_)) | Expression::Call(_) => {
+                ExpressionEffectAccounting::TrackedByLowering
+            }
+            Expression::Parenthesized(_) => {
+                unreachable!("parenthesized expressions are unwrapped before classification")
+            }
+            Expression::Conditional(conditional) => self
+                .expression_effect_accounting(conditional.condition())
+                .merge(self.expression_effect_accounting(conditional.if_true()))
+                .merge(self.expression_effect_accounting(conditional.if_false())),
+            Expression::ArrayLiteral(_)
+            | Expression::ObjectLiteral(_)
+            | Expression::Unary(_)
+            | Expression::Binary(_)
+            | Expression::BinaryInPrivate(_)
+            | Expression::Assign(_)
+            | Expression::ClassExpression(_)
+            | Expression::New(_)
+            | Expression::Optional(_)
+            | Expression::SuperCall(_)
+            | Expression::PropertyAccess(_)
+            | Expression::Await(_)
+            | Expression::Yield(_)
+            | Expression::ImportCall(_)
+            | Expression::Spread(_)
+            | Expression::ImportMeta(_)
+            | Expression::FormalParameterList(_)
+            | Expression::Debugger
+            | Expression::TemplateLiteral(_)
+            | Expression::TaggedTemplate(_)
+            | Expression::Update(_) => ExpressionEffectAccounting::UntrackedUserCodePossible,
         }
     }
 
     pub(super) fn prepare_potentially_effectful_expression(
         &mut self,
         expression: &Expression,
-    ) -> bool {
-        let may_invoke_user_code =
-            self.reference_operand_evaluation_may_invoke_user_code(expression);
-        if may_invoke_user_code {
-            self.observe_all_planned_source_as_unknown_property_hooks();
-            self.invalidate_unknown_user_code_effects();
+    ) -> ExpressionEffectAccounting {
+        let effect_accounting = self.expression_effect_accounting(expression);
+        match effect_accounting {
+            ExpressionEffectAccounting::ProvenEffectFree
+            | ExpressionEffectAccounting::TrackedByLowering => {}
+            ExpressionEffectAccounting::UntrackedUserCodePossible => {
+                self.observe_all_planned_source_as_unknown_property_hooks();
+                self.invalidate_unknown_user_code_effects();
+            }
         }
-        may_invoke_user_code
+        effect_accounting
     }
 
     pub(super) fn invalidate_ordinary_property_shape_aliases(&mut self, base: &ValueInfo) {
-        let Some(base_shape) = base.heap_shape.as_ref() else {
+        self.record_caller_flow_invalidation();
+        if base.heap_shape.is_none() {
             return;
-        };
-        self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
+        }
 
-        fn contains_alias(shape: &HeapShape, alias: &HeapShape) -> bool {
-            if shape == alias {
-                return true;
+        fn canonical_function_target<'a>(
+            target: &'a FunctionId,
+            canonical_targets: &'a BTreeMap<FunctionId, FunctionId>,
+        ) -> &'a FunctionId {
+            canonical_targets.get(target).unwrap_or(target)
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum ExactFunctionTargetRelation {
+            Unknown,
+            Disjoint,
+            Overlapping,
+        }
+
+        fn exact_function_target_relation(
+            left_kinds: KindSet,
+            left_targets: &FunctionTargetKnowledge,
+            right: &ValueInfo,
+            canonical_targets: &BTreeMap<FunctionId, FunctionId>,
+        ) -> ExactFunctionTargetRelation {
+            let function_kind = KindSet::from_kind(ValueKind::Function);
+            if left_kinds != function_kind || right.possible_kinds != function_kind {
+                return ExactFunctionTargetRelation::Unknown;
             }
-
-            let property_contains_alias = |property: &ObjectShapeProperty| match property {
-                ObjectShapeProperty::Data(info) => info
-                    .heap_shape
-                    .as_deref()
-                    .is_some_and(|shape| contains_alias(shape, alias)),
-                ObjectShapeProperty::Accessor { .. } => false,
+            let (Some(left_targets), Some(right_targets)) = (
+                left_targets.exact_targets(),
+                right.function_targets.exact_targets(),
+            ) else {
+                return ExactFunctionTargetRelation::Unknown;
             };
+            if left_targets.is_empty() || right_targets.is_empty() {
+                return ExactFunctionTargetRelation::Unknown;
+            }
+            if left_targets.iter().any(|left| {
+                right_targets.iter().any(|right| {
+                    canonical_function_target(left, canonical_targets)
+                        == canonical_function_target(right, canonical_targets)
+                })
+            }) {
+                ExactFunctionTargetRelation::Overlapping
+            } else {
+                ExactFunctionTargetRelation::Disjoint
+            }
+        }
 
+        fn invalidate_nested_aliases(
+            shape: &mut HeapShape,
+            alias: &ValueInfo,
+            canonical_targets: &BTreeMap<FunctionId, FunctionId>,
+        ) {
             match shape {
                 HeapShape::Object(shape) => {
-                    shape
+                    for property in shape.properties.values_mut() {
+                        if let ObjectShapeProperty::Data(value) = property {
+                            invalidate_value_alias(value, alias, canonical_targets);
+                        }
+                    }
+                    if shape
                         .prototype
                         .as_deref()
-                        .is_some_and(|shape| contains_alias(shape, alias))
-                        || shape.properties.values().any(property_contains_alias)
-                        || shape
-                            .boxed_primitive
-                            .as_deref()
-                            .and_then(|info| info.heap_shape.as_deref())
-                            .is_some_and(|shape| contains_alias(shape, alias))
+                        .is_some_and(|prototype| alias.heap_shape.as_deref() == Some(prototype))
+                    {
+                        shape.prototype = None;
+                    } else if let Some(prototype) = shape.prototype.as_deref_mut() {
+                        invalidate_nested_aliases(prototype, alias, canonical_targets);
+                    }
+                    if let Some(boxed_primitive) = shape.boxed_primitive.as_deref_mut() {
+                        invalidate_value_alias(boxed_primitive, alias, canonical_targets);
+                    }
                 }
                 HeapShape::Array(shape) => {
-                    shape
+                    for property in shape.properties.values_mut() {
+                        if let ObjectShapeProperty::Data(value) = property {
+                            invalidate_value_alias(value, alias, canonical_targets);
+                        }
+                    }
+                    if shape
                         .prototype
                         .as_deref()
-                        .is_some_and(|shape| contains_alias(shape, alias))
-                        || shape.properties.values().any(property_contains_alias)
-                        || shape.elements.iter().any(|info| {
-                            info.heap_shape
-                                .as_deref()
-                                .is_some_and(|shape| contains_alias(shape, alias))
-                        })
+                        .is_some_and(|prototype| alias.heap_shape.as_deref() == Some(prototype))
+                    {
+                        shape.prototype = None;
+                    } else if let Some(prototype) = shape.prototype.as_deref_mut() {
+                        invalidate_nested_aliases(prototype, alias, canonical_targets);
+                    }
+                    for element in &mut shape.elements {
+                        invalidate_value_alias(element, alias, canonical_targets);
+                    }
                 }
             }
         }
 
-        let clear_if_alias_is_reachable = |shape: &mut Option<Box<HeapShape>>| {
-            if shape
-                .as_deref()
-                .is_some_and(|shape| contains_alias(shape, base_shape))
-            {
-                *shape = None;
+        fn invalidate_value_alias(
+            value: &mut ValueInfo,
+            alias: &ValueInfo,
+            canonical_targets: &BTreeMap<FunctionId, FunctionId>,
+        ) {
+            let Some(shape) = value.heap_shape.as_deref() else {
+                return;
+            };
+            let function_target_relation = exact_function_target_relation(
+                value.possible_kinds,
+                &value.function_targets,
+                alias,
+                canonical_targets,
+            );
+            let direct_alias = value.possible_kinds.intersects(alias.possible_kinds)
+                && (function_target_relation == ExactFunctionTargetRelation::Overlapping
+                    || (function_target_relation == ExactFunctionTargetRelation::Unknown
+                        && alias.heap_shape.as_deref() == Some(shape)));
+            if direct_alias {
+                value.heap_shape = None;
+                return;
             }
-        };
+            let shape = value
+                .heap_shape
+                .as_deref_mut()
+                .expect("checked nested alias shape must still exist");
+            invalidate_nested_aliases(shape, alias, canonical_targets);
+        }
+
+        let canonical_targets = self
+            .function_signatures
+            .iter()
+            .map(|(target, signature)| (target.clone(), signature.id.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let clear_if_alias_is_reachable =
+            |possible_kinds: KindSet,
+             function_targets: &FunctionTargetKnowledge,
+             shape: &mut Option<Box<HeapShape>>| {
+                let Some(root_shape) = shape.as_deref() else {
+                    return;
+                };
+                let function_target_relation = exact_function_target_relation(
+                    possible_kinds,
+                    function_targets,
+                    base,
+                    &canonical_targets,
+                );
+                let direct_alias = possible_kinds.intersects(base.possible_kinds)
+                    && (function_target_relation == ExactFunctionTargetRelation::Overlapping
+                        || (function_target_relation == ExactFunctionTargetRelation::Unknown
+                            && base.heap_shape.as_deref() == Some(root_shape)));
+                if direct_alias {
+                    *shape = None;
+                    return;
+                }
+                let root_shape = shape
+                    .as_deref_mut()
+                    .expect("checked live root shape must still exist");
+                invalidate_nested_aliases(root_shape, base, &canonical_targets);
+            };
         self.visit_live_heap_shape_roots(clear_if_alias_is_reachable);
         self.static_to_string_regexp_object_bindings.clear();
     }
@@ -489,7 +989,7 @@ impl<'a> ScriptLowerer<'a> {
         functions.includes_all_planned_source()
             || functions
                 .iter()
-                .any(|function| self.analysis.function_plans.contains_key(function))
+                .any(|function| self.function_may_run_user_code_synchronously(function))
     }
 
     pub(super) fn property_key_may_call_user_code(key: &PropertyKeyIr) -> bool {
@@ -512,6 +1012,282 @@ impl<'a> ScriptLowerer<'a> {
         .any(|kind| info.possible_kinds.contains(kind))
     }
 
+    fn possible_post_set_data_value(
+        &self,
+        referenced_name: &PropertyKeyIr,
+        metadata: &OrdinaryPropertyReferenceMetadata,
+        rhs_value_info: ValueInfo,
+        possible_setters: &PropertyHookTargets,
+        rhs_may_have_intervening_effects: bool,
+    ) -> Option<ValueInfo> {
+        if metadata.base_value_info.heap_shape.is_none()
+            || metadata.base_evaluation_may_have_intervening_effects
+            || metadata.key_may_call_user_code
+            || metadata.key_evaluation_may_have_intervening_effects
+            || metadata.unknown_property_hooks_possible
+            || rhs_may_have_intervening_effects
+            || self.unknown_user_code_effects_observed
+            || !possible_setters.is_empty()
+        {
+            return None;
+        }
+
+        let own_property = |name: &str| match metadata.base_value_info.heap_shape.as_deref()? {
+            HeapShape::Object(shape) => shape.properties.get(name).cloned(),
+            HeapShape::Array(shape) => shape.properties.get(name).cloned(),
+        };
+
+        match referenced_name {
+            PropertyKeyIr::StaticString(name) => match own_property(name) {
+                Some(ObjectShapeProperty::Data(previous)) => {
+                    Some(self.merge_value_infos(previous, rhs_value_info))
+                }
+                Some(ObjectShapeProperty::Accessor { .. }) => None,
+                None => Some(rhs_value_info),
+            },
+            PropertyKeyIr::StringExpr(key) if key.kind == ValueKind::Symbol => {
+                let ExprIr::String(description) = &key.expr else {
+                    return None;
+                };
+                let symbol =
+                    WellKnownSymbol::from_description(SymbolDescription::new(description))?;
+                let previous = own_property(&shape_namespace_key(symbol));
+                match previous {
+                    Some(ObjectShapeProperty::Data(previous)) => {
+                        Some(self.merge_value_infos(previous, rhs_value_info))
+                    }
+                    Some(ObjectShapeProperty::Accessor { .. }) => None,
+                    None => Some(rhs_value_info),
+                }
+            }
+            PropertyKeyIr::StringExpr(_)
+            | PropertyKeyIr::ArrayIndex(_)
+            | PropertyKeyIr::ArrayLength => None,
+        }
+    }
+
+    fn pending_ordinary_property_publication(
+        &mut self,
+        target: &Expression,
+        referenced_name: &PropertyKeyIr,
+        possible_post_set_value: ValueInfo,
+        possible_mutation_authorities: &BTreeSet<OrdinaryPropertyMutationAuthority>,
+    ) -> Option<PendingOrdinaryPropertyPublication> {
+        let (root_name, mut path) = self.binding_shape_path(target)?;
+
+        if let PropertyKeyIr::StringExpr(key) = referenced_name {
+            let ExprIr::String(symbol_name) = &key.expr else {
+                return None;
+            };
+            let symbol = WellKnownSymbol::from_description(SymbolDescription::new(symbol_name))?;
+            if path.as_slice() != [PropertyKeyIr::StaticString("prototype".to_string())]
+                || self.lookup_binding(&root_name).is_some()
+            {
+                return None;
+            }
+            let constructor = self.lookup_global_property_info(&root_name)?;
+            if !constructor.proven_present || constructor.source != GlobalPropertySource::Builtin {
+                return None;
+            }
+            let mut constructor_value_info = constructor.value_info.clone();
+            let HeapShape::Object(constructor_shape) =
+                constructor_value_info.heap_shape.as_deref_mut()?
+            else {
+                return None;
+            };
+            let Some(ObjectShapeProperty::Data(prototype)) =
+                constructor_shape.properties.get_mut("prototype")
+            else {
+                return None;
+            };
+            let prototype_properties = match prototype.heap_shape.as_deref_mut()? {
+                HeapShape::Object(shape) => &mut shape.properties,
+                HeapShape::Array(shape) => &mut shape.properties,
+            };
+            let property_name = shape_namespace_key(symbol);
+            if !matches!(
+                prototype_properties.get(&property_name),
+                Some(ObjectShapeProperty::Accessor { .. })
+            ) {
+                prototype_properties.insert(
+                    property_name,
+                    ObjectShapeProperty::Data(possible_post_set_value.clone()),
+                );
+            }
+            let primitive_receiver_kind = match root_name.as_str() {
+                STRING_NAME => Some(ValueKind::String),
+                NUMBER_NAME => Some(ValueKind::Number),
+                BOOLEAN_NAME => Some(ValueKind::Boolean),
+                BIGINT_NAME => Some(ValueKind::BigInt),
+                SYMBOL_NAME => Some(ValueKind::Symbol),
+                _ => None,
+            };
+            return Some(
+                PendingOrdinaryPropertyPublication::WellKnownSymbolPrototype {
+                    constructor_name: root_name,
+                    constructor_value_info,
+                    primitive_receiver_kind,
+                    symbol,
+                    value: possible_post_set_value,
+                },
+            );
+        }
+
+        let PropertyKeyIr::StaticString(_) = referenced_name else {
+            return None;
+        };
+        if root_name == LEXICAL_THIS_NAME {
+            path.push(referenced_name.clone());
+            let value_info = Self::apply_shape_write(
+                self.current_construct_this_info.clone()?,
+                path.as_slice(),
+                possible_post_set_value,
+            );
+            value_info.heap_shape.as_ref()?;
+            return Some(PendingOrdinaryPropertyPublication::CurrentThisShape { value_info });
+        }
+        let targets_intrinsic_prototype = path.as_slice()
+            == [PropertyKeyIr::StaticString("prototype".to_string())]
+            && self.lookup_binding(&root_name).is_none()
+            && self
+                .lookup_global_property_info(&root_name)
+                .is_some_and(|property| {
+                    property.proven_present && property.source == GlobalPropertySource::Builtin
+                });
+        if !path.is_empty() && !targets_intrinsic_prototype {
+            return None;
+        }
+        if path.is_empty() && !possible_mutation_authorities.is_empty() {
+            return None;
+        }
+        path.push(referenced_name.clone());
+
+        let root_value_info = self
+            .lookup_binding(&root_name)
+            .map(|binding| ValueInfo {
+                kind: binding.kind,
+                possible_kinds: binding.possible_kinds,
+                heap_shape: binding.heap_shape.clone(),
+                function_targets: binding.function_targets.clone(),
+            })
+            .or_else(|| {
+                self.var_bindings.get(&root_name).map(|binding| ValueInfo {
+                    kind: binding.kind,
+                    possible_kinds: binding.possible_kinds,
+                    heap_shape: binding.heap_shape.clone(),
+                    function_targets: binding.function_targets.clone(),
+                })
+            })
+            .or_else(|| self.lookup_global_property(&root_name))?;
+        let root_value_info =
+            Self::apply_shape_write(root_value_info, path.as_slice(), possible_post_set_value);
+        root_value_info.heap_shape.as_ref()?;
+
+        if targets_intrinsic_prototype {
+            Some(
+                PendingOrdinaryPropertyPublication::IntrinsicPrototypeShape {
+                    constructor_name: root_name,
+                    constructor_value_info: root_value_info,
+                },
+            )
+        } else {
+            Some(PendingOrdinaryPropertyPublication::BindingShape {
+                root_name,
+                root_value_info,
+            })
+        }
+    }
+
+    fn publish_ordinary_property_fact(&mut self, publication: PendingOrdinaryPropertyPublication) {
+        let (root_name, root_value_info) = match publication {
+            PendingOrdinaryPropertyPublication::CurrentThisShape { value_info } => {
+                self.current_construct_this_info = Some(value_info.clone());
+                if let CurrentThisBinding::Activation(current) = &mut self.current_this_binding {
+                    *current = value_info;
+                }
+                return;
+            }
+            PendingOrdinaryPropertyPublication::BindingShape {
+                root_name,
+                root_value_info,
+            } => (root_name, root_value_info),
+            PendingOrdinaryPropertyPublication::IntrinsicPrototypeShape {
+                constructor_name,
+                constructor_value_info,
+            } => {
+                if let Some(constructor) = self.global_properties.get_mut(&constructor_name) {
+                    constructor.value_info = constructor_value_info;
+                    constructor.proven_present = true;
+                }
+                return;
+            }
+            PendingOrdinaryPropertyPublication::WellKnownSymbolPrototype {
+                constructor_name,
+                constructor_value_info,
+                primitive_receiver_kind,
+                symbol,
+                value,
+            } => {
+                if let Some(constructor) = self.global_properties.get_mut(&constructor_name) {
+                    constructor.value_info = constructor_value_info;
+                    constructor.proven_present = true;
+                }
+                let function_targets = value
+                    .function_targets
+                    .known_targets()
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                self.well_known_symbol_prototype_properties
+                    .insert((constructor_name, symbol), value);
+                if let Some(receiver_kind) = primitive_receiver_kind {
+                    let receiver =
+                        TypedExpr::from_info(ValueInfo::new(receiver_kind), ExprIr::Undefined);
+                    for function_id in function_targets {
+                        let fallback = self
+                            .function_signature_for_current_flow(&function_id)
+                            .map(|signature| signature.this_info.clone())
+                            .unwrap_or_else(|| receiver.value_info());
+                        let this_info = self.explicit_this_info_for_function_target(
+                            &function_id,
+                            &receiver,
+                            fallback,
+                        );
+                        self.merge_function_this_info(&function_id, this_info);
+                    }
+                }
+                return;
+            }
+        };
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(binding) = scope.get_mut(&root_name) {
+                binding.kind = root_value_info.kind;
+                binding.possible_kinds = root_value_info.possible_kinds;
+                binding.heap_shape = root_value_info.heap_shape;
+                binding.function_targets = root_value_info.function_targets;
+                return;
+            }
+        }
+
+        let is_script_global = self
+            .var_bindings
+            .get(&root_name)
+            .is_some_and(|binding| binding.is_script_global);
+        if let Some(binding) = self.var_bindings.get_mut(&root_name) {
+            binding.kind = root_value_info.kind;
+            binding.possible_kinds = root_value_info.possible_kinds;
+            binding.heap_shape = root_value_info.heap_shape.clone();
+            binding.function_targets = root_value_info.function_targets.clone();
+            if !is_script_global {
+                return;
+            }
+        }
+        if let Some(property) = self.global_properties.get_mut(&root_name) {
+            property.value_info = root_value_info;
+            property.proven_present = true;
+        }
+    }
+
     /// Lower a source-level plain assignment into one retained ordinary
     /// property Reference. Base and raw key are lowered before the RHS; the
     /// carrier leaves ToObject, ToPropertyKey, and Set to its backend consumer.
@@ -521,11 +1297,11 @@ impl<'a> ScriptLowerer<'a> {
         rhs: &Expression,
     ) -> TypedExpr {
         let (plan, referenced_name, metadata) = self.lower_ordinary_property_reference_plan(access);
-        let rhs_may_invoke_user_code = self.prepare_potentially_effectful_expression(rhs);
+        let rhs_effect_accounting = self.prepare_potentially_effectful_expression(rhs);
         let before_rhs_effect_epoch = self.intervening_effect_epoch;
         let rhs_value = self.lower_expression(rhs);
-        let rhs_may_have_intervening_effects =
-            rhs_may_invoke_user_code || self.intervening_effect_epoch != before_rhs_effect_epoch;
+        let rhs_may_have_intervening_effects = rhs_effect_accounting
+            .intervening_effects_observed(before_rhs_effect_epoch, self.intervening_effect_epoch);
         if rhs_may_have_intervening_effects {
             self.observe_all_planned_source_as_unknown_property_hooks();
             self.invalidate_unknown_user_code_effects();
@@ -533,6 +1309,21 @@ impl<'a> ScriptLowerer<'a> {
         let written_value_info = rhs_value.value_info();
         let possible_setters =
             self.possible_ordinary_property_setters(&metadata, rhs_may_have_intervening_effects);
+        let possible_post_set_value = self.possible_post_set_data_value(
+            &referenced_name,
+            &metadata,
+            written_value_info.clone(),
+            &possible_setters,
+            rhs_may_have_intervening_effects,
+        );
+        let pending_publication = possible_post_set_value.clone().and_then(|value| {
+            self.pending_ordinary_property_publication(
+                access.target(),
+                &referenced_name,
+                value,
+                &metadata.possible_mutation_authorities,
+            )
+        });
 
         self.record_ordinary_property_possible_write(
             &referenced_name,
@@ -540,10 +1331,15 @@ impl<'a> ScriptLowerer<'a> {
             rhs_may_have_intervening_effects,
             written_value_info,
         );
-        // Set can return false for a non-writable data property even in sloppy
-        // code. Until descriptor attributes are part of the shape proof, do
-        // not restore an exact global value or prototype-method identity from
-        // the syntactic RHS alone.
+        if let Some(publication) = pending_publication {
+            self.publish_ordinary_property_fact(publication);
+        } else if let Some(value) = possible_post_set_value {
+            self.update_well_known_symbol_prototype_property(
+                access.target(),
+                &referenced_name,
+                Some(&value),
+            );
+        }
         plan.plain_assignment(rhs_value, possible_setters)
     }
 
@@ -560,20 +1356,22 @@ impl<'a> ScriptLowerer<'a> {
         let (plan, referenced_name, metadata) = self.lower_ordinary_property_reference_plan(access);
         self.record_ordinary_property_get(&metadata);
         let possible_getters = Self::possible_ordinary_property_getters(&metadata);
-        let rhs_may_invoke_user_code = self.prepare_potentially_effectful_expression(rhs);
+        let rhs_effect_accounting = self.prepare_potentially_effectful_expression(rhs);
         let before_rhs_effect_epoch = self.intervening_effect_epoch;
         let rhs = self.lower_expression(rhs);
-        let rhs_may_have_intervening_effects =
-            rhs_may_invoke_user_code || self.intervening_effect_epoch != before_rhs_effect_epoch;
+        let rhs_may_have_intervening_effects = rhs_effect_accounting
+            .intervening_effects_observed(before_rhs_effect_epoch, self.intervening_effect_epoch);
         if rhs_may_have_intervening_effects {
             self.observe_all_planned_source_as_unknown_property_hooks();
             self.invalidate_unknown_user_code_effects();
         }
         // The old property value is coerced only after the RHS has been
-        // evaluated. Even a literal RHS therefore cannot prove this phase
-        // effect-free: ToPrimitive/ToNumeric may run source `valueOf` or
-        // @@toPrimitive code before [[Set]].
-        let possible_setters = self.possible_ordinary_property_setters(&metadata, true);
+        // evaluated. Exact numeric builtin getters discharge that effect;
+        // every other result still admits source `valueOf` or @@toPrimitive.
+        let coercion_may_call_user_code =
+            self.ordinary_property_numeric_coercion_may_call_user_code(&metadata);
+        let possible_setters =
+            self.possible_ordinary_property_setters(&metadata, coercion_may_call_user_code);
         let old_value_binding = self.alloc_temp_binding_name("ordinary.property.compound.old.");
         let result = plan.eager_compound_assignment(
             old_value_binding,
@@ -585,7 +1383,7 @@ impl<'a> ScriptLowerer<'a> {
         self.record_ordinary_property_possible_write(
             &referenced_name,
             &metadata,
-            true,
+            coercion_may_call_user_code,
             result.value_info(),
         );
         result
@@ -600,6 +1398,20 @@ mod tests {
     fn lower(source: &str) -> ProgramIr {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
         crate::lower(&source)
+    }
+
+    fn assert_last_expression_is_coercive_add(source: &str, failure_message: &str) {
+        let program = lower(source);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "{failure_message}: {:?}",
+            result.expr
+        );
     }
 
     fn returned_assignment<'a>(
@@ -663,6 +1475,68 @@ mod tests {
             | ExprIr::BitwiseNumeric { lhs, .. } => lhs,
             other => panic!("unexpected eager operation {other:?}"),
         }
+    }
+
+    #[test]
+    fn intrinsic_property_installation_preserves_strict_primitive_this() {
+        let program = lower(
+            "String.prototype.q = function stringQ() { 'use strict'; return this === 'z'; }; 'z'?.q();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "stringQ")
+            .expect("installed function should be lowered");
+        let this_operand = function.body.statements.iter().find_map(|statement| {
+            let StatementIr::Return(TypedExpr {
+                expr:
+                    ExprIr::SpecOperation {
+                        operation: SpecOperationIr::StrictEqualityComparison,
+                        operands,
+                    },
+                ..
+            }) = statement
+            else {
+                return None;
+            };
+            operands
+                .iter()
+                .find(|operand| matches!(operand.expr, ExprIr::This))
+        });
+
+        assert_eq!(
+            this_operand.map(|operand| operand.kind),
+            Some(ValueKind::String)
+        );
+    }
+
+    #[test]
+    fn intrinsic_method_transfer_preserves_acquired_callee_identity() {
+        let program = lower(
+            "var value = new Object(); value.transferred = Boolean.prototype.toString; value.transferred();",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(expression) = script.body.statements.last().unwrap() else {
+            panic!("expected transferred method call");
+        };
+        let ExprIr::MaterializeBinding { body: call, .. } = &expression.expr else {
+            panic!(
+                "expected acquired-callee materialization: {:?}",
+                expression.expr
+            );
+        };
+        let ExprIr::CallIndirect { callee, .. } = &call.expr else {
+            panic!("expected indirect transferred method call: {:?}", call.expr);
+        };
+
+        assert_eq!(call.kind, ValueKind::String);
+        assert_eq!(
+            callee.function_targets.exact_single_target(),
+            Some(&StandardBuiltinId::BooleanPrototypeToString.function_id())
+        );
     }
 
     #[test]
@@ -802,6 +1676,49 @@ mod tests {
     }
 
     #[test]
+    fn function_property_write_preserves_a_same_shaped_distinct_function() {
+        let program = lower(
+            "function changed() {} function preserved() {} changed.value = 1; preserved.value = 1; changed.marker = 0; preserved.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(
+                result.expr,
+                ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                } | ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                }
+            ),
+            "a distinct function target must retain its numeric property shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn function_property_write_invalidates_a_true_alias_shape() {
+        let program = lower(
+            "function target() {} target.value = 1; let alias = target; target.marker = 0; alias.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "a true function alias must not retain the pre-write numeric shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
     fn ordinary_property_write_invalidates_nested_object_and_array_alias_shapes() {
         for source in [
             "let target = { p: 0 }; let holder = { alias: target }; target.p ||= 's'; holder.alias.p + 1;",
@@ -819,6 +1736,187 @@ mod tests {
                 result.expr
             );
         }
+    }
+
+    #[test]
+    fn nested_conditional_property_write_invalidates_every_receiver_shape() {
+        let program = lower(
+            "function write(first, second) { let left = { p: 1, leftOnly: 0 }; let middle = { p: 1, middleOnly: 0 }; let right = { p: 1, rightOnly: 0 }; (first ? left : second ? middle : right).p = 's'; left.p + 1; middle.p + 1; return right.p + 1; } write(true, false);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "write")
+            .expect("write function should be lowered");
+
+        for statement in function.body.statements.iter().rev().take(3) {
+            let result = match statement {
+                StatementIr::Expression(result) | StatementIr::Return(result) => result,
+                _ => panic!("expected follow-up addition"),
+            };
+            assert!(
+                matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+                "every possible receiver must lose its pre-write Number shape: {:?}",
+                result.expr
+            );
+        }
+    }
+
+    #[test]
+    fn conditional_logical_write_invalidates_both_receiver_shapes() {
+        let program = lower(
+            "function write(flag) { let left = { p: 0, leftOnly: 0 }; let right = { p: 0, rightOnly: 0 }; (flag ? left : right).p ||= 's'; left.p + 1; return right.p + 1; } write(true);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "write")
+            .expect("write function should be lowered");
+
+        for statement in function.body.statements.iter().rev().take(2) {
+            let result = match statement {
+                StatementIr::Expression(result) | StatementIr::Return(result) => result,
+                _ => panic!("expected follow-up addition"),
+            };
+            assert!(
+                matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+                "both possible receivers must lose their pre-write Number shape: {:?}",
+                result.expr
+            );
+        }
+    }
+
+    #[test]
+    fn conditional_ordinary_object_write_preserves_number_prototype_fact() {
+        let program = lower(
+            "function write(flag) { let left = { p: 0, leftOnly: 0 }; let right = { p: 0, rightOnly: 0 }; (flag ? left : right).p = 's'; return (1).toString(); } write(true);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "write")
+            .expect("write function should be lowered");
+        let StatementIr::Return(result) = function.body.statements.last().unwrap() else {
+            panic!("expected return addition");
+        };
+
+        assert!(
+            matches!(&result.expr, ExprIr::String(value) if value == "1"),
+            "ordinary receiver alternatives must preserve the exact Number prototype fact: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn conditional_prototype_write_invalidates_both_inheriting_shapes() {
+        let program = lower(
+            "function write(flag) { let leftPrototype = { p: 1, leftOnly: 0 }; let rightPrototype = { p: 1, rightOnly: 0 }; let left = Object.create(leftPrototype); let right = Object.create(rightPrototype); (flag ? leftPrototype : rightPrototype).p = 's'; left.p + 1; return right.p + 1; } write(true);",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "write")
+            .expect("write function should be lowered");
+
+        for statement in function.body.statements.iter().rev().take(2) {
+            let result = match statement {
+                StatementIr::Expression(result) | StatementIr::Return(result) => result,
+                _ => panic!("expected follow-up addition"),
+            };
+            assert!(
+                matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+                "an inherited lookup must not keep a stale prototype property shape: {:?}",
+                result.expr
+            );
+        }
+    }
+
+    #[test]
+    fn nested_property_write_does_not_restore_a_stale_sibling_alias() {
+        let program = lower(
+            "let target = { p: 1 }; let root = { a: target, b: target }; root.a.p = 's'; root.b.p + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "publishing the written path must not restore a sibling alias: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn well_known_symbol_setter_is_observed_before_plain_assignment_publication() {
+        let program = lower(
+            "let outcome = 1; let target = { set [Symbol.iterator](value) { outcome = 'setter'; } }; target[Symbol.iterator] = 0; outcome + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let setter = script
+            .functions
+            .iter()
+            .find(|function| function.protocol == FunctionProtocolIr::ObjectSetter)
+            .expect("computed setter should be lowered");
+        let StatementIr::Expression(write) = &script.body.statements[2] else {
+            panic!("expected property assignment");
+        };
+        let ExprIr::OrdinaryPropertyAssignment(assignment) = &write.expr else {
+            panic!("expected ordinary property assignment: {write:?}");
+        };
+        assert!(
+            assignment.possible_setters().contains(&setter.id),
+            "the exact computed Symbol setter must be retained on the Reference: {assignment:?}"
+        );
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "a computed Symbol setter must invalidate captured binding facts: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn well_known_symbol_assignment_retains_a_non_writable_intrinsic_value_as_possible() {
+        let program = lower(
+            "Symbol.prototype[Symbol.toPrimitive] = function replacement() { return 1; }; Symbol.prototype[Symbol.toPrimitive];",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up property read");
+        };
+        assert!(
+            result
+                .function_targets
+                .exact_targets()
+                .is_some_and(|targets| {
+                    targets.contains(&StandardBuiltinId::SymbolPrototypeToPrimitive.function_id())
+                }),
+            "a possibly failed sloppy Set must retain the old intrinsic target: {:?}",
+            result.function_targets
+        );
+        assert_eq!(
+            result
+                .function_targets
+                .exact_targets()
+                .expect("both retained targets must be exhaustive")
+                .len(),
+            2,
+            "the possible successful Set must retain the replacement target too"
+        );
     }
 
     #[test]
@@ -999,6 +2097,461 @@ mod tests {
         assert!(
             matches!(result.expr, ExprIr::CoerciveAdd { .. }),
             "delete must prevent a cached return shape from restoring the property: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn called_callback_invalidates_later_function_return_shape_in_the_same_body() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             function invoke(callback) { callback(); return readTarget().value + 1; } \
+             invoke(function () { delete target.value; });",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let invoke = script
+            .functions
+            .iter()
+            .find(|function| function.name == "invoke")
+            .expect("invoke should be lowered");
+        let StatementIr::Return(result) = invoke
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::Return(_)))
+            .expect("invoke should return the addition")
+        else {
+            unreachable!("selected statement is a return")
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the callback must prevent a cached return shape from proving a numeric property: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn static_class_block_invalidates_later_function_return_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             class Example { static { delete target.value; } } \
+             readTarget().value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the static block must prevent a cached return shape from proving a numeric property: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn static_class_block_invalidates_a_captured_binding_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             class Example { static { delete target.value; } } \
+             target.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the static block must invalidate the captured property shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn static_field_initializer_invalidates_a_captured_binding_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             class Example { static deleted = delete target.value; } \
+             target.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the static initializer must invalidate the captured property shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn called_class_constructor_invalidates_later_function_return_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             class Example { constructor() { delete target.value; } } \
+             new Example(); \
+             readTarget().value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the constructor call must invalidate the cached return shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn constructed_instance_initializer_invalidates_a_captured_binding_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             class Example { field = delete target.value; } \
+             new Example(); \
+             target.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "construction must account for the instance initializer effect: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn constructed_literal_instance_initializer_preserves_an_unrelated_binding_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             class Example { field = 1; } \
+             new Example(); \
+             target.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(
+                result.expr,
+                ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                } | ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                }
+            ),
+            "a literal instance initializer must preserve an unrelated property shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn synthetic_derived_constructor_accounts_for_the_base_constructor_effect() {
+        assert_last_expression_is_coercive_add(
+            "let target = { value: 1 }; \
+             class Base { constructor() { delete target.value; } } \
+             class Derived extends Base {} \
+             new Derived(); \
+             target.value + 1;",
+            "a synthetic derived constructor must account for its implicit super call",
+        );
+    }
+
+    #[test]
+    fn called_class_method_invalidates_a_captured_binding_shape() {
+        let program = lower(
+            "class Example { erase() { delete target.value; } } \
+             let example = new Example(); \
+             let target = { value: 1 }; \
+             example.erase(); \
+             target.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the method call must invalidate the captured property shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn optional_source_call_invalidates_later_function_return_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             function erase() { delete target.value; } \
+             erase?.(); \
+             readTarget().value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the optional call must invalidate the cached return shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn uncalled_class_method_does_not_invalidate_a_captured_binding_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             class Example { erase() { delete target.value; } } \
+             target.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(
+                result.expr,
+                ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                } | ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                }
+            ),
+            "an uncalled method must not publish its captured mutation: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn uncalled_class_constructor_does_not_invalidate_a_captured_binding_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             class Example { constructor() { delete target.value; } } \
+             target.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(
+                result.expr,
+                ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                } | ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                }
+            ),
+            "an uncalled constructor must not publish its captured mutation: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn unconstructed_instance_initializer_does_not_invalidate_a_captured_binding_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             class Example { field = delete target.value; } \
+             target.value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(
+                result.expr,
+                ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                } | ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                }
+            ),
+            "an unconstructed initializer must not publish its captured mutation: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn array_callback_invalidates_later_function_return_shape() {
+        let program = lower(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             [0].forEach(function () { delete target.value; }); \
+             readTarget().value + 1;",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(result) = script.body.statements.last().unwrap() else {
+            panic!("expected follow-up addition");
+        };
+        assert!(
+            matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+            "the callback call must invalidate the cached return shape: {:?}",
+            result.expr
+        );
+    }
+
+    #[test]
+    fn source_function_array_mutation_invalidates_the_caller_shape() {
+        assert_last_expression_is_coercive_add(
+            "const values = [1]; function replace() { values.fill('x'); } replace(); values[0] + 1;",
+            "the source function's array mutation must invalidate the caller shape",
+        );
+    }
+
+    #[test]
+    fn tagged_template_call_invalidates_later_function_return_shape() {
+        assert_last_expression_is_coercive_add(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             function tag() { delete target.value; } \
+             tag`value`; \
+             readTarget().value + 1;",
+            "the tag call must invalidate the cached return shape",
+        );
+    }
+
+    #[test]
+    fn object_exec_method_does_not_use_a_pure_regexp_effect_boundary() {
+        assert_last_expression_is_coercive_add(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             let object = { exec() { delete target.value; } }; \
+             object.exec('value'); \
+             readTarget().value + 1;",
+            "an ordinary exec method must invalidate the cached return shape",
+        );
+    }
+
+    #[test]
+    fn optional_getter_invalidates_later_function_return_shape() {
+        assert_last_expression_is_coercive_add(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             let object = { get value() { delete target.value; return 1; } }; \
+             object?.value; \
+             readTarget().value + 1;",
+            "the optional getter must invalidate the cached return shape",
+        );
+    }
+
+    #[test]
+    fn spread_iteration_invalidates_later_function_return_shape() {
+        assert_last_expression_is_coercive_add(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             function* values() { delete target.value; yield 1; } \
+             Math.max(...values()); \
+             readTarget().value + 1;",
+            "spread iteration must invalidate the cached return shape",
+        );
+    }
+
+    #[test]
+    fn generator_resume_invalidates_a_shape_created_after_generator_creation() {
+        assert_last_expression_is_coercive_add(
+            "let target; \
+             function* values() { delete target.value; } \
+             let iterator = values(); \
+             target = { value: 1 }; \
+             iterator.next(); \
+             target.value + 1;",
+            "generator resumption must invalidate the later property shape",
+        );
+    }
+
+    #[test]
+    fn multi_target_construction_invalidates_an_instance_initializer_capture() {
+        assert_last_expression_is_coercive_add(
+            "let target = { value: 1 }; \
+             class First { field = delete target.value; } \
+             class Second { field = delete target.value; } \
+             let selected = Math.random() < 0.5 ? First : Second; \
+             new selected(); \
+             target.value + 1;",
+            "multi-target construction must account for instance initializers",
+        );
+    }
+
+    #[test]
+    fn with_environment_call_invalidates_later_function_return_shape() {
+        assert_last_expression_is_coercive_add(
+            "let target = { value: 1 }; \
+             function readTarget() { return target; } \
+             function invoke() {} \
+             let scope = new Proxy({}, { has() { delete target.value; return false; } }); \
+             with (scope) { invoke(); } \
+             readTarget().value + 1;",
+            "with-environment selection must invalidate the cached return shape",
+        );
+    }
+
+    #[test]
+    fn pure_static_initializer_does_not_replay_an_earlier_unknown_effect() {
+        let program = lower(
+            "function inspect(callback) { \
+             callback(); \
+             let fresh = { value: 1 }; \
+             class Example { static value = 0; } \
+             return fresh.value + 1; \
+             } \
+             inspect(function () {});",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR should exist");
+        let inspect = script
+            .functions
+            .iter()
+            .find(|function| function.name == "inspect")
+            .expect("inspect should be lowered");
+        let StatementIr::Return(result) = inspect
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::Return(_)))
+            .expect("inspect should return the addition")
+        else {
+            unreachable!("selected statement is a return")
+        };
+        assert!(
+            matches!(
+                result.expr,
+                ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                } | ExprIr::BinaryNumber {
+                    op: ArithmeticBinaryOp::Add,
+                    ..
+                }
+            ),
+            "a pure static initializer must preserve facts established after the callback: {:?}",
             result.expr
         );
     }

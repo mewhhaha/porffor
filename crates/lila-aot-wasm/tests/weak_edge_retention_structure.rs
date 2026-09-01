@@ -1,6 +1,8 @@
+const WEAK_EDGE_SOURCE: &str = include_str!("../src/heap_weak_edges.rs");
 const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
+const POLICY_SOURCE: &str = include_str!("../src/heap_collector_policy.rs");
 
-fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
         .split_once(start)
         .unwrap_or_else(|| panic!("missing start marker: {start}"))
@@ -24,10 +26,14 @@ fn variants<'a>(source: &'a str, declaration: &str) -> Vec<&'a str> {
         .collect()
 }
 
+fn normalized(source: &str) -> String {
+    source.chars().filter(|ch| !ch.is_whitespace()).collect()
+}
+
 #[test]
 fn weak_edge_kind_owns_one_closed_retention_projection() {
     assert_eq!(
-        variants(HEAP_SOURCE, "pub(crate) enum HeapWeakEdgeKind {"),
+        variants(WEAK_EDGE_SOURCE, "pub(crate) enum HeapWeakEdgeKind {"),
         [
             "EphemeronKey,",
             "EphemeronValue,",
@@ -37,7 +43,7 @@ fn weak_edge_kind_owns_one_closed_retention_projection() {
         ],
     );
     assert_eq!(
-        variants(HEAP_SOURCE, "pub(crate) enum HeapWeakEdgeRetention {"),
+        variants(WEAK_EDGE_SOURCE, "pub(crate) enum HeapWeakEdgeRetention {"),
         [
             "DoesNotRetain,",
             "ConditionalOnReachableEphemeronKey,",
@@ -45,13 +51,13 @@ fn weak_edge_kind_owns_one_closed_retention_projection() {
         ],
     );
 
-    let projection = between(
-        HEAP_SOURCE,
+    let projection = bounded(
+        WEAK_EDGE_SOURCE,
         "impl HeapWeakEdgeKind {",
-        "pub(crate) struct HeapWeakEdgeSlot {",
+        "pub(crate) enum HeapWeakEdge {",
     );
     assert!(projection.contains("pub(crate) const fn retention(self) -> HeapWeakEdgeRetention {"));
-    assert!(projection.contains("match self {"));
+    assert_eq!(projection.matches("match self {").count(), 1);
     assert!(
         projection.contains("Self::EphemeronKey | Self::WeakTarget | Self::FinalizerToken => {")
     );
@@ -66,61 +72,99 @@ fn weak_edge_kind_owns_one_closed_retention_projection() {
             .count(),
         1,
     );
-    assert_eq!(
-        projection
-            .matches("HeapWeakEdgeRetention::ConditionalOnReachableEphemeronKey")
-            .count(),
-        1,
-    );
-    assert_eq!(
-        projection
-            .matches("HeapWeakEdgeRetention::StrongUntilCleanup")
-            .count(),
-        1,
-    );
     assert!(!projection.contains("_ =>"));
-    assert!(!projection.contains("unreachable!"));
-    assert!(!projection.contains("todo!"));
 }
 
 #[test]
-fn weak_edge_slots_cannot_override_kind_retention() {
-    assert!(!HEAP_SOURCE.contains("keeps_target_alive"));
-
-    let slot = between(HEAP_SOURCE, "pub(crate) struct HeapWeakEdgeSlot {", "\n}");
-    let fields = slot
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
+fn weak_edge_identity_is_the_exact_capability_free_domain() {
     assert_eq!(
-        fields,
+        variants(WEAK_EDGE_SOURCE, "pub(crate) enum HeapWeakEdge {"),
         [
-            "pub record: &'static str,",
-            "pub name: &'static str,",
-            "pub kind: HeapWeakEdgeKind,",
+            "WeakMapKey,",
+            "WeakMapValue,",
+            "WeakSetValue,",
+            "WeakRefTarget,",
+            "FinalizationRegistryTarget,",
+            "FinalizationRegistryHoldings,",
+            "FinalizationRegistryUnregisterToken,",
         ],
     );
+    assert!(WEAK_EDGE_SOURCE.contains("}\n\npub(crate) enum HeapWeakEdge {"));
+    assert!(!WEAK_EDGE_SOURCE.contains("struct HeapWeakEdgeSlot"));
+}
 
-    let inventory = between(
-        HEAP_SOURCE,
-        "pub(crate) const HEAP_WEAK_EDGE_SLOTS: &[HeapWeakEdgeSlot] = &[",
-        "pub(crate) const HEAP_COLLECTOR_PHASES: &[HeapCollectorPhase] = &[",
+#[test]
+fn weak_edge_identity_owns_one_exhaustive_metadata_projection() {
+    let implementation = bounded(
+        WEAK_EDGE_SOURCE,
+        "impl HeapWeakEdge {",
+        "pub(crate) const HEAP_WEAK_EDGES",
     );
-    assert_eq!(inventory.matches("HeapWeakEdgeSlot {").count(), 7);
-    for (kind, count) in [
-        ("EphemeronKey", 2),
-        ("EphemeronValue", 1),
-        ("WeakTarget", 2),
-        ("FinalizerHoldings", 1),
-        ("FinalizerToken", 1),
+    assert_eq!(implementation.matches("match self {").count(), 1);
+    assert!(!implementation.contains("_ =>"));
+    assert!(!implementation.contains("unreachable!"));
+    assert!(!implementation.contains("todo!"));
+
+    let normalized_implementation = normalized(implementation);
+    for (variant, record, name, kind) in [
+        ("WeakMapKey", "weak-map-entry", "key", "EphemeronKey"),
+        ("WeakMapValue", "weak-map-entry", "value", "EphemeronValue"),
+        ("WeakSetValue", "weak-set-entry", "value", "EphemeronKey"),
+        ("WeakRefTarget", "weak-ref-record", "target", "WeakTarget"),
+        (
+            "FinalizationRegistryTarget",
+            "finalization-registry-cell",
+            "target",
+            "WeakTarget",
+        ),
+        (
+            "FinalizationRegistryHoldings",
+            "finalization-registry-cell",
+            "holdings",
+            "FinalizerHoldings",
+        ),
+        (
+            "FinalizationRegistryUnregisterToken",
+            "finalization-registry-cell",
+            "unregister-token",
+            "FinalizerToken",
+        ),
     ] {
-        assert_eq!(
-            inventory
-                .matches(&format!("kind: HeapWeakEdgeKind::{kind},"))
-                .count(),
-            count,
-            "unexpected slot count for {kind}",
+        let arm = format!(
+            "Self::{variant}=>HeapWeakEdgeMetadata{{record:\"{record}\",name:\"{name}\",kind:HeapWeakEdgeKind::{kind},}},"
+        );
+        assert!(
+            normalized_implementation.contains(&arm),
+            "missing exact metadata arm for {variant}"
         );
     }
+    for accessor in ["record", "name", "kind"] {
+        assert!(
+            implementation.contains(&format!("self.metadata().{accessor}")),
+            "{accessor} must project through the sole metadata authority"
+        );
+    }
+}
+
+#[test]
+fn weak_edge_registry_and_collector_policy_use_only_typed_identities() {
+    let registry = normalized(bounded(
+        WEAK_EDGE_SOURCE,
+        "pub(crate) const HEAP_WEAK_EDGES",
+        "];",
+    ));
+    assert_eq!(
+        registry,
+        ":&[HeapWeakEdge]=&[HeapWeakEdge::WeakMapKey,HeapWeakEdge::WeakMapValue,HeapWeakEdge::WeakSetValue,HeapWeakEdge::WeakRefTarget,HeapWeakEdge::FinalizationRegistryTarget,HeapWeakEdge::FinalizationRegistryHoldings,HeapWeakEdge::FinalizationRegistryUnregisterToken,"
+    );
+
+    let policy = normalized(bounded(
+        POLICY_SOURCE,
+        "impl HeapCollectorPolicy {",
+        "pub(crate) const HEAP_COLLECTOR_POLICY",
+    ));
+    assert!(policy.contains("constfnweak_edges(&self)->&'static[HeapWeakEdge]"));
+    assert!(policy.contains("Self::NonMovingMetadataChecked=>HEAP_WEAK_EDGES,"));
+    assert!(!HEAP_SOURCE.contains("HeapWeakEdgeSlot"));
+    assert!(!HEAP_SOURCE.contains("HEAP_WEAK_EDGE_SLOTS"));
 }

@@ -38,22 +38,11 @@ pub(crate) enum UsingDeclarationKind {
 ///  - [ECMAScript specification][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#prod-LexicalDeclaration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LexicalDeclarationContext {
     Statement,
     ForHead,
 }
 
-impl LexicalDeclarationContext {
-    const fn is_for_head(self) -> bool {
-        match self {
-            Self::Statement => false,
-            Self::ForHead => true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 pub(in crate::parser) struct LexicalDeclaration {
     allow_in: AllowIn,
     allow_yield: AllowYield,
@@ -244,7 +233,7 @@ where
                 self.allow_yield,
                 self.allow_await,
                 BindingDeclarationKind::Const,
-                self.context,
+                &self.context,
             )
             .parse(cursor, interner)?,
             TokenKind::Keyword((Keyword::Let, false)) => BindingList::new(
@@ -252,7 +241,7 @@ where
                 self.allow_yield,
                 self.allow_await,
                 BindingDeclarationKind::Let,
-                self.context,
+                &self.context,
             )
             .parse(cursor, interner)?,
             TokenKind::IdentifierName(_)
@@ -263,7 +252,7 @@ where
                     self.allow_yield,
                     self.allow_await,
                     BindingDeclarationKind::Using,
-                    self.context,
+                    &self.context,
                 )
                 .parse(cursor, interner)?
             }
@@ -287,7 +276,7 @@ where
                     self.allow_yield,
                     self.allow_await,
                     BindingDeclarationKind::AwaitUsing,
-                    self.context,
+                    &self.context,
                 )
                 .parse(cursor, interner)?
             }
@@ -300,16 +289,16 @@ where
             }
         };
 
-        if !self.context.is_for_head() {
-            cursor.expect_semicolon("lexical declaration", interner)?;
-        }
-
         // A for-head remains ambiguous until the surrounding parser sees its
         // delimiter. Classic heads call both generic validators after that
         // split; iterable heads have a distinct ForDeclaration producer.
-        if !self.context.is_for_head() {
-            Self::validate_bound_name_let(&lexical_declaration, tok.span().start())?;
-            Self::validate_duplicate_bound_names(&lexical_declaration, tok.span().start())?;
+        match &self.context {
+            LexicalDeclarationContext::Statement => {
+                cursor.expect_semicolon("lexical declaration", interner)?;
+                Self::validate_bound_name_let(&lexical_declaration, tok.span().start())?;
+                Self::validate_duplicate_bound_names(&lexical_declaration, tok.span().start())?;
+            }
+            LexicalDeclarationContext::ForHead => {}
         }
 
         Ok(lexical_declaration)
@@ -351,13 +340,12 @@ pub(crate) fn allowed_token_after_using(token: Option<&Token>) -> bool {
 ///  - [ECMAScript specification][spec]
 ///
 /// [spec]: https://tc39.es/ecma262/#prod-BindingList
-#[derive(Debug, Clone, Copy)]
-struct BindingList {
+struct BindingList<'a> {
     allow_in: AllowIn,
     allow_yield: AllowYield,
     allow_await: AllowAwait,
     declaration_kind: BindingDeclarationKind,
-    context: LexicalDeclarationContext,
+    context: &'a LexicalDeclarationContext,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -368,14 +356,14 @@ enum BindingDeclarationKind {
     AwaitUsing,
 }
 
-impl BindingList {
+impl<'a> BindingList<'a> {
     /// Creates a new `BindingList` parser.
     fn new<I, Y, A>(
         allow_in: I,
         allow_yield: Y,
         allow_await: A,
         declaration_kind: BindingDeclarationKind,
-        context: LexicalDeclarationContext,
+        context: &'a LexicalDeclarationContext,
     ) -> Self
     where
         I: Into<AllowIn>,
@@ -392,7 +380,7 @@ impl BindingList {
     }
 }
 
-impl<R> TokenParser<R> for BindingList
+impl<R> TokenParser<R> for BindingList<'_>
 where
     R: ReadChar,
 {
@@ -425,17 +413,19 @@ where
             if self.declaration_kind.requires_initializer() {
                 let init_is_some = decl.init().is_some();
 
-                if init_is_some || self.context.is_for_head() {
-                    decls.push(decl);
-                } else {
-                    let next = cursor.next(interner).or_abrupt()?;
-                    return Err(Error::general(
-                        format!(
-                            "Expected initializer for {} declaration",
-                            self.declaration_kind.description()
-                        ),
-                        next.span().start(),
-                    ));
+                match self.context {
+                    LexicalDeclarationContext::Statement if init_is_some => decls.push(decl),
+                    LexicalDeclarationContext::Statement => {
+                        let next = cursor.next(interner).or_abrupt()?;
+                        return Err(Error::general(
+                            format!(
+                                "Expected initializer for {} declaration",
+                                self.declaration_kind.description()
+                            ),
+                            next.span().start(),
+                        ));
+                    }
+                    LexicalDeclarationContext::ForHead => decls.push(decl),
                 }
             } else {
                 decls.push(decl);
@@ -464,18 +454,18 @@ where
                     // We discard the comma
                     cursor.advance(interner);
                 }
-                SemicolonResult::NotFound(_) if self.context.is_for_head() => {
-                    break;
-                }
-                SemicolonResult::NotFound(_) => {
-                    let next = cursor.next(interner).or_abrupt()?;
-                    return Err(Error::expected(
-                        [";".to_owned(), "line terminator".to_owned()],
-                        next.to_string(interner),
-                        next.span(),
-                        "lexical declaration binding list",
-                    ));
-                }
+                SemicolonResult::NotFound(_) => match self.context {
+                    LexicalDeclarationContext::Statement => {
+                        let next = cursor.next(interner).or_abrupt()?;
+                        return Err(Error::expected(
+                            [";".to_owned(), "line terminator".to_owned()],
+                            next.to_string(interner),
+                            next.span(),
+                            "lexical declaration binding list",
+                        ));
+                    }
+                    LexicalDeclarationContext::ForHead => break,
+                },
             }
         }
 

@@ -1,15 +1,25 @@
 use super::super::*;
-use crate::control_flow::SyncIteratorErrorPolicy;
+use crate::control_flow::SyncIteratorConsumer;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum MathBuiltin {
+enum MathBuiltin {
+    Unary(MathUnaryBuiltin),
+    Atan2,
+    Hypot,
+    Imul,
+    Max,
+    Min,
+    Pow,
+    Random,
+    SumPrecise,
+}
+
+enum MathUnaryBuiltin {
     Abs,
     Acos,
     Acosh,
     Asin,
     Asinh,
     Atan,
-    Atan2,
     Atanh,
     Cbrt,
     Ceil,
@@ -21,28 +31,20 @@ pub(super) enum MathBuiltin {
     F16Round,
     Floor,
     Fround,
-    Hypot,
-    Imul,
     Log,
     Log10,
     Log1p,
     Log2,
-    Pow,
-    Random,
     Round,
     Sign,
     Sin,
     Sinh,
     Sqrt,
-    SumPrecise,
     Tan,
     Tanh,
     Trunc,
-    Min,
-    Max,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MathExtremum {
     Minimum,
     Maximum,
@@ -57,7 +59,6 @@ const MATH_SUM_PRECISE_BYTES: u64 = (MATH_SUM_PRECISE_LIMBS * 8) as u64;
 const _: () = assert!(MATH_SUM_PRECISE_LIMBS == 34);
 const _: () = assert!(MATH_SUM_PRECISE_LIMBS * MATH_SUM_PRECISE_LIMB_BITS > 2_151);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MathSumPreciseState {
     MinusZero,
     Finite,
@@ -78,7 +79,6 @@ impl MathSumPreciseState {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MathSumPreciseLimbOperation {
     Add,
     Subtract,
@@ -103,14 +103,14 @@ struct CompletedMathHypotReduction {
 }
 
 impl MathExtremum {
-    const fn identity(self) -> f64 {
+    const fn identity(&self) -> f64 {
         match self {
             Self::Minimum => f64::INFINITY,
             Self::Maximum => f64::NEG_INFINITY,
         }
     }
 
-    fn emit_combine(self, accumulator_local: u32, argument_local: u32, function: &mut Function) {
+    fn emit_combine(&self, accumulator_local: u32, argument_local: u32, function: &mut Function) {
         function.instruction(&Instruction::LocalGet(accumulator_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::LocalGet(argument_local));
@@ -219,14 +219,14 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_math_sum_precise_load_limb(accumulator, index_local, old_local, function);
         function.instruction(&Instruction::LocalGet(old_local));
         function.instruction(&Instruction::LocalGet(addend_local));
-        match operation {
+        match &operation {
             MathSumPreciseLimbOperation::Add => function.instruction(&Instruction::I64Add),
             MathSumPreciseLimbOperation::Subtract => function.instruction(&Instruction::I64Sub),
         };
         function.instruction(&Instruction::LocalSet(partial_local));
         function.instruction(&Instruction::LocalGet(partial_local));
         function.instruction(&Instruction::LocalGet(old_local));
-        match operation {
+        match &operation {
             MathSumPreciseLimbOperation::Add => function.instruction(&Instruction::I64LtU),
             MathSumPreciseLimbOperation::Subtract => function.instruction(&Instruction::I64GtU),
         };
@@ -235,14 +235,14 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::LocalGet(partial_local));
         function.instruction(&Instruction::LocalGet(carry_local));
-        match operation {
+        match &operation {
             MathSumPreciseLimbOperation::Add => function.instruction(&Instruction::I64Add),
             MathSumPreciseLimbOperation::Subtract => function.instruction(&Instruction::I64Sub),
         };
         function.instruction(&Instruction::LocalSet(updated_local));
         function.instruction(&Instruction::LocalGet(updated_local));
         function.instruction(&Instruction::LocalGet(partial_local));
-        match operation {
+        match &operation {
             MathSumPreciseLimbOperation::Add => function.instruction(&Instruction::I64LtU),
             MathSumPreciseLimbOperation::Subtract => function.instruction(&Instruction::I64GtU),
         };
@@ -525,6 +525,7 @@ impl<'a> FunctionBuilder<'a> {
         let method_tag_local = self.reserve_temp_local();
         let iterator_locals = self.reserve_sync_iterator_locals();
         let done_local = self.reserve_temp_local();
+        let consumer = SyncIteratorConsumer::MathSumPrecise;
         let count_local = self.reserve_temp_local();
         let close_saved_payload_local = self.reserve_temp_local();
         let close_saved_tag_local = self.reserve_temp_local();
@@ -537,14 +538,14 @@ impl<'a> FunctionBuilder<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             source_payload_local,
             source_tag_local,
             method_payload_local,
             method_tag_local,
-            iterator_locals,
-            SyncIteratorErrorPolicy::MathSumPrecise,
+            &iterator_locals,
+            &consumer,
             function,
         )?;
 
@@ -575,12 +576,7 @@ impl<'a> FunctionBuilder<'a> {
 
         let break_target = self.open_frame(ControlFrameKind::Block, function);
         let loop_target = self.open_frame(ControlFrameKind::Loop, function);
-        self.emit_sync_iterator_step_value(
-            iterator_locals,
-            done_local,
-            SyncIteratorErrorPolicy::MathSumPrecise,
-            function,
-        )?;
+        self.emit_sync_iterator_step_value(&iterator_locals, done_local, &consumer, function)?;
         function.instruction(&Instruction::LocalGet(done_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
@@ -1349,7 +1345,266 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_math(
+    pub(super) fn emit_math_abs_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Abs), function)
+    }
+
+    pub(super) fn emit_math_acos_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Acos), function)
+    }
+
+    pub(super) fn emit_math_acosh_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Acosh), function)
+    }
+
+    pub(super) fn emit_math_asin_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Asin), function)
+    }
+
+    pub(super) fn emit_math_asinh_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Asinh), function)
+    }
+
+    pub(super) fn emit_math_atan_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Atan), function)
+    }
+
+    pub(super) fn emit_math_atan2_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Atan2, function)
+    }
+
+    pub(super) fn emit_math_atanh_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Atanh), function)
+    }
+
+    pub(super) fn emit_math_cbrt_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Cbrt), function)
+    }
+
+    pub(super) fn emit_math_ceil_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Ceil), function)
+    }
+
+    pub(super) fn emit_math_clz32_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Clz32), function)
+    }
+
+    pub(super) fn emit_math_cos_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Cos), function)
+    }
+
+    pub(super) fn emit_math_cosh_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Cosh), function)
+    }
+
+    pub(super) fn emit_math_exp_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Exp), function)
+    }
+
+    pub(super) fn emit_math_expm1_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Expm1), function)
+    }
+
+    pub(super) fn emit_math_f16round_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::F16Round), function)
+    }
+
+    pub(super) fn emit_math_floor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Floor), function)
+    }
+
+    pub(super) fn emit_math_fround_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Fround), function)
+    }
+
+    pub(super) fn emit_math_hypot_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Hypot, function)
+    }
+
+    pub(super) fn emit_math_imul_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Imul, function)
+    }
+
+    pub(super) fn emit_math_log_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Log), function)
+    }
+
+    pub(super) fn emit_math_log10_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Log10), function)
+    }
+
+    pub(super) fn emit_math_log1p_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Log1p), function)
+    }
+
+    pub(super) fn emit_math_log2_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Log2), function)
+    }
+
+    pub(super) fn emit_math_pow_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Pow, function)
+    }
+
+    pub(super) fn emit_math_random_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Random, function)
+    }
+
+    pub(super) fn emit_math_round_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Round), function)
+    }
+
+    pub(super) fn emit_math_sign_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Sign), function)
+    }
+
+    pub(super) fn emit_math_sin_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Sin), function)
+    }
+
+    pub(super) fn emit_math_sinh_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Sinh), function)
+    }
+
+    pub(super) fn emit_math_sqrt_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Sqrt), function)
+    }
+
+    pub(super) fn emit_math_sum_precise_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::SumPrecise, function)
+    }
+
+    pub(super) fn emit_math_tan_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Tan), function)
+    }
+
+    pub(super) fn emit_math_tanh_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Tanh), function)
+    }
+
+    pub(super) fn emit_math_trunc_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Unary(MathUnaryBuiltin::Trunc), function)
+    }
+
+    pub(super) fn emit_math_min_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Min, function)
+    }
+
+    pub(super) fn emit_math_max_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_math(MathBuiltin::Max, function)
+    }
+
+    fn emit_math(
         &mut self,
         builtin: MathBuiltin,
         function: &mut Function,
@@ -1521,63 +1776,35 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64ReinterpretF64);
                 function.instruction(&Instruction::LocalSet(self.result_local));
             }
-            MathBuiltin::Abs
-            | MathBuiltin::Acos
-            | MathBuiltin::Acosh
-            | MathBuiltin::Asin
-            | MathBuiltin::Asinh
-            | MathBuiltin::Atan
-            | MathBuiltin::Atanh
-            | MathBuiltin::Cbrt
-            | MathBuiltin::Ceil
-            | MathBuiltin::Clz32
-            | MathBuiltin::Cos
-            | MathBuiltin::Cosh
-            | MathBuiltin::Exp
-            | MathBuiltin::Expm1
-            | MathBuiltin::F16Round
-            | MathBuiltin::Floor
-            | MathBuiltin::Fround
-            | MathBuiltin::Log
-            | MathBuiltin::Log10
-            | MathBuiltin::Log1p
-            | MathBuiltin::Log2
-            | MathBuiltin::Round
-            | MathBuiltin::Sign
-            | MathBuiltin::Sin
-            | MathBuiltin::Sinh
-            | MathBuiltin::Sqrt
-            | MathBuiltin::Tan
-            | MathBuiltin::Tanh
-            | MathBuiltin::Trunc => {
+            MathBuiltin::Unary(unary) => {
                 self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
                 self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::LocalGet(self.result_local));
                 function.instruction(&Instruction::LocalSet(arg_payload_local));
-                match builtin {
-                    MathBuiltin::Abs => {
+                match unary {
+                    MathUnaryBuiltin::Abs => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Abs);
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
                     }
-                    MathBuiltin::Ceil => {
+                    MathUnaryBuiltin::Ceil => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Ceil);
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
                     }
-                    MathBuiltin::Floor => {
+                    MathUnaryBuiltin::Floor => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Floor);
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
                     }
-                    MathBuiltin::Fround => {
+                    MathUnaryBuiltin::Fround => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F32DemoteF64);
@@ -1585,21 +1812,21 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
                     }
-                    MathBuiltin::Sqrt => {
+                    MathUnaryBuiltin::Sqrt => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Sqrt);
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
                     }
-                    MathBuiltin::Trunc => {
+                    MathUnaryBuiltin::Trunc => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Trunc);
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
                     }
-                    MathBuiltin::Clz32 => {
+                    MathUnaryBuiltin::Clz32 => {
                         self.emit_to_uint32_i64_from_number_payload(
                             arg_payload_local,
                             arg_payload_local,
@@ -1612,7 +1839,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
                     }
-                    MathBuiltin::Exp => {
+                    MathUnaryBuiltin::Exp => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -1648,7 +1875,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::End);
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Sinh => {
+                    MathUnaryBuiltin::Sinh => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -1677,7 +1904,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Log1p => {
+                    MathUnaryBuiltin::Log1p => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(-1.0)));
@@ -1721,7 +1948,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Log => {
+                    MathUnaryBuiltin::Log => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1741,7 +1968,7 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::End);
                         }
                     }
-                    MathBuiltin::Atanh => {
+                    MathUnaryBuiltin::Atanh => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -1772,7 +1999,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::End);
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Cosh => {
+                    MathUnaryBuiltin::Cosh => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1796,7 +2023,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Log10 => {
+                    MathUnaryBuiltin::Log10 => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1819,7 +2046,7 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::End);
                         }
                     }
-                    MathBuiltin::Log2 => {
+                    MathUnaryBuiltin::Log2 => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1842,7 +2069,7 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::End);
                         }
                     }
-                    MathBuiltin::Acosh => {
+                    MathUnaryBuiltin::Acosh => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1865,7 +2092,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Cos => {
+                    MathUnaryBuiltin::Cos => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -1879,7 +2106,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Asin | MathBuiltin::Atan | MathBuiltin::Sin => {
+                    MathUnaryBuiltin::Asin | MathUnaryBuiltin::Atan | MathUnaryBuiltin::Sin => {
                         function.instruction(&Instruction::LocalGet(arg_payload_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -1891,7 +2118,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Round => {
+                    MathUnaryBuiltin::Round => {
                         function.instruction(&Instruction::LocalGet(arg_payload_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -1955,7 +2182,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::End);
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Expm1 => {
+                    MathUnaryBuiltin::Expm1 => {
                         function.instruction(&Instruction::LocalGet(arg_payload_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -1988,7 +2215,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::End);
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Cbrt => {
+                    MathUnaryBuiltin::Cbrt => {
                         function.instruction(&Instruction::LocalGet(arg_payload_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -2012,7 +2239,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::F16Round => {
+                    MathUnaryBuiltin::F16Round => {
                         let half_bits_local = self.reserve_temp_local();
                         let half_sign_local = self.reserve_temp_local();
                         let half_exp_local = self.reserve_temp_local();
@@ -2048,7 +2275,7 @@ impl<'a> FunctionBuilder<'a> {
                         self.release_temp_local(half_sign_local);
                         self.release_temp_local(half_bits_local);
                     }
-                    MathBuiltin::Sign => {
+                    MathUnaryBuiltin::Sign => {
                         function.instruction(&Instruction::LocalGet(arg_payload_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -2076,7 +2303,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::End);
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Tanh => {
+                    MathUnaryBuiltin::Tanh => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -2100,7 +2327,7 @@ impl<'a> FunctionBuilder<'a> {
                             function.instruction(&Instruction::End);
                         }
                     }
-                    MathBuiltin::Tan => {
+                    MathUnaryBuiltin::Tan => {
                         function.instruction(&Instruction::LocalGet(self.result_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -2112,7 +2339,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Acos => {
+                    MathUnaryBuiltin::Acos => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -2126,7 +2353,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
                     }
-                    MathBuiltin::Asinh => {
+                    MathUnaryBuiltin::Asinh => {
                         function.instruction(&Instruction::LocalGet(arg_payload_local));
                         function.instruction(&Instruction::F64ReinterpretI64);
                         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
@@ -2149,19 +2376,6 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::I64ReinterpretF64);
                         function.instruction(&Instruction::LocalSet(self.result_local));
                         function.instruction(&Instruction::End);
-                    }
-                    MathBuiltin::Atan2 | MathBuiltin::Imul => {
-                        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
-                        function.instruction(&Instruction::I64ReinterpretF64);
-                        function.instruction(&Instruction::LocalSet(self.result_local));
-                    }
-                    MathBuiltin::SumPrecise
-                    | MathBuiltin::Hypot
-                    | MathBuiltin::Min
-                    | MathBuiltin::Max
-                    | MathBuiltin::Pow
-                    | MathBuiltin::Random => {
-                        unreachable!("non-unary Math builtin reached unary dispatch")
                     }
                 }
             }

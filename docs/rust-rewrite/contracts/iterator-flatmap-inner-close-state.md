@@ -38,6 +38,16 @@ pub(crate) enum IteratorFlatMapInnerState {
 }
 ```
 
+Batch AA makes this state a must-use, capability-free one-way lifecycle value.
+It cannot be cloned, copied, formatted through derived debug, defaulted,
+compared, ordered or hashed. Each producer must move its exact pre-installation
+or active state directly into the sole outer-close consumer, so a caller cannot
+replay or independently inspect the decision. The existing three-test guard now
+rejects both derived and manual incidental capabilities. At the Batch AA
+checkpoint, `cargo xc` is green, the strengthened structure target passes
+`3/3`, the exact flatMap CLI witness passes `1/1`, and the two pinned flatMap
+leaves pass all `4/4` Wasm-AOT variants with every failure bucket at zero.
+
 `NotInstalled` means that no inner iterator has yet been committed to the
 helper's `$IteratorFlatMapInnerIterator` and `$IteratorFlatMapInnerNext` fields
 and `$IteratorFlatMapInnerActive` has not been set to true for this mapped

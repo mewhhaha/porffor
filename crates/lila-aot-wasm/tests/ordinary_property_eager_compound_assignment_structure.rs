@@ -1,6 +1,7 @@
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const ASSIGNMENT_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const THROW_INFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/lowering/throw_inference.rs");
 const ORDINARY_PROPERTY_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_compound.rs");
@@ -214,11 +215,7 @@ fn lowering_intercepts_all_eager_access_operators_before_generic_reference_decom
     assert!(ORDINARY_PROPERTY_LOWERING_SOURCE
         .contains("fn ordinary_property_eager_compound_assignment_owns_one_reference()"));
 
-    let assign = bounded(
-        LOWERING_SOURCE,
-        "    fn lower_assign(&mut self, op: AssignOp, lhs: &AssignTarget, rhs: &Expression)",
-        "    fn lower_web_compat_call_assignment_target(",
-    );
+    let assign = ASSIGNMENT_LOWERING_SOURCE;
     for marker in [
         "EagerCompoundAssignmentOp::Arithmetic(arithmetic)",
         "EagerCompoundAssignmentOp::Bitwise(bitwise)",
@@ -251,7 +248,7 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
     let roles = bounded(
         EXPRESSIONS_SOURCE,
         "struct EvaluatedRawOrdinaryPropertyReferenceLocals {",
-        "#[derive(Debug)]\n#[must_use = \"a raw Super Property Reference",
+        "impl OrdinaryPropertyReferenceSource for OrdinaryPropertyEagerCompoundAssignmentIr {",
     );
     assert!(!roles.contains("Clone"));
     assert!(!roles.contains("Copy"));
@@ -343,7 +340,7 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
     let entry = bounded(
         EXPRESSIONS_SOURCE,
         "    fn compile_ordinary_property_eager_compound_assignment_to_locals(",
-        "    fn evaluate_raw_super_property_reference(",
+        "    pub(crate) fn compile_expr_payload(",
     );
     positions_in_order(
         entry,

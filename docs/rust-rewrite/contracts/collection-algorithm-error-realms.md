@@ -31,11 +31,11 @@ consumes this domain and delegates to the current-function-realm TypeError
 operation; constructor and `forEach` bodies must not call the entry-realm
 runtime-error helper directly.
 
-The created-realm Map and Set constructors are self-backed function objects:
-their environment handle names the constructor itself and that object stores
-the created Realm's `%TypeError.prototype%`. This metadata is part of the
-realm law, not fixture setup. Entry-realm functions may still use the existing
-zero-environment fallback to entry globals.
+The created-realm Map, WeakMap, WeakSet and Set constructors are self-backed
+function objects: each environment handle names the constructor itself and
+that object stores the created Realm's `%TypeError.prototype%`. This metadata
+is part of the realm law, not fixture setup. Entry-realm functions may still
+use the existing zero-environment fallback to entry globals.
 
 ## Ordering and abrupt completion
 
@@ -56,10 +56,10 @@ Every Lila-created failure must inherit from the borrowed builtin Realm's
 also pins that the WeakMap and WeakSet wrappers delegate to those same closed
 constructor bodies.
 
-Created realms do not yet publish WeakMap or WeakSet constructors. Their
-cross-realm runtime witnesses therefore remain deferred until those intrinsics
-exist; inventing fixture-only weak constructors would not test the product
-Realm bootstrap.
+Created realms publish WeakMap and WeakSet through the private lifecycle in
+[`weak-collection-created-realm-publication.md`](weak-collection-created-realm-publication.md).
+Its source-free fixture covers both requires-`new` errors and the invalid weak
+key/value failures against the created Realm's `%TypeError.prototype%`.
 
 The source-structure regression pins the closed domains, exhaustive diagnostic
 projections, one typed emitter, fifteen source call sites (seven Map constructor,
@@ -68,7 +68,7 @@ construction in those bounded bodies.
 
 ## Nonclaims
 
-This seam does not add created-realm WeakMap or WeakSet intrinsics, change
-successful collection construction or iteration, receiver branding,
+This algorithm-error seam does not own created-realm intrinsic publication or
+change successful collection construction or iteration, receiver branding,
 SameValueZero, weak reachability, iterator closing, callback invocation, Proxy
 behavior, GC, cleanup jobs, broad Test262 counts or T21 completion.

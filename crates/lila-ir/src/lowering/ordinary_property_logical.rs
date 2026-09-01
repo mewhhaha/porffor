@@ -14,11 +14,11 @@ impl<'a> ScriptLowerer<'a> {
         let (plan, referenced_name, metadata) = self.lower_ordinary_property_reference_plan(access);
         self.record_ordinary_property_get(&metadata);
         let skipped_rhs = self.capture_conditional_flow_facts();
-        let rhs_may_invoke_user_code = self.prepare_potentially_effectful_expression(rhs);
+        let rhs_effect_accounting = self.prepare_potentially_effectful_expression(rhs);
         let before_rhs_effect_epoch = self.intervening_effect_epoch;
         let rhs = self.lower_expression(rhs);
-        let rhs_may_have_intervening_effects =
-            rhs_may_invoke_user_code || self.intervening_effect_epoch != before_rhs_effect_epoch;
+        let rhs_may_have_intervening_effects = rhs_effect_accounting
+            .intervening_effects_observed(before_rhs_effect_epoch, self.intervening_effect_epoch);
         if rhs_may_have_intervening_effects {
             self.observe_all_planned_source_as_unknown_property_hooks();
             self.invalidate_unknown_user_code_effects();
@@ -304,6 +304,35 @@ mod tests {
             "a joined base must make the accessor receiver conservative: {:?}",
             result.expr
         );
+    }
+
+    #[test]
+    fn joined_conditional_receiver_carries_each_builtin_getter() {
+        for source in [
+            "function readSize(flag, map, set) { return (flag ? map : set).size ||= 1; } readSize(true, new Map(), new Set());",
+            "function readSize(flag, map, set) { return (flag ? map : set).size ||= 1; } readSize(true, new Map(null), new Set(undefined));",
+        ] {
+            let program = lower(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.as_ref().expect("script IR should exist");
+            let assignment = returned_assignment(script, "readSize");
+
+            for getter in [
+                StandardBuiltinId::MapPrototypeSizeGetter,
+                StandardBuiltinId::SetPrototypeSizeGetter,
+            ] {
+                assert!(
+                    assignment
+                        .possible_getters()
+                        .contains(&getter.function_id()),
+                    "joined conditional receiver lost {getter:?} for {source}: {assignment:?}"
+                );
+            }
+        }
     }
 
     #[test]

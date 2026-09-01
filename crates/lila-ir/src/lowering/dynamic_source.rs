@@ -4,7 +4,6 @@ use super::*;
 ///
 /// Its constructors are private to this module. A folded `ExprIr::String`
 /// therefore cannot be promoted to AOT-known source by a downstream caller.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DynamicSourceProof {
     Runtime,
     AotSyntax,
@@ -15,11 +14,19 @@ enum DynamicSourceProof {
 /// Call lowering must consume this value before it can emit executable IR. The
 /// pass-through variant proves that `%eval%` never reaches source evaluation;
 /// it is not evidence that any source text is AOT-compilable.
-#[derive(Debug)]
 #[must_use = "resolved dynamic-source calls must execute a proven no-source eval branch or record their typed gap"]
 pub(super) enum ResolvedDynamicSourceCall {
     EvalPassThrough(ProvenEvalPassThrough),
-    Unsupported(DynamicSourceGap),
+    Unsupported(UnsupportedDynamicSourceCall),
+}
+
+/// One-shot ownership of an unsupported dynamic-source invocation.
+///
+/// The fields stay private so the builtin-accounting identity and diagnostic
+/// gap cannot be paired independently after target resolution.
+pub(super) struct UnsupportedDynamicSourceCall {
+    standard_builtin: Option<StandardBuiltinId>,
+    gap: DynamicSourceGap,
 }
 
 /// Proof that the intrinsic `%eval%` call returns before parsing source.
@@ -64,23 +71,9 @@ impl ProvenEvalPassThrough {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
 pub(super) enum OptionalCallSource<'a> {
     AlreadyAccounted,
     Syntax(&'a [Expression]),
-}
-
-impl<'a> OptionalCallSource<'a> {
-    pub(super) const fn syntax(self) -> Option<&'a [Expression]> {
-        match self {
-            Self::AlreadyAccounted => None,
-            Self::Syntax(args) => Some(args),
-        }
-    }
-
-    pub(super) const fn owns_diagnostic(self) -> bool {
-        matches!(self, Self::Syntax(_))
-    }
 }
 
 pub(super) fn already_accounted_optional_calls<'a>(
@@ -146,39 +139,54 @@ fn has_aot_source_text_proof(expression: &Expression) -> bool {
 }
 
 /// The closed call-site contexts observed by standard-builtin analysis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum BuiltinCallContext {
     Call,
-    DirectEval,
+    DirectEval(DirectEvalCallSite),
     Construct,
     RegExpLiteral,
 }
 
-/// Direct eval requires both the intrinsic target and the direct-reference
-/// syntax. Every other resolved `%eval%` call is indirect.
-pub(super) fn resolved_builtin_call_context(
-    callee: &TypedExpr,
-    function_id: &FunctionId,
-) -> BuiltinCallContext {
-    if StandardBuiltinId::from_function_id(function_id) == Some(StandardBuiltinId::EvalFunction)
-        && matches!(
-            &callee.expr,
-            ExprIr::GlobalPropertyRead { name } if name == "eval"
-        )
-    {
-        BuiltinCallContext::DirectEval
-    } else {
-        BuiltinCallContext::Call
+/// Proof that a resolved `%eval%` target still has direct-reference syntax.
+///
+/// The field is private to this module, so sibling lowering modules can route
+/// ordinary calls but cannot manufacture caller-environment eval semantics.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct DirectEvalCallSite(());
+
+/// A possible intrinsic direct-eval target captured before argument
+/// evaluation can mutate the global binding.
+#[must_use = "captured direct-eval identity must be resolved after argument evaluation"]
+pub(super) struct ErasedDirectEvalCall {
+    call_site: DirectEvalCallSite,
+}
+
+impl ErasedDirectEvalCall {
+    pub(super) fn resolve(
+        self,
+        lowerer: &ScriptLowerer<'_>,
+        source_args: &[Expression],
+        lowered_args: &[TypedExpr],
+    ) -> ResolvedDynamicSourceCall {
+        let function_id = StandardBuiltinId::EvalFunction.function_id();
+        lowerer
+            .resolve_dynamic_source_call(
+                &function_id,
+                &BuiltinCallContext::DirectEval(self.call_site),
+                Some(source_args),
+                lowered_args,
+            )
+            .expect("a captured intrinsic eval call is a dynamic-source identity")
     }
 }
 
 pub(super) fn dynamic_source_kind_for_function_id(
     function_id: &str,
-    context: BuiltinCallContext,
+    context: &BuiltinCallContext,
 ) -> Option<DynamicSourceKind> {
     if StandardBuiltinId::from_function_id(function_id) == Some(StandardBuiltinId::EvalFunction) {
         return Some(match context {
-            BuiltinCallContext::DirectEval => DynamicSourceKind::DirectEval,
+            BuiltinCallContext::DirectEval(_) => DynamicSourceKind::DirectEval,
             BuiltinCallContext::Call
             | BuiltinCallContext::Construct
             | BuiltinCallContext::RegExpLiteral => DynamicSourceKind::IndirectEval,
@@ -199,32 +207,31 @@ const fn gap_for_source_proof(
 }
 
 impl ScriptLowerer<'_> {
-    pub(super) fn resolve_constructable_dynamic_source_calls(
+    /// Direct eval requires both the intrinsic target and the original
+    /// direct-reference syntax. Every other resolved `%eval%` call is indirect.
+    pub(super) fn resolved_builtin_call_context(
         &self,
-        function_ids: &BTreeSet<FunctionId>,
-        source_args: &[Expression],
-        lowered_args: &[TypedExpr],
-    ) -> Vec<(FunctionId, ResolvedDynamicSourceCall)> {
-        function_ids
-            .iter()
-            .filter(|function_id| {
-                self.function_signatures
-                    .get(*function_id)
-                    .is_some_and(|signature| {
-                        signature.protocol.is_constructable()
-                            && signature.protocol.flavor() != FunctionFlavor::Arrow
-                    })
-            })
-            .filter_map(|function_id| {
-                self.resolve_dynamic_source_call(
-                    function_id,
-                    BuiltinCallContext::Construct,
-                    Some(source_args),
-                    lowered_args,
-                )
-                .map(|resolved| (function_id.clone(), resolved))
-            })
-            .collect()
+        source_callee: &Expression,
+        callee: &TypedExpr,
+        function_id: &FunctionId,
+    ) -> BuiltinCallContext {
+        let source_is_eval_identifier = matches!(
+            Self::unwrap_parenthesized_expr(source_callee),
+            Expression::Identifier(identifier)
+                if self.interner.resolve_expect(identifier.sym()).to_string() == "eval"
+        );
+        if StandardBuiltinId::from_function_id(function_id) == Some(StandardBuiltinId::EvalFunction)
+            && source_is_eval_identifier
+            && matches!(
+                &callee.expr,
+                ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name }
+                    if name == "eval"
+            )
+        {
+            BuiltinCallContext::DirectEval(DirectEvalCallSite(()))
+        } else {
+            BuiltinCallContext::Call
+        }
     }
 
     pub(super) fn register_dynamic_source_intrinsic_signatures(&mut self) {
@@ -259,13 +266,13 @@ impl ScriptLowerer<'_> {
                 kind: ValueKind::Function,
                 possible_kinds: KindSet::from_kind(ValueKind::Function),
                 heap_shape: Some(Self::function_heap_shape(false)),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             DynamicSourceIntrinsic::RealmEvalScript => ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
         };
         FunctionSignature {
@@ -283,24 +290,25 @@ impl ScriptLowerer<'_> {
             params: Vec::new(),
             return_kind: return_info.kind,
             return_possible_kinds: return_info.possible_kinds,
-            return_shape: return_info.heap_shape.clone(),
+            return_shape: FunctionReturnShape::flow_sensitive(return_info.heap_shape.clone()),
             return_targets: return_info.function_targets.clone(),
             constructor_instance: return_info,
             this_info: self.global_this_info(),
             this_observed: false,
+            source_call_flow_effects: SourceCallFlowEffects::unobserved(),
         }
     }
 
     pub(super) fn record_boxed_builtin_invocation(
         &mut self,
         builtin: StandardBuiltinId,
-        context: BuiltinCallContext,
+        context: &BuiltinCallContext,
     ) {
         if !builtin.is_boxed_primitive_constructor() {
             return;
         }
         match context {
-            BuiltinCallContext::Call | BuiltinCallContext::DirectEval => {
+            BuiltinCallContext::Call | BuiltinCallContext::DirectEval(_) => {
                 self.boxed_builtin_calls += 1
             }
             BuiltinCallContext::Construct => self.boxed_builtin_constructs += 1,
@@ -313,7 +321,7 @@ impl ScriptLowerer<'_> {
     pub(super) fn resolve_dynamic_source_call(
         &self,
         function_id: &str,
-        context: BuiltinCallContext,
+        context: &BuiltinCallContext,
         source_args: Option<&[Expression]>,
         lowered_args: &[TypedExpr],
     ) -> Option<ResolvedDynamicSourceCall> {
@@ -334,19 +342,74 @@ impl ScriptLowerer<'_> {
             .map(|args| DynamicSourceProof::for_args(kind, args))
             .unwrap_or(DynamicSourceProof::Runtime);
         Some(ResolvedDynamicSourceCall::Unsupported(
-            gap_for_source_proof(kind, proof),
+            UnsupportedDynamicSourceCall {
+                standard_builtin: StandardBuiltinId::from_function_id(function_id),
+                gap: gap_for_source_proof(kind, proof),
+            },
         ))
+    }
+
+    /// Unknown user code can erase the global `%eval%` value fact without
+    /// proving that it replaced or deleted the intrinsic. A direct reference
+    /// must retain that capability possibility, while a proven replacement
+    /// remains an ordinary call.
+    pub(super) fn capture_erased_direct_eval_call(
+        &self,
+        source_callee: &Expression,
+        callee: &TypedExpr,
+    ) -> Option<ErasedDirectEvalCall> {
+        if !matches!(
+            InvocationTargetProvenance::from(callee),
+            InvocationTargetProvenance::Erased
+        ) || !callee.possible_kinds.contains(ValueKind::Function)
+        {
+            return None;
+        }
+
+        let eval_function_id = StandardBuiltinId::EvalFunction.function_id();
+        if callee
+            .function_targets
+            .known_targets()
+            .contains(&eval_function_id)
+        {
+            return None;
+        }
+
+        let direct_reference_may_resolve_to_intrinsic = match &callee.expr {
+            ExprIr::GlobalPropertyRead { name } => name == "eval",
+            ExprIr::GlobalIdentifierRead { name } => {
+                name == "eval"
+                    && self
+                        .lookup_global_property_info(name)
+                        .is_some_and(|property| property.source == GlobalPropertySource::Merged)
+            }
+            _ => false,
+        };
+        if !direct_reference_may_resolve_to_intrinsic {
+            return None;
+        }
+
+        match self.resolved_builtin_call_context(source_callee, callee, &eval_function_id) {
+            BuiltinCallContext::DirectEval(call_site) => Some(ErasedDirectEvalCall { call_site }),
+            BuiltinCallContext::Call
+            | BuiltinCallContext::Construct
+            | BuiltinCallContext::RegExpLiteral => None,
+        }
     }
 
     pub(super) fn record_unsupported_dynamic_source(
         &mut self,
-        function_id: &str,
-        gap: DynamicSourceGap,
+        unsupported: UnsupportedDynamicSourceCall,
     ) {
-        if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
+        let UnsupportedDynamicSourceCall {
+            standard_builtin,
+            gap,
+        } = unsupported;
+        if let Some(builtin) = standard_builtin {
             self.note_standard_builtin_call(builtin);
         }
-        self.record_dynamic_source_gap(gap);
+        self.diagnostics
+            .push(IrDiagnostic::unsupported_dynamic_source(gap));
     }
 
     pub(super) fn lower_dynamic_source_construct(
@@ -354,13 +417,13 @@ impl ScriptLowerer<'_> {
         function_id: &str,
         source_args: &[Expression],
     ) -> TypedExpr {
-        let Some(lowered_args) = self.lower_call_args_expanding_spread(source_args) else {
-            return TypedExpr::undefined();
-        };
+        let lowered_args = self
+            .lower_call_args_expanding_spread(source_args)
+            .into_arguments_without_predecessor();
         let resolved = self
             .resolve_dynamic_source_call(
                 function_id,
-                BuiltinCallContext::Construct,
+                &BuiltinCallContext::Construct,
                 Some(source_args),
                 &lowered_args,
             )
@@ -369,15 +432,10 @@ impl ScriptLowerer<'_> {
             ResolvedDynamicSourceCall::EvalPassThrough(_) => {
                 unreachable!("the intrinsic eval function is not constructable")
             }
-            ResolvedDynamicSourceCall::Unsupported(gap) => {
-                self.record_unsupported_dynamic_source(function_id, gap);
+            ResolvedDynamicSourceCall::Unsupported(unsupported) => {
+                self.record_unsupported_dynamic_source(unsupported);
             }
         }
         TypedExpr::undefined()
-    }
-
-    pub(super) fn record_dynamic_source_gap(&mut self, gap: DynamicSourceGap) {
-        self.diagnostics
-            .push(IrDiagnostic::unsupported_dynamic_source(gap));
     }
 }

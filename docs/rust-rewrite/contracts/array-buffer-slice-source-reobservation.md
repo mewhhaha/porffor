@@ -2,6 +2,7 @@
 
 Status: normative for the Wasm AOT ArrayBuffer slice copy seam; the
 `ArrayBufferSliceBound` invariant is implemented, independently reviewed, and
+focused-verified. The copy-policy ownership invariant is implemented and
 focused-verified.
 
 ## Semantic boundary
@@ -71,6 +72,13 @@ enum. Consequently the invalid pairings "argument 0 defaults to length" and
 "argument 1 defaults to zero", as well as arbitrary argument positions, are
 unrepresentable at the caller boundary.
 
+The bound role is also capability-free. One owned `Start` or `End` selection
+is borrowed by both exhaustive projections: `argument_index(&self)` owns the
+argument position, and `match &bound` owns the missing-or-undefined default.
+Clone, copy, debug, default, comparison, ordering and hashing capabilities are
+absent. The two decisions therefore cannot be forked into independently
+selected copies without a Rust compile error.
+
 There are exactly two source calls, both in the one grouped standard-builtin
 body shared by `ArrayBuffer.prototype.slice`,
 `SharedArrayBuffer.prototype.slice`, and
@@ -107,6 +115,25 @@ CLI witness passes `1/1`. Each Test262 leaf above was run as an exact path with
 `--jobs 1 --threads 1`; each passes `2/2` sloppy/strict Wasm-AOT executions,
 with every reported failure bucket at zero.
 
+Batch AH preserves those instruction bodies while strengthening the same
+guard with the exact eight-mention, two-producer and two-borrowed-projection
+census. The borrowed implementation is
+`97ce3ae5aa8c7de1615d675b4836107a3e77cd7e74915eb68f2348bf3d9cf69b`,
+the borrowed helper is
+`f5c68fdc3acc539e902205d7991db025c8bfc5015863f6a87bbe91e9d6534766`,
+and the unchanged grouped producer span remains
+`9473147f5242fa296038457091c82408b1bfb7bbea1b5a90bd7a08ecafde7599`.
+The guard additionally normalizes away only the two borrow markers and pins
+the exact pre-AH bodies. At the shared Batch AH checkpoint, `cargo xc` exits
+zero, `array_buffer_slice_bound_structure` passes `3/3`, and the exact
+`binary_data::run_wasm_backend_succeeds_for_supported_arraybuffer_slice_species_capture_fixture`
+CLI witness passes `1/1`. The pinned
+`built-ins/ArrayBuffer/prototype/slice/start-default-if-undefined.js` and
+`built-ins/ArrayBuffer/prototype/slice/end-default-if-absent.js` leaves pass all
+`4/4` sloppy/strict Wasm-AOT executions. Batch AH did not run a semantic
+golden. Final formatter, diff, module-boundary, task-plan and 240-entry
+shortcut-inventory gates are green.
+
 This is an invariant-only migration. It does not replace the feature-local
 numeric normalization with the authoritative shared `ToIntegerOrInfinity`
 operation, change abrupt-completion routing, alter any slice copy policy, prove
@@ -134,6 +161,93 @@ ordering for the exact-final arm, and private loop. A new operation therefore
 cannot reuse a copy policy until Rust forces an explicit choice, callers cannot
 pass a cached source pointer to the writer, and the exact-final variant does
 not accept an already allocated target.
+
+The payload-bearing copy policy is non-`Clone`, non-`Copy` and has exactly 31
+lexical mentions in production Rust. The grouped standard-builtin owner makes
+five borrowed pre-handoff decisions, covering source validation, target
+validation and species-result rules, before its sole owned handoff to the copy
+writer. The writer makes two borrowed writer decisions for late detachment and
+target selection, then ends the policy lifecycle in the final consuming
+source-selection decision. Reusing the policy after either owned boundary is
+therefore a Rust move error; new policy variants remain exhaustive decisions at
+all eight observations.
+
+The dedicated structural guard pins the exact attribute-free domain, all three
+producer mappings, the 31-mention and nine-per-variant censuses, the sole owned
+writer route, the five-borrow/one-handoff and two-borrow/one-consume lifecycles,
+and complete normalized fingerprints for the grouped owner and copy writer.
+This is ownership and exhaustiveness hardening only: no emitted instruction,
+local, error, allocation or release ordering changes, so emitted Wasm remains
+byte-identical.
+
+Focused evidence is green: `array_buffer_slice_copy_policy_structure` passes
+`5/5`, the neighboring `array_buffer_slice_bound_structure` remains `3/3`, and
+the exact
+`run_wasm_backend_reobserves_arraybuffer_slice_source_after_observable_work`
+CLI witness passes `1/1` through Wasm AOT.
+
+Batch AI makes `ArrayBufferSliceCopyLocals` a single move-only carrier for the
+source object, normalized start, normalized final and requested length. Its
+five production mentions are exactly the private declaration, constructor,
+standard-builtin import, sole constructor call and owned copy-writer
+parameter. The writer is the only consumer and performs thirteen field
+projections with the exact `4/3/1/5` split for source object, start, final and
+requested length. Clone, copy, debug, default, comparison, alias and borrowed
+handoff routes are absent, so the four roles cannot be forked or retained past
+the one owned writer boundary without a Rust move error.
+
+The strengthened recursive guard pins the attribute-free four-field carrier,
+the sole producer and handoff, the complete field-projection census, the exact
+constructor, and the unchanged grouped-owner and writer fingerprints. Removing
+the incidental derive changes no instruction, local, observation, allocation,
+copy or release ordering. At the shared Batch AI checkpoint, `cargo xc` exits
+zero, `array_buffer_slice_copy_policy_structure` passes `6/6`, and the exact
+`binary_data::run_wasm_backend_reobserves_arraybuffer_slice_source_after_observable_work`
+CLI witness passes `1/1`. The exact pinned
+`built-ins/ArrayBuffer/prototype/slice/species.js`,
+`built-ins/ArrayBuffer/prototype/slice/species-returns-larger-arraybuffer.js`
+and `built-ins/SharedArrayBuffer/prototype/slice/species.js` leaves pass all
+`6/6` sloppy/strict Wasm-AOT executions with every failure bucket at zero. No
+semantic golden was needed or run for Batch AI. Final formatter, diff,
+module-boundary, task-plan and 240-entry shortcut-inventory gates are green.
+
+The attribute-excluding carrier declaration remains
+`c27d446dd7c67d0222a3d8e3bff7517b8ee65aa9adbedd64a77ad7217d839355`,
+its constructor remains
+`8e40b3be759a28a4f2240a79c86ed83a281d6ccf249aefb0442f9dbb18454e4f`,
+and the raw writer body remains
+`b95a56d5e6b021795271d5f61cf0fa05acea24c7c5b0802aabccaa3372eb6f7b`.
+The existing normalized grouped-owner and writer fingerprints remain
+`(14341, 0xd07f66f964485b66)` and `(7153, 0x32291bb08809c608)`.
+
+Batch AJ makes `ArrayBufferSliceKind` a single capability-free slice-kind
+authority. Its five production type mentions are exactly the private
+declaration and implementation plus the three grouped builtin producers for
+ordinary, shared and immutable slicing. The one owned `slice_kind` selection
+has six borrowed projections: copy policy, species use,
+default result prototype, brand and flags, and immutable-species rejection.
+Clone, copy, debug, default, comparison, hashing and ordering capabilities are
+absent, so those decisions cannot be forked from incidental copies or retained
+past an owned handoff without a Rust move error.
+
+The strengthened seven-test recursive guard pins all three producers, the
+five-mention type census, the one-owned/six-borrowed lifecycle, every exhaustive
+mapping, and the absence of alias, clone, dereference and mutable-borrow routes.
+The attribute-excluding domain remains
+`1860871f6edaec4bf2afd40c0a737ae469e58faeef6b5895c5a51e6e49aad664`.
+The borrowed implementation is
+`f8d8a88fcfd4720095628c1f95c978f8f48e2881586621537b2fc0cbf45dc3b9`;
+its whitespace-normalized form is
+`484c872e14c67c4834faae4a5e1778f651eacb3a5f9bc1a4fe233b647ca0ef1e`,
+and erasing only the six borrow markers reproduces the pre-AJ semantic hash
+`c5d2ec645ff3c40ea4a20971528ebcb8a099ba3f09efbd48bf9c0fd150452392`
+and the guard fingerprint `(1179, 0x21c812f9ad84ac3e)`. The grouped owner
+remains `(14341, 0xd07f66f964485b66)`. No emitted instruction or observable
+ordering changes. Shared `cargo xc` passes, the structure target passes `7/7`,
+both exact ArrayBuffer CLI witnesses pass `2/2`, and the ordinary,
+immutable-result and shared species leaves pass all `6/6` sloppy/strict
+Wasm-AOT executions with every failure bucket at zero. No semantic golden was
+needed or run.
 
 `Shared` is intentionally distinct. SharedArrayBuffer is not detachable, so
 its branch reloads current length and data without manufacturing an ordinary

@@ -24,7 +24,7 @@ never a silent fallback, never part of an emitted artifact, and never a source
 of published conformance numbers. Wherever a task mentions running spec-exec,
 that run is oracle triage; the Wasm-AOT run is the requirement.
 
-## Current status snapshot — 2026-08-12
+## Current status snapshot — 2026-08-31
 
 | State | Tasks | Repository evidence |
 |---|---|---|
@@ -35,12 +35,592 @@ that run is oracle triage; the Wasm-AOT run is the requirement.
 
 The current working tree passes the task-plan, module-boundary, host-ABI,
 interpreter-dependency and Test262 shortcut audits. The shortcut audit now pins
-an exact 432-entry generated inventory. Every entry has a closed classification,
-reason and concrete owner/removal task; none uses the old aggregate
-`T26-unclassified` owner. The inventory still contains 353 semantic shortcuts,
-so audit green means “no unrecorded drift,” not “no shortcuts.” Do not close a
+an exact 186-entry token-aware generated inventory: 32 legitimate harness
+adaptations, 105 diagnostic instrumentation sites and 49 semantic shortcuts.
+The removal-task summary assigns 35 entries to T03 and leaves T17 at 80. The
+T03 removal bucket contains 32 legitimate adaptations, two diagnostic guards
+and one semantic shortcut. Every entry has a closed classification, reason and
+concrete owner/removal task; none uses the old aggregate `T26-unclassified`
+owner. The scanner covers multiline expressions, same-line multiplicity, exact
+rewrite calls, source contract guards and normalized `match`/`matches!`
+selector tables. Audit green
+therefore means “no selector drift,” not “no shortcuts.” Do not close a
 semantic task from focused green leaves while that task's full-tree and
 materialization-removal criteria remain unmet.
+
+The final twelve T18 semantic observations are gone, leaving T18 with zero
+shortcut ownership. Its five physical String cases retain their exact vendored
+sources across ten sloppy/strict executions. The spec-exec oracle passes
+`10/10`; Wasm-AOT passes `0/10` and classifies all ten as typed `Unsupported`:
+four direct-`eval` sources require a caller-environment lowering seam, while the
+ordinary-`Function` source requires a target-Realm environment seam. These are
+visible T13 dynamic-source gaps, not skipped or passing product cases. Six
+adjacent non-dynamic product controls pass all `12/12` sloppy/strict Wasm-AOT
+executions.
+
+Reduced assertion selection has been deleted in full. All 17,540 physical
+sources and 33,715 executions that formerly selected a reduced body now use the
+full LocalMerged `assert.js`. The typed-array literal contract has 319 physical
+sources and 622 executions: 296/576 use the full helper and 23/46 explicitly
+omit unused assertion code. The SameValue and CompareArray assertion modes,
+their prelude constants and their source-shape predicates are gone. The
+compact typed-array descriptor probe now accepts only the `TypeError` raised
+by a strict write to non-writable `length` or `name`; every other setter
+failure propagates unchanged. Exact Wasm-AOT runs for the `copyWithin`,
+`findLast` and `findLastIndex` `length.js`/`name.js` cases pass all `12/12`
+sloppy/strict executions, and a Proxy-setter regression pins non-`TypeError`
+propagation. The exact `%TypedArray%.prototype.at` helper matcher and source
+guard are also gone. A 15-source/30-execution invariant pins unchanged bodies
+in both Script modes and both prelude profiles: all 13 typed-array-helper
+consumers use the complete vendored `testTypedArray.js`, three also use the
+complete configured `propertyHelper.js`, and the two resizable-helper cases
+retain only T13's separately owned static-subclass substitution. The rebuilt
+post-delete leaf passes all `30/30` sloppy/strict Wasm-AOT executions, and three
+exact adjacent controls pass `6/6` with every non-success bucket at zero. The
+retirement covers the formerly generic
+`ArrayBuffer.isView`, typed-array defined-length, `%TypedArray%[@@species]`,
+TypedArray sort/`of`, DataView constructor, ProxyCreate, `Error.isError` and
+staging `flatMap` cohorts.
+
+The exact `%TypedArray%.prototype.filter` and `map` source matchers and their
+compact prelude consumers are now gone. A shared invariant scans all 84
+physical sources and 168 sloppy/strict executions in each directory, pins the
+18 retired matcher contracts in both prelude stores and permits only complete
+`testTypedArray.js` or no typed-array helper. Filter has 81 complete consumers
+and three sources without the include; map has 79 and five. Six metadata
+sources also use the complete configured `propertyHelper.js`. Sixteen matcher
+paths move from the intrinsic fragment to the complete helper, while the two
+controls were already complete. This removes two T17 semantic shortcuts and
+two diagnostic guards without changing the resizable-buffer admissions. The
+rebuilt release CLI passes all 36 exact current-pin executions as of
+`2026-08-30` under suite pin `aa55200d1310384c5cf69ea95b2a2ecba457007b`;
+the then-live `slice/invoked-as-func.js` compact route also passed `2/2`
+before the separate slice retirement, with every non-success bucket at zero.
+
+The combined exact `%TypedArray%.prototype.every`/`some` source matcher and
+fingerprint guard are now gone. A replacement invariant pins 12 physical
+sources and 24 sloppy/strict executions in four closed three-source cohorts,
+with exact bytes and provenance under both prelude profiles. Only the three
+`every` cases that declare `testTypedArray.js` change, moving from the split
+dispatcher to the complete 14,921-byte helper. Three other `every` cases remain
+without that helper; three `some` consumers remain on the typed-array literal
+plan's 12,362-byte split route, and three others remain without it. The six
+`resizableArrayBufferUtils.js` consumers retain T13's static-subclass
+substitution. This removes one T17 semantic shortcut and one diagnostic guard,
+leaves the broad `every`/`some` resizable-buffer admissions unchanged, and
+at that checkpoint narrowed the retired iterator/find contract to 41 paths. The rebuilt
+release CLI passes all 24 exact executions as of `2026-08-31` under suite pin
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`; the surviving
+then-surviving `find/callbackfn-resize.js` split route passed `2/2`, with every non-success
+bucket at zero.
+
+The `%TypedArray%.prototype.slice` family-prefix selector, exact eight-path
+source matcher and fingerprint guard, and slice-specific compact property
+selector are now gone. The replacement invariant scans all 91 physical sources
+and 182 sloppy/strict executions in both prelude stores and permits only 87
+complete 14,921-byte `testTypedArray.js` consumers or four sources without that
+helper. Fourteen former compact and eight former intrinsic cases now use the
+full helper; 65 cases were already full. The three metadata sources retain
+complete `propertyHelper.js`, `not-a-constructor.js` retains complete
+`isConstructor.js`, and the four `resizableArrayBufferUtils.js` consumers
+retain T13's exact static-subclass substitution. This removes two T17 semantic
+shortcuts and one diagnostic guard, leaves the broad slice resizable-buffer
+admissions unchanged, and limits shared family-prefix compaction to `includes`,
+`indexOf` and `lastIndexOf`. The rebuilt release CLI passes all 44 changed
+executions as of `2026-08-31` under suite pin
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`; exact surviving-route controls
+pass `6/6`, with every non-success bucket at zero. This is a focused
+post-retirement replay, not a new complete `182/182` execution claim.
+
+The final TypedArray family-prefix compaction for `includes`, `indexOf` and
+`lastIndexOf` is now gone. A combined exact invariant scans all 130 physical
+sources and 260 sloppy/strict executions in both prelude stores and permits
+only 117 complete `testTypedArray.js` consumers or 13 sources without that
+helper. Fifteen former compact and twelve former intrinsic cases now use the
+full helper. The 13 no-helper cases remain distinct from the 11 T13
+static-resizable-helper consumers. Deleting the shared 5,254-byte helper, its
+source parser and the three-prefix selector removes five T17 semantic
+shortcuts while preserving broad resizable-buffer admission and the closed
+literal/iterator/find authorities. The rebuilt release CLI passes all 54
+changed executions as of `2026-08-31` under suite pin
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`; the literal-plan and iterator/find
+controls pass `4/4`, with every non-success bucket at zero. This is a focused
+post-retirement replay, not a new complete `260/260` execution claim.
+
+The shadowed 41-path TypedArray iterator/find matcher layer is now gone. All 17
+iterator and 24 find contracts were already exact members of the closed
+319-case literal plan, so the deleted fallback did not change materialized
+bytes. A replacement invariant pins 82 sloppy/strict executions and 164
+materializations across both prelude stores: 18 physical sources use the split
+full-vendored plan, 23 have no `testTypedArray.js`, 21 retain compare-array
+provenance and T13's static resizable-helper rewrite, and local/vendored STA
+provenance is exactly `28/82`. The deletion removes four semantic and two
+diagnostic observations. The rebuilt release CLI passes six representative
+sources in both Script modes (`12/12`) under suite pin
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every non-success bucket at
+zero. This is not a complete `82/82` replay or broad T17 closure.
+
+The split dispatcher no longer scans source text for ten tail-only bindings or
+conditionally retains the unused 2,854-byte end of `testTypedArray.js`. The
+closed literal-plan invariant proves all 218 FullVendored physical sources,
+representing 420 executions, have zero references to those bindings and always
+materialize the canonical 12,362-byte split with FNV-1a
+`0x92c7_bac7_27f5_772d`; the split appears exactly once and the tail marker is
+absent. Drifted cases and helpers still fall back to the full vendored prelude.
+Removing the dead source predicate and full-tail branch deletes two T17
+semantic observations without changing admitted materialization bytes. Four
+representative `some`, `find`, `entries` and `copyWithin` sources pass all
+`7/7` applicable executions under suite pin
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`, with every non-success bucket at
+zero. This is not a complete `420/420` product replay.
+
+Fourteen AggregateError and SuppressedError core-property materializations are
+now gone. Their 28 exact sloppy/strict executions preserve pinned sources and
+full applicable helper provenance; six raw cohorts pass `36/36` including
+eight adjacent prototype controls. T24 therefore owns five remaining
+observations, all explicit dynamic-source substitutions rather than ordinary
+Error semantics.
+
+Twenty Iterator-helper metadata branches are now gone across `every`, `some`,
+`find`, `reduce`, `map`, `filter`, `flatMap` and `take`. The pinned-source
+matrix covers both Script modes and exact LocalMerged/vendored helper bytes and
+provenance. The focused invariant passes `1/1`, and an isolated raw Wasm-AOT
+run of those exact twenty sources passes all `40/40` sloppy/strict executions
+with every non-success bucket at zero. The eight enclosing selector tables
+retain other rewrites, so that checkpoint remained at 360 total entries, 212
+semantic shortcuts and 36 T15-owned observations.
+
+The complete seven-case `Iterator.prototype.forEach` Test262 materializer is
+also gone. Its one built-in and six staging sources now retain exact pinned
+bytes across both Script modes, with exact LocalMerged/vendored assertion,
+`sta.js`, `compareArray.js` and active-realm-host provenance. Removing its
+dispatcher and path-selector body drops the current inventory to 186 total
+observations, 49 semantic shortcuts and 32 T15-owned observations. The earlier
+dated `27/27` built-in and `12/12` staging leaf results were rewrite-backed; the
+raw 14-execution replacement replay remains pending.
+
+The earlier T17 cleanup checkpoint left 190 entries after deleting the exact
+nine-case DataView accessor-metadata, nine-case accessor wrong-receiver,
+four-case `ArrayBuffer.isView` typed-array-argument, its callable-alias case, and
+four-case DataView BigInt-get ToIndex rewrites, plus the eight-case numeric
+DataView setter conversion
+rewrite, the typed-array buffer defined-length expansion and the four-case
+`%TypedArray%[@@species]` compact-helper authorization and the fifteen-source
+ArrayBuffer metadata compact-helper boundary and the forty-two-source DataView
+method metadata rewrite. Their real-source
+invariants pin unchanged sources and the complete ordinary helper boundary;
+the accessor wrong-receiver matrix passes all
+eighteen raw sloppy and strict executions, and the numeric setter matrix passes
+all sixteen. The TypedArray sort value matrix, `TypedArray.of` zero case and
+eleven borrowed Array callback resize cases now preserve all 13 pinned sources
+in both Script modes and both prelude stores. An isolated post-delete Wasm-AOT
+run of those exact sources passes all `26/26` sloppy/strict executions with
+every non-success bucket at zero. Removing their constructor fan-outs, helper
+omission and dispatch paths deletes 29 more semantic observations. That cleanup
+checkpoint left T17 with 161 entries, 80 semantic and 81 diagnostic. A separate
+direct raw preflight of the eight top-level DataView constructor surface sources passed
+all `16/16` sloppy/strict executions through complete vendored assertion and
+declared helpers. Each reported `backend_used: WasmAot`, and every non-success
+bucket stayed at zero. This was unchanged-source evidence before arm removal,
+not a post-delete production-dispatch run. The replacement 8x2 invariant pins
+exact LocalMerged and vendored-only materialization. The rebuilt production
+dispatcher then passes the same exact `16/16` cohort with every non-success
+bucket at zero. Removing those eight arms changes only the surviving selector
+fingerprint, so that checkpoint's counts remained unchanged. The remaining T17
+materializations stay open.
+
+The two borrowed `Array.prototype.at` resizable-buffer sources now preserve
+their exact pinned bodies in sloppy and strict modes. A scoped direct raw
+preflight passed all `4/4` executions after combining complete vendored
+`sta.js`, `assert.js`, `resizableArrayBufferUtils.js` with only T13's
+replacement of the dynamic subclass block with three static classes, and the
+exact source. The full unmodified helper still hits the explicit
+Function-constructor AOT-unsupported boundary. This is pre-delete source
+evidence, not full-helper support or a post-delete production-dispatch run. The
+replacement 2x2 invariant pins exact LocalMerged and vendored-only
+materialization, including the original suffix and the sole helper replacement.
+After deletion, the rebuilt production dispatcher passed that exact `4/4`
+cohort with every non-success bucket at zero while retaining T13's helper
+substitution.
+Deleting the complete rewrite helper, its dispatch and its two path predicates
+removes three T16 semantic observations, leaving 73 T16 entries at that
+checkpoint. The exact
+`Array.prototype.includes/resizable-buffer-special-float-values.js` source then
+passed a separate raw `4/4` preflight across both Script modes and both prelude
+stores. Every execution reported `backend_used: WasmAot`; the sole helper
+change was T13's static-subclass substitution. The unmodified helper still
+reaches the explicit Function-constructor AOT-unsupported boundary, so this is
+not full-helper or post-delete production-dispatch evidence. Removing only its
+terminal materializer preserved the two neighboring Array `includes` rewrites
+and shared dispatcher. After deletion, the rebuilt production dispatcher
+passed the exact source in both Script modes (`2/2`) with every failure and
+non-success bucket at zero. That historical checkpoint had 356 entries,
+including 208 semantic shortcuts; T16 owned 72. The two remaining Array
+`includes` sources each pass a separate raw `4/4` preflight across both Script
+modes and both prelude stores. Every execution reports `backend_used: WasmAot`
+after only T13's static-subclass helper substitution. The unmodified helper
+still reaches the explicit Function-constructor AOT-unsupported boundary. The
+expanded five-source invariant pins exact source, mode, prelude and provenance
+bytes and the sole helper substitution for the two retired Array `at` sources
+and all three retired Array `includes` sources. Removing the final two-source
+rewrite authority deletes three more semantic observations. That historical
+checkpoint had 353 entries, including 205 semantic shortcuts; T16 owned 69 and
+T17 owned 161. After deletion, the rebuilt production dispatcher passed
+the exact final two-source cohort in both Script modes (`4/4`) with every
+failure and non-success bucket at zero.
+
+The exact `built-ins/Array/prototype/map/resizable-buffer.js` source then passed
+a pre-delete raw `4/4` matrix across both Script modes and both prelude stores
+with exact source bytes and only T13's static-subclass helper substitution. The
+unmodified helper still stops at the explicit Function-constructor
+AOT-unsupported boundary, so this is neither full-helper support nor
+post-delete production-dispatch evidence. The expanded six-source invariant
+pins the map source, declared comparison and resizable helpers, and exact
+LocalMerged and vendored-only bytes and origins in both modes. Deleting only
+the map branch from the known-static `for-of` rewrite removes one T17 semantic
+observation. The remaining TypedArray accessor authority and shared
+resizable-directory substitutions stay intact. That checkpoint's inventory had
+352 entries: 35 legitimate
+harness adaptations, 113 diagnostic instrumentation sites and 204 semantic
+shortcuts. T16 owns 69; T17 owns 160, split between 79 semantic shortcuts and
+81 diagnostic guards. After deletion, the rebuilt production dispatcher passed
+the exact map source in both Script modes (`2/2`) with every failure and
+non-success bucket at zero. The seven pinned Array iteration
+`resizable-buffer.js` sources for `find`, `findIndex`, `findLast`,
+`findLastIndex`, `every`, `some` and `filter` then passed an exact raw `28/28`
+matrix across both Script modes and both prelude stores. A separate `find`
+preflight supplied `4/4`; the sibling proof lanes supplied `24/24`. Every run
+used Wasm-AOT and preserved the exact source. Only T13's replacement of the
+dynamic subclass helper block with three static classes was applied. `filter`
+declares the comparison and resizable helpers; the other six declare only the
+resizable helper. The unmodified helper still reaches the explicit
+Function-constructor AOT-unsupported boundary. The expanded thirteen-source
+invariant pins exact modes, sources, includes, prelude bytes and origins,
+original suffixes, no-rewrite boundaries and T13 contract membership. Deleting
+the complete handwritten iteration rewrite, its sole dispatch and seven path
+predicates removes eight T16 semantic observations without changing broad
+per-method admission or the neighboring mid-iteration, `toLocaleString` and
+search rewrite authorities. After deletion, the rebuilt production dispatcher
+passed the exact seven-source cohort in both Script modes (`14/14`) with every
+failure and non-success bucket at zero. That historical checkpoint had 344
+entries, including 196 semantic shortcuts; T16 owned 61. The six pinned Array
+`reduce` and `reduceRight` resizable-buffer sources then passed an exact raw
+`24/24` matrix across both Script modes and both prelude stores. Every run used
+Wasm-AOT, preserved the pinned source, retained the declared `compareArray.js`,
+and applied only T13's static-subclass replacement in
+`resizableArrayBufferUtils.js`. A representative unmodified-helper run stopped
+at the explicit Function-constructor dynamic-code-generation boundary, so this
+is scoped pre-delete evidence rather than full-helper support. The expanded
+nineteen-source invariant pins exact modes, source and prelude bytes, origins,
+suffixes, no-rewrite boundaries and T13 contract membership. Deleting the
+complete reduce rewrite, its sole dispatcher call, both one-caller source
+builders and the obsolete synthetic rewrite test removes six T16 semantic
+observations without changing broad reduce admission or neighboring resizable
+authorities. After deletion, the rebuilt production dispatcher passed the exact
+six-source cohort in both Script modes (`12/12`) with every failure and
+non-success bucket at zero. That historical checkpoint had 338 entries,
+including 190 semantic shortcuts; T16 owned 55. The four pinned Array `indexOf`
+and three pinned Array `lastIndexOf` resizable-buffer sources then passed an
+exact raw `28/28` matrix across both Script modes and both prelude stores. Every
+run used Wasm-AOT with the exact source and declared resizable helper; only
+T13's static-subclass replacement changed. The unmodified helper stopped at the
+explicit Function-constructor dynamic-code-generation boundary. Dry review
+found that the handwritten `lastIndexOf` rewrite had hidden a missing broad
+Array `lastIndexOf/` resizable admission. A single closed prefix set now admits
+`includes/`, `indexOf/` and `lastIndexOf/`, and its admission witness covers all
+three. The expanded twenty-six-source invariant pins exact modes, source and
+prelude bytes, includes, origins, suffixes, no-rewrite boundaries and T13
+contract membership. Deleting both complete search rewrites, their two
+dispatcher calls, seven path predicates, two obsolete synthetic tests and the
+two dead shared prelude/constructor builders removes nine T16 semantic
+observations; consolidating the two previous search admissions removes one
+diagnostic observation. Neighboring mid-iteration and `toLocaleString`
+authorities and broad TypedArray search admission remain. After deletion, the
+rebuilt production dispatcher passed the exact seven-source cohort in both
+Script modes (`14/14`) with every failure and non-success bucket at zero. The
+Array-search retirement checkpoint had 328 entries: 35 legitimate harness
+adaptations, 112 diagnostic instrumentation sites and 181 semantic shortcuts;
+T16 owned 45. The fourteen Array
+`every`/`some`/`filter`/`find`/`findIndex`/`findLast`/`findLastIndex`
+grow/shrink-mid-iteration sources then passed all `56/56` raw executions across
+both Script modes and both prelude stores, split into `24/24` quantifier and
+`32/32` find-family cases. Every run reported `backend_used: WasmAot`, kept the
+exact source and ordered `compareArray.js` plus
+`resizableArrayBufferUtils.js` includes, and used only T13's static-subclass
+replacement. The unmodified helper stopped at the explicit
+Function-constructor dynamic-code-generation boundary. The pinned-source
+invariant now owns all fourteen paths with exact modes, stores, bytes, origins,
+suffixes, no-rewrite boundaries and T13 membership. Deleting the complete
+shared rewrite, sole dispatcher call, one-caller constructor list and obsolete
+synthetic test removes its entrypoint and fifteen direct predicates while the
+seven broad Array admissions, T13 helper contract and neighboring Array
+values, iterator and `toLocaleString` authorities remain. After deletion, the
+rebuilt production dispatcher passed the exact fourteen-source cohort in both
+Script modes (`28/28`) with every failure and non-success bucket at zero. That
+historical checkpoint had 312 entries and 165 semantic shortcuts; T16 owned
+29. The three pinned Array `values` base/grow/shrink resizable-buffer sources
+then passed all `12/12` raw Wasm-AOT executions across both Script modes and
+both prelude stores with byte-exact sources and ordered `compareArray.js` plus
+`resizableArrayBufferUtils.js` includes. Only T13's static-subclass replacement
+was applied. Its helper fingerprint is `0x6466_6602_9ee8_9d5d`; the three case
+fingerprints are `0x5e5c_6ead_7b7c_0dda`, `0x3d18_7152_c6ff_a624` and
+`0x60c2_a9ec_1dff_dd03`. Changed helper, path, include or source bytes keep
+`new Function` and reach the explicit Function-constructor dynamic-code-
+generation boundary. The exact invariant now owns all three modes, stores,
+bytes, origins, suffixes, no-rewrite checks and T13 memberships. Removing both
+complete rewrite functions, their two sole dispatcher calls and both obsolete
+synthetic tests deletes two entrypoints and three direct predicates. Broad
+Array-values admission, Array keys/entries iterator paths, T13's helper
+contract and `toLocaleString` remain. That checkpoint's inventory had 307
+entries: 35 legitimate harness adaptations, 112 diagnostic instrumentation
+sites and 160 semantic shortcuts. T16 owns 24; T17 remains at 160, split between 79
+semantic shortcuts and 81 diagnostic guards. After deletion, the rebuilt
+production dispatcher passed the exact three-source cohort in both Script modes
+(`6/6`) with every failure and non-success bucket at zero.
+
+The three pinned Array `toLocaleString` resizable-buffer sources then passed an
+exact raw `12/12` matrix across both Script modes and both prelude stores. Every
+execution used Wasm-AOT, preserved the pinned source, declared only
+`resizableArrayBufferUtils.js`, and applied only T13's replacement of the
+dynamic subclass block with three static classes. The helper fingerprint
+`0x6466_6602_9ee8_9d5d` and case fingerprints `0x9da9_18f5_d04d_d764`,
+`0xc380_4490_04ea_5b59` and `0x07d1_d14e_3a0b_bb89` admit that one change.
+Changed helper, path, include or source bytes retain `new Function`; a
+representative unmodified-helper run stopped at the explicit
+Function-constructor dynamic-code-generation boundary. The expanded invariant
+pins the three exact sources, modes, stores, bytes, origins, suffixes,
+no-rewrite checks and T13 memberships. Deleting the complete Array
+`toLocaleString` rewrite, its sole dispatch and obsolete synthetic test removes
+one entrypoint and three direct predicates. Broad Array `toLocaleString`
+resizable admission and its witness, T13's contract, TypedArray
+`toLocaleString` behavior and neighboring DataView rewrites remain. The
+pre-retirement baseline contained 307 entries and 160 semantic shortcuts. The
+regenerated source ledger has 303 entries: 35 legitimate harness adaptations,
+112 diagnostic instrumentation sites and 156 semantic shortcuts. T16 owns 24;
+T17 remains at 160 and T18 owns 12. After deletion, the rebuilt production
+dispatcher passed the exact three-source cohort in both Script modes (`6/6`)
+with every failure and non-success bucket at zero.
+
+The seven pinned `%TypedArray%.prototype` accessor resizable-buffer sources
+then passed an exact raw `28/28` matrix across both Script modes and both
+prelude stores: `byteLength/resizable-buffer-assorted.js`,
+`byteLength/resized-out-of-bounds-1.js`,
+`byteLength/resized-out-of-bounds-2.js`,
+`byteOffset/resized-out-of-bounds.js`,
+`length/resizable-buffer-assorted.js`,
+`length/resized-out-of-bounds-1.js` and
+`length/resized-out-of-bounds-2.js`. Every execution used Wasm-AOT, preserved
+the exact source, declared ordered `compareArray.js` and
+`resizableArrayBufferUtils.js` includes, and retained the exact
+`resizable-arraybuffer` feature with empty flags and no negative metadata. Only
+T13's static-subclass replacement changed the helper. The unmodified helper
+stopped at the explicit Function-constructor dynamic-code-generation boundary.
+The renamed shared Array and TypedArray invariant pins the seven new sources
+with exact modes, stores, source and prelude bytes, origins, suffixes and T13
+contract membership. Deleting the complete known-static `for-of` wrapper and
+TypedArray accessor rewrite, the wrapper's sole materialization call and the
+obsolete identity assertions removes all 13 T17 semantic observations;
+ordinary materialization now appends the original source directly. The three
+broad TypedArray accessor admissions and T13's helper contract remain. The
+historical pre-delete ledger contained 303 entries: 35 legitimate harness
+adaptations, 112 diagnostic instrumentation sites and 156 semantic shortcuts.
+The regenerated ledger contains 290 entries: 35 legitimate, 112 diagnostic and
+143 semantic. T16 owns 24; T17 owns 147, split between 66 semantic shortcuts
+and 81 diagnostic guards; T18 owns 12. After deletion, the rebuilt production
+dispatcher passed the exact seven-source cohort in both Script modes (`14/14`)
+with every failure and non-success bucket at zero. This does not claim broad
+T17 closure.
+
+The 43 pinned DataView method wrong-receiver sources now keep their original
+bytes. The exact set contains `this-is-not-object.js` and
+`this-has-no-dataview-internal.js` for the 21 mapped methods present at the
+current pin, plus the sole
+`getInt32/this-has-no-dataview-internal-sab.js`. Mapped `setBigUint64` has none
+of those files, and no other mapped method has the SAB suffix. A pre-delete
+direct raw probe covered `getInt8` primitive receivers, the `setFloat16`
+wrong-slot case, the `getBigInt64` and `setBigInt64` metadata shapes, and the
+`getInt32` SAB case across both Script modes and both prelude stores. All
+`20/20` executions reported `backend_used: WasmAot`. This bounded proof did
+not run every physical source. The replacement invariant scans all 22 mapped
+methods against all three suffixes and pins the exact 43-source census,
+contract fingerprints, metadata, mode order, admission, original bytes,
+LocalMerged assert-only materialization and vendored `assert.js` then `sta.js`
+materialization. Deleting the sole dispatcher call, complete rewrite and
+obsolete synthetic test removes exactly six T17 semantic observations. The
+verified pre-retirement ledger contained 290 entries, including 143 semantic
+shortcuts. The regenerated ledger contains 284 entries: 35 legitimate, 112
+diagnostic and 137 semantic. T16 owns 24; T17 owns 141, split between 60
+semantic shortcuts and 81 diagnostic guards; T18 owns 12. The shared method
+mapper, range and resizable rewrites, method-metadata and accessor invariants,
+and broad DataView SAB admission remain. After deletion, the rebuilt production
+dispatcher passed all 43 exact sources in both Script modes (`86/86`) with
+every failure and non-success bucket at zero. This does not claim broad T17
+closure.
+
+The 41 pinned DataView method range sources now keep their original bytes. The
+exact cohort has `index-is-out-of-range.js` for all 11 getters and 10 setters,
+plus `range-check-after-value-conversion.js` and
+`index-check-before-value-conversion.js` for those same 10 setters. The current
+pin has none of the three files for `setBigUint64` and no getter
+conversion-order files. A pre-delete raw run passed every physical source with
+LocalMerged sloppy materialization (`41/41`). The `setUint16` range-after,
+`setBigInt64` index-before, `getBigUint64` out-of-range and `setFloat16`
+out-of-range representatives also passed both Script modes and both prelude
+stores (`16/16`). The first manually assembled conversion-order stream omitted
+LocalMerged `sta-preamble.js` and failed because `Test262Error` was unbound.
+Restoring the normal prelude made that source pass; no corrected compiler or
+runtime cell failed. The replacement invariant pins the closed 41-source
+census, absent files, fingerprints, metadata, modes, admission, original bytes
+and no-rewrite boundary. LocalMerged materialization uses `assert.js` then
+`sta-preamble.js` for the 20 conversion-order sources and only `assert.js` for
+the 21 out-of-range sources; vendored-only materialization always uses complete
+`assert.js` then `sta.js`. Deleting the sole dispatcher call, complete range
+rewrite, `dataview_method_range_info`, `dataview_method_call` and obsolete
+synthetic test removes exactly six T17 semantic observations. The verified
+post-wrong-receiver baseline,
+after its `86/86` production run, contained 284 entries and 137 semantic
+shortcuts. The regenerated ledger contains 278 entries: 35 legitimate, 112
+diagnostic and 131 semantic. T16 owns 24; T17 owns 135, split between 54
+semantic shortcuts and 81 diagnostic guards; T18 owns 12. At that checkpoint
+the shared method mapper, complete resizable rewrite and helpers, admissions
+and neighboring invariants remained. After the following resizable deletion,
+a rebuilt production run passed this exact range cohort (`82/82`) with every
+failure and non-success bucket at zero.
+
+The 22 pinned DataView method `resizable-buffer.js` sources now also keep their
+original bytes. The exact cohort has one source for each of `getInt8`,
+`getUint8`, `getInt16`, `getUint16`, `getInt32`, `getUint32`, `getFloat16`,
+`getFloat32`, `getFloat64`, `getBigInt64`, `getBigUint64`, `setInt8`,
+`setUint8`, `setInt16`, `setUint16`, `setInt32`, `setUint32`, `setFloat16`,
+`setFloat32`, `setFloat64`, `setBigInt64` and `setBigUint64`. A pre-delete raw
+run passed all sources through Wasm-AOT with LocalMerged and vendored-only
+preludes in both Script modes (`88/88`). The replacement invariant pins all 22
+source fingerprints and bytes, exact metadata, both modes, admission,
+no-rewrite status and exact prelude order, provenance and bytes. LocalMerged
+materialization uses `assert.js` then `sta-preamble.js`; vendored-only
+materialization uses `assert.js` then `sta.js`. Deleting the sole dispatcher
+call, complete resizable rewrite, its value-literal helpers, the now-dead
+shared method mapper, all three mapper-only test assertions and the obsolete
+synthetic test removes exactly five T17 semantic observations. The verified
+post-range checkpoint contained 278 entries, including 131 semantic shortcuts,
+and assigned 135 observations to T17. The regenerated ledger contains 273
+entries: 35 legitimate, 112 diagnostic and 126 semantic. T16 owns 24; T17 owns
+130, split between 49 semantic shortcuts and 81 diagnostic guards; T18 owns
+12. Broad DataView resizable, SAB and immutable admissions, constructor and
+accessor authorities, and neighboring source invariants remain. The same
+rebuilt production run passed the exact resizable cohort (`44/44`), for
+`126/126` combined DataView method executions. This does not claim broad T17
+closure.
+
+That verified method run and its 273-entry ledger, including 126 semantic
+shortcuts, form the historical constructor pre-retirement baseline. The 43
+pinned DataView constructor validation sources now keep their original bytes.
+The exact cohort has ordinary and SAB sources for 19 filenames, plus the
+ordinary `buffer-not-object-throws.js` source and four ordinary
+resize-during-custom-prototype sources. Those five SAB counterparts are absent
+at the current pin. A bounded pre-delete raw probe ran eight representative
+sources through LocalMerged and vendored-only preludes in both Script modes,
+then ran one LocalMerged sloppy execution for each of the other 16 filename
+arms. All `48/48` executions reported `backend_used: WasmAot`; no compiler,
+runtime or harness cell failed. The replacement invariant pins the
+43-present/5-absent census, sorted source-contract fingerprints, exact
+metadata, both mode executions, admission, no self-contained rewrite and
+original bytes. Its LocalMerged groups are now 32 full-assertion sources, nine
+full assertion plus `sta-preamble.js` and two full assertion plus
+property-helper sources. Vendored-only materialization uses exact `assert.js`
+then `sta.js` bytes, plus `propertyHelper.js` for the two extensibility sources.
+Deleting the sole dispatcher call, complete constructor rewrite, its sole
+filename selector and the obsolete synthetic test removes exactly seven T17
+semantic observations. That T17 retirement checkpoint contained 248 entries:
+35 legitimate, 112 diagnostic and 101 semantic. T16 owns 24; T17 owns 105, split
+between 24 semantic shortcuts and 81 diagnostic guards; T18 owns 12. Broad
+DataView SAB and resizable admissions, the existing eight-source
+constructor-surface invariant, method and accessor replacement invariants,
+metadata authorities and unselected constructor neighbors remain. After
+deletion, the rebuilt production dispatcher passed all 43 exact sources in both
+Script modes (`86/86`) with every failure and non-success bucket at zero. This
+does not claim broad T17 closure.
+
+The pinned `toReversed/this-value-invalid.js` and
+`toSorted/this-value-invalid.js` sources now execute without handwritten
+replacements. A pre-delete raw probe passed both sources in sloppy and strict
+LocalMerged modes (`4/4`), and six representative change-by-copy programs
+passed with the complete upstream `testTypedArray.js`. The replacement
+invariants pin both receiver contracts and the exact 21-source
+`toReversed`/`toSorted` helper cohort across 42 Script executions, both prelude
+stores, unchanged source suffixes and the intact 14,921-byte upstream helper;
+neither compact nor split dispatcher materialization is admitted. Vendored-only
+coverage at that checkpoint was a materialization/provenance assertion, not an
+execution claim. The typed host boundary described below now supplies the
+missing materialization contract. Deleting both
+receiver rewrite authorities and the two family-specific dispatcher-split
+gates removes twelve T17 semantic observations from the 266-entry constructor
+checkpoint. The rebuilt production CLI passes the complete `toReversed` and
+`toSorted` directories (`18/18` and `24/24`, `42/42` combined) with every
+failure and non-success bucket at zero. Shared split-helper machinery remains
+for independently owned TypedArray families; this does not claim broad T17
+closure.
+
+The `with/` directory no longer selects that shared split-helper path either. A
+bounded pre-delete raw probe passed four representative unchanged executions
+(`4/4`). The replacement invariant pins all 22 physical sources and 44
+sloppy/strict executions, exactly 21 full `testTypedArray.js` consumers, the
+one no-helper neighbor, source contracts, metadata, both prelude stores and
+unchanged source suffixes. Deleting the sole `with/` selector removes one T17
+semantic observation. The rebuilt production CLI passes the complete directory
+(`44/44`) with every failure and non-success bucket at zero. Split-helper
+ownership remains for other independently tracked TypedArray families; this
+does not claim broad T17 closure.
+
+The family-prefix selectors for `toLocaleString`, `slice`, `filter` and `map`
+are now all retired. Exact invariants cover `39/78`, `91/182`, `84/168` and
+`84/168` physical/execution identities respectively and permit only complete
+`testTypedArray.js` or an explicitly absent helper. Earlier complete-leaf
+replays passed `78/78`, `182/182`, `168/168` and `168/168` before the slice
+retirement. The first three prefix deletions plus a source-text guard removed
+four T17 semantic observations; the later slice wave removes two more semantic
+observations and one diagnostic guard. Its rebuilt CLI passes all 44 changed
+executions plus `6/6` adjacent authority controls, rather than claiming a new
+complete `182/182` sweep. The final `includes`, `indexOf` and `lastIndexOf`
+prefix compaction is now gone too. A combined invariant covers 130 physical
+sources and 260 sloppy/strict executions in both prelude stores: 117 use the
+complete helper and 13 omit it. Fifteen former compact and twelve former
+intrinsic cases now use the full helper. Removing the shared helper, source
+parser and selector deletes five T17 semantic shortcuts. The rebuilt release
+CLI passes the 54 changed executions plus `4/4` surviving-authority controls
+under suite pin `aa55200d1310384c5cf69ea95b2a2ecba457007b`; this is not a
+complete `260/260` replay or broad T17 closure.
+
+Test262 prelude loading now records private `None`, `EmbeddedSpecExecSta`, or
+opaque complete Wasm-AOT host ownership. `EmbeddedWasmAotHostOnly` combines the
+Wasm-AOT host with complete vendored named helpers. The embedded-host witness
+can be constructed only inside its child module. Named `assert.js` and `sta.js`
+must exist before ownership is stored, and replacing either entry revokes it.
+Non-raw materialization resolves declared includes before host planning, fails
+with the execution id and missing include name, and fixes host-requiring source
+order as strict directive, host, `assert.js`, then `sta.js`. The source-and-resolved-helper census contains
+797 physical sources and 1,547 executions; ten exact self-contained rewrite
+sources account for 20 executions, leaving 787 physical sources and 1,527
+executions that emit the host prelude. Agent workers receive that same
+host/assertion/`sta.js` prelude through private materialized state rather than
+runner-side source inspection. The pinned Atomics notification case also passes
+through the product runner with that exact host order.
+
+The four ProxyCreate target-shape sources also pass unchanged in sloppy and
+strict modes (`8/8`). Removing their complete source-rewrite authority deletes
+five semantic observations. All four now use the full LocalMerged `assert.js`,
+including the two sameValue-only cases.
+
+The Proxy apply non-callable-trap Realm source passes unchanged in sloppy and
+strict modes (`2/2`) with complete LocalMerged Realm and assertion preludes.
+Removing its exact-path rewrite and the later null-handler branch first left 10
+observations assigned to T11. Retiring the complete `Proxy.revocable` rewrite
+removes four more. Its 17 ordinary physical cases preserve their pinned
+sources and declared helpers. `tco-fn-realm.js` preserves raw
+`other.evalScript`, which resolves to the typed `RealmEvalScript` AOT
+unsupported boundary owned by T13 rather than a manufactured Proxy result. The
+Proxy checkpoint's 307-entry inventory assigned six observations to T11;
+the remaining apply and construct rewrites stay open.
 
 ## Non-negotiable rules
 

@@ -38,7 +38,8 @@ unreachable allocation behind; JavaScript cannot observe that allocation.
 
 ## Load-bearing representation
 
-`builtins/intl_datetimeformat.rs` owns a private two-state lifecycle:
+`builtins/intl_datetimeformat/construction_lifecycle.rs` owns a private-field
+two-state lifecycle:
 
 ```text
 ReservedIntlDateTimeFormatObjectLocal
@@ -46,8 +47,12 @@ ReservedIntlDateTimeFormatObjectLocal
     -> published result
 ```
 
-Both states are non-`Copy` and hide their raw local. The reserve transition is
-the only constructor of the first state. It uses the shared
+Both states are non-`Copy` and hide their raw local. Rust requires the carrier
+names and three transitions to be `pub(super)` so the parent constructor can
+pass inferred states across locale/options initialization, but the parent
+cannot construct or project either state. The recursive source policy also
+forbids explicit parent naming, imports and re-exports. The reserve transition
+is the only constructor of the first state. It uses the shared
 `emit_new_target_prototype_to_locals` operation and tagged ordinary-object
 allocation, then releases the temporary prototype tag and payload in LIFO
 order while retaining the result local.
@@ -67,9 +72,10 @@ fail instead of silently restoring the former two-Get path.
 
 ## Owned files
 
-This slice is closed over seven files:
+This slice is closed over eight files:
 
 - `crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs`;
+- `crates/lila-aot-wasm/src/builtins/intl_datetimeformat/construction_lifecycle.rs`;
 - `crates/lila-aot-wasm/src/functions.rs`;
 - `crates/lila-aot-wasm/tests/intl_date_time_format_construction_order_structure.rs`;
 - `crates/lila-cli/tests/fixtures/wasm_intl_date_time_format_construction_order.js`;
@@ -102,14 +108,15 @@ throwing-getter tests.
 ## Verification boundary
 
 The static freeze consists of exact-file `rustfmt --check`, `node --check` for
-the fixture, the structural guard proving one tagged prototype lookup and the
-one-way reserved/initialized/published transition, `git diff --check`, module
-boundary checks, task-ledger checks, file-scope review, and independent review.
+the fixture, the recursive structural guard proving one tagged prototype
+lookup, sole carrier/transition ownership and the one-way
+reserved/initialized/published transition, `git diff --check`, module boundary
+checks, task-ledger checks, file-scope review, and independent review.
 
-After the shared low-memory matrix releases Cargo, run the structural test, the
-registered CLI fixture, the pinned Test262 witnesses above under Wasm AOT, and
-then the serialized broad batch ladder. This freeze claims no Cargo, fixture,
-Test262, or snapshot result.
+At the 2026-08-28 Batch W checkpoint, `cargo xc` is green, the recursive
+structure target passes `1/1`, and the registered construction-order CLI
+fixture passes `1/1`. The adjacent pinned Intl Test262 witnesses, semantic
+snapshot and broad batch ladder were not rerun; no result is claimed for them.
 
 ## Nonclaims
 

@@ -86,6 +86,38 @@ that spelling changes `~1n` into a mixed-numeric TypeError. A dedicated
 boundary, then an exhaustive Number/BigInt match selects this shared residue
 emitter or the exact arbitrary-precision BigInt XOR-with-`-1n` operation.
 
+### Unary complement result authority
+
+The backend result classification is the private, non-derived
+`UnaryNumericKind::{Number, BigInt}` domain. Its two construction sites occur
+after the single operand evaluation and `ToNumeric` conversion. The sole
+consumer exhaustively binds `BigInt` to arbitrary-precision complement and
+`Number` to the ordered modulo-2^32, XOR, sign-extension and Number-tag
+sequence. The type is moved into that consumer and has no clone, copy, debug,
+equality or default capability.
+
+The recursive source guard pins the complete six-mention ownership census,
+both producer calls, the branch and temporary-local order and both exact arm
+bodies. The existing dynamic fixture observes Number and multi-limb BigInt
+results, boxed operands, single coercion and abrupt completion. Focused
+verification is:
+
+```console
+cargo test -p lila-aot-wasm --test unary_numeric_ir_structure
+cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_bigint_bitwise_fixture -- --exact --test-threads=1
+./target/debug/lila --jobs 1 test262 run language/expressions/bitwise-not/S11.4.8_A3_T1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
+./target/debug/lila --jobs 1 test262 run language/expressions/bitwise-not/bigint.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
+```
+
+The structure target passes `7/7`, the exact CLI witness passes `1/1`, and the
+two pinned Test262 leaves pass all `4/4` ordinary executions with every failure
+bucket at zero. Removing the unused derives changes no producer, match arm,
+instruction, local or ordering and is expected to leave emitted Wasm
+byte-identical. No broad Test262, semantic-golden or conformance-count change is
+claimed. Independent dry review is clean, and the shared `cargo fmt --all --
+--check`, `cargo xc`, diff, module-boundary and task-plan checkpoint is green
+with the workspace's existing warnings.
+
 `String.fromCharCode` stores the converted Number payload, consumes this same
 modulo-2^32 emitter, and only then masks to 16 bits. Its former
 `i64.trunc_sat_f64_s & 0xffff` sequence mapped `Infinity` and large finite

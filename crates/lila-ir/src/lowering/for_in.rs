@@ -128,7 +128,7 @@ impl<'a> ScriptLowerer<'a> {
             target.kind = ValueKind::Dynamic;
             target.possible_kinds = KindSet::all_runtime_tags();
             target.heap_shape = None;
-            target.function_targets.clear();
+            target.function_targets.widen_for_possible_replacement();
         }
         let is_dynamic_target = target.kind == ValueKind::Dynamic;
         let is_array_target = target.possible_kinds.contains(ValueKind::Array)
@@ -204,6 +204,10 @@ impl<'a> ScriptLowerer<'a> {
             return (StatementIr::Empty, ValueKind::Undefined);
         }
 
+        // EnumerateObjectProperties can enter Proxy ownKeys and descriptor
+        // traps while discovering the keys, before the first loop head or body
+        // evaluation.
+        self.invalidate_unknown_user_code_effects();
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
         self.push_scope();

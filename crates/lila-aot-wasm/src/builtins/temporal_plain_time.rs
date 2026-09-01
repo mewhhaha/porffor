@@ -12,29 +12,37 @@
 use super::super::*;
 use super::temporal_options::{TemporalOverflow, TemporalTimeUnit, TemporalUnit};
 
-/// Field order: the constructor argument order, and the order the fields are
-/// written into the record.
-pub(crate) const TEMPORAL_PLAIN_TIME_FIELD_OFFSETS: [u64; 6] = [
-    HEAP_TEMPORAL_PLAIN_TIME_HOUR_OFFSET,
-    HEAP_TEMPORAL_PLAIN_TIME_MINUTE_OFFSET,
-    HEAP_TEMPORAL_PLAIN_TIME_SECOND_OFFSET,
-    HEAP_TEMPORAL_PLAIN_TIME_MILLISECOND_OFFSET,
-    HEAP_TEMPORAL_PLAIN_TIME_MICROSECOND_OFFSET,
-    HEAP_TEMPORAL_PLAIN_TIME_NANOSECOND_OFFSET,
-];
+impl TemporalTimeUnit {
+    const fn plain_time_field_index(self) -> usize {
+        match self {
+            Self::Hour => 0,
+            Self::Minute => 1,
+            Self::Second => 2,
+            Self::Millisecond => 3,
+            Self::Microsecond => 4,
+            Self::Nanosecond => 5,
+        }
+    }
 
-#[allow(dead_code)]
-pub(crate) const TEMPORAL_PLAIN_TIME_FIELD_NAMES: [&str; 6] = [
-    "hour",
-    "minute",
-    "second",
-    "millisecond",
-    "microsecond",
-    "nanosecond",
-];
+    const fn plain_time_record_offset(self) -> u64 {
+        match self {
+            Self::Hour => HEAP_TEMPORAL_PLAIN_TIME_HOUR_OFFSET,
+            Self::Minute => HEAP_TEMPORAL_PLAIN_TIME_MINUTE_OFFSET,
+            Self::Second => HEAP_TEMPORAL_PLAIN_TIME_SECOND_OFFSET,
+            Self::Millisecond => HEAP_TEMPORAL_PLAIN_TIME_MILLISECOND_OFFSET,
+            Self::Microsecond => HEAP_TEMPORAL_PLAIN_TIME_MICROSECOND_OFFSET,
+            Self::Nanosecond => HEAP_TEMPORAL_PLAIN_TIME_NANOSECOND_OFFSET,
+        }
+    }
 
-/// `IsValidTime` upper bounds, in declaration order. Every lower bound is 0.
-pub(crate) const TEMPORAL_PLAIN_TIME_FIELD_MAXIMA: [i64; 6] = [23, 59, 59, 999, 999, 999];
+    const fn plain_time_field_maximum(self) -> i64 {
+        match self {
+            Self::Hour => 23,
+            Self::Minute | Self::Second => 59,
+            Self::Millisecond | Self::Microsecond | Self::Nanosecond => 999,
+        }
+    }
+}
 
 /// `ToTemporalTimeRecord` reads the property bag in alphabetical order and the
 /// reads are observable, so the order here is load-bearing. Each entry is
@@ -94,11 +102,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(object_payload_local));
         self.emit_heap_alloc_const(HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE, function)?;
         function.instruction(&Instruction::LocalSet(record_local));
-        for (offset, local) in TEMPORAL_PLAIN_TIME_FIELD_OFFSETS
-            .iter()
-            .zip(field_locals.iter())
-        {
-            self.store_i64_local_at_offset(record_local, *offset, *local, function);
+        for unit in TemporalTimeUnit::ALL {
+            self.store_i64_local_at_offset(
+                record_local,
+                unit.plain_time_record_offset(),
+                field_locals[unit.plain_time_field_index()],
+                function,
+            );
         }
         self.store_i64_const_at_offset(
             object_payload_local,
@@ -208,11 +218,13 @@ impl<'a> FunctionBuilder<'a> {
         field_locals: &[u32; 6],
         function: &mut Function,
     ) {
-        for (offset, local) in TEMPORAL_PLAIN_TIME_FIELD_OFFSETS
-            .iter()
-            .zip(field_locals.iter())
-        {
-            self.load_i64_to_local_from_offset(record_local, *offset, *local, function);
+        for unit in TemporalTimeUnit::ALL {
+            self.load_i64_to_local_from_offset(
+                record_local,
+                unit.plain_time_record_offset(),
+                field_locals[unit.plain_time_field_index()],
+                function,
+            );
         }
     }
 
@@ -222,12 +234,13 @@ impl<'a> FunctionBuilder<'a> {
         field_locals: &[u32; 6],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        for (index, maximum) in TEMPORAL_PLAIN_TIME_FIELD_MAXIMA.iter().enumerate() {
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
+        for unit in TemporalTimeUnit::ALL {
+            let field_local = field_locals[unit.plain_time_field_index()];
+            function.instruction(&Instruction::LocalGet(field_local));
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
-            function.instruction(&Instruction::I64Const(*maximum));
+            function.instruction(&Instruction::LocalGet(field_local));
+            function.instruction(&Instruction::I64Const(unit.plain_time_field_maximum()));
             function.instruction(&Instruction::I64GtS);
             function.instruction(&Instruction::I32Or);
             function.instruction(&Instruction::If(BlockType::Empty));
@@ -256,20 +269,21 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_reject_time(field_locals, function)?;
         function.instruction(&Instruction::Else);
-        for (index, maximum) in TEMPORAL_PLAIN_TIME_FIELD_MAXIMA.iter().enumerate() {
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
+        for unit in TemporalTimeUnit::ALL {
+            let field_local = field_locals[unit.plain_time_field_index()];
+            function.instruction(&Instruction::LocalGet(field_local));
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(field_locals[index]));
+            function.instruction(&Instruction::LocalSet(field_local));
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
-            function.instruction(&Instruction::I64Const(*maximum));
+            function.instruction(&Instruction::LocalGet(field_local));
+            function.instruction(&Instruction::I64Const(unit.plain_time_field_maximum()));
             function.instruction(&Instruction::I64GtS);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(*maximum));
-            function.instruction(&Instruction::LocalSet(field_locals[index]));
+            function.instruction(&Instruction::I64Const(unit.plain_time_field_maximum()));
+            function.instruction(&Instruction::LocalSet(field_local));
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::End);
@@ -285,8 +299,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         function.instruction(&Instruction::I64Const(0));
-        for (index, unit) in TemporalTimeUnit::ALL.iter().enumerate() {
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
+        for unit in TemporalTimeUnit::ALL {
+            let field_local = field_locals[unit.plain_time_field_index()];
+            function.instruction(&Instruction::LocalGet(field_local));
             function.instruction(&Instruction::I64Const(unit.nanoseconds()));
             function.instruction(&Instruction::I64Mul);
             function.instruction(&Instruction::I64Add);
@@ -488,21 +503,14 @@ impl<'a> FunctionBuilder<'a> {
     /// `i64`-to-Number conversion, selected by field index.
     pub(crate) fn emit_temporal_plain_time_field(
         &mut self,
-        builtin: StandardBuiltinId,
+        unit: TemporalTimeUnit,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let index = match builtin {
-            StandardBuiltinId::TemporalPlainTimePrototypeHourGetter => 0,
-            StandardBuiltinId::TemporalPlainTimePrototypeMinuteGetter => 1,
-            StandardBuiltinId::TemporalPlainTimePrototypeSecondGetter => 2,
-            StandardBuiltinId::TemporalPlainTimePrototypeMillisecondGetter => 3,
-            StandardBuiltinId::TemporalPlainTimePrototypeMicrosecondGetter => 4,
-            StandardBuiltinId::TemporalPlainTimePrototypeNanosecondGetter => 5,
-            _ => unreachable!("non-accessor Temporal.PlainTime builtin"),
-        };
         let field_locals = self.reserve_temporal_plain_time_field_locals();
         self.emit_temporal_plain_time_fields_from_receiver(&field_locals, function)?;
-        function.instruction(&Instruction::LocalGet(field_locals[index]));
+        function.instruction(&Instruction::LocalGet(
+            field_locals[unit.plain_time_field_index()],
+        ));
         function.instruction(&Instruction::F64ConvertI64S);
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(self.result_local));

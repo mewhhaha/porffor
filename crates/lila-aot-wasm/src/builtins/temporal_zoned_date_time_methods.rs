@@ -65,8 +65,7 @@ use super::super::*;
 /// silent wrong answer in the exact family this lane exists to fix. The
 /// closed set gets a closed type, and the delegate it maps to is a total
 /// function rather than an `if` inside the emitter.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum ZonedDateTimeArithmetic {
+enum ZonedDateTimeArithmetic {
     Add,
     Subtract,
 }
@@ -87,8 +86,7 @@ impl ZonedDateTimeArithmetic {
 /// [`ZonedDateTimeArithmetic`]: `until` and `since` differ only in operand
 /// order, so a transposed `bool` produces a correctly-shaped `Temporal.Duration`
 /// with the wrong sign.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum ZonedDateTimeDifference {
+enum ZonedDateTimeDifference {
     Until,
     Since,
 }
@@ -209,6 +207,37 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(super) fn emit_temporal_zoned_date_time_add_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_zoned_date_time_add_or_subtract(ZonedDateTimeArithmetic::Add, function)
+    }
+
+    pub(super) fn emit_temporal_zoned_date_time_subtract_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_zoned_date_time_add_or_subtract(
+            ZonedDateTimeArithmetic::Subtract,
+            function,
+        )
+    }
+
+    pub(super) fn emit_temporal_zoned_date_time_until_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_zoned_date_time_until_or_since(ZonedDateTimeDifference::Until, function)
+    }
+
+    pub(super) fn emit_temporal_zoned_date_time_since_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_zoned_date_time_until_or_since(ZonedDateTimeDifference::Since, function)
+    }
+
     /// Temporal proposal 6.3.x `add` and `subtract`, both through the
     /// PlainDateTime round trip described in this module's header.
     ///
@@ -242,7 +271,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Not fixed here. The fix is a duration/options pre-coercion hoisted ahead
     /// of leg 1, which costs a second `ToTemporalDuration` call site, and it
     /// should not be done without a run.
-    pub(crate) fn emit_temporal_zoned_date_time_add_or_subtract(
+    fn emit_temporal_zoned_date_time_add_or_subtract(
         &mut self,
         arithmetic: ZonedDateTimeArithmetic,
         function: &mut Function,
@@ -396,7 +425,7 @@ impl<'a> FunctionBuilder<'a> {
     /// still observed once. This keeps one copy of the arithmetic body and is
     /// pinned by the `defaults-to-returning-hours`, `largestunit-undefined` and
     /// `largestunit-default` families for both operations.
-    pub(crate) fn emit_temporal_zoned_date_time_until_or_since(
+    fn emit_temporal_zoned_date_time_until_or_since(
         &mut self,
         difference: ZonedDateTimeDifference,
         function: &mut Function,

@@ -3,6 +3,7 @@ const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const STRING_SOURCE: &str = include_str!("../src/builtins/string.rs");
+const STRING_RANGE_SOURCE: &str = include_str!("../src/builtins/string/string_code_unit_range.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -24,12 +25,100 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 }
 
 #[test]
-fn string_ranges_have_one_typed_utf16_materializer() {
-    let coordinator = bounded(
-        STRING_SOURCE,
-        "mod string_code_unit_range {",
-        "impl<'a> FunctionBuilder<'a> {",
+fn string_code_unit_range_has_one_private_child_owner() {
+    assert_eq!(
+        STRING_SOURCE
+            .matches("\nmod string_code_unit_range;\n")
+            .count(),
+        1
     );
+    assert!(!STRING_SOURCE.contains("\npub mod string_code_unit_range;\n"));
+    assert!(!STRING_SOURCE.contains("\npub(crate) mod string_code_unit_range;\n"));
+    assert!(!STRING_SOURCE.contains("\nmod string_code_unit_range {\n"));
+    assert!(STRING_RANGE_SOURCE.starts_with("use super::*;\n\n"));
+
+    for declaration in [
+        "struct UnitIndexLocal(u32);",
+        "struct UnitLengthLocal(u32);",
+        "struct RangeLengthLocal(u32);",
+        "struct MaterializableRangeLocals {",
+        "enum Method {",
+    ] {
+        assert_eq!(
+            STRING_RANGE_SOURCE.matches(declaration).count(),
+            1,
+            "child must own exactly one `{declaration}`"
+        );
+    }
+    for unique_declaration in [
+        "struct RangeLengthLocal(u32);",
+        "struct MaterializableRangeLocals {",
+    ] {
+        assert!(
+            !STRING_SOURCE.contains(unique_declaration),
+            "parent must not retain `{unique_declaration}`"
+        );
+    }
+    assert_eq!(
+        STRING_RANGE_SOURCE
+            .lines()
+            .map(str::trim_start)
+            .filter(|line| line.starts_with("struct ") || line.starts_with("enum "))
+            .count(),
+        5
+    );
+    assert!(!STRING_RANGE_SOURCE.contains("pub struct "));
+    assert!(!STRING_RANGE_SOURCE.contains("pub enum "));
+
+    for definition in [
+        "    fn emit_normalized_index(",
+        "    fn emit_range(",
+        "    fn emit_payload(",
+        "pub(super) fn emit_slice(",
+        "pub(super) fn emit_substring(",
+        "fn emit(",
+    ] {
+        assert_eq!(
+            STRING_RANGE_SOURCE.matches(definition).count(),
+            1,
+            "child must own exactly one `{definition}`"
+        );
+    }
+    for unique_definition in [
+        "    fn emit_normalized_index(",
+        "    fn emit_range(",
+        "    fn emit_payload(",
+        "pub(super) fn emit_slice(",
+        "pub(super) fn emit_substring(",
+    ] {
+        assert!(
+            !STRING_SOURCE.contains(unique_definition),
+            "parent must not retain `{unique_definition}`"
+        );
+    }
+    assert_eq!(STRING_RANGE_SOURCE.matches("fn ").count(), 6);
+    assert_eq!(
+        STRING_RANGE_SOURCE
+            .lines()
+            .filter(|line| line.starts_with("pub(super) fn "))
+            .count(),
+        2
+    );
+    assert!(!STRING_RANGE_SOURCE.contains("pub(crate) fn "));
+    assert!(!STRING_RANGE_SOURCE.contains("\npub fn "));
+
+    for retained_parent_entry in [
+        "    pub(crate) fn compile_string_slice_range_builtin(",
+        "    pub(crate) fn compile_string_substring_range_builtin(",
+    ] {
+        assert_eq!(STRING_SOURCE.matches(retained_parent_entry).count(), 1);
+        assert!(!STRING_RANGE_SOURCE.contains(retained_parent_entry));
+    }
+}
+
+#[test]
+fn string_ranges_have_one_typed_utf16_materializer() {
+    let coordinator = STRING_RANGE_SOURCE;
 
     for local in [
         "UnitIndexLocal",
@@ -46,7 +135,7 @@ fn string_ranges_have_one_typed_utf16_materializer() {
     assert_eq!(coordinator.matches("#[must_use").count(), 4);
     assert!(!coordinator.contains("derive("));
     assert!(!coordinator.contains("impl Copy for"));
-    assert!(coordinator.contains("fn emit_payload(\n            self,"));
+    assert!(coordinator.contains("fn emit_payload(\n        self,"));
 
     let method = bounded(coordinator, "enum Method {", "impl Method {");
     let variants = method
@@ -161,7 +250,7 @@ fn standard_and_direct_entries_delegate_without_parallel_algorithms() {
     let direct_substring = bounded(
         STRING_SOURCE,
         "pub(crate) fn emit_string_substring_method_call(",
-        "pub(crate) fn static_number_expr_value(",
+        "pub(crate) fn emit_string_char_code_at_from_locals(",
     );
     assert_eq!(
         direct_substring
@@ -187,7 +276,7 @@ fn standard_and_direct_entries_delegate_without_parallel_algorithms() {
     let direct_builtin = bounded(
         ARRAY_SOURCE,
         "pub(crate) fn emit_array_direct_builtin_method_call(",
-        "pub(crate) fn emit_array_push_method_call(",
+        "pub(crate) fn compile_array_prototype_join_builtin(",
     );
     assert_before(
         direct_builtin,
@@ -291,7 +380,7 @@ fn string_index_normalizers_saturate_before_clamping_to_length() {
     let slice = bounded(
         CONTROL_FLOW_SOURCE,
         "    pub(crate) fn emit_to_slice_index_clamped_to_string_len(",
-        "    pub(crate) fn compile_for_of_array(",
+        "    fn emit_state_in_inclusive_range_i32(",
     );
 
     for normalizer in [integer, slice] {

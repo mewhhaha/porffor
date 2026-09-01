@@ -122,10 +122,11 @@ assertion.
 ## Scope and nonclaims
 
 This seam changes no parser, lowering IR, Wasm representation or runtime
-wrapper. It does not close attributed re-exports, namespace exotic internal
-methods, per-unit declaration collisions, the module-`var` global leak, lazy
-dynamic-target evaluation, cyclic/deferred/async evaluation, top-level await,
-or the full pinned `language/module-code` closure.
+wrapper. Attributed re-export retention is closed separately by the canonical
+module-request identity seam. This seam does not close namespace exotic
+internal methods, per-unit declaration collisions, the module-`var` global
+leak, lazy dynamic-target evaluation, cyclic/deferred/async evaluation,
+top-level await, or the full pinned `language/module-code` closure.
 
 Cheap freeze gates are exact Rust formatting, `git diff --check`, module
 boundaries and the task-plan validator; they pass on the current working tree.

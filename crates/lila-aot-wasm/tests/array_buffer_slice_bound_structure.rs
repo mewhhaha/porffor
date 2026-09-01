@@ -41,6 +41,12 @@ fn exact_identifier_mentions(source: &str, identifier: &str) -> usize {
         .count()
 }
 
+fn fnv1a(source: &str) -> u64 {
+    source.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
 fn collect_rust_sources(dir: &Path, sources: &mut Vec<(PathBuf, String)>) {
     let mut paths = fs::read_dir(dir)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
@@ -61,6 +67,33 @@ fn collect_rust_sources(dir: &Path, sources: &mut Vec<(PathBuf, String)>) {
 
 #[test]
 fn array_buffer_slice_bound_is_closed_and_derives_its_argument_index() {
+    let declaration_offset = BINARY_DATA_SOURCE
+        .find("pub(super) enum ArrayBufferSliceBound {")
+        .expect("slice-bound declaration");
+    assert_eq!(
+        BINARY_DATA_SOURCE[..declaration_offset]
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .map(str::trim),
+        Some("/// positions unrepresentable at the caller boundary.")
+    );
+    for capability in [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Default",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+    ] {
+        assert!(
+            !BINARY_DATA_SOURCE.contains(&format!("impl {capability} for ArrayBufferSliceBound"))
+        );
+    }
+
     let variants = bounded(
         BINARY_DATA_SOURCE,
         "pub(super) enum ArrayBufferSliceBound {",
@@ -83,7 +116,7 @@ fn array_buffer_slice_bound_is_closed_and_derives_its_argument_index() {
 
     let argument_index = bounded(
         BINARY_DATA_SOURCE,
-        "const fn argument_index(self) -> usize {",
+        "const fn argument_index(&self) -> usize {",
         "\n    }\n}\n\n/// The closed source",
     );
     assert_eq!(
@@ -95,6 +128,25 @@ fn array_buffer_slice_bound_is_closed_and_derives_its_argument_index() {
     assert!(!argument_index.contains("_ =>"));
     assert!(!argument_index.contains("if self"));
     assert!(!argument_index.contains("matches!(self"));
+
+    let implementation = bounded(
+        BINARY_DATA_SOURCE,
+        "impl ArrayBufferSliceBound {",
+        "\n}\n\n/// The closed source",
+    );
+    assert_eq!(
+        (implementation.len(), fnv1a(implementation)),
+        (141, 0xe1e9_402d_e2d5_17d1)
+    );
+    let normalized_implementation =
+        implementation.replace("argument_index(&self)", "argument_index(self)");
+    assert_eq!(
+        (
+            normalized_implementation.len(),
+            fnv1a(&normalized_implementation)
+        ),
+        (140, 0x83b9_060d_06f3_fd6b)
+    );
 }
 
 #[test]
@@ -126,7 +178,7 @@ fn array_buffer_slice_bound_owns_the_missing_or_undefined_default() {
         &format!("\n    pub(super) fn {BOUND_HELPER}("),
         "\n    pub(crate) fn emit_array_buffer_transfer_length_to_local(",
     );
-    assert_eq!(helper.matches("match bound {").count(), 1);
+    assert_eq!(helper.matches("match &bound {").count(), 1);
     assert_eq!(
         helper
             .matches("let arg_index = bound.argument_index();")
@@ -152,14 +204,14 @@ fn array_buffer_slice_bound_owns_the_missing_or_undefined_default() {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        match bound {
+        match &bound {
         "#,
         "argument lookup and absent-or-undefined detection must precede the default projection",
     );
 
     let defaults = bounded(
         helper,
-        "\n        match bound {",
+        "\n        match &bound {",
         "\n        function.instruction(&Instruction::LocalSet(dest_local));",
     );
     assert_eq!(
@@ -181,7 +233,7 @@ fn array_buffer_slice_bound_owns_the_missing_or_undefined_default() {
     assert!(!defaults.contains("_ =>"));
 
     let default_position = helper
-        .find("match bound {")
+        .find("match &bound {")
         .expect("missing bound default projection");
     let conversion_position = helper
         .find("self.emit_value_to_number_payload(tag_local, payload_local, function)?;")
@@ -189,6 +241,13 @@ fn array_buffer_slice_bound_owns_the_missing_or_undefined_default() {
     assert!(
         default_position < conversion_position,
         "the default arm must remain before the explicit-bound conversion path"
+    );
+
+    let normalized_helper = helper.replace("match &bound {", "match bound {");
+    assert_eq!((helper.len(), fnv1a(helper)), (5366, 0x4424_aea8_6175_c9ce));
+    assert_eq!(
+        (normalized_helper.len(), fnv1a(&normalized_helper)),
+        (5365, 0x8d95_4656_6782_1a54)
     );
 }
 
@@ -377,6 +436,7 @@ fn grouped_slice_builtins_have_exactly_one_start_then_one_end_call() {
     collect_rust_sources(&source_root, &mut sources);
 
     let mut total_mentions = 0;
+    let mut total_bound_mentions = 0;
     for (path, source) in sources {
         let relative = path
             .strip_prefix(&source_root)
@@ -393,9 +453,25 @@ fn grouped_slice_builtins_have_exactly_one_start_then_one_end_call() {
             "unexpected slice-bound helper definition or caller inventory in {relative}"
         );
         total_mentions += mentions;
+
+        let expected_bound_mentions = match relative.as_ref() {
+            "builtins/binary_data.rs" => 5,
+            "builtins/standard.rs" => 3,
+            _ => 0,
+        };
+        let bound_mentions = exact_identifier_mentions(&source, "ArrayBufferSliceBound");
+        assert_eq!(
+            bound_mentions, expected_bound_mentions,
+            "unexpected ArrayBufferSliceBound producer or consumer in {relative}"
+        );
+        total_bound_mentions += bound_mentions;
     }
     assert_eq!(
         total_mentions, 3,
         "the slice-bound helper must have one definition and exactly two calls"
+    );
+    assert_eq!(
+        total_bound_mentions, 8,
+        "the declaration, impl, owned helper boundary, two projections, import and two producers must own every mention"
     );
 }

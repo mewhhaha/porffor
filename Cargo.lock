@@ -1476,6 +1476,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "regress",
+ "ryu-js",
  "serde_json",
 ]
 

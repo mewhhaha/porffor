@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 69] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 73] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -229,6 +229,11 @@ early_error_codes! {
     /// Generator, async-function and async-generator declarations remain
     /// distinct productions with independently owned diagnostics.
     FunctionDeclarationContainsSuper => "E_FUNCTION_DECLARATION_CONTAINS_SUPER";
+    /// AsyncFunctionDeclaration early errors: the declaration's
+    /// FormalParameters or AsyncFunctionBody `Contains SuperProperty` or
+    /// `Contains SuperCall`. Generator and async-generator declarations remain
+    /// distinct productions with independently owned diagnostics.
+    AsyncFunctionDeclarationContainsSuper => "E_ASYNC_FUNCTION_DECLARATION_CONTAINS_SUPER";
     /// AsyncFunctionExpression early errors: the expression's FormalParameters
     /// or AsyncFunctionBody `Contains SuperProperty` or `Contains SuperCall`.
     /// Async declarations and async-generator expressions remain distinct
@@ -239,6 +244,21 @@ early_error_codes! {
     /// Generator declarations and async-generator expressions remain distinct
     /// productions with independently owned diagnostics.
     GeneratorExpressionContainsSuper => "E_GENERATOR_EXPRESSION_CONTAINS_SUPER";
+    /// GeneratorDeclaration early errors: the declaration's FormalParameters
+    /// or GeneratorBody `Contains SuperProperty` or `Contains SuperCall`.
+    /// Generator expressions and async-generator declarations remain distinct
+    /// productions with independently owned diagnostics.
+    GeneratorDeclarationContainsSuper => "E_GENERATOR_DECLARATION_CONTAINS_SUPER";
+    /// AsyncGeneratorExpression early errors: the expression's
+    /// FormalParameters or AsyncGeneratorBody `Contains SuperProperty` or
+    /// `Contains SuperCall`. Async-generator declarations and synchronous
+    /// generator expressions remain distinct production owners.
+    AsyncGeneratorExpressionContainsSuper => "E_ASYNC_GENERATOR_EXPRESSION_CONTAINS_SUPER";
+    /// AsyncGeneratorDeclaration early errors: the declaration's
+    /// FormalParameters or AsyncGeneratorBody `Contains SuperProperty` or
+    /// `Contains SuperCall`. Async-generator expressions and synchronous
+    /// generator declarations remain distinct production owners.
+    AsyncGeneratorDeclarationContainsSuper => "E_ASYNC_GENERATOR_DECLARATION_CONTAINS_SUPER";
     /// TryStatement early errors: `BoundNames` of a `CatchParameter` contains
     /// duplicate elements. Unlike ordinary-function parameters, this condition
     /// has no sloppy simple-list exception.
@@ -462,6 +482,10 @@ const fn code_eq(a: EarlyErrorCode, b: EarlyErrorCode) -> bool {
 }
 
 /// The closed ways a `boa` static-semantics message may be recognized.
+///
+/// `Clone` and `Copy` are intentional value semantics: every variant contains
+/// only immutable `'static` table references, and several const walkers inspect
+/// the same rule. Exhaustive matches, not ownership, close the decision domain.
 #[derive(Clone, Copy)]
 enum ParseFailurePattern {
     /// Every fragment must occur, for a wording with invariant text separated
@@ -498,7 +522,7 @@ struct ParseFailureRule {
 
 /// The row count, in the type. Adding a row without updating this is
 /// `error[E0308]`, which is the moment to check the new row against P1/P2/P7.
-const PARSE_FAILURE_RULE_COUNT: usize = 69;
+const PARSE_FAILURE_RULE_COUNT: usize = 73;
 const OPTIONAL_CHAIN_TAGGED_TEMPLATE_PREFIX: &str =
     "Invalid tagged template on optional chain at line";
 const IMPORT_META_OUTSIDE_MODULE_PREFIX: &str =
@@ -521,10 +545,18 @@ const FUNCTION_EXPRESSION_CONTAINS_SUPER_PREFIX: &str =
     "function expression cannot contain super at line";
 const FUNCTION_DECLARATION_CONTAINS_SUPER_PREFIX: &str =
     "function declaration cannot contain super at line";
+const ASYNC_FUNCTION_DECLARATION_CONTAINS_SUPER_PREFIX: &str =
+    "async function declaration cannot contain super at line";
 const ASYNC_FUNCTION_EXPRESSION_CONTAINS_SUPER_PREFIX: &str =
     "async function expression cannot contain super at line";
 const GENERATOR_EXPRESSION_CONTAINS_SUPER_PREFIX: &str =
     "generator expression cannot contain super at line";
+const GENERATOR_DECLARATION_CONTAINS_SUPER_PREFIX: &str =
+    "generator declaration cannot contain super at line";
+const ASYNC_GENERATOR_EXPRESSION_CONTAINS_SUPER_PREFIX: &str =
+    "async generator expression cannot contain super at line";
+const ASYNC_GENERATOR_DECLARATION_CONTAINS_SUPER_PREFIX: &str =
+    "async generator declaration cannot contain super at line";
 
 /// The one message-pattern table.
 ///
@@ -1163,6 +1195,44 @@ const PARSE_FAILURE_RULE_TABLE: [ParseFailureRule; PARSE_FAILURE_RULE_COUNT] = [
         code: EarlyErrorCode::GeneratorExpressionContainsSuper,
         witnesses: &["generator expression cannot contain super at line 1, col 12"],
     },
+    // 70. expression/primary/async_generator_expression/mod.rs. The sole
+    //     AsyncGeneratorExpression producer applies Contains Super to the
+    //     completed node after both parameter Contains checks.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(
+            ASYNC_GENERATOR_EXPRESSION_CONTAINS_SUPER_PREFIX,
+        ),
+        code: EarlyErrorCode::AsyncGeneratorExpressionContainsSuper,
+        witnesses: &["async generator expression cannot contain super at line 1, col 18"],
+    },
+    // 71. statement/declaration/hoistable/async_function_decl/mod.rs selects
+    //     this message from the shared declaration body-or-parameters Contains
+    //     Super predicate.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(
+            ASYNC_FUNCTION_DECLARATION_CONTAINS_SUPER_PREFIX,
+        ),
+        code: EarlyErrorCode::AsyncFunctionDeclarationContainsSuper,
+        witnesses: &["async function declaration cannot contain super at line 1, col 18"],
+    },
+    // 72. statement/declaration/hoistable/generator_decl/mod.rs selects this
+    //     message from the shared declaration body-or-parameters Contains
+    //     Super predicate.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(GENERATOR_DECLARATION_CONTAINS_SUPER_PREFIX),
+        code: EarlyErrorCode::GeneratorDeclarationContainsSuper,
+        witnesses: &["generator declaration cannot contain super at line 1, col 13"],
+    },
+    // 73. statement/declaration/hoistable/async_generator_decl/mod.rs selects
+    //     this message from the shared declaration body-or-parameters Contains
+    //     Super predicate.
+    ParseFailureRule {
+        pattern: ParseFailurePattern::StartsWith(
+            ASYNC_GENERATOR_DECLARATION_CONTAINS_SUPER_PREFIX,
+        ),
+        code: EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper,
+        witnesses: &["async generator declaration cannot contain super at line 1, col 19"],
+    },
 ];
 
 /// Slice view of [`PARSE_FAILURE_RULE_TABLE`], so the walkers below index a
@@ -1331,14 +1401,18 @@ impl EarlyErrorCode {
 
 /// True only when at least one row owns `code` and every such row is anchored.
 const fn code_is_owned_only_by_starts_with(code: EarlyErrorCode) -> bool {
+    use ParseFailurePattern::{ContainsAll, Exact, StartsWith};
+
     let mut found = false;
     let mut i = 0;
     while i < PARSE_FAILURE_RULES.len() {
         let rule = &PARSE_FAILURE_RULES[i];
         if code_eq(rule.code, code) {
             found = true;
-            if !matches!(rule.pattern, ParseFailurePattern::StartsWith(_)) {
-                return false;
+            match rule.pattern {
+                ContainsAll(_) => return false,
+                StartsWith(_) => {}
+                Exact(_) => return false,
             }
         }
         i += 1;
@@ -1469,9 +1543,17 @@ const _: ParseClassified =
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::FunctionDeclarationContainsSuper);
 const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::AsyncFunctionDeclarationContainsSuper);
+const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::AsyncFunctionExpressionContainsSuper);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::GeneratorExpressionContainsSuper);
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::GeneratorDeclarationContainsSuper);
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::AsyncGeneratorExpressionContainsSuper);
+const _: ParseClassified =
+    ParseClassified::from_parse_table(EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper);
 const _: ParseClassified =
     ParseClassified::from_parse_table(EarlyErrorCode::ModuleDuplicateImportAttributeKey);
 const _: () = assert!(
@@ -1554,6 +1636,13 @@ const _: () = assert!(
 );
 const _: () = assert!(
     code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::AsyncFunctionDeclarationContainsSuper,
+        "async function declaration cannot contain super at line",
+    ),
+    "the AsyncFunctionDeclaration super code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
         EarlyErrorCode::AsyncFunctionExpressionContainsSuper,
         "async function expression cannot contain super at line",
     ),
@@ -1565,6 +1654,27 @@ const _: () = assert!(
         "generator expression cannot contain super at line",
     ),
     "the GeneratorExpression super code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::GeneratorDeclarationContainsSuper,
+        "generator declaration cannot contain super at line",
+    ),
+    "the GeneratorDeclaration super code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::AsyncGeneratorExpressionContainsSuper,
+        "async generator expression cannot contain super at line",
+    ),
+    "the AsyncGeneratorExpression super code must have one owner using its complete reviewed prefix"
+);
+const _: () = assert!(
+    code_is_owned_once_by_exact_starts_with(
+        EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper,
+        "async generator declaration cannot contain super at line",
+    ),
+    "the AsyncGeneratorDeclaration super code must have one owner using its complete reviewed prefix"
 );
 const _: () = assert!(
     code_is_owned_only_by_starts_with(EarlyErrorCode::ModuleDuplicateImportAttributeKey),
@@ -1807,10 +1917,11 @@ const fn class_super_call_prefixes_are_distinct_and_injection_safe() -> bool {
     )
 }
 
-/// P17: the ordinary FunctionExpression prefix remains distinct from the
-/// adjacent generic declaration/generator/async-expression and method
-/// producers. User-controlled Module export text carrying the complete prefix
-/// must remain owned by the duplicate-export condition.
+/// P17: the ordinary FunctionExpression prefix remains distinct from adjacent
+/// typed declaration/expression producers, the async-generator-declaration
+/// producer and method producers. User-controlled Module export
+/// text carrying the complete prefix must remain owned by the duplicate-export
+/// condition.
 const fn function_expression_super_prefix_is_distinct_and_injection_safe() -> bool {
     if !classified_is(
         classify_parse_failure("function expression cannot contain super at line 1, col 11"),
@@ -1834,9 +1945,10 @@ const fn function_expression_super_prefix_is_distinct_and_injection_safe() -> bo
 }
 
 /// P18: the ordinary FunctionDeclaration prefix remains distinct from the
-/// FunctionExpression prefix and the generic generator/async declaration
-/// producers. User-controlled Module export text carrying the complete prefix
-/// must remain owned by the duplicate-export condition.
+/// FunctionExpression prefix, typed GeneratorDeclaration producer and typed
+/// AsyncGeneratorDeclaration producer. User-controlled Module export text
+/// carrying the complete prefix must remain owned by the duplicate-export
+/// condition.
 const fn function_declaration_super_prefix_is_distinct_and_injection_safe() -> bool {
     if !classified_is(
         classify_parse_failure("function declaration cannot contain super at line 1, col 12"),
@@ -1859,10 +1971,10 @@ const fn function_declaration_super_prefix_is_distinct_and_injection_safe() -> b
     )
 }
 
-/// P19: the AsyncFunctionExpression prefix remains distinct from the generic
-/// adjacent async/generator producers and the method-owned wording. Module
-/// export text carrying the complete prefix must remain owned by the duplicate-
-/// export condition.
+/// P19: the AsyncFunctionExpression prefix remains distinct from adjacent
+/// typed async/generator producers, the AsyncGeneratorDeclaration
+/// producer and the method-owned wording. Module export text carrying the
+/// complete prefix must remain owned by the duplicate-export condition.
 const fn async_function_expression_super_prefix_is_distinct_and_injection_safe() -> bool {
     if !classified_is(
         classify_parse_failure("async function expression cannot contain super at line 1, col 17"),
@@ -1885,14 +1997,18 @@ const fn async_function_expression_super_prefix_is_distinct_and_injection_safe()
     )
 }
 
-/// P20: the GeneratorExpression prefix remains distinct from the generic
-/// adjacent declaration/async-generator producers and the method-owned wording.
+/// P20: the GeneratorExpression prefix remains distinct from the generator-
+/// declaration producer, the async-generator-declaration producer, the
+/// async-generator-expression producer and the method-owned wording.
 /// Module export text carrying the complete prefix must remain owned by the
 /// duplicate-export condition.
 const fn generator_expression_super_prefix_is_distinct_and_injection_safe() -> bool {
     if !classified_is(
         classify_parse_failure("generator expression cannot contain super at line 1, col 12"),
         EarlyErrorCode::GeneratorExpressionContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("generator declaration cannot contain super at line 1, col 13"),
+        EarlyErrorCode::GeneratorDeclarationContainsSuper,
     ) || !matches!(
         classify_parse_failure("invalid super usage at line 1, col 12"),
         None
@@ -1906,6 +2022,141 @@ const fn generator_expression_super_prefix_is_distinct_and_injection_safe() -> b
     classified_is(
         classify_parse_failure(
             "exported name `generator expression cannot contain super at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
+/// P21: the AsyncGeneratorExpression prefix remains distinct from synchronous
+/// generator expressions, generator declarations, the async-generator-
+/// declaration producer and the method-owned wording. Module export text
+/// carrying the complete prefix must remain owned by the duplicate-export
+/// condition.
+const fn async_generator_expression_super_prefix_is_distinct_and_injection_safe() -> bool {
+    if !classified_is(
+        classify_parse_failure("async generator expression cannot contain super at line 1, col 18"),
+        EarlyErrorCode::AsyncGeneratorExpressionContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("generator expression cannot contain super at line 1, col 12"),
+        EarlyErrorCode::GeneratorExpressionContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("generator declaration cannot contain super at line 1, col 13"),
+        EarlyErrorCode::GeneratorDeclarationContainsSuper,
+    ) || !matches!(
+        classify_parse_failure("invalid super usage at line 1, col 18"),
+        None
+    ) || !matches!(
+        classify_parse_failure("invalid super call usage at line 1, col 18"),
+        None
+    ) {
+        return false;
+    }
+
+    classified_is(
+        classify_parse_failure(
+            "exported name `async generator expression cannot contain super at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
+/// P22: the AsyncFunctionDeclaration prefix remains distinct from async
+/// function expressions, generator declarations, the async-generator-
+/// declaration producer and the method-owned wording. Module export text
+/// carrying the complete prefix must remain owned by the duplicate-export
+/// condition.
+const fn async_function_declaration_super_prefix_is_distinct_and_injection_safe() -> bool {
+    if !classified_is(
+        classify_parse_failure("async function declaration cannot contain super at line 1, col 18"),
+        EarlyErrorCode::AsyncFunctionDeclarationContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("async function expression cannot contain super at line 1, col 17"),
+        EarlyErrorCode::AsyncFunctionExpressionContainsSuper,
+    ) || !matches!(
+        classify_parse_failure("invalid super usage at line 1, col 18"),
+        None
+    ) || !matches!(
+        classify_parse_failure("invalid super call usage at line 1, col 18"),
+        None
+    ) {
+        return false;
+    }
+
+    classified_is(
+        classify_parse_failure(
+            "exported name `async function declaration cannot contain super at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
+/// P23: the GeneratorDeclaration prefix remains distinct from generator
+/// expressions, ordinary declarations, the async-generator-declaration
+/// producer and method-owned wording. Module export text carrying the complete
+/// prefix must remain owned by the duplicate-export condition.
+const fn generator_declaration_super_prefix_is_distinct_and_injection_safe() -> bool {
+    if !classified_is(
+        classify_parse_failure("generator declaration cannot contain super at line 1, col 13"),
+        EarlyErrorCode::GeneratorDeclarationContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("generator expression cannot contain super at line 1, col 12"),
+        EarlyErrorCode::GeneratorExpressionContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("function declaration cannot contain super at line 1, col 12"),
+        EarlyErrorCode::FunctionDeclarationContainsSuper,
+    ) || !matches!(
+        classify_parse_failure("invalid super usage at line 1, col 13"),
+        None
+    ) || !matches!(
+        classify_parse_failure("invalid super call usage at line 1, col 13"),
+        None
+    ) {
+        return false;
+    }
+
+    classified_is(
+        classify_parse_failure(
+            "exported name `generator declaration cannot contain super at line` declared multiple times",
+        ),
+        EarlyErrorCode::ModuleDuplicateExport,
+    )
+}
+
+/// P24: the AsyncGeneratorDeclaration prefix remains distinct from every
+/// neighboring expression/declaration owner and the method-owned wording.
+/// Module export text carrying the complete prefix must remain owned by the
+/// duplicate-export condition.
+const fn async_generator_declaration_super_prefix_is_distinct_and_injection_safe() -> bool {
+    if !classified_is(
+        classify_parse_failure(
+            "async generator declaration cannot contain super at line 1, col 19",
+        ),
+        EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("async generator expression cannot contain super at line 1, col 18"),
+        EarlyErrorCode::AsyncGeneratorExpressionContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("generator declaration cannot contain super at line 1, col 13"),
+        EarlyErrorCode::GeneratorDeclarationContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("async function declaration cannot contain super at line 1, col 18"),
+        EarlyErrorCode::AsyncFunctionDeclarationContainsSuper,
+    ) || !classified_is(
+        classify_parse_failure("generator expression cannot contain super at line 1, col 12"),
+        EarlyErrorCode::GeneratorExpressionContainsSuper,
+    ) || !matches!(
+        classify_parse_failure("invalid super usage at line 1, col 19"),
+        None
+    ) || !matches!(
+        classify_parse_failure("invalid super call usage at line 1, col 19"),
+        None
+    ) {
+        return false;
+    }
+
+    classified_is(
+        classify_parse_failure(
+            "exported name `async generator declaration cannot contain super at line` declared multiple times",
         ),
         EarlyErrorCode::ModuleDuplicateExport,
     )
@@ -2085,4 +2336,20 @@ const _: () = assert!(
 const _: () = assert!(
     generator_expression_super_prefix_is_distinct_and_injection_safe(),
     "P20: the GeneratorExpression super prefix absorbs an adjacent producer or can be forged through Module export text"
+);
+const _: () = assert!(
+    async_generator_expression_super_prefix_is_distinct_and_injection_safe(),
+    "P21: the AsyncGeneratorExpression super prefix absorbs an adjacent producer or can be forged through Module export text"
+);
+const _: () = assert!(
+    async_function_declaration_super_prefix_is_distinct_and_injection_safe(),
+    "P22: the AsyncFunctionDeclaration super prefix absorbs an adjacent producer or can be forged through Module export text"
+);
+const _: () = assert!(
+    generator_declaration_super_prefix_is_distinct_and_injection_safe(),
+    "P23: the GeneratorDeclaration super prefix absorbs an adjacent producer or can be forged through Module export text"
+);
+const _: () = assert!(
+    async_generator_declaration_super_prefix_is_distinct_and_injection_safe(),
+    "P24: the AsyncGeneratorDeclaration super prefix absorbs an adjacent producer or can be forged through Module export text"
 );

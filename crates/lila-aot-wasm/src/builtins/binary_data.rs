@@ -6,14 +6,13 @@ use super::super::*;
 /// specification role. Keeping them together makes a start bound that defaults
 /// to length, an end bound that defaults to zero, and arbitrary argument
 /// positions unrepresentable at the caller boundary.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ArrayBufferSliceBound {
     Start,
     End,
 }
 
 impl ArrayBufferSliceBound {
-    const fn argument_index(self) -> usize {
+    const fn argument_index(&self) -> usize {
         match self {
             Self::Start => 0,
             Self::End => 1,
@@ -22,7 +21,6 @@ impl ArrayBufferSliceBound {
 }
 
 /// The closed source and copy policies admitted by the ArrayBuffer slice seam.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ArrayBufferSliceCopyPolicy {
     DetachableBounded {
         target_data_local: u32,
@@ -41,7 +39,6 @@ pub(super) enum ArrayBufferSliceCopyPolicy {
 ///
 /// A source data pointer is deliberately absent. The copy emitter must load it
 /// only after its late detachment check and current-length bound.
-#[derive(Clone, Copy)]
 pub(super) struct ArrayBufferSliceCopyLocals {
     source_object_local: u32,
     source_start_local: u32,
@@ -72,8 +69,7 @@ impl ArrayBufferSliceCopyLocals {
 /// resize may make a fixed view temporarily out of bounds, but it must not
 /// erase the extent that makes the same view usable after the buffer grows
 /// again.
-#[derive(Clone, Copy)]
-pub(super) struct TypedArrayViewLocals {
+pub(crate) struct TypedArrayViewLocals {
     typed_array_payload_local: u32,
     buffer_payload_local: u32,
     byte_offset_local: u32,
@@ -82,7 +78,7 @@ pub(super) struct TypedArrayViewLocals {
 }
 
 impl TypedArrayViewLocals {
-    pub(super) const fn new(
+    pub(crate) const fn new(
         typed_array_payload_local: u32,
         buffer_payload_local: u32,
         byte_offset_local: u32,
@@ -100,8 +96,7 @@ impl TypedArrayViewLocals {
 }
 
 /// The complete result domain of the `%TypedArray%.prototype` view accessors.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TypedArrayAccessorKind {
+pub(crate) enum TypedArrayAccessorKind {
     ByteLength,
     ByteOffset,
     Length,
@@ -119,8 +114,7 @@ pub(super) enum TypedArrayAccessorKind {
 /// so a length witness cannot accidentally be consumed as an index check.
 /// Keeping those cases closed makes a newly introduced policy an exhaustive
 /// Rust edit instead of another raw boolean at a call site.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum TypedArrayWitnessUse {
+pub(crate) enum TypedArrayWitnessUse {
     ValidatedMethodEntry {
         length_local: u32,
     },
@@ -226,7 +220,7 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Creates a fresh TypedArray buffer witness without mutating the view's
     /// stored fixed extent.
-    pub(super) fn emit_typed_array_witness(
+    pub(crate) fn emit_typed_array_witness(
         &mut self,
         view: &TypedArrayViewLocals,
         use_: TypedArrayWitnessUse,
@@ -266,7 +260,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(tracking_local));
-        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(
+            TypedArrayLengthMode::Fixed.word() as i64
+        ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(view.byte_offset_local));
@@ -285,7 +281,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        match use_ {
+        match &use_ {
             TypedArrayWitnessUse::ValidatedMethodEntry { .. } => {
                 function.instruction(&Instruction::LocalGet(data_ptr_local));
                 function.instruction(&Instruction::I64Eqz);
@@ -732,7 +728,7 @@ impl<'a> FunctionBuilder<'a> {
         let source_address_local = self.reserve_temp_local();
         let target_address_local = self.reserve_temp_local();
 
-        match policy {
+        match &policy {
             ArrayBufferSliceCopyPolicy::DetachableBounded { .. }
             | ArrayBufferSliceCopyPolicy::DetachableExactFinal { .. } => {
                 self.emit_load_array_buffer_flags(
@@ -741,7 +737,9 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 function.instruction(&Instruction::LocalGet(source_flags_local));
-                function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_DETACHED as i64));
+                function.instruction(&Instruction::I64Const(
+                    ArrayBufferFlag::Detached.word() as i64
+                ));
                 function.instruction(&Instruction::I64And);
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Ne);
@@ -765,7 +763,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        let target_data_local = match policy {
+        let target_data_local = match &policy {
             ArrayBufferSliceCopyPolicy::DetachableBounded { target_data_local }
             | ArrayBufferSliceCopyPolicy::SharedBounded { target_data_local } => {
                 function.instruction(&Instruction::LocalGet(source_byte_length_local));
@@ -789,7 +787,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(available_local));
                 function.instruction(&Instruction::LocalSet(copy_len_local));
                 function.instruction(&Instruction::End);
-                target_data_local
+                *target_data_local
             }
             ArrayBufferSliceCopyPolicy::DetachableExactFinal {
                 target_data_local,
@@ -816,34 +814,36 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 self.emit_heap_alloc_from_local(locals.requested_len_local, function)?;
-                function.instruction(&Instruction::LocalSet(target_data_local));
+                function.instruction(&Instruction::LocalSet(*target_data_local));
                 self.emit_alloc_plain_object_with_prototype(
                     None,
                     Some(ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX),
                     function,
                 )?;
-                function.instruction(&Instruction::LocalSet(target_object_local));
+                function.instruction(&Instruction::LocalSet(*target_object_local));
                 self.store_i64_const_at_offset(
-                    target_object_local,
+                    *target_object_local,
                     HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
                     OBJECT_INTERNAL_BRAND_ARRAY_BUFFER,
                     function,
                 );
-                function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_IMMUTABLE as i64));
+                function.instruction(&Instruction::I64Const(
+                    ArrayBufferFlag::Immutable.word() as i64
+                ));
                 function.instruction(&Instruction::LocalSet(source_flags_local));
                 self.emit_initialize_array_buffer_private_state(
-                    target_object_local,
-                    target_data_local,
+                    *target_object_local,
+                    *target_data_local,
                     locals.requested_len_local,
                     locals.requested_len_local,
                     source_flags_local,
                     function,
                 );
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::LocalSet(target_tag_local));
+                function.instruction(&Instruction::LocalSet(*target_tag_local));
                 function.instruction(&Instruction::LocalGet(locals.requested_len_local));
                 function.instruction(&Instruction::LocalSet(copy_len_local));
-                target_data_local
+                *target_data_local
             }
         };
 
@@ -948,7 +948,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(
+            TypedArrayLengthMode::Fixed.word() as i64
+        ));
         function.instruction(&Instruction::LocalSet(length_tracking_local));
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
         function.instruction(&Instruction::I64Const(2));
@@ -979,7 +981,9 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_load_array_buffer_flags(buffer_payload_local, buffer_flags_local, function);
         function.instruction(&Instruction::LocalGet(buffer_flags_local));
-        function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_DETACHED as i64));
+        function.instruction(&Instruction::I64Const(
+            ArrayBufferFlag::Detached.word() as i64
+        ));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1039,7 +1043,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(byte_length_local));
         function.instruction(&Instruction::LocalGet(buffer_flags_local));
-        function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_RESIZABLE as i64));
+        function.instruction(&Instruction::I64Const(
+            ArrayBufferFlag::Resizable.word() as i64
+        ));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1058,7 +1064,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Const(
+            TypedArrayLengthMode::Tracking.word() as i64,
+        ));
         function.instruction(&Instruction::LocalSet(length_tracking_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(byte_length_local));
@@ -1123,7 +1131,9 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_load_array_buffer_flags(buffer_payload_local, flags_local, function);
         function.instruction(&Instruction::LocalGet(flags_local));
-        function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_DETACHED as i64));
+        function.instruction(&Instruction::I64Const(
+            ArrayBufferFlag::Detached.word() as i64
+        ));
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalSet(flags_local));
         self.store_i64_local_at_offset(
@@ -1151,37 +1161,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_throw_if_shared_array_buffer(
-        &mut self,
-        receiver_payload_local: u32,
-        _receiver_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let brand_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "ArrayBuffer receiver is SharedArrayBuffer",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(brand_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_throw_if_array_buffer_immutable(
         &mut self,
         receiver_payload_local: u32,
@@ -1190,7 +1169,9 @@ impl<'a> FunctionBuilder<'a> {
         let flags_local = self.reserve_temp_local();
         self.emit_load_array_buffer_flags(receiver_payload_local, flags_local, function);
         function.instruction(&Instruction::LocalGet(flags_local));
-        function.instruction(&Instruction::I64Const(ARRAY_BUFFER_FLAG_IMMUTABLE as i64));
+        function.instruction(&Instruction::I64Const(
+            ArrayBufferFlag::Immutable.word() as i64
+        ));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
@@ -1305,8 +1286,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(data_ptr_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "DataView backing buffer is detached",
             self.result_local,
             self.result_tag_local,
@@ -1334,8 +1314,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "DataView byteLength out of bounds",
             self.result_local,
             self.result_tag_local,
@@ -1354,70 +1333,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "DataView byteLength out of bounds",
             self.result_local,
             self.result_tag_local,
             function,
         )?;
         self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(buffer_byte_length_local);
-        self.release_temp_local(tracking_payload_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_typed_array_current_byte_length(
-        &mut self,
-        typed_array_payload_local: u32,
-        _typed_array_tag_local: u32,
-        buffer_payload_local: u32,
-        byte_offset_local: u32,
-        byte_length_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let tracking_payload_local = self.reserve_temp_local();
-        let buffer_byte_length_local = self.reserve_temp_local();
-
-        self.emit_load_array_buffer_byte_length(
-            buffer_payload_local,
-            buffer_byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
-            tracking_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(tracking_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(byte_length_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(byte_length_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::LocalGet(byte_length_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(byte_length_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -1502,89 +1424,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_validate_typed_array_current_byte_length(
-        &mut self,
-        typed_array_payload_local: u32,
-        _typed_array_tag_local: u32,
-        buffer_payload_local: u32,
-        byte_offset_local: u32,
-        byte_length_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let tracking_payload_local = self.reserve_temp_local();
-        let buffer_byte_length_local = self.reserve_temp_local();
-        let data_ptr_local = self.reserve_temp_local();
-
-        self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "TypedArray backing buffer is detached",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        self.emit_load_array_buffer_byte_length(
-            buffer_payload_local,
-            buffer_byte_length_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            typed_array_payload_local,
-            HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,
-            tracking_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(tracking_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "TypedArray byteLength out of bounds",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(byte_length_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::LocalGet(byte_length_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(buffer_byte_length_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "TypedArray byteLength out of bounds",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(data_ptr_local);
-        self.release_temp_local(buffer_byte_length_local);
-        self.release_temp_local(tracking_payload_local);
-        Ok(())
-    }
-
     pub(super) fn emit_array_buffer_slice_index_to_local(
         &mut self,
         bound: ArrayBufferSliceBound,
@@ -1606,7 +1445,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        match bound {
+        match &bound {
             ArrayBufferSliceBound::Start => {
                 function.instruction(&Instruction::I64Const(0));
             }

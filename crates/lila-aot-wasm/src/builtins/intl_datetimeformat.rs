@@ -88,19 +88,27 @@
 //! interval skeleton matches.
 
 use super::super::*;
+use super::intl::{
+    CanonicalLocaleBaseNamePayloadLocal, CanonicalLocaleLanguagePayloadLocal,
+    CanonicalLocaleRegionPayloadLocal, CanonicalLocaleScriptPayloadLocal,
+    CanonicalLocaleTagInputPayloadLocal, CanonicalLocaleTagInvocationLocals,
+    CanonicalLocaleTagPayloadLocal, CanonicalLocaleValidityLocal,
+};
 use super::temporal_plain_date::TemporalCalendarId;
 use crate::functions::NewTargetPrototypeFallback;
 use crate::objects::TaggedLocals;
+
+mod construction_lifecycle;
 
 /// Where a component's code lives and what spellings map to it.
 ///
 /// `codes` is ordered as the spec's Values column. Code 0 is reserved: it
 /// always means "option absent", so `resolvedOptions` can decide between
 /// emitting a property and omitting it by testing against zero alone.
-pub(crate) struct IntlDtfOption {
-    pub(crate) property: &'static str,
-    pub(crate) slot_offset: u64,
-    pub(crate) codes: &'static [(&'static str, i64)],
+struct IntlDtfOption {
+    property: &'static str,
+    slot_offset: u64,
+    codes: &'static [(&'static str, i64)],
 }
 
 /// ECMA-402 11.5 Table 7, in table order. The constructor reads these after
@@ -109,7 +117,7 @@ pub(crate) struct IntlDtfOption {
 ///
 /// `fractionalSecondDigits` is absent because it is a *number* option; the
 /// constructor splices it in at its table position explicitly.
-pub(crate) const INTL_DTF_COMPONENT_OPTIONS: &[IntlDtfOption] = &[
+const INTL_DTF_COMPONENT_OPTIONS: &[IntlDtfOption] = &[
     IntlDtfOption {
         property: "weekday",
         slot_offset: HEAP_INTL_DTF_WEEKDAY_OFFSET,
@@ -175,19 +183,19 @@ pub(crate) const INTL_DTF_COMPONENT_OPTIONS: &[IntlDtfOption] = &[
 /// which is the entry before `timeZoneName`.
 const INTL_DTF_FRACTIONAL_SECOND_DIGITS_AFTER: &str = "second";
 
-pub(crate) const INTL_DTF_HOUR_CYCLE_OPTION: IntlDtfOption = IntlDtfOption {
+const INTL_DTF_HOUR_CYCLE_OPTION: IntlDtfOption = IntlDtfOption {
     property: "hourCycle",
     slot_offset: HEAP_INTL_DTF_HOUR_CYCLE_OFFSET,
     codes: &[("h11", 1), ("h12", 2), ("h23", 3), ("h24", 4)],
 };
 
-pub(crate) const INTL_DTF_DATE_STYLE_OPTION: IntlDtfOption = IntlDtfOption {
+const INTL_DTF_DATE_STYLE_OPTION: IntlDtfOption = IntlDtfOption {
     property: "dateStyle",
     slot_offset: HEAP_INTL_DTF_DATE_STYLE_OFFSET,
     codes: &[("full", 1), ("long", 2), ("medium", 3), ("short", 4)],
 };
 
-pub(crate) const INTL_DTF_TIME_STYLE_OPTION: IntlDtfOption = IntlDtfOption {
+const INTL_DTF_TIME_STYLE_OPTION: IntlDtfOption = IntlDtfOption {
     property: "timeStyle",
     slot_offset: HEAP_INTL_DTF_TIME_STYLE_OFFSET,
     codes: &[("full", 1), ("long", 2), ("medium", 3), ("short", 4)],
@@ -373,7 +381,7 @@ const INTL_DTF_EXTENSION_OPTION_NULL: i64 = -1;
 /// compare it against `hour12` and the `en` default *after* `ResolveLocale`
 /// has finished.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum IntlDtfExtensionResolution {
+enum IntlDtfExtensionResolution {
     /// `keyLocaleData` is « default, ... » with no `null`, so an options value
     /// the list does not contain is simply dropped and leaves the keyword
     /// standing.
@@ -412,14 +420,14 @@ pub(crate) enum IntlDtfExtensionResolution {
 /// agree on the wrong local. Only
 /// `resolved-calendar-unicode-extensions-and-options.js` would notice.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum IntlDtfRelevantExtensionKey {
+enum IntlDtfRelevantExtensionKey {
     Ca,
     Hc,
     Nu,
 }
 
 impl IntlDtfRelevantExtensionKey {
-    pub(crate) const ALL: [Self; 3] = [Self::Ca, Self::Hc, Self::Nu];
+    const ALL: [Self; 3] = [Self::Ca, Self::Hc, Self::Nu];
 
     /// The `-u-` key, as it appears both in a requested tag and in the
     /// resolved `[[Locale]]`.
@@ -618,7 +626,7 @@ const _: () = {
 /// the needle to be followed by `-` or by the end of the tag, so `-nu-latn`
 /// cannot match `en-u-nu-latnx` and `-hc-h11` cannot match `en-u-hc-h11x` —
 /// the latter matched before this type existed.
-pub(crate) struct IntlDtfKeywordNeedle {
+struct IntlDtfKeywordNeedle {
     bytes: Vec<i64>,
 }
 
@@ -691,7 +699,7 @@ struct IntlDtfWellFormedTypeValue {
 /// the widest offset any real zone has ever used — would reject conforming
 /// input.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TzOffsetMinutes(i16);
+struct TzOffsetMinutes(i16);
 
 impl TzOffsetMinutes {
     /// The largest `Hour` the `UTCOffset` grammar can spell:
@@ -760,9 +768,9 @@ impl TzOffsetMinutes {
 /// `GetAvailableNamedTimeZoneIdentifier` means by returning
 /// `record.[[Identifier]]`.
 #[derive(Clone, Copy)]
-pub(crate) struct IntlDtfNamedZone {
-    pub(crate) identifier: &'static str,
-    pub(crate) offset: TzOffsetMinutes,
+struct IntlDtfNamedZone {
+    identifier: &'static str,
+    offset: TzOffsetMinutes,
 }
 
 impl IntlDtfNamedZone {
@@ -794,7 +802,7 @@ impl IntlDtfNamedZone {
 /// `"utc"` to report `"UTC"` and `canonicalize-utc-timezone.js` wants
 /// `"Etc/GMT"` to report `"Etc/GMT"`, and returning the row's own identifier
 /// satisfies both without a second table.
-pub(crate) const INTL_DTF_NAMED_ZONES: &[IntlDtfNamedZone] = &[
+const INTL_DTF_NAMED_ZONES: &[IntlDtfNamedZone] = &[
     IntlDtfNamedZone::utc_alias(INTL_DTF_RESOLVED_TIME_ZONE),
     IntlDtfNamedZone::utc_alias("GMT"),
     IntlDtfNamedZone::utc_alias("Etc/UTC"),
@@ -920,7 +928,7 @@ const _: () = {
 /// The answer it does give is a correct GMT offset, not a plausible-looking
 /// wrong name.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TimeZoneNameStyle {
+enum TimeZoneNameStyle {
     Short,
     Long,
     ShortOffset,
@@ -1026,34 +1034,34 @@ const INTL_DTF_GMT_PREFIX: &str = "GMT";
 /// offsets [`INTL_DTF_COMPONENT_OPTIONS`] stores through — so the mask and the
 /// default fill cannot disagree about which component they mean, and a slot
 /// that is defaulted is by construction a slot that survives the mask.
-pub(crate) struct IntlDtfTemporalKind {
+struct IntlDtfTemporalKind {
     /// The runtime discriminator written into `kind_local`. Zero is reserved:
     /// it always means the legacy Number/Date path, where `TimeClip` applies.
-    pub(crate) code: i64,
+    code: i64,
     /// The `OBJECT_INTERNAL_BRAND_*` the format function dispatches on.
-    pub(crate) brand: u64,
+    brand: u64,
     /// The constructor name, for the `toLocaleString` error messages.
-    pub(crate) type_name: &'static str,
+    type_name: &'static str,
     /// Every component slot this type may render. The rest are forced to zero
     /// after the `dateStyle`/`timeStyle` expansion, which is what lets
     /// `dateStyle: "full"` on a `PlainDate` produce a byte-identical string to
     /// the legacy path while `timeStyle: "long"` on a `PlainDateTime` silently
     /// drops the zone name.
-    pub(crate) allowed: &'static [u64],
+    allowed: &'static [u64],
     /// `(slot, code)` pairs installed when the format asked for no components
     /// at all — the type's own `needDefaults` answer, replacing the
     /// constructor's date-shaped guess.
-    pub(crate) defaults: &'static [(u64, i64)],
+    defaults: &'static [(u64, i64)],
     /// `(property, slot)` of the style option this type has no fields for.
     /// `toLocaleString` rejects it with a `TypeError` before formatting; the
     /// `format` function never sees it because a style and a Temporal receiver
     /// only ever meet through `toLocaleString`.
-    pub(crate) rejected_style: Option<(&'static str, u64)>,
+    rejected_style: Option<(&'static str, u64)>,
     /// `[[IsPlain]]` from 11.5.11, i.e. whether the epoch value this type
     /// reduces to is an instant that the resolved zone shifts, or wall-clock
     /// fields that it must leave alone. A mandatory field, so a new Temporal
     /// brand cannot be added without answering the question.
-    pub(crate) basis: DtfTimeBasis,
+    basis: DtfTimeBasis,
 }
 
 /// Whether a time value is an exact point on the timeline or already local.
@@ -1063,7 +1071,7 @@ pub(crate) struct IntlDtfTemporalKind {
 /// wrong is invisible under `UTC`: at `+13:00` a `Temporal.PlainDate`, anchored
 /// at noon, would slide a whole day.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DtfTimeBasis {
+enum DtfTimeBasis {
     /// A legacy `Number`/`Date` time value or a `Temporal.Instant`: an exact
     /// instant, so the components are read in the resolved zone's local time.
     Exact,
@@ -1117,7 +1125,7 @@ const INTL_DTF_RANGE_DIFFERENT_TYPES_MESSAGE: &str =
 /// function walks it to dispatch on the receiver's brand and
 /// `toLocaleString` indexes it by type, so the two paths cannot resolve a
 /// value to different fields.
-pub(crate) const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
+const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[
     IntlDtfTemporalKind {
         code: 1,
         brand: OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE,
@@ -1312,12 +1320,50 @@ const INTL_DTF_WEEKDAYS_NARROW: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
 /// Both arms run the same field walk; only the accumulator differs. Keeping
 /// them one function is what makes `reduce(formatToParts(x)) === format(x)`
 /// true by construction instead of by review.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DtfFormatMode {
+#[derive(Clone, Copy)]
+enum DtfFormatMode {
     /// Concatenate into a single string payload.
     String,
     /// Append `{ type, value }` objects to an array.
     Parts,
+}
+
+enum IntlDateTimeFormatReceiverOperation {
+    ResolvedOptions,
+    FormatGetter,
+    FormatToParts,
+    FormatRange,
+    FormatRangeToParts,
+}
+
+impl IntlDateTimeFormatReceiverOperation {
+    const ALL: [Self; 5] = [
+        Self::ResolvedOptions,
+        Self::FormatGetter,
+        Self::FormatToParts,
+        Self::FormatRange,
+        Self::FormatRangeToParts,
+    ];
+
+    const fn full_message(&self) -> &'static str {
+        match self {
+            Self::ResolvedOptions => {
+                "Intl.DateTimeFormat.prototype.resolvedOptions called on a non-Intl.DateTimeFormat object"
+            }
+            Self::FormatGetter => {
+                "get Intl.DateTimeFormat.prototype.format called on a non-Intl.DateTimeFormat object"
+            }
+            Self::FormatToParts => {
+                "Intl.DateTimeFormat.prototype.formatToParts called on a non-Intl.DateTimeFormat object"
+            }
+            Self::FormatRange => {
+                "Intl.DateTimeFormat.prototype.formatRange called on a non-Intl.DateTimeFormat object"
+            }
+            Self::FormatRangeToParts => {
+                "Intl.DateTimeFormat.prototype.formatRangeToParts called on a non-Intl.DateTimeFormat object"
+            }
+        }
+    }
 }
 
 /// Whether the parts this walk produces carry a `source` property, and where
@@ -1371,13 +1417,13 @@ struct DtfFormatSink {
 /// different kinds is not a state the formatter can be handed; making it one
 /// field is what turns "did anybody check that?" into "there is nowhere to put
 /// the second answer".
-pub(crate) struct DtfFormatTimes {
+struct DtfFormatTimes {
     /// `x`.
-    pub(crate) first: u32,
+    first: u32,
     /// `y`, for the two range entry points only.
-    pub(crate) second: Option<u32>,
+    second: Option<u32>,
     /// The local holding the shared [`DtfValueKind::code`].
-    pub(crate) kind: u32,
+    kind: u32,
 }
 
 /// A `format`/`formatRange` argument that carried an
@@ -1391,7 +1437,7 @@ pub(crate) struct DtfFormatTimes {
 /// failing `cargo check`, which is the whole point of spelling the domain as an
 /// enum.
 #[derive(Clone, Copy)]
-pub(crate) enum DtfBrandedKind {
+enum DtfBrandedKind {
     /// One of [`INTL_DTF_TEMPORAL_KINDS`].
     Temporal(&'static IntlDtfTemporalKind),
     /// `Temporal.ZonedDateTime`, which `HandleDateTimeValue` refuses — but only
@@ -1433,7 +1479,7 @@ impl DtfBrandedKind {
 /// Rust-level domain the dispatch is *generated* from, so a brand can neither
 /// be dispatched to a code no row owns nor to a row with no brand.
 #[derive(Clone, Copy)]
-pub(crate) enum DtfValueKind {
+enum DtfValueKind {
     /// Not a Temporal object: `ToNumber` ran and `TimeClip` applies. The
     /// *absence* of a brand match, not a brand of its own, which is why it is
     /// not a [`DtfBrandedKind`].
@@ -1467,7 +1513,7 @@ impl DtfValueKind {
 /// `cargo check` instead of silently storing three zero-initialised slots, i.e.
 /// an identifier payload of 0 beside an offset of 0. The move checker, not a
 /// comment, is what makes "produced only by the option reader" true.
-pub(crate) struct DtfCanonicalTimeZone {
+struct DtfCanonicalTimeZone {
     /// The string payload `resolvedOptions().timeZone` reports.
     identifier_local: u32,
     /// The signed whole minutes `PartitionDateTimePattern` adds to an exact
@@ -1492,7 +1538,7 @@ impl DtfCanonicalTimeZone {
 
 /// A [`DtfCanonicalTimeZone`] whose three locals have all been written by
 /// [`FunctionBuilder::emit_intl_dtf_time_zone_option`].
-pub(crate) struct DtfResolvedTimeZone(DtfCanonicalTimeZone);
+struct DtfResolvedTimeZone(DtfCanonicalTimeZone);
 
 impl DtfResolvedTimeZone {
     /// The only writer of the three record slots. `resolvedOptions` reads the
@@ -1522,28 +1568,11 @@ impl DtfResolvedTimeZone {
     }
 }
 
-/// An allocated `Intl.DateTimeFormat` result that has not been branded or
-/// connected to its internal record.
-///
-/// The raw local is private and this state is deliberately non-`Copy`:
-/// `OrdinaryCreateFromConstructor` must happen before any locale or options
-/// observation, but an abrupt initialization must not publish that object.
-#[must_use]
-struct ReservedIntlDateTimeFormatObjectLocal(u32);
-
-/// A reserved `Intl.DateTimeFormat` result whose complete represented record
-/// and internal brand have been installed.
-///
-/// Only this state can cross the constructor result boundary.
-#[must_use]
-struct InitializedIntlDateTimeFormatObjectLocal(u32);
-
 /// The broken-down components of one side of a format.
 ///
 /// Naming the set lets the range path derive it twice — once per side — and
-/// copy the selected side into the locals the field walk reads, instead of
+/// project the selected side into the locals the field walk reads, instead of
 /// emitting the walk itself twice.
-#[derive(Clone, Copy)]
 struct DtfComponentLocals {
     year: u32,
     month: u32,
@@ -1557,7 +1586,7 @@ struct DtfComponentLocals {
 }
 
 impl DtfComponentLocals {
-    fn locals(self) -> [u32; 9] {
+    fn locals(&self) -> [u32; 9] {
         [
             self.year,
             self.month,
@@ -1572,9 +1601,27 @@ impl DtfComponentLocals {
     }
 }
 
+/// The supported `en-US` interval patterns selected from the two formatted
+/// date records. `Fallback` keeps both complete sides; the textual patterns
+/// share the suffix, and `TextDayDifference` also shares the month prefix.
+enum DtfRangePattern {
+    Fallback,
+    TextMonthDifference,
+    TextDayDifference,
+}
+
+impl DtfRangePattern {
+    const fn code(&self) -> i64 {
+        match self {
+            Self::Fallback => 0,
+            Self::TextMonthDifference => 1,
+            Self::TextDayDifference => 2,
+        }
+    }
+}
+
 /// Everything `PartitionDateTimeRangePattern` needs that the single-date path
 /// does not have.
-#[derive(Clone, Copy)]
 struct DtfRangeLocals {
     /// The `y` time value; `times.first` is `x`.
     second_time: u32,
@@ -1585,11 +1632,12 @@ struct DtfRangeLocals {
     /// 1 when the sides are practically equal, otherwise 2.
     side_limit: u32,
     practically_equal: u32,
+    pattern: u32,
 }
 
 fn emit_dtf_copy_components(
-    from: DtfComponentLocals,
-    to: DtfComponentLocals,
+    from: &DtfComponentLocals,
+    to: &DtfComponentLocals,
     function: &mut Function,
 ) {
     for (source, dest) in from.locals().into_iter().zip(to.locals()) {
@@ -1639,7 +1687,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_intl_dtf_record_from_receiver(
         &mut self,
         record_local: u32,
-        method: &str,
+        operation: &IntlDateTimeFormatReceiverOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let this_payload_local = self.this_payload_local.ok_or_else(|| {
@@ -1653,7 +1701,7 @@ impl<'a> FunctionBuilder<'a> {
             )
         })?;
         let brand_local = self.reserve_temp_local();
-        let message = format!("{method} called on a non-Intl.DateTimeFormat object");
+        let message = operation.full_message();
 
         self.emit_dtf_set_const(record_local, 0, function);
         function.instruction(&Instruction::LocalGet(this_tag_local));
@@ -1685,7 +1733,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
-            &message,
+            message,
             self.result_local,
             self.result_tag_local,
             function,
@@ -2679,81 +2727,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Resolve `NewTarget.prototype` and reserve the ordinary result before
-    /// the first locale or options operation.
-    fn emit_reserve_intl_date_time_format_object(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<ReservedIntlDateTimeFormatObjectLocal, EmitError> {
-        // Reserve the retained object first so both temporary prototype locals
-        // can be released in strict LIFO order while it stays live.
-        let object_payload_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let prototype_tag_local = self.reserve_temp_local();
-        let prototype = TaggedLocals::new(prototype_payload_local, prototype_tag_local);
-        let result = (|| {
-            self.emit_new_target_prototype_to_locals(
-                INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
-                NewTargetPrototypeFallback::CurrentGlobal,
-                prototype.payload,
-                prototype.tag,
-                function,
-            )?;
-            self.emit_alloc_plain_object_with_prototype_and_tag(
-                Some(prototype.payload),
-                Some(prototype.tag),
-                None,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(object_payload_local));
-            Ok(())
-        })();
-        self.release_temp_local(prototype.tag);
-        self.release_temp_local(prototype.payload);
-        if let Err(error) = result {
-            self.release_temp_local(object_payload_local);
-            return Err(error);
-        }
-        Ok(ReservedIntlDateTimeFormatObjectLocal(object_payload_local))
-    }
-
-    /// Consume the unreachable reserved result after the DateTimeFormat record
-    /// is complete, then make the object eligible for publication.
-    fn emit_initialize_intl_date_time_format_object(
-        &self,
-        reserved: ReservedIntlDateTimeFormatObjectLocal,
-        record_local: u32,
-        function: &mut Function,
-    ) -> InitializedIntlDateTimeFormatObjectLocal {
-        let object_payload_local = reserved.0;
-        self.store_i64_const_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        InitializedIntlDateTimeFormatObjectLocal(object_payload_local)
-    }
-
-    /// Publish the only DateTimeFormat lifecycle state allowed to escape.
-    fn emit_publish_intl_date_time_format_object(
-        &mut self,
-        initialized: InitializedIntlDateTimeFormatObjectLocal,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(initialized.0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(initialized.0);
-    }
-
     /// `CreateDateTimeFormat(newTarget, locales, options, any, date)` —
     /// ECMA-402 11.1.2.
     ///
@@ -3382,13 +3355,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(locales_payload_local));
         function.instruction(&Instruction::LocalSet(input_payload_local));
         self.emit_intl_canonicalize_locale_tag(
-            input_payload_local,
-            tag_payload_local,
-            language_local,
-            script_local,
-            region_local,
-            base_name_local,
-            ok_local,
+            CanonicalLocaleTagInvocationLocals::new(
+                CanonicalLocaleTagInputPayloadLocal::new(input_payload_local),
+                CanonicalLocaleTagPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleLanguagePayloadLocal::new(language_local),
+                CanonicalLocaleScriptPayloadLocal::new(script_local),
+                CanonicalLocaleRegionPayloadLocal::new(region_local),
+                CanonicalLocaleBaseNamePayloadLocal::new(base_name_local),
+                CanonicalLocaleValidityLocal::new(ok_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::LocalGet(ok_local));
@@ -3451,13 +3426,15 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_intl_canonicalize_locale_tag(
-            input_payload_local,
-            tag_payload_local,
-            language_local,
-            script_local,
-            region_local,
-            base_name_local,
-            ok_local,
+            CanonicalLocaleTagInvocationLocals::new(
+                CanonicalLocaleTagInputPayloadLocal::new(input_payload_local),
+                CanonicalLocaleTagPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleLanguagePayloadLocal::new(language_local),
+                CanonicalLocaleScriptPayloadLocal::new(script_local),
+                CanonicalLocaleRegionPayloadLocal::new(region_local),
+                CanonicalLocaleBaseNamePayloadLocal::new(base_name_local),
+                CanonicalLocaleValidityLocal::new(ok_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::LocalGet(ok_local));
@@ -3994,7 +3971,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_intl_dtf_record_from_receiver(
             record_local,
-            "Intl.DateTimeFormat.prototype.resolvedOptions",
+            &IntlDateTimeFormatReceiverOperation::ResolvedOptions,
             function,
         )?;
         self.emit_alloc_plain_object_with_prototype(
@@ -4348,13 +4325,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_intl_canonicalize_locale_tag(
-            input_payload_local,
-            tag_payload_local,
-            language_local,
-            script_local,
-            region_local,
-            base_name_local,
-            ok_local,
+            CanonicalLocaleTagInvocationLocals::new(
+                CanonicalLocaleTagInputPayloadLocal::new(input_payload_local),
+                CanonicalLocaleTagPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleLanguagePayloadLocal::new(language_local),
+                CanonicalLocaleScriptPayloadLocal::new(script_local),
+                CanonicalLocaleRegionPayloadLocal::new(region_local),
+                CanonicalLocaleBaseNamePayloadLocal::new(base_name_local),
+                CanonicalLocaleValidityLocal::new(ok_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::LocalGet(ok_local));
@@ -4469,7 +4448,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_intl_dtf_record_from_receiver(
             record_local,
-            "get Intl.DateTimeFormat.prototype.format",
+            &IntlDateTimeFormatReceiverOperation::FormatGetter,
             function,
         )?;
         self.load_i64_to_local_from_offset(
@@ -4737,7 +4716,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         time_local: u32,
         offset_minutes_local: u32,
-        comps: DtfComponentLocals,
+        comps: &DtfComponentLocals,
         function: &mut Function,
     ) {
         // `LocalTime(t) = t + offset`, in the f64-bit-pattern convention every
@@ -4811,13 +4790,13 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_dtf_practical_equality(
         &mut self,
         codes: [u32; 9],
-        range: DtfRangeLocals,
+        range: &DtfRangeLocals,
         function: &mut Function,
     ) {
         let [e_era, e_year, e_month, e_day, e_day_period, e_hour, e_minute, e_second, e_fractional] =
             codes;
-        let a = range.start;
-        let b = range.end;
+        let a = &range.start;
+        let b = &range.end;
 
         self.emit_dtf_set_const(range.practically_equal, 1, function);
 
@@ -4953,7 +4932,7 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// `times.kind` holds a [`DtfValueKind::code`]: zero for the legacy
     /// Number/Date path, otherwise an [`IntlDtfTemporalKind::code`].
-    pub(crate) fn emit_intl_dtf_build_format_with_kind(
+    fn emit_intl_dtf_build_format_with_kind(
         &mut self,
         record_local: u32,
         times: DtfFormatTimes,
@@ -5047,6 +5026,7 @@ impl<'a> FunctionBuilder<'a> {
                 side: self.reserve_temp_local(),
                 side_limit: self.reserve_temp_local(),
                 practically_equal: self.reserve_temp_local(),
+                pattern: self.reserve_temp_local(),
             }),
         };
 
@@ -5231,12 +5211,12 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(need_defaults_local);
 
         // --- date components ------------------------------------------------
-        match range {
+        match &range {
             None => {
                 self.emit_dtf_components_from_time(
                     times.first,
                     applied_offset_local,
-                    current,
+                    &current,
                     function,
                 );
             }
@@ -5244,13 +5224,13 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_dtf_components_from_time(
                     times.first,
                     applied_offset_local,
-                    range.start,
+                    &range.start,
                     function,
                 );
                 self.emit_dtf_components_from_time(
                     range.second_time,
                     applied_offset_local,
-                    range.end,
+                    &range.end,
                     function,
                 );
                 self.emit_dtf_practical_equality(
@@ -5268,6 +5248,78 @@ impl<'a> FunctionBuilder<'a> {
                     range,
                     function,
                 );
+
+                self.emit_dtf_set_const(range.pattern, DtfRangePattern::Fallback.code(), function);
+                // CLDR `en`'s textual year/month/day interval formats share a
+                // common year suffix, and a day-only difference also shares
+                // the month prefix. Restrict this selection to that exact
+                // field set; numeric dates and mixed date/time skeletons keep
+                // the complete-side fallback until their distinct patterns
+                // are represented here.
+                function.instruction(&Instruction::LocalGet(e_month));
+                function.instruction(&Instruction::I64Const(3));
+                function.instruction(&Instruction::I64GeU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                for required in [e_year, e_month, e_day] {
+                    self.emit_dtf_if_nonzero(required, function);
+                }
+                for (index, excluded) in [
+                    e_weekday,
+                    e_era,
+                    e_day_period,
+                    e_hour,
+                    e_minute,
+                    e_second,
+                    e_fractional,
+                    e_time_zone_name,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    function.instruction(&Instruction::LocalGet(excluded));
+                    if index > 0 {
+                        function.instruction(&Instruction::I64Or);
+                    }
+                }
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(range.start.display_year));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(range.end.display_year));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(range.start.month));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(range.end.month));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(range.start.day));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(range.end.day));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_dtf_set_const(
+                    range.pattern,
+                    DtfRangePattern::TextDayDifference.code(),
+                    function,
+                );
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                self.emit_dtf_set_const(
+                    range.pattern,
+                    DtfRangePattern::TextMonthDifference.code(),
+                    function,
+                );
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
+                for _ in [e_year, e_month, e_day] {
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::End);
             }
         }
 
@@ -5277,37 +5329,40 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dtf_set_const(sink.pending_literal_local, 0, function);
         self.emit_dtf_set_const(sink.emitted_local, 0, function);
         self.emit_dtf_set_const(sink.length_local, 0, function);
-        if mode == DtfFormatMode::Parts {
-            self.emit_dtf_set_const(
-                sink.scratch_local,
-                match range {
-                    None => INTL_DTF_MAX_PARTS,
-                    Some(_) => INTL_DTF_MAX_RANGE_PARTS,
-                },
-                function,
-            );
-            self.emit_alloc_array_payload_with_length(
-                sink.scratch_local,
-                sink.array_local,
-                function,
-            )?;
-            self.load_i64_to_local_from_offset(
-                sink.array_local,
-                HEAP_PTR_OFFSET,
-                sink.buffer_local,
-                function,
-            );
+        match mode {
+            DtfFormatMode::String => {}
+            DtfFormatMode::Parts => {
+                self.emit_dtf_set_const(
+                    sink.scratch_local,
+                    match &range {
+                        None => INTL_DTF_MAX_PARTS,
+                        Some(_) => INTL_DTF_MAX_RANGE_PARTS,
+                    },
+                    function,
+                );
+                self.emit_alloc_array_payload_with_length(
+                    sink.scratch_local,
+                    sink.array_local,
+                    function,
+                )?;
+                self.load_i64_to_local_from_offset(
+                    sink.array_local,
+                    HEAP_PTR_OFFSET,
+                    sink.buffer_local,
+                    function,
+                );
+            }
         }
         self.emit_dtf_set_const(body_last_local, 0, function);
 
         // --- one iteration per side ------------------------------------------
-        if let Some(range) = range {
+        if let Some(range) = &range {
             self.emit_dtf_set_const(range.side, 0, function);
             function.instruction(&Instruction::Loop(BlockType::Empty));
             function.instruction(&Instruction::LocalGet(range.side));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            emit_dtf_copy_components(range.start, current, function);
+            emit_dtf_copy_components(&range.start, &current, function);
             self.emit_dtf_set_const(sink.pending_literal_local, 0, function);
             if let DtfSourceAttribution::Range { source_local } = sink.source {
                 // 11.5.9 step 13: a collapsed range is entirely `"shared"`.
@@ -5320,7 +5375,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(sink.pending_source_local));
             }
             function.instruction(&Instruction::Else);
-            emit_dtf_copy_components(range.end, current, function);
+            emit_dtf_copy_components(&range.end, &current, function);
             // The separator is appended outright rather than parked in
             // `pending_literal`. A pending literal is overwritable — the
             // fractional-second branch, for one, sets `"."` unconditionally —
@@ -5417,6 +5472,29 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::Else);
 
+        if let Some(range) = &range {
+            function.instruction(&Instruction::LocalGet(range.pattern));
+            function.instruction(&Instruction::I64Const(
+                DtfRangePattern::TextDayDifference.code(),
+            ));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::LocalGet(range.side));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            if let DtfSourceAttribution::Range { source_local } = sink.source {
+                function.instruction(&Instruction::LocalGet(range.pattern));
+                function.instruction(&Instruction::I64Const(
+                    DtfRangePattern::TextDayDifference.code(),
+                ));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_dtf_set_string(source_local, "shared", function);
+                function.instruction(&Instruction::End);
+            }
+        }
         self.emit_dtf_if_nonzero(e_month, function);
         self.emit_dtf_if_nonzero(sink.emitted_local, function);
         self.emit_dtf_pending(&sink, ", ", function);
@@ -5433,6 +5511,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dtf_push(&sink, "month", value_local, function)?;
         self.emit_dtf_set_const(body_last_local, 1, function);
         function.instruction(&Instruction::End);
+        if range.is_some() {
+            function.instruction(&Instruction::End);
+        }
 
         self.emit_dtf_if_nonzero(e_day, function);
         self.emit_dtf_if_nonzero(body_last_local, function);
@@ -5447,10 +5528,43 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_dtf_number_string(day_local, 1, value_local, function)?;
         function.instruction(&Instruction::End);
+        if let (Some(range), DtfSourceAttribution::Range { source_local }) = (&range, sink.source) {
+            function.instruction(&Instruction::LocalGet(range.pattern));
+            function.instruction(&Instruction::I64Const(
+                DtfRangePattern::TextDayDifference.code(),
+            ));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(range.side));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_dtf_set_string(source_local, "startRange", function);
+            function.instruction(&Instruction::Else);
+            self.emit_dtf_set_string(source_local, "endRange", function);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::End);
+        }
         self.emit_dtf_push(&sink, "day", value_local, function)?;
         self.emit_dtf_set_const(body_last_local, 2, function);
         function.instruction(&Instruction::End);
 
+        if let Some(range) = &range {
+            function.instruction(&Instruction::LocalGet(range.pattern));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::LocalGet(range.side));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::I32Or);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            if let DtfSourceAttribution::Range { source_local } = sink.source {
+                function.instruction(&Instruction::LocalGet(range.pattern));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_dtf_set_string(source_local, "shared", function);
+                function.instruction(&Instruction::End);
+            }
+        }
         self.emit_dtf_if_nonzero(e_year, function);
         self.emit_dtf_if_code_eq(body_last_local, 2, function);
         self.emit_dtf_pending(&sink, ", ", function);
@@ -5467,6 +5581,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dtf_push(&sink, "year", value_local, function)?;
         self.emit_dtf_set_const(body_last_local, 3, function);
         function.instruction(&Instruction::End);
+        if range.is_some() {
+            function.instruction(&Instruction::End);
+        }
 
         function.instruction(&Instruction::End);
 
@@ -5653,7 +5770,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dtf_push(&sink, "timeZoneName", value_local, function)?;
         function.instruction(&Instruction::End);
 
-        if let Some(range) = range {
+        if let Some(range) = &range {
             function.instruction(&Instruction::LocalGet(range.side));
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Add);
@@ -5683,11 +5800,20 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         if let Some(range) = range {
-            for local in [range.practically_equal, range.side_limit, range.side] {
+            let DtfRangeLocals {
+                second_time: _,
+                start,
+                end,
+                side,
+                side_limit,
+                practically_equal,
+                pattern,
+            } = range;
+            for local in [pattern, practically_equal, side_limit, side] {
                 self.release_temp_local(local);
             }
-            self.release_dtf_components(range.end);
-            self.release_dtf_components(range.start);
+            self.release_dtf_components(end);
+            self.release_dtf_components(start);
         }
         if let DtfSourceAttribution::Range { source_local } = sink.source {
             self.release_temp_local(source_local);
@@ -6352,7 +6478,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_intl_dtf_record_from_receiver(
             record_local,
-            "Intl.DateTimeFormat.prototype.formatToParts",
+            &IntlDateTimeFormatReceiverOperation::FormatToParts,
             function,
         )?;
         self.emit_intl_dtf_handle_date_time_value(0, time_local, kind_local, function)?;
@@ -6590,7 +6716,6 @@ impl<'a> FunctionBuilder<'a> {
     /// masked with the same Temporal field set by construction.
     fn emit_intl_dtf_format_range(
         &mut self,
-        method: &str,
         mode: DtfFormatMode,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -6600,7 +6725,11 @@ impl<'a> FunctionBuilder<'a> {
         let kind_local = self.reserve_temp_local();
         let out_local = self.reserve_temp_local();
 
-        self.emit_intl_dtf_record_from_receiver(record_local, method, function)?;
+        let receiver_operation = match mode {
+            DtfFormatMode::String => IntlDateTimeFormatReceiverOperation::FormatRange,
+            DtfFormatMode::Parts => IntlDateTimeFormatReceiverOperation::FormatRangeToParts,
+        };
+        self.emit_intl_dtf_record_from_receiver(record_local, &receiver_operation, function)?;
         self.emit_intl_dtf_range_argument_values(x_local, y_local, kind_local, function)?;
         self.emit_intl_dtf_build_format_with_kind(
             record_local,
@@ -6633,11 +6762,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_dtf_format_range(
-            "Intl.DateTimeFormat.prototype.formatRange",
-            DtfFormatMode::String,
-            function,
-        )
+        self.emit_intl_dtf_format_range(DtfFormatMode::String, function)
     }
 
     /// `Intl.DateTimeFormat.prototype.formatRangeToParts` — ECMA-402 11.4.7.
@@ -6645,11 +6770,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_intl_dtf_format_range(
-            "Intl.DateTimeFormat.prototype.formatRangeToParts",
-            DtfFormatMode::Parts,
-            function,
-        )
+        self.emit_intl_dtf_format_range(DtfFormatMode::Parts, function)
     }
 
     /// The whole body of every `Temporal.X.prototype.toLocaleString`.
@@ -6938,16 +7059,8 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
     for sign in INTL_DTF_OFFSET_SIGNS {
         values.push(sign.to_string());
     }
-    for method in [
-        "Intl.DateTimeFormat.prototype.resolvedOptions",
-        "get Intl.DateTimeFormat.prototype.format",
-        "Intl.DateTimeFormat.prototype.formatToParts",
-        "Intl.DateTimeFormat.prototype.formatRange",
-        "Intl.DateTimeFormat.prototype.formatRangeToParts",
-    ] {
-        values.push(format!(
-            "{method} called on a non-Intl.DateTimeFormat object"
-        ));
+    for operation in IntlDateTimeFormatReceiverOperation::ALL {
+        values.push(operation.full_message().to_string());
     }
     for value in [
         "Intl.DateTimeFormat constructor requires new",

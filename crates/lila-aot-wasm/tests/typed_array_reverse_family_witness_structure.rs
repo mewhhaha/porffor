@@ -245,7 +245,6 @@ fn typed_array_reverse_family_uses_one_validated_method_entry_witness() {
         r#"
         self.emit_typed_array_element_write_from_locals(
             receiver_payload_local,
-            receiver_tag_local,
             lower_index_local,
             upper_payload_local,
             upper_tag_local,
@@ -259,7 +258,6 @@ fn typed_array_reverse_family_uses_one_validated_method_entry_witness() {
         r#"
         self.emit_typed_array_element_write_from_locals(
             receiver_payload_local,
-            receiver_tag_local,
             upper_index_local,
             lower_payload_local,
             lower_tag_local,
@@ -322,7 +320,6 @@ fn typed_array_reverse_family_uses_one_validated_method_entry_witness() {
         r#"
         self.emit_typed_array_element_write_from_locals(
             result_payload_local,
-            result_tag_local,
             index_local,
             value_payload_local,
             value_tag_local,

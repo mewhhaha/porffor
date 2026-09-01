@@ -14,6 +14,13 @@ pub enum WasmRuntimeValueTag {
     HeapBigInt,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeapBigIntSign {
+    Negative,
+    Zero,
+    Positive,
+}
+
 impl WasmRuntimeValueTag {
     pub const fn from_tag(tag: i32) -> Option<Self> {
         if tag == HEAP_BIGINT_VALUE_TAG as i32 {
@@ -96,14 +103,19 @@ where
 
     let sign_value = read_record_u64(&record, HEAP_BIGINT_SIGN_OFFSET) as i64;
     let sign = match sign_value {
-        -1 => Sign::Minus,
-        0 => Sign::NoSign,
-        1 => Sign::Plus,
+        -1 => HeapBigIntSign::Negative,
+        0 => HeapBigIntSign::Zero,
+        1 => HeapBigIntSign::Positive,
         _ => {
             return Err(WasmRuntimeDecodeError::new(format!(
                 "heap BigInt record at address {record_address} has invalid sign {sign_value}"
             )));
         }
+    };
+    let (bigint_sign, magnitude_must_be_zero) = match sign {
+        HeapBigIntSign::Negative => (Sign::Minus, false),
+        HeapBigIntSign::Zero => (Sign::NoSign, true),
+        HeapBigIntSign::Positive => (Sign::Plus, false),
     };
     let limbs_address = read_record_u64(&record, HEAP_BIGINT_LIMBS_PTR_OFFSET);
     let limb_count = read_record_u64(&record, HEAP_BIGINT_LIMBS_LEN_OFFSET);
@@ -160,14 +172,14 @@ where
     })?;
 
     let magnitude_is_zero = limb_bytes.iter().all(|byte| *byte == 0);
-    if (sign_value == 0) != magnitude_is_zero {
+    if magnitude_must_be_zero != magnitude_is_zero {
         return Err(WasmRuntimeDecodeError::new(format!(
             "heap BigInt record at address {record_address} has sign {sign_value} inconsistent \
              with its magnitude"
         )));
     }
 
-    Ok(BigInt::from_bytes_le(sign, &limb_bytes).to_string())
+    Ok(BigInt::from_bytes_le(bigint_sign, &limb_bytes).to_string())
 }
 
 fn read_record_u64(record: &[u8], offset: u64) -> u64 {
@@ -266,6 +278,83 @@ mod tests {
         .expect("valid negative heap BigInt should decode");
 
         assert_eq!(decimal, "-18446744073709551615");
+    }
+
+    #[test]
+    fn heap_bigint_decoder_accepts_zero_sign_for_zero_magnitude() {
+        let memory = encode_heap_bigint(0, &[0]);
+
+        let decimal = decode_heap_bigint_decimal(
+            RECORD_ADDRESS as u64,
+            memory.len(),
+            |offset, destination| {
+                destination.copy_from_slice(&memory[offset..offset + destination.len()]);
+                Ok::<(), String>(())
+            },
+        )
+        .expect("zero heap BigInt should decode");
+
+        assert_eq!(decimal, "0");
+    }
+
+    #[test]
+    fn heap_bigint_decoder_rejects_an_unknown_sign_word() {
+        let memory = encode_heap_bigint(2, &[1]);
+
+        let error = decode_heap_bigint_decimal(
+            RECORD_ADDRESS as u64,
+            memory.len(),
+            |offset, destination| {
+                destination.copy_from_slice(&memory[offset..offset + destination.len()]);
+                Ok::<(), String>(())
+            },
+        )
+        .expect_err("unknown heap BigInt sign should fail");
+
+        assert_eq!(
+            error.message(),
+            "heap BigInt record at address 64 has invalid sign 2"
+        );
+    }
+
+    #[test]
+    fn heap_bigint_decoder_rejects_zero_sign_for_nonzero_magnitude() {
+        let memory = encode_heap_bigint(0, &[1]);
+
+        let error = decode_heap_bigint_decimal(
+            RECORD_ADDRESS as u64,
+            memory.len(),
+            |offset, destination| {
+                destination.copy_from_slice(&memory[offset..offset + destination.len()]);
+                Ok::<(), String>(())
+            },
+        )
+        .expect_err("zero sign with nonzero magnitude should fail");
+
+        assert_eq!(
+            error.message(),
+            "heap BigInt record at address 64 has sign 0 inconsistent with its magnitude"
+        );
+    }
+
+    #[test]
+    fn heap_bigint_decoder_rejects_nonzero_sign_for_zero_magnitude() {
+        let memory = encode_heap_bigint(1, &[0]);
+
+        let error = decode_heap_bigint_decimal(
+            RECORD_ADDRESS as u64,
+            memory.len(),
+            |offset, destination| {
+                destination.copy_from_slice(&memory[offset..offset + destination.len()]);
+                Ok::<(), String>(())
+            },
+        )
+        .expect_err("nonzero sign with zero magnitude should fail");
+
+        assert_eq!(
+            error.message(),
+            "heap BigInt record at address 64 has sign 1 inconsistent with its magnitude"
+        );
     }
 
     #[test]

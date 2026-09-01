@@ -25,53 +25,8 @@ use crate::heap::{
     HEAP_BIGINT_RECORD_SIZE, HEAP_BIGINT_SIGN_OFFSET, HEAP_BIGINT_VALUE_TAG,
 };
 
-/// Operation selector passed to the shared BigInt helper in parameter 4.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BigIntHelperOp {
-    Add = 0,
-    Sub = 1,
-    Mul = 2,
-    Div = 3,
-    Rem = 4,
-    Exp = 5,
-    /// Numeric three-way comparison; the result is a Number (-1, 0 or 1).
-    Compare = 6,
-    /// Unary negation of the left operand; the right operand is ignored.
-    Negate = 7,
-    /// Exact three-way comparison of a BigInt against a Number (right operand
-    /// payload is f64 bits). Yields NaN when the Number is NaN, so the caller's
-    /// float comparison against zero is false for every relational operator —
-    /// which is what ECMA-262 7.2.13 requires.
-    CompareWithNumber = 8,
-    BitAnd = 9,
-    BitOr = 10,
-    BitXor = 11,
-    Shl = 12,
-    Shr = 13,
-}
-
-impl BigIntHelperOp {
-    pub(crate) const fn from_arithmetic(op: ArithmeticBinaryOp) -> Self {
-        match op {
-            ArithmeticBinaryOp::Add => Self::Add,
-            ArithmeticBinaryOp::Sub => Self::Sub,
-            ArithmeticBinaryOp::Mul => Self::Mul,
-            ArithmeticBinaryOp::Div => Self::Div,
-            ArithmeticBinaryOp::Mod => Self::Rem,
-            ArithmeticBinaryOp::Exp => Self::Exp,
-        }
-    }
-
-    pub(crate) const fn from_bitwise(op: BigIntBitwiseOp) -> Self {
-        match op {
-            BigIntBitwiseOp::And => Self::BitAnd,
-            BigIntBitwiseOp::Or => Self::BitOr,
-            BigIntBitwiseOp::Xor => Self::BitXor,
-            BigIntBitwiseOp::Shl => Self::Shl,
-            BigIntBitwiseOp::Shr => Self::Shr,
-        }
-    }
-}
+mod helper_op;
+pub(crate) use helper_op::BigIntHelperOp;
 
 /// Every value that reaches the helper carries one of these two tags.
 pub(crate) const BIGINT_DIVISION_BY_ZERO_MESSAGE: &str = "BigInt division by zero";
@@ -109,7 +64,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(lhs_tag_local));
         function.instruction(&Instruction::LocalGet(rhs_payload_local));
         function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(op as i64));
+        function.instruction(&Instruction::I64Const(op.runtime_code()));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::Call(helper));
@@ -251,7 +206,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(lhs_tag_local));
         function.instruction(&Instruction::LocalGet(rhs_payload_local));
         function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(helper_op as i64));
+        function.instruction(&Instruction::I64Const(helper_op.runtime_code()));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::Call(helper));
@@ -366,7 +321,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(number_class));
         function.instruction(&Instruction::LocalGet(op_local));
         function.instruction(&Instruction::I64Const(
-            BigIntHelperOp::CompareWithNumber as i64,
+            BigIntHelperOp::CompareWithNumber.runtime_code(),
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -386,21 +341,23 @@ impl<'a> FunctionBuilder<'a> {
         // `a - b` is `a + (-b)`; negation only flips the sign word, so the
         // signed-addition path below covers both.
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Sub as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Sub.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalGet(rhs_sign));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(rhs_sign));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Add as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Add.runtime_code()));
         function.instruction(&Instruction::LocalSet(op_local));
         function.instruction(&Instruction::End);
 
         // `-a` is the left operand with a flipped sign; reuse the add path with
         // a zero right operand.
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Negate as i64));
+        function.instruction(&Instruction::I64Const(
+            BigIntHelperOp::Negate.runtime_code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
@@ -411,7 +368,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(rhs_sign));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(rhs_len));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Add as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Add.runtime_code()));
         function.instruction(&Instruction::LocalSet(op_local));
         function.instruction(&Instruction::End);
 
@@ -421,11 +378,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(scratch));
 
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Compare as i64));
+        function.instruction(&Instruction::I64Const(
+            BigIntHelperOp::Compare.runtime_code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(op_local));
         function.instruction(&Instruction::I64Const(
-            BigIntHelperOp::CompareWithNumber as i64,
+            BigIntHelperOp::CompareWithNumber.runtime_code(),
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
@@ -482,7 +441,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Add as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Add.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_bigint_signed_add(
@@ -500,7 +459,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Mul as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Mul.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_bigint_magnitude_mul(
@@ -519,7 +478,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Exp as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Exp.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_bigint_pow(
@@ -537,14 +496,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::BitAnd as i64));
+        function.instruction(&Instruction::I64Const(
+            BigIntHelperOp::BitAnd.runtime_code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::BitOr as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::BitOr.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::BitXor as i64));
+        function.instruction(&Instruction::I64Const(
+            BigIntHelperOp::BitXor.runtime_code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -564,10 +527,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Shl as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Shl.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Shr as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Shr.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1626,7 +1589,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::BitAnd as i64));
+        function.instruction(&Instruction::I64Const(
+            BigIntHelperOp::BitAnd.runtime_code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::LocalGet(lhs_digit));
@@ -1634,7 +1599,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::BitOr as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::BitOr.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::LocalGet(lhs_digit));
@@ -1743,7 +1708,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Shl as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Shl.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(rhs_sign));
         function.instruction(&Instruction::I64Const(0));
@@ -2572,7 +2537,7 @@ impl<'a> FunctionBuilder<'a> {
             lhs_ptr, lhs_len, rhs_ptr, rhs_len, q_ptr, q_len, r_ptr, r_len, function,
         )?;
         function.instruction(&Instruction::LocalGet(op_local));
-        function.instruction(&Instruction::I64Const(BigIntHelperOp::Div as i64));
+        function.instruction(&Instruction::I64Const(BigIntHelperOp::Div.runtime_code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(q_ptr));

@@ -16,12 +16,50 @@ centralized Cargo/Test262 verification lease. The committed pre-version-7 fake
 snapshots are path-only historical evidence, not current version-7 proof. The
 README explicitly states that the current pinned real Wasm-AOT aggregate is not
 green and has not been fully republished.
-The shortcut audit is green as an exact-drift contract over 432 classified
-observations, but 353 of those observations are still semantic shortcuts; audit
-green therefore does not satisfy the final integrity criterion. The generated
-current-pin backlog is absent, and several architecture/feature lanes retain
-explicit unsupported cases. Formal closure entry criteria are therefore not
-met.
+The shortcut audit is green as an exact-drift contract over 389 classified
+observations: 35 legitimate harness adaptations, 113 diagnostic instrumentation
+sites and 241 semantic shortcuts. Audit green therefore does not satisfy the
+final integrity criterion. The generated current-pin backlog is absent, and
+several architecture/feature lanes retain explicit unsupported cases. Formal
+closure entry criteria are therefore not met.
+
+Alternate-name aggregate resolution now carries its evidence depth through the
+private, non-derived `AggregateEvidenceRequirement::{Envelope, Complete}`
+domain. The candidate loop borrows that policy in an exhaustive match: verified
+aggregate loading requires complete node evidence, while read-only progress and
+failure-detail lookup require the validated envelope and retain their existing
+downstream checks. A recursive structure target pins the seven source mentions,
+the exact decision and all three producer contexts; it passes `4/4`, and the
+exact alternate-name product witness passes `1/1`. This is a source-equivalent
+harness invariant and does not claim a complete aggregate or advance the T26
+release gate. Independent review confirmed the complete census, producer
+contexts, exhaustive policy bodies and preserved candidate/error order.
+Coordinated `cargo xc`, full formatter, diff, module-boundary and task-plan
+checks are green.
+
+Direct case-evidence admission now carries its partial-versus-terminal policy
+through the private, non-derived
+`CaseSetRequirement::{UniqueSubset, Exact}` authority. Its sole validator
+consumes the authority once in an exhaustive match that binds both exact-set
+strictness and diagnostic wording; the former equality-plus-match double
+observation is gone. The Rust-lexical `case_set_requirement_structure` target
+pins the 18-to-17 source and 14-to-13 production ownership reductions, five
+`Exact` and two `UniqueSubset` constructors, all six deliveries and their
+order. It passes `4/4`, while the exact direct-identity and case-evidence
+witnesses pass `1/1` each. This source-equivalent harness invariant does not
+claim complete current evidence or advance the T26 release gate.
+
+Negative-test discovery now converts frontmatter through the closed
+`NegativePhase::{Parse, Early, Resolution, Runtime}` authority and stores that
+type directly in `NegativeExpectation`. A present unknown spelling is rejected
+with the test path and spelling instead of falling through to runtime routing;
+an omitted phase retains the Test262 runtime default. Compile-only selection,
+failure ownership, diagnostic matching, and backlog projection all consume the
+typed phase, so a new phase cannot bypass an exhaustive Rust decision. Focused
+unit coverage admits all four canonical spellings and rejects `run-time`; the
+standalone `negative_phase_authority_structure` target pins the boundary and
+all typed consumers. This source-equivalent harness invariant does not claim
+complete current evidence or advance the T26 release gate.
 
 ## Objective
 

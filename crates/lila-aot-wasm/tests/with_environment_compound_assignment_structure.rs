@@ -309,9 +309,9 @@ fn fallback_is_dynamic_and_runtime_guarded_after_observable_selection() {
         "let old_value = bindings.old_value();",
         "let applied = op.apply(",
         "plan.compound_assignment(bindings.seal(applied), fallback)",
-        "self.set_binding_value_info(&name, unknown_runtime_value_info());",
+        "self.widen_binding_for_possible_replacement(&name);",
         "lower_global_object_environment_eager_compound_assignment(",
-        "info.value_info = unknown_runtime_value_info();",
+        "info.value_info.widen_for_possible_replacement();",
         "info.proven_present = false;",
         "GlobalObjectEnvironmentReferencePlan::new(self.global_this_info(), name, strictness)",
         ".compound_assignment(bindings.seal(applied))",
@@ -325,7 +325,11 @@ fn fallback_is_dynamic_and_runtime_guarded_after_observable_selection() {
     assert_before(helper, "let fallback =", "let bindings =");
     assert_before(helper, "let bindings =", "let old_value =");
     assert_before(helper, "let old_value =", "let applied =");
-    assert_before(helper, "info.value_info =", "info.proven_present = false;");
+    assert_before(
+        helper,
+        "info.value_info.widen_for_possible_replacement();",
+        "info.proven_present = false;",
+    );
 }
 
 #[test]

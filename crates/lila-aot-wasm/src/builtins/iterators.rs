@@ -1,6 +1,43 @@
 use super::super::*;
 use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 
+macro_rules! array_iterator_kind_domain {
+    ($name:ident { $($variant:ident = $word:literal),+ $(,)? }) => {
+        pub(crate) enum $name {
+            $($variant),+
+        }
+
+        impl $name {
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub(crate) const fn word(&self) -> u64 {
+                match self {
+                    $(Self::$variant => $word),+
+                }
+            }
+        }
+
+        const _: () = {
+            let all = $name::ALL;
+            let mut left = 0;
+            while left < all.len() {
+                let mut right = left + 1;
+                while right < all.len() {
+                    assert!(all[left].word() != all[right].word());
+                    right += 1;
+                }
+                left += 1;
+            }
+        };
+    };
+}
+
+array_iterator_kind_domain!(ArrayIteratorKind {
+    Key = 1,
+    Value = 0,
+    KeyAndValue = 2,
+});
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_string_iterator_create_from_local(
         &mut self,
@@ -52,7 +89,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         receiver_payload_local: u32,
         receiver_tag_local: u32,
-        kind: u64,
+        kind: &ArrayIteratorKind,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -92,7 +129,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_number_data_from_i64_const(
             object_local,
             "$ArrayIterator.kind",
-            kind,
+            kind.word(),
             function,
         )?;
         function.instruction(&Instruction::LocalGet(object_local));
@@ -107,7 +144,7 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_typed_array_iterator_create_from_locals(
         &mut self,
         typed_array_payload_local: u32,
-        kind: u64,
+        kind: &ArrayIteratorKind,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -149,7 +186,7 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_const_at_offset(
             iterator_record_local,
             HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET,
-            kind,
+            kind.word(),
             function,
         );
         self.store_i64_const_at_offset(
@@ -345,61 +382,81 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(ARRAY_ITERATOR_KIND_KEYS as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_typed_array_or_object_index_read_from_locals(
-            typed_array_payload_local,
-            typed_array_tag_local,
-            index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(kind_local));
-        function.instruction(&Instruction::I64Const(ARRAY_ITERATOR_KIND_ENTRIES as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::LocalSet(entry_index_local));
-        self.emit_alloc_array_payload_with_length(entry_index_local, entry_array_local, function)?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(index_tag_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(entry_index_local));
-        self.emit_array_write(
-            entry_array_local,
-            entry_index_local,
-            index_payload_local,
-            index_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(entry_index_local));
-        self.emit_array_write(
-            entry_array_local,
-            entry_index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(entry_array_local));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        for kind in ArrayIteratorKind::ALL {
+            function.instruction(&Instruction::LocalGet(kind_local));
+            function.instruction(&Instruction::I64Const(kind.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            match kind {
+                ArrayIteratorKind::Key => {
+                    function.instruction(&Instruction::LocalGet(index_local));
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(value_payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(value_tag_local));
+                }
+                ArrayIteratorKind::Value => {
+                    self.emit_typed_array_or_object_index_read_from_locals(
+                        typed_array_payload_local,
+                        typed_array_tag_local,
+                        index_local,
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                }
+                ArrayIteratorKind::KeyAndValue => {
+                    self.emit_typed_array_or_object_index_read_from_locals(
+                        typed_array_payload_local,
+                        typed_array_tag_local,
+                        index_local,
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::I64Const(2));
+                    function.instruction(&Instruction::LocalSet(entry_index_local));
+                    self.emit_alloc_array_payload_with_length(
+                        entry_index_local,
+                        entry_array_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(index_local));
+                    function.instruction(&Instruction::F64ConvertI64U);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(index_payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(index_tag_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(entry_index_local));
+                    self.emit_array_write(
+                        entry_array_local,
+                        entry_index_local,
+                        index_payload_local,
+                        index_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(entry_index_local));
+                    self.emit_array_write(
+                        entry_array_local,
+                        entry_index_local,
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::LocalGet(entry_array_local));
+                    function.instruction(&Instruction::LocalSet(value_payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(value_tag_local));
+                }
+            }
+            function.instruction(&Instruction::Br(1));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(index_local));

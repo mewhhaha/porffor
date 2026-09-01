@@ -18,7 +18,9 @@ abrupt operation in the main body from returning before either helper can run.
 
 ## Closed completion-exit state
 
-One `CompletionExit` value owns the exit policy of an emitted body:
+`lila-aot-wasm/src/emit/completion_exit.rs` is the sole owner of the closed
+state machine. `emit.rs` re-exports only its crate-visible `CompletionExit`
+wrapper, whose value owns the exit policy of an emitted body:
 
 - `MainExport` writes the public result globals and returns from `main`;
 - `MainJobCheckpoint(target)` unwinds environments and branches to the tracked
@@ -31,6 +33,19 @@ through checked methods. A `MultiValue` body cannot enter the checkpoint state,
 and a second or mismatched transition panics during emission. The target is a
 `ControlTarget` minted by the code sink, so no raw branch depth can be counted or
 forwarded by hand.
+
+The constructor and checked enter/leave transitions are visible only to the
+parent `emit` module. The ABI and active-checkpoint projections retain their
+crate visibility for the parent and the single completion-return consumer.
+
+Neither the wrapper nor its private state derives cloning, copying, formatting,
+equality or default capabilities. Each of the ABI projection, active-target
+projection, checkpoint-entry check and checkpoint-exit check borrows the one
+stored state and matches all three variants explicitly. Adding another state
+therefore requires all four decisions to be updated before the backend builds.
+Only the active `ControlTarget` is copied out for the unchanged branch API; the
+completion-exit authority itself cannot be duplicated or compared outside its
+checked transitions.
 
 The checkpoint block begins immediately before source-body emission and ends
 immediately before job draining. Realm/global/bootstrap initialization remains
@@ -124,6 +139,11 @@ rejects the retired first-match loop exit, clearing the fresh reentrant FIFO,
 removing the product checkpoint call or its CLI test registrations, and any
 restoration of source-reference-only print-import authority.
 
+`crates/lila-aot-wasm/tests/completion_exit_structure.rs` separately fixes the
+private file owner, narrow re-export, exact state/method visibility inventory,
+closed caller census, no-capability declarations, four exhaustive borrowed
+decisions and the checked block-entry/exit and abrupt-return order.
+
 ## Verification
 
 The coordinated checkpoint ran `cargo xc` and the focused structure, engine
@@ -133,3 +153,11 @@ passes `1/1`, and the two `functions::run_wasm_backend_reports_` CLI regressions
 pass `2/2`. The shared Wasm-AOT fake suites also pass `187/187` and `191/191`,
 with every non-success bucket at zero. These checks do not establish realm-
 owned rejection tracking or full Promise/Test262 closure.
+
+The no-capability closure rerun passes the strengthened completion-exit
+structure target `3/3`, the exact engine checkpoint witness `1/1` and both
+exact rejection-order CLI witnesses `1/1` each. No Wasm golden or broad suite
+was rerun for that source-equivalent Rust authority change. Independent dry
+review is clean, and the following shared workspace checkpoint passes
+`cargo fmt --all -- --check`, `cargo xc`, the recursive module-boundary check,
+the task-plan check and `git diff --check`.

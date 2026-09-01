@@ -34,7 +34,6 @@ pub(crate) struct WasmFunctionMeta {
     pub(crate) is_derived_constructor: bool,
     pub(crate) is_synthetic_default_derived_constructor: bool,
     pub(crate) class_instance_element_plan: Option<ClassInstanceElementPlanIr>,
-    pub(crate) super_constructor_target: Option<FunctionId>,
     pub(crate) uses_super: bool,
     pub(crate) this_before_super: bool,
     pub(crate) captures_private_environment: bool,
@@ -75,8 +74,8 @@ mod tests {
     use super::*;
     use lila_front::{parse, ParseOptions};
     use lila_ir::{
-        lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy, ObjectAccessorShape,
-        ObjectShape,
+        lower_with_host_surface_policy, BigIntLiteralIr, ForOfAssignmentIr, HostSurfacePolicy,
+        IteratorProtocolWitness, ObjectAccessorShape, ObjectShape,
     };
 
     fn lower_script(source: &str) -> ScriptIr {
@@ -130,22 +129,25 @@ mod tests {
             Some(&shape),
             &key,
             &getter,
-            true,
-            false,
+            ShapeAccessorReferenceSelection::Getter,
         ));
         assert!(shape_accessor_references_function(
             Some(&shape),
             &key,
             &setter,
-            false,
-            true,
+            ShapeAccessorReferenceSelection::Setter,
         ));
         assert!(!shape_accessor_references_function(
             Some(&shape),
             &key,
             &getter,
-            false,
-            true,
+            ShapeAccessorReferenceSelection::Setter,
+        ));
+        assert!(shape_accessor_references_function(
+            Some(&shape),
+            &key,
+            &getter,
+            ShapeAccessorReferenceSelection::GetterOrSetter,
         ));
     }
 
@@ -207,6 +209,18 @@ mod tests {
     }
 
     #[test]
+    fn proven_non_proxy_proto_getter_does_not_root_unrelated_builtin_accessors() {
+        let script = lower_script(
+            "const prototype = {}; const target = {}; target.__proto__ = prototype; target.__proto__;",
+        );
+        let plan = RuntimeBootstrapPlan::from_script(&script, &[]);
+
+        assert!(!plan
+            .standard_roots
+            .contains(&StandardBuiltinId::RegExpPrototypeFlagsGetter));
+    }
+
+    #[test]
     fn deeply_nested_strict_logical_properties_budget_failed_set_errors() {
         const DEPTH: usize = 186;
 
@@ -227,6 +241,36 @@ mod tests {
 
         let expected = DEPTH * ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
             + ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS;
+        assert!(
+            expected > 2048,
+            "regression must cross the local-count floor"
+        );
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn deeply_nested_sync_for_of_budgets_every_live_iterator_record() {
+        const DEPTH: usize = 90;
+
+        let statement = (0..DEPTH).fold(StatementIr::Empty, |body, index| {
+            StatementIr::ForOfIterator {
+                head: ForOfIteratorHeadIr::Assignment {
+                    binding: ForOfAssignmentIr {
+                        mode: BindingMode::Const,
+                        name: format!("value{index}"),
+                    },
+                    async_plan: None,
+                    protocol: IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL,
+                },
+                iterable: TypedExpr::undefined(),
+                body: Box::new(body),
+                lexical_environment: None,
+            }
+        });
+        let actual = count_statement_temp_locals(&statement);
+        let expected = DEPTH * SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS
+            + FOR_OF_ITERATOR_HELPER_TEMP_LOCALS;
+
         assert!(
             expected > 2048,
             "regression must cross the local-count floor"
@@ -428,8 +472,8 @@ mod tests {
                 "entering at {entry:?} must still root the PlainDateTime constructor"
             );
             assert!(
-                plan.temporal_object,
-                "entering at {entry:?} must set the Temporal namespace flag"
+                plan.temporal_namespace_members().is_some(),
+                "entering at {entry:?} must root the complete Temporal namespace"
             );
         }
     }
@@ -519,7 +563,7 @@ mod tests {
         twice.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
 
         assert_eq!(once.standard_roots, twice.standard_roots);
-        assert_eq!(once.temporal_object, twice.temporal_object);
+        assert_eq!(once.temporal, twice.temporal);
     }
 
     #[test]
@@ -991,9 +1035,10 @@ mod tests {
     #[test]
     fn regexp_literal_roots_intrinsic_regexp_bootstrap() {
         let script = lower_script("/a/;");
-        let StatementIr::Expression(literal) = &script.body.statements[0] else {
-            panic!("literal script should lower to an expression statement");
-        };
+        assert!(matches!(
+            &script.body.statements[0],
+            StatementIr::Expression(_)
+        ));
 
         assert!(script_references_standard_builtin(
             &script,
@@ -1003,8 +1048,6 @@ mod tests {
             &script,
             StandardBuiltinId::RegExpConstructor
         ));
-        assert!(!expr_uses_calls(literal));
-        assert!(!expr_uses_function_table(literal));
     }
 
     #[test]
@@ -1103,33 +1146,10 @@ mod tests {
         }
     }
 
-    /// The `Temporal` namespace object must carry every constructor its
-    /// declared shape carries — the same invariant
-    /// [`Self::a_bare_intl_reference_roots_every_intl_namespace_member`] pins
-    /// for `Intl`.
-    ///
-    /// KNOWN GAP, and `#[ignore]`d for it.
-    /// `ScriptLowerer::temporal_object_value_info` declares eight
-    /// constructor-valued members on the `Temporal` shape unconditionally, but
-    /// a bare `Temporal` reference roots only the `Instant` family and
-    /// `Temporal.Now.timeZoneId`, so `init_temporal_object` skips the other
-    /// seven and the emitted object disagrees with the shape the same program
-    /// was compiled against. That is the identical defect this lane removed for
-    /// `Intl`, and it is not fixed here: rooting seven more Temporal families
-    /// from every bare `Temporal` mention is an emit-size and compile-time
-    /// change nobody has measured. See
-    /// `target/lane-notes/intl-namespace-rooting-b2-integration.md` §3.
-    ///
-    /// Written in the direction the fix moves, on purpose. The first version of
-    /// this test asserted the seven are *not* rooted, which made the correct
-    /// repair turn `cargo test -p lila-aot-wasm planning::` red and told
-    /// whoever made it to delete an assertion. Here, fixing Temporal makes this
-    /// pass and the `#[ignore]` comes off; nothing about the gap is silent
-    /// meanwhile, because `cargo test -- --ignored` still names it.
+    /// A bare namespace reference must root both levels of the shape the IR
+    /// assigns to it: every constructor on `Temporal` and every function on
+    /// `Temporal.Now`.
     #[test]
-    #[ignore = "known gap: a bare `Temporal` reference roots only the Instant family and \
-                Temporal.Now.timeZoneId, not the seven other constructors its shape declares; \
-                see target/lane-notes/intl-namespace-rooting-b2-integration.md §3"]
     fn a_bare_temporal_reference_roots_its_declared_namespace_shape() {
         let script = lower_script("var namespace = Temporal;");
         let plan = RuntimeBootstrapPlan::from_script(&script, &[]);
@@ -1138,20 +1158,15 @@ mod tests {
         assert!(
             plan.should_install_script_global_binding(&GlobalPropertyInitializerIr::TemporalObject)
         );
-        for declared in [
-            StandardBuiltinId::TemporalInstantConstructor,
-            StandardBuiltinId::TemporalPlainDateConstructor,
-            StandardBuiltinId::TemporalPlainTimeConstructor,
-            StandardBuiltinId::TemporalPlainDateTimeConstructor,
-            StandardBuiltinId::TemporalPlainYearMonthConstructor,
-            StandardBuiltinId::TemporalPlainMonthDayConstructor,
-            StandardBuiltinId::TemporalZonedDateTimeConstructor,
-            StandardBuiltinId::TemporalDurationConstructor,
-        ] {
+        assert!(plan.temporal_namespace_members().is_some());
+        for (name, declared) in TEMPORAL_NAMESPACE_CONSTRUCTORS
+            .iter()
+            .chain(TEMPORAL_NOW_NAMESPACE_MEMBERS)
+        {
             assert!(
-                plan.should_initialize_standard_builtin(declared),
-                "a bare `Temporal` reference must root `{}`, which its declared namespace \
-                 shape carries unconditionally",
+                plan.should_initialize_standard_builtin(*declared),
+                "a bare `Temporal` reference must root `{name}` (`{}`), which its declared \
+                 namespace shape carries unconditionally",
                 declared.debug_name()
             );
         }
@@ -1263,6 +1278,7 @@ const _: () = {
 };
 
 pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};
+pub(crate) use temporal_namespace::{TemporalNamespaceMembers, TemporalNamespacePlan};
 
 /// The `Intl` namespace plan and its member-list witness, in a module of their
 /// own.
@@ -1285,101 +1301,8 @@ pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};
 /// unseeded member becomes a `Function`-tagged value with a never-written
 /// payload: a bogus callable, which is worse than the absent property the old
 /// guard produced.
-mod intl_namespace {
-    use super::*;
-
-    /// Evidence that [`INTL_NAMESPACE_ROOTS`] has been seeded into a plan's root
-    /// set, or that the plan initialises every builtin anyway.
-    ///
-    /// The unit field is private to this module and there is no constructor, so
-    /// this cannot be built outside [`IntlNamespacePlan::rooted`].
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub(crate) struct IntlRootsSeeded(());
-
-    /// Whether this plan installs the `Intl` namespace object.
-    ///
-    /// The non-`Absent` variant is produced **only** by
-    /// [`IntlNamespacePlan::rooted`], which takes the root set by `&mut` and
-    /// seeds [`INTL_NAMESPACE_ROOTS`] into it before it can return. "Marked as
-    /// installed but missing a member the IR shape declares" is therefore
-    /// unrepresentable, rather than merely untested — which is what the previous
-    /// `intl_object: bool` was, and what `init_intl_object`'s per-member
-    /// `should_initialize_standard_builtin` guard existed to paper over.
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-    pub(crate) enum IntlNamespacePlan {
-        /// This program never names `Intl` and never reaches an `Intl` builtin,
-        /// so no namespace object is emitted at all.
-        #[default]
-        Absent,
-        /// The namespace object is emitted, and every [`INTL_NAMESPACE_ROOTS`]
-        /// id is in `standard_roots`.
-        RootedWithDateTimeFormatFamily(IntlRootsSeeded),
-    }
-
-    impl IntlNamespacePlan {
-        /// The only constructor of
-        /// [`IntlNamespacePlan::RootedWithDateTimeFormatFamily`].
-        pub(crate) fn rooted(standard_roots: &mut BTreeSet<StandardBuiltinId>) -> Self {
-            standard_roots.extend(INTL_NAMESPACE_ROOTS);
-            Self::RootedWithDateTimeFormatFamily(IntlRootsSeeded(()))
-        }
-
-        /// The member list, or `None` when no `Intl` object is emitted.
-        ///
-        /// `full_standard_globals` is a parameter rather than a second variant
-        /// because it discharges the same obligation by a different route:
-        /// `should_initialize_standard_builtin` is unconditionally true under
-        /// it, so every member is rooted by definition. Keeping the check here
-        /// is what leaves [`IntlNamespaceMembers`] with no reachable
-        /// constructor.
-        pub(crate) fn members(self, full_standard_globals: bool) -> Option<IntlNamespaceMembers> {
-            if full_standard_globals || matches!(self, Self::RootedWithDateTimeFormatFamily(_)) {
-                Some(IntlNamespaceMembers {
-                    members: INTL_NAMESPACE_CONSTRUCTORS,
-                })
-            } else {
-                None
-            }
-        }
-    }
-
-    /// Proof that every member of the `Intl` namespace object is rooted in the
-    /// plan that produced it.
-    ///
-    /// The proof has two halves, and only one of them is this type: minting one
-    /// requires a plan that has seeded [`INTL_NAMESPACE_ROOTS`], and the `const`
-    /// block beside that list is what makes "seeded the roots" imply "rooted
-    /// every member of `INTL_NAMESPACE_CONSTRUCTORS`". The second half is
-    /// cross-crate — the member list lives in `lila-ir` — so it cannot be a
-    /// property of this type, only of the build.
-    ///
-    /// Only [`IntlNamespacePlan::members`] can mint one — reached through
-    /// [`RuntimeBootstrapPlan::intl_namespace_members`] — and it is the only way
-    /// to reach the installation list, so `init_intl_object` cannot install a
-    /// partial `Intl`. The emitter used to re-check
-    /// `should_initialize_standard_builtin` per member and `continue` past the
-    /// ones that failed; the omission compiled, formatted cleanly, and produced
-    /// an `Intl` object whose contents disagreed with the shape the same program
-    /// was compiled against.
-    #[derive(Debug, Clone, Copy)]
-    pub(crate) struct IntlNamespaceMembers {
-        /// Private to this module — not merely to `planning` — so nothing else
-        /// can name `INTL_NAMESPACE_CONSTRUCTORS` into an
-        /// [`IntlNamespaceMembers`] and fabricate the proof. A unit struct would
-        /// have been forgeable.
-        members: &'static [(&'static str, StandardBuiltinId)],
-    }
-
-    impl IntlNamespaceMembers {
-        /// Installation order, which is `Object.getOwnPropertyNames(Intl)` order
-        /// and therefore observable. Do not sort it here.
-        pub(crate) fn in_installation_order(
-            self,
-        ) -> impl Iterator<Item = (&'static str, StandardBuiltinId)> {
-            self.members.iter().copied()
-        }
-    }
-}
+mod intl_namespace;
+mod temporal_namespace;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RuntimeBootstrapPlan {
@@ -1389,10 +1312,12 @@ pub(crate) struct RuntimeBootstrapPlan {
     pub(crate) math_object: bool,
     pub(crate) json_object: bool,
     pub(crate) atomics_object: bool,
-    pub(crate) temporal_object: bool,
-    /// Deliberately **private**, unlike its five `pub(crate)` siblings: it is
-    /// the one namespace flag that carries a rooting obligation, and `planning`
-    /// is the only module allowed to discharge it. Read it through
+    /// Private because installing `Temporal` carries the obligation represented
+    /// by [`RuntimeBootstrapPlan::temporal_namespace_members`].
+    temporal: TemporalNamespacePlan,
+    /// Deliberately private for the same reason as `temporal`: namespace
+    /// installation carries a rooting obligation, and `planning` is the only
+    /// module allowed to discharge it. Read it through
     /// [`RuntimeBootstrapPlan::intl_namespace_members`].
     intl: IntlNamespacePlan,
     /// Which builtins [`RuntimeBootstrapPlan::require_standard_builtin`] has
@@ -1486,7 +1411,7 @@ impl RuntimeBootstrapPlan {
                 self.full_standard_globals || self.atomics_object
             }
             GlobalPropertyInitializerIr::TemporalObject => {
-                self.full_standard_globals || self.temporal_object
+                self.temporal_namespace_members().is_some()
             }
             GlobalPropertyInitializerIr::IntlObject => self.intl_namespace_members().is_some(),
             GlobalPropertyInitializerIr::BuiltinFunction(builtin) => {
@@ -1507,12 +1432,18 @@ impl RuntimeBootstrapPlan {
         self.intl.members(self.full_standard_globals)
     }
 
+    /// The complete `Temporal` namespace member witness, or `None` when this
+    /// plan emits no `Temporal` object.
+    pub(crate) fn temporal_namespace_members(&self) -> Option<TemporalNamespaceMembers> {
+        self.temporal.members(self.full_standard_globals)
+    }
+
     pub(crate) fn needs_typed_array_intrinsic(&self) -> bool {
         self.full_standard_globals
-            || self
-                .standard_roots
-                .iter()
-                .any(|builtin| is_typed_array_constructor(*builtin))
+            || self.standard_roots.iter().any(|builtin| {
+                *builtin == StandardBuiltinId::TypedArrayConstructor
+                    || is_typed_array_constructor(*builtin)
+            })
     }
 
     fn require_script_global_binding(&mut self, initializer: &GlobalPropertyInitializerIr) {
@@ -1522,14 +1453,7 @@ impl RuntimeBootstrapPlan {
             GlobalPropertyInitializerIr::JsonObject => self.json_object = true,
             GlobalPropertyInitializerIr::AtomicsObject => self.atomics_object = true,
             GlobalPropertyInitializerIr::TemporalObject => {
-                self.temporal_object = true;
-                self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
-                // `Temporal.Now` must be observable from a bare `Temporal`
-                // reference. `timeZoneId` is the one member with no
-                // dependencies, so it is the cheapest anchor for the namespace
-                // object; `instant` and `zonedDateTimeISO` still install only
-                // when the script names them.
-                self.require_standard_builtin(StandardBuiltinId::TemporalNowTimeZoneId);
+                self.require_temporal_namespace();
             }
             GlobalPropertyInitializerIr::IntlObject => {
                 // A bare `Intl` reference gets the namespace object
@@ -1590,6 +1514,12 @@ impl RuntimeBootstrapPlan {
     /// the family is all-or-nothing.
     fn require_intl_date_time_format_family(&mut self) {
         self.intl = IntlNamespacePlan::rooted(&mut self.standard_roots);
+    }
+
+    /// Root both IR-advertised Temporal namespace levels before making the
+    /// namespace available to bootstrap.
+    fn require_temporal_namespace(&mut self) {
+        TemporalNamespacePlan::root(self);
     }
 
     fn require_standard_builtin(&mut self, builtin: StandardBuiltinId) {
@@ -1654,6 +1584,7 @@ impl RuntimeBootstrapPlan {
             }
         }
         if is_typed_array_constructor(builtin) {
+            self.require_standard_builtin(StandardBuiltinId::TypedArrayConstructor);
             for iterator_builtin in [
                 StandardBuiltinId::ArrayPrototypeValues,
                 StandardBuiltinId::TypedArrayPrototypeIncludes,
@@ -2018,18 +1949,18 @@ impl RuntimeBootstrapPlan {
                 );
                 self.require_intl_date_time_format_family();
             }
-            // `Temporal.Now` members are rooted individually: each one drags in
-            // only the Temporal type it hands back, so a script that reads the
-            // clock does not pay for the ZonedDateTime family it never names.
+            // Any Temporal entry first closes the namespace contract. The
+            // private Rooting state makes these recursive calls no-ops until
+            // all advertised constructors and `Now` members are rooted.
             StandardBuiltinId::TemporalNowTimeZoneId => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
             }
             StandardBuiltinId::TemporalNowInstant => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
             }
             StandardBuiltinId::TemporalNowZonedDateTimeIso => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 self.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
             }
             // The whole `Temporal.PlainDate` family installs together: the
@@ -2068,7 +1999,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth
             | StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay
             | StandardBuiltinId::TemporalPlainDatePrototypeValueOf => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 for dependency in [
                     StandardBuiltinId::TemporalPlainDateConstructor,
                     StandardBuiltinId::TemporalPlainDateFrom,
@@ -2135,7 +2066,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString
             | StandardBuiltinId::TemporalPlainYearMonthPrototypeValueOf
             | StandardBuiltinId::TemporalPlainYearMonthPrototypeToPlainDate => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
                 self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor);
                 for dependency in [
@@ -2183,7 +2114,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString
             | StandardBuiltinId::TemporalPlainMonthDayPrototypeValueOf
             | StandardBuiltinId::TemporalPlainMonthDayPrototypeToPlainDate => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor);
                 for dependency in [
                     StandardBuiltinId::TemporalPlainMonthDayConstructor,
@@ -2227,7 +2158,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalPlainTimePrototypeToJson
             | StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString
             | StandardBuiltinId::TemporalPlainTimePrototypeValueOf => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 // `until`/`since` hand back a `Temporal.Duration`, and `add`
                 // and `subtract` read one, so the Duration family has to come
                 // along whenever any PlainTime member does.
@@ -2303,7 +2234,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate
             | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime
             | StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 // `until`/`since` hand back a `Temporal.Duration` and `add`/`subtract`
                 // read one; `toPlainDate`, `toPlainTime` and `toZonedDateTime` hand back
                 // the three sibling types. All four families come along.
@@ -2388,7 +2319,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalDurationPrototypeToJson
             | StandardBuiltinId::TemporalDurationPrototypeToLocaleString
             | StandardBuiltinId::TemporalDurationPrototypeValueOf => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 for dependency in [
                     StandardBuiltinId::TemporalDurationConstructor,
                     StandardBuiltinId::TemporalDurationFrom,
@@ -2434,7 +2365,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalInstantPrototypeToString
             | StandardBuiltinId::TemporalInstantPrototypeToJson
             | StandardBuiltinId::TemporalInstantPrototypeValueOf => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 for dependency in [
                     StandardBuiltinId::TemporalInstantConstructor,
                     StandardBuiltinId::TemporalInstantFrom,
@@ -2480,7 +2411,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
             | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
             | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {
-                self.temporal_object = true;
+                self.require_temporal_namespace();
                 // `toPlainDateTime` hands back a `Temporal.PlainDateTime`, the
                 // mirror of the `TemporalZonedDateTimeConstructor` requirement
                 // the PlainDateTime arm above carries for `toZonedDateTime`.
@@ -3186,6 +3117,15 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                 || statement_exposes_global_object(suspension_statement)
                 || after_suspension.iter().any(statement_exposes_global_object)
         }
+        StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+            expr_exposes_global_object(iterable)
+                || plan
+                    .before_await()
+                    .iter()
+                    .chain(std::iter::once(plan.await_statement()))
+                    .chain(plan.after_await())
+                    .any(statement_exposes_global_object)
+        }
         StatementIr::GeneratorIf {
             condition,
             then_before_yield,
@@ -3206,9 +3146,7 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                     .chain(else_after_yield)
                     .any(statement_exposes_global_object)
         }
-        StatementIr::ForOfArray { iterable, body, .. }
-        | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForOfIterator { iterable, body, .. } => {
+        StatementIr::ForOfIterator { iterable, body, .. } => {
             expr_exposes_global_object(iterable) || statement_exposes_global_object(body)
         }
         StatementIr::ForInArray {
@@ -3411,7 +3349,8 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::CompoundAssignIdentifier { value, .. }
         | ExprIr::GlobalPropertyCompoundAssign { value, .. }
-        | ExprIr::UnaryNumber { expr: value, .. }
+        | ExprIr::UnaryPlus { expr: value }
+        | ExprIr::UnaryMinusNumeric { expr: value }
         | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
         | ExprIr::Void { expr: value }
         | ExprIr::DeleteValue { expr: value }
@@ -3419,8 +3358,17 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::LogicalNot { expr: value }
         | ExprIr::StringFromCharCode { code: value }
         | ExprIr::SpreadArgument(SpreadArgumentIr { value, .. })
-        | ExprIr::JsonParseStaticReviver { reviver: value, .. }
         | ExprIr::PrivateIn { rhs: value, .. } => expr_exposes_global_object(value),
+        ExprIr::JsonParseStaticReviver {
+            callee,
+            input,
+            reviver,
+            ..
+        } => {
+            expr_exposes_global_object(callee)
+                || expr_exposes_global_object(input)
+                || expr_exposes_global_object(reviver)
+        }
         ExprIr::SpecOperation { operands, .. } => operands.iter().any(expr_exposes_global_object),
         ExprIr::PropertyRead { target, key } | ExprIr::DeleteProperty { target, key, .. } => {
             property_access_exposes_global_object(target, key)
@@ -3699,6 +3647,17 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
                 collect_statement_global_property_names(statement, names);
             }
         }
+        StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+            collect_expr_global_property_names(iterable, names);
+            for statement in plan
+                .before_await()
+                .iter()
+                .chain(std::iter::once(plan.await_statement()))
+                .chain(plan.after_await())
+            {
+                collect_statement_global_property_names(statement, names);
+            }
+        }
         StatementIr::GeneratorIf {
             condition,
             then_before_yield,
@@ -3721,9 +3680,7 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
                 collect_statement_global_property_names(statement, names);
             }
         }
-        StatementIr::ForOfArray { iterable, body, .. }
-        | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForOfIterator { iterable, body, .. } => {
+        StatementIr::ForOfIterator { iterable, body, .. } => {
             collect_expr_global_property_names(iterable, names);
             collect_statement_global_property_names(body, names);
         }
@@ -3924,7 +3881,8 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             names.insert(name.clone());
             collect_expr_global_property_names(value, names);
         }
-        ExprIr::UnaryNumber { expr: value, .. }
+        ExprIr::UnaryPlus { expr: value }
+        | ExprIr::UnaryMinusNumeric { expr: value }
         | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
         | ExprIr::Void { expr: value }
         | ExprIr::DeleteValue { expr: value }
@@ -3932,8 +3890,17 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         | ExprIr::LogicalNot { expr: value }
         | ExprIr::StringFromCharCode { code: value }
         | ExprIr::SpreadArgument(SpreadArgumentIr { value, .. })
-        | ExprIr::JsonParseStaticReviver { reviver: value, .. }
         | ExprIr::PrivateIn { rhs: value, .. } => collect_expr_global_property_names(value, names),
+        ExprIr::JsonParseStaticReviver {
+            callee,
+            input,
+            reviver,
+            ..
+        } => {
+            collect_expr_global_property_names(callee, names);
+            collect_expr_global_property_names(input, names);
+            collect_expr_global_property_names(reviver, names);
+        }
         ExprIr::SpecOperation { operands, .. } => {
             for operand in operands {
                 collect_expr_global_property_names(operand, names);
@@ -4453,295 +4420,6 @@ pub(crate) fn script_uses_create_realm(script: &ScriptIr) -> bool {
     script.host_builtins.contains(&HostBuiltinId::CreateRealm)
 }
 
-pub(crate) fn is_large_deferred_standard_builtin(builtin: StandardBuiltinId) -> bool {
-    is_typed_array_constructor(builtin)
-        || matches!(
-            builtin,
-            StandardBuiltinId::JsonParse
-                | StandardBuiltinId::JsonStringify
-                | StandardBuiltinId::JsonRawJson
-                | StandardBuiltinId::JsonIsRawJson
-                | StandardBuiltinId::AtomicsAdd
-                | StandardBuiltinId::AtomicsAnd
-                | StandardBuiltinId::AtomicsCompareExchange
-                | StandardBuiltinId::AtomicsExchange
-                | StandardBuiltinId::AtomicsLoad
-                | StandardBuiltinId::AtomicsNotify
-                | StandardBuiltinId::AtomicsOr
-                | StandardBuiltinId::AtomicsPause
-                | StandardBuiltinId::AtomicsSub
-                | StandardBuiltinId::AtomicsStore
-                | StandardBuiltinId::AtomicsWait
-                | StandardBuiltinId::AtomicsWaitAsync
-                | StandardBuiltinId::AtomicsXor
-                | StandardBuiltinId::AtomicsIsLockFree
-                | StandardBuiltinId::ArrayFrom
-                | StandardBuiltinId::ArrayFromAsync
-                | StandardBuiltinId::ArrayOf
-                | StandardBuiltinId::ArrayPrototypeConcat
-                | StandardBuiltinId::ArrayPrototypeJoin
-                | StandardBuiltinId::ArrayPrototypeSlice
-                | StandardBuiltinId::ArrayPrototypeSplice
-                | StandardBuiltinId::ArrayPrototypeFill
-                | StandardBuiltinId::ArrayPrototypeSort
-                | StandardBuiltinId::ArrayPrototypeToLocaleString
-                | StandardBuiltinId::ArrayPrototypeFlat
-                | StandardBuiltinId::ArrayPrototypeFlatMap
-                | StandardBuiltinId::ArrayPrototypeEvery
-                | StandardBuiltinId::ArrayPrototypeSome
-                | StandardBuiltinId::ArrayPrototypeForEach
-                | StandardBuiltinId::ArrayPrototypeFilter
-                | StandardBuiltinId::ArrayPrototypeMap
-                | StandardBuiltinId::ArrayPrototypeReduce
-                | StandardBuiltinId::ArrayPrototypeReduceRight
-                | StandardBuiltinId::ArrayPrototypePop
-                | StandardBuiltinId::ArrayPrototypePush
-                | StandardBuiltinId::ArrayPrototypeShift
-                | StandardBuiltinId::ArrayPrototypeUnshift
-                | StandardBuiltinId::ArrayPrototypeKeys
-                | StandardBuiltinId::ArrayPrototypeEntries
-                | StandardBuiltinId::ArrayPrototypeValues
-                | StandardBuiltinId::TypedArrayPrototypeIncludes
-                | StandardBuiltinId::TypedArrayPrototypeIndexOf
-                | StandardBuiltinId::TypedArrayPrototypeLastIndexOf
-                | StandardBuiltinId::TypedArrayPrototypeFind
-                | StandardBuiltinId::TypedArrayPrototypeFindIndex
-                | StandardBuiltinId::TypedArrayPrototypeFindLast
-                | StandardBuiltinId::TypedArrayPrototypeFindLastIndex
-                | StandardBuiltinId::TypedArrayPrototypeEvery
-                | StandardBuiltinId::TypedArrayPrototypeSome
-                | StandardBuiltinId::TypedArrayPrototypeMap
-                | StandardBuiltinId::TypedArrayPrototypeFilter
-                | StandardBuiltinId::TypedArrayPrototypeForEach
-                | StandardBuiltinId::TypedArrayPrototypeReduce
-                | StandardBuiltinId::TypedArrayPrototypeReduceRight
-                | StandardBuiltinId::TypedArrayPrototypeKeys
-                | StandardBuiltinId::TypedArrayPrototypeEntries
-                | StandardBuiltinId::TypedArrayPrototypeValues
-                | StandardBuiltinId::ArrayIteratorNext
-                | StandardBuiltinId::ArrayIteratorIdentity
-                | StandardBuiltinId::ArrayBufferConstructor
-                | StandardBuiltinId::SharedArrayBufferConstructor
-                | StandardBuiltinId::SharedArrayBufferPrototypeGrow
-                | StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
-                | StandardBuiltinId::SharedArrayBufferPrototypeByteLengthGetter
-                | StandardBuiltinId::SharedArrayBufferPrototypeMaxByteLengthGetter
-                | StandardBuiltinId::SharedArrayBufferPrototypeGrowableGetter
-                | StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
-                | StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter
-                | StandardBuiltinId::ArrayBufferPrototypeResizableGetter
-                | StandardBuiltinId::ArrayBufferPrototypeResize
-                | StandardBuiltinId::ArrayBufferPrototypeSlice
-                | StandardBuiltinId::SharedArrayBufferPrototypeSlice
-                | StandardBuiltinId::ArrayBufferPrototypeTransfer
-                | StandardBuiltinId::ArrayBufferPrototypeTransferToFixedLength
-                | StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable
-                | StandardBuiltinId::ArrayBufferPrototypeSliceToImmutable
-                | StandardBuiltinId::DataViewConstructor
-                | StandardBuiltinId::DataViewPrototypeBufferGetter
-                | StandardBuiltinId::DataViewPrototypeByteLengthGetter
-                | StandardBuiltinId::DataViewPrototypeByteOffsetGetter
-                | StandardBuiltinId::TypedArrayPrototypeBufferGetter
-                | StandardBuiltinId::TypedArrayPrototypeByteLengthGetter
-                | StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter
-                | StandardBuiltinId::TypedArrayPrototypeLengthGetter
-                | StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
-                | StandardBuiltinId::TypedArrayPrototypeToString
-                | StandardBuiltinId::TypedArrayPrototypeToLocaleString
-                | StandardBuiltinId::TypedArrayPrototypeSubarray
-                | StandardBuiltinId::TypedArrayPrototypeSlice
-                | StandardBuiltinId::TypedArrayPrototypeSet
-                | StandardBuiltinId::TypedArrayPrototypeReverse
-                | StandardBuiltinId::TypedArrayPrototypeCopyWithin
-                | StandardBuiltinId::TypedArrayPrototypeSort
-                | StandardBuiltinId::TypedArrayPrototypeToReversed
-                | StandardBuiltinId::TypedArrayPrototypeToSorted
-                | StandardBuiltinId::TypedArrayPrototypeWith
-                | StandardBuiltinId::TypedArrayFrom
-                | StandardBuiltinId::TypedArrayOf
-                | StandardBuiltinId::DataViewPrototypeGetUint8
-                | StandardBuiltinId::DataViewPrototypeSetUint8
-                | StandardBuiltinId::DataViewPrototypeGetInt8
-                | StandardBuiltinId::DataViewPrototypeSetInt8
-                | StandardBuiltinId::DataViewPrototypeGetUint16
-                | StandardBuiltinId::DataViewPrototypeSetUint16
-                | StandardBuiltinId::DataViewPrototypeGetInt16
-                | StandardBuiltinId::DataViewPrototypeSetInt16
-                | StandardBuiltinId::DataViewPrototypeGetUint32
-                | StandardBuiltinId::DataViewPrototypeSetUint32
-                | StandardBuiltinId::DataViewPrototypeGetInt32
-                | StandardBuiltinId::DataViewPrototypeSetInt32
-                | StandardBuiltinId::DataViewPrototypeGetFloat16
-                | StandardBuiltinId::DataViewPrototypeSetFloat16
-                | StandardBuiltinId::DataViewPrototypeGetFloat32
-                | StandardBuiltinId::DataViewPrototypeSetFloat32
-                | StandardBuiltinId::DataViewPrototypeGetFloat64
-                | StandardBuiltinId::DataViewPrototypeSetFloat64
-                | StandardBuiltinId::DataViewPrototypeGetBigInt64
-                | StandardBuiltinId::DataViewPrototypeSetBigInt64
-                | StandardBuiltinId::DataViewPrototypeGetBigUint64
-                | StandardBuiltinId::DataViewPrototypeSetBigUint64
-                | StandardBuiltinId::DateConstructor
-                | StandardBuiltinId::DateNow
-                | StandardBuiltinId::DateParse
-                | StandardBuiltinId::DateUtc
-                | StandardBuiltinId::DatePrototypeGetTime
-                | StandardBuiltinId::DatePrototypeSetTime
-                | StandardBuiltinId::DatePrototypeValueOf
-                | StandardBuiltinId::DatePrototypeGetFullYear
-                | StandardBuiltinId::DatePrototypeGetUtcFullYear
-                | StandardBuiltinId::DatePrototypeGetMonth
-                | StandardBuiltinId::DatePrototypeGetUtcMonth
-                | StandardBuiltinId::DatePrototypeGetDate
-                | StandardBuiltinId::DatePrototypeGetUtcDate
-                | StandardBuiltinId::DatePrototypeGetDay
-                | StandardBuiltinId::DatePrototypeGetUtcDay
-                | StandardBuiltinId::DatePrototypeGetHours
-                | StandardBuiltinId::DatePrototypeGetUtcHours
-                | StandardBuiltinId::DatePrototypeGetMinutes
-                | StandardBuiltinId::DatePrototypeGetUtcMinutes
-                | StandardBuiltinId::DatePrototypeGetSeconds
-                | StandardBuiltinId::DatePrototypeGetUtcSeconds
-                | StandardBuiltinId::DatePrototypeGetMilliseconds
-                | StandardBuiltinId::DatePrototypeGetUtcMilliseconds
-                | StandardBuiltinId::DatePrototypeGetTimezoneOffset
-                | StandardBuiltinId::DatePrototypeGetYear
-                | StandardBuiltinId::DatePrototypeSetYear
-                | StandardBuiltinId::DatePrototypeSetFullYear
-                | StandardBuiltinId::DatePrototypeSetUtcFullYear
-                | StandardBuiltinId::DatePrototypeSetMonth
-                | StandardBuiltinId::DatePrototypeSetUtcMonth
-                | StandardBuiltinId::DatePrototypeSetDate
-                | StandardBuiltinId::DatePrototypeSetUtcDate
-                | StandardBuiltinId::DatePrototypeSetHours
-                | StandardBuiltinId::DatePrototypeSetUtcHours
-                | StandardBuiltinId::DatePrototypeSetMinutes
-                | StandardBuiltinId::DatePrototypeSetUtcMinutes
-                | StandardBuiltinId::DatePrototypeSetSeconds
-                | StandardBuiltinId::DatePrototypeSetUtcSeconds
-                | StandardBuiltinId::DatePrototypeSetMilliseconds
-                | StandardBuiltinId::DatePrototypeSetUtcMilliseconds
-                | StandardBuiltinId::DatePrototypeToIsoString
-                | StandardBuiltinId::DatePrototypeToJson
-                | StandardBuiltinId::DatePrototypeToPrimitive
-                | StandardBuiltinId::DatePrototypeToDateString
-                | StandardBuiltinId::DatePrototypeToLocaleDateString
-                | StandardBuiltinId::DatePrototypeToLocaleString
-                | StandardBuiltinId::DatePrototypeToLocaleTimeString
-                | StandardBuiltinId::DatePrototypeToTemporalInstant
-                | StandardBuiltinId::DatePrototypeToTimeString
-                | StandardBuiltinId::DatePrototypeToString
-                | StandardBuiltinId::DatePrototypeToUtcString
-                | StandardBuiltinId::RegExpConstructor
-                | StandardBuiltinId::RegExpLegacyStaticGetter
-                | StandardBuiltinId::RegExpLegacyStaticSetter
-                | StandardBuiltinId::RegExpPrototypeSymbolMatch
-                | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
-                | StandardBuiltinId::RegExpPrototypeSymbolReplace
-                | StandardBuiltinId::RegExpPrototypeSymbolSearch
-                | StandardBuiltinId::ReflectSet
-                | StandardBuiltinId::BigIntConstructor
-                | StandardBuiltinId::BigIntAsIntN
-                | StandardBuiltinId::BigIntAsUintN
-                | StandardBuiltinId::BigIntPrototypeToString
-                | StandardBuiltinId::BigIntPrototypeToLocaleString
-                | StandardBuiltinId::BigIntPrototypeValueOf
-                | StandardBuiltinId::MathAbs
-                | StandardBuiltinId::AggregateErrorConstructor
-                | StandardBuiltinId::SuppressedErrorConstructor
-                | StandardBuiltinId::MathAcos
-                | StandardBuiltinId::MathAcosh
-                | StandardBuiltinId::MathAsin
-                | StandardBuiltinId::MathAsinh
-                | StandardBuiltinId::MathAtan
-                | StandardBuiltinId::MathAtan2
-                | StandardBuiltinId::MathAtanh
-                | StandardBuiltinId::MathCbrt
-                | StandardBuiltinId::MathCeil
-                | StandardBuiltinId::MathClz32
-                | StandardBuiltinId::MathCos
-                | StandardBuiltinId::MathCosh
-                | StandardBuiltinId::MathExp
-                | StandardBuiltinId::MathExpm1
-                | StandardBuiltinId::MathF16Round
-                | StandardBuiltinId::MathFloor
-                | StandardBuiltinId::MathFround
-                | StandardBuiltinId::MathHypot
-                | StandardBuiltinId::MathImul
-                | StandardBuiltinId::MathLog
-                | StandardBuiltinId::MathLog10
-                | StandardBuiltinId::MathLog1p
-                | StandardBuiltinId::MathLog2
-                | StandardBuiltinId::MathPow
-                | StandardBuiltinId::MathRandom
-                | StandardBuiltinId::MathRound
-                | StandardBuiltinId::MathSign
-                | StandardBuiltinId::MathSin
-                | StandardBuiltinId::MathSinh
-                | StandardBuiltinId::MathSqrt
-                | StandardBuiltinId::MathSumPrecise
-                | StandardBuiltinId::MathTan
-                | StandardBuiltinId::MathTanh
-                | StandardBuiltinId::MathTrunc
-                | StandardBuiltinId::MathMin
-                | StandardBuiltinId::MathMax
-                | StandardBuiltinId::StringPrototypeCharAt
-                | StandardBuiltinId::StringPrototypeConcat
-                | StandardBuiltinId::StringPrototypeCharCodeAt
-                | StandardBuiltinId::StringPrototypeCodePointAt
-                | StandardBuiltinId::StringPrototypeAt
-                | StandardBuiltinId::StringPrototypeAnchor
-                | StandardBuiltinId::StringPrototypeBig
-                | StandardBuiltinId::StringPrototypeBlink
-                | StandardBuiltinId::StringPrototypeBold
-                | StandardBuiltinId::StringPrototypeFixed
-                | StandardBuiltinId::StringPrototypeFontcolor
-                | StandardBuiltinId::StringPrototypeFontsize
-                | StandardBuiltinId::StringPrototypeItalics
-                | StandardBuiltinId::StringPrototypeLink
-                | StandardBuiltinId::StringPrototypeSmall
-                | StandardBuiltinId::StringPrototypeStrike
-                | StandardBuiltinId::StringPrototypeSub
-                | StandardBuiltinId::StringPrototypeSubstr
-                | StandardBuiltinId::StringPrototypeSubstring
-                | StandardBuiltinId::StringPrototypeSup
-                | StandardBuiltinId::StringPrototypeMatch
-                | StandardBuiltinId::StringPrototypeMatchAll
-                | StandardBuiltinId::StringPrototypeReplace
-                | StandardBuiltinId::StringPrototypeReplaceAll
-                | StandardBuiltinId::StringPrototypeSearch
-                | StandardBuiltinId::StringPrototypeIndexOf
-                | StandardBuiltinId::StringPrototypeLastIndexOf
-                | StandardBuiltinId::StringPrototypeSlice
-                | StandardBuiltinId::StringPrototypeSplit
-                | StandardBuiltinId::StringPrototypePadStart
-                | StandardBuiltinId::StringPrototypePadEnd
-                | StandardBuiltinId::StringPrototypeRepeat
-                | StandardBuiltinId::StringPrototypeEndsWith
-                | StandardBuiltinId::StringPrototypeIncludes
-                | StandardBuiltinId::StringPrototypeStartsWith
-                | StandardBuiltinId::StringPrototypeNormalize
-                | StandardBuiltinId::StringPrototypeLocaleCompare
-                | StandardBuiltinId::StringPrototypeToLocaleLowerCase
-                | StandardBuiltinId::StringPrototypeToLocaleUpperCase
-                | StandardBuiltinId::StringPrototypeToLowerCase
-                | StandardBuiltinId::StringPrototypeToUpperCase
-                | StandardBuiltinId::StringPrototypeTrim
-                | StandardBuiltinId::StringPrototypeTrimStart
-                | StandardBuiltinId::StringPrototypeTrimEnd
-                | StandardBuiltinId::StringPrototypeIsWellFormed
-                | StandardBuiltinId::StringPrototypeToWellFormed
-                | StandardBuiltinId::ErrorConstructor
-                | StandardBuiltinId::EvalErrorConstructor
-                | StandardBuiltinId::RangeErrorConstructor
-                | StandardBuiltinId::SyntaxErrorConstructor
-                | StandardBuiltinId::TypeErrorConstructor
-                | StandardBuiltinId::URIErrorConstructor
-                | StandardBuiltinId::ReferenceErrorConstructor
-                | StandardBuiltinId::ErrorPrototypeToString
-        )
-}
-
 pub(crate) fn block_references_function(block: &BlockIr, target: &FunctionId) -> bool {
     block
         .statements
@@ -4860,6 +4538,15 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                     .iter()
                     .any(|statement| statement_references_function(statement, target))
         }
+        StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+            expr_references_function(iterable, target)
+                || plan
+                    .before_await()
+                    .iter()
+                    .chain(std::iter::once(plan.await_statement()))
+                    .chain(plan.after_await())
+                    .any(|statement| statement_references_function(statement, target))
+        }
         StatementIr::GeneratorIf {
             condition,
             then_before_yield,
@@ -4880,9 +4567,7 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                     .chain(else_after_yield)
                     .any(|statement| statement_references_function(statement, target))
         }
-        StatementIr::ForOfArray { iterable, body, .. }
-        | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForOfIterator { iterable, body, .. } => {
+        StatementIr::ForOfIterator { iterable, body, .. } => {
             expr_references_function(iterable, target)
                 || statement_references_function(body, target)
         }
@@ -5011,12 +4696,18 @@ pub(crate) fn static_property_key_name(key: &PropertyKeyIr) -> Option<&str> {
     }
 }
 
-pub(crate) fn shape_accessor_references_function(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShapeAccessorReferenceSelection {
+    Getter,
+    Setter,
+    GetterOrSetter,
+}
+
+fn shape_accessor_references_function(
     shape: Option<&HeapShape>,
     key: &PropertyKeyIr,
     target: &FunctionId,
-    include_getter: bool,
-    include_setter: bool,
+    selection: ShapeAccessorReferenceSelection,
 ) -> bool {
     let Some(shape) = shape else {
         return false;
@@ -5027,15 +4718,24 @@ pub(crate) fn shape_accessor_references_function(
         else {
             return false;
         };
-        return (include_getter && getter.is_some_and(|getter| getter.function_id == *target))
-            || (include_setter && setter.is_some_and(|setter| setter.function_id == *target));
+        return match selection {
+            ShapeAccessorReferenceSelection::Getter => {
+                getter.is_some_and(|getter| getter.function_id == *target)
+            }
+            ShapeAccessorReferenceSelection::Setter => {
+                setter.is_some_and(|setter| setter.function_id == *target)
+            }
+            ShapeAccessorReferenceSelection::GetterOrSetter => {
+                getter.is_some_and(|getter| getter.function_id == *target)
+                    || setter.is_some_and(|setter| setter.function_id == *target)
+            }
+        };
     }
 
     fn any_accessor(
         shape: &HeapShape,
         target: &FunctionId,
-        include_getter: bool,
-        include_setter: bool,
+        selection: ShapeAccessorReferenceSelection,
     ) -> bool {
         let (properties, prototype) = match shape {
             HeapShape::Object(shape) => (&shape.properties, shape.prototype.as_deref()),
@@ -5045,20 +4745,26 @@ pub(crate) fn shape_accessor_references_function(
             let ObjectShapeProperty::Accessor { getter, setter } = property else {
                 return false;
             };
-            (include_getter
-                && getter
+            match selection {
+                ShapeAccessorReferenceSelection::Getter => getter
                     .as_ref()
-                    .is_some_and(|getter| getter.function_id == *target))
-                || (include_setter
-                    && setter
+                    .is_some_and(|getter| getter.function_id == *target),
+                ShapeAccessorReferenceSelection::Setter => setter
+                    .as_ref()
+                    .is_some_and(|setter| setter.function_id == *target),
+                ShapeAccessorReferenceSelection::GetterOrSetter => {
+                    getter
                         .as_ref()
-                        .is_some_and(|setter| setter.function_id == *target))
-        }) || prototype.is_some_and(|prototype| {
-            any_accessor(prototype, target, include_getter, include_setter)
-        })
+                        .is_some_and(|getter| getter.function_id == *target)
+                        || setter
+                            .as_ref()
+                            .is_some_and(|setter| setter.function_id == *target)
+                }
+            }
+        }) || prototype.is_some_and(|prototype| any_accessor(prototype, target, selection))
     }
 
-    any_accessor(shape, target, include_getter, include_setter)
+    any_accessor(shape, target, selection)
 }
 
 pub(crate) fn shape_data_references_function(
@@ -5075,7 +4781,7 @@ pub(crate) fn shape_data_references_function(
         return false;
     };
 
-    info.function_targets.contains(target)
+    info.function_targets.known_targets().contains(target)
 }
 
 pub(crate) fn object_property_references_function(
@@ -5363,7 +5069,7 @@ pub(crate) fn optimized_call_method_references_function(
 }
 
 pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) -> bool {
-    if expr.function_targets.contains(target) {
+    if expr.function_targets.known_targets().contains(target) {
         return true;
     }
     match &expr.expr {
@@ -5401,15 +5107,25 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         | ExprIr::GlobalPropertyWrite { value, .. }
         | ExprIr::CompoundAssignIdentifier { value, .. }
         | ExprIr::GlobalPropertyCompoundAssign { value, .. }
-        | ExprIr::UnaryNumber { expr: value, .. }
+        | ExprIr::UnaryPlus { expr: value }
+        | ExprIr::UnaryMinusNumeric { expr: value }
         | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
         | ExprIr::Void { expr: value }
         | ExprIr::DeleteValue { expr: value }
         | ExprIr::TypeOf { expr: value }
         | ExprIr::LogicalNot { expr: value }
         | ExprIr::StringFromCharCode { code: value }
-        | ExprIr::JsonParseStaticReviver { reviver: value, .. }
         | ExprIr::PrivateIn { rhs: value, .. } => expr_references_function(value, target),
+        ExprIr::JsonParseStaticReviver {
+            callee,
+            input,
+            reviver,
+            ..
+        } => {
+            expr_references_function(callee, target)
+                || expr_references_function(input, target)
+                || expr_references_function(reviver, target)
+        }
         ExprIr::SpreadArgument(spread) => {
             *target == StandardBuiltinId::ArrayPrototypeValues.function_id()
                 || *target == StandardBuiltinId::ArrayIteratorNext.function_id()
@@ -5458,8 +5174,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                                 object.heap_shape.as_deref(),
                                 key,
                                 target,
-                                true,
-                                false,
+                                ShapeAccessorReferenceSelection::Getter,
                             )
                     }
                     OptionalChainOperationIr::PrivateProperty { .. } => false,
@@ -5480,8 +5195,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     object.heap_shape.as_deref(),
                     key,
                     target,
-                    true,
-                    false,
+                    ShapeAccessorReferenceSelection::Getter,
                 )
         }
         ExprIr::DeleteProperty {
@@ -5501,8 +5215,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     assignment.base_and_receiver().heap_shape.as_deref(),
                     assignment.referenced_name(),
                     target,
-                    false,
-                    true,
+                    ShapeAccessorReferenceSelection::Setter,
                 )
         }
         ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
@@ -5515,8 +5228,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     assignment.base_and_receiver().heap_shape.as_deref(),
                     assignment.referenced_name(),
                     target,
-                    true,
-                    true,
+                    ShapeAccessorReferenceSelection::GetterOrSetter,
                 )
         }
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
@@ -5528,8 +5240,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     update.base_and_receiver().heap_shape.as_deref(),
                     update.referenced_name(),
                     target,
-                    true,
-                    true,
+                    ShapeAccessorReferenceSelection::GetterOrSetter,
                 )
         }
         ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
@@ -5542,8 +5253,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     mutation.base_and_receiver().heap_shape.as_deref(),
                     mutation.referenced_name(),
                     target,
-                    true,
-                    true,
+                    ShapeAccessorReferenceSelection::GetterOrSetter,
                 )
         }
         ExprIr::PropertyWrite {
@@ -5559,8 +5269,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     object.heap_shape.as_deref(),
                     key,
                     target,
-                    false,
-                    true,
+                    ShapeAccessorReferenceSelection::Setter,
                 )
         }
         ExprIr::StringCharCodeAt {
@@ -5724,19 +5433,77 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
 /// module actually materialized. New bootstrap arms and codegen-internal
 /// dispatches are covered automatically because they cannot expose a builtin
 /// without materializing its function value through those choke points.
+pub(crate) struct NumberPowImportFunctionIndex(u32);
+pub(crate) struct WallClockMillisImportFunctionIndex(u32);
+pub(crate) struct SharedMemoryAllocImportFunctionIndex(u32);
+pub(crate) struct MonotonicClockNanosImportFunctionIndex(u32);
+pub(crate) struct SleepNanosImportFunctionIndex(u32);
+pub(crate) struct AgentCallImportFunctionIndex(u32);
+pub(crate) struct IntlCallImportFunctionIndex(u32);
+pub(crate) struct RandomF64ImportFunctionIndex(u32);
+
+macro_rules! host_import_function_index_role {
+    ($role:ident) => {
+        impl $role {
+            pub(crate) const fn new(index: u32) -> Self {
+                Self(index)
+            }
+        }
+    };
+}
+
+host_import_function_index_role!(NumberPowImportFunctionIndex);
+host_import_function_index_role!(WallClockMillisImportFunctionIndex);
+host_import_function_index_role!(SharedMemoryAllocImportFunctionIndex);
+host_import_function_index_role!(MonotonicClockNanosImportFunctionIndex);
+host_import_function_index_role!(SleepNanosImportFunctionIndex);
+host_import_function_index_role!(AgentCallImportFunctionIndex);
+host_import_function_index_role!(IntlCallImportFunctionIndex);
+host_import_function_index_role!(RandomF64ImportFunctionIndex);
+
+#[must_use]
+pub(crate) struct HostImportFunctionIndices {
+    number_pow: Option<NumberPowImportFunctionIndex>,
+    wall_clock_millis: Option<WallClockMillisImportFunctionIndex>,
+    shared_memory_alloc: Option<SharedMemoryAllocImportFunctionIndex>,
+    monotonic_clock_nanos: Option<MonotonicClockNanosImportFunctionIndex>,
+    sleep_nanos: Option<SleepNanosImportFunctionIndex>,
+    agent_call: Option<AgentCallImportFunctionIndex>,
+    intl_call: Option<IntlCallImportFunctionIndex>,
+    random_f64: Option<RandomF64ImportFunctionIndex>,
+}
+
+impl HostImportFunctionIndices {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn new(
+        number_pow: Option<NumberPowImportFunctionIndex>,
+        wall_clock_millis: Option<WallClockMillisImportFunctionIndex>,
+        shared_memory_alloc: Option<SharedMemoryAllocImportFunctionIndex>,
+        monotonic_clock_nanos: Option<MonotonicClockNanosImportFunctionIndex>,
+        sleep_nanos: Option<SleepNanosImportFunctionIndex>,
+        agent_call: Option<AgentCallImportFunctionIndex>,
+        intl_call: Option<IntlCallImportFunctionIndex>,
+        random_f64: Option<RandomF64ImportFunctionIndex>,
+    ) -> Self {
+        Self {
+            number_pow,
+            wall_clock_millis,
+            shared_memory_alloc,
+            monotonic_clock_nanos,
+            sleep_nanos,
+            agent_call,
+            intl_call,
+            random_f64,
+        }
+    }
+}
+
 pub(crate) struct FunctionMetaRegistry {
     metas: BTreeMap<FunctionId, WasmFunctionMeta>,
     compiled_host_builtins: BTreeSet<HostBuiltinId>,
     touched_standard_builtins: std::cell::RefCell<BTreeSet<StandardBuiltinId>>,
     touched_host_builtins: std::cell::RefCell<BTreeSet<HostBuiltinId>>,
-    number_pow_import_function_index: Option<u32>,
-    wall_clock_millis_import_function_index: Option<u32>,
-    shared_memory_alloc_function_index: Option<u32>,
-    monotonic_clock_nanos_import_function_index: Option<u32>,
-    sleep_nanos_import_function_index: Option<u32>,
-    agent_call_import_function_index: Option<u32>,
-    intl_call_import_function_index: Option<u32>,
-    random_f64_import_function_index: Option<u32>,
+    host_import_function_indices: HostImportFunctionIndices,
     touched_number_pow_import: std::cell::Cell<bool>,
     /// When set, [`Self::record_standard_builtin`] / [`Self::record_host_builtin`]
     /// become no-ops. Codegen sets this while emitting a *provably dead* branch
@@ -5752,28 +5519,14 @@ impl FunctionMetaRegistry {
     pub(crate) fn new(
         metas: BTreeMap<FunctionId, WasmFunctionMeta>,
         compiled_host_builtins: BTreeSet<HostBuiltinId>,
-        number_pow_import_function_index: Option<u32>,
-        wall_clock_millis_import_function_index: Option<u32>,
-        shared_memory_alloc_function_index: Option<u32>,
-        monotonic_clock_nanos_import_function_index: Option<u32>,
-        sleep_nanos_import_function_index: Option<u32>,
-        agent_call_import_function_index: Option<u32>,
-        intl_call_import_function_index: Option<u32>,
-        random_f64_import_function_index: Option<u32>,
+        host_import_function_indices: HostImportFunctionIndices,
     ) -> Self {
         Self {
             metas,
             compiled_host_builtins,
             touched_standard_builtins: std::cell::RefCell::new(BTreeSet::new()),
             touched_host_builtins: std::cell::RefCell::new(BTreeSet::new()),
-            number_pow_import_function_index,
-            wall_clock_millis_import_function_index,
-            shared_memory_alloc_function_index,
-            monotonic_clock_nanos_import_function_index,
-            sleep_nanos_import_function_index,
-            agent_call_import_function_index,
-            intl_call_import_function_index,
-            random_f64_import_function_index,
+            host_import_function_indices,
             touched_number_pow_import: std::cell::Cell::new(false),
             suppress_recording: std::cell::Cell::new(false),
         }
@@ -5783,7 +5536,10 @@ impl FunctionMetaRegistry {
         if !self.suppress_recording.get() {
             self.touched_number_pow_import.set(true);
         }
-        self.number_pow_import_function_index
+        self.host_import_function_indices
+            .number_pow
+            .as_ref()
+            .map(|index| index.0)
     }
 
     pub(crate) fn touched_number_pow_import(&self) -> bool {
@@ -5791,31 +5547,52 @@ impl FunctionMetaRegistry {
     }
 
     pub(crate) fn wall_clock_millis_import_function_index(&self) -> Option<u32> {
-        self.wall_clock_millis_import_function_index
+        self.host_import_function_indices
+            .wall_clock_millis
+            .as_ref()
+            .map(|index| index.0)
     }
 
     pub(crate) fn shared_memory_alloc_function_index(&self) -> Option<u32> {
-        self.shared_memory_alloc_function_index
+        self.host_import_function_indices
+            .shared_memory_alloc
+            .as_ref()
+            .map(|index| index.0)
     }
 
     pub(crate) fn monotonic_clock_nanos_import_function_index(&self) -> Option<u32> {
-        self.monotonic_clock_nanos_import_function_index
+        self.host_import_function_indices
+            .monotonic_clock_nanos
+            .as_ref()
+            .map(|index| index.0)
     }
 
     pub(crate) fn sleep_nanos_import_function_index(&self) -> Option<u32> {
-        self.sleep_nanos_import_function_index
+        self.host_import_function_indices
+            .sleep_nanos
+            .as_ref()
+            .map(|index| index.0)
     }
 
     pub(crate) fn agent_call_import_function_index(&self) -> Option<u32> {
-        self.agent_call_import_function_index
+        self.host_import_function_indices
+            .agent_call
+            .as_ref()
+            .map(|index| index.0)
     }
 
     pub(crate) fn intl_call_import_function_index(&self) -> Option<u32> {
-        self.intl_call_import_function_index
+        self.host_import_function_indices
+            .intl_call
+            .as_ref()
+            .map(|index| index.0)
     }
 
     pub(crate) fn random_f64_import_function_index(&self) -> Option<u32> {
-        self.random_f64_import_function_index
+        self.host_import_function_indices
+            .random_f64
+            .as_ref()
+            .map(|index| index.0)
     }
 
     /// Set the recording-suppression flag, returning the previous value so the
@@ -5860,10 +5637,6 @@ impl FunctionMetaRegistry {
         if let Some(builtin) = meta.host_builtin {
             self.record_host_builtin(builtin);
         }
-    }
-
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (&FunctionId, &WasmFunctionMeta)> {
-        self.metas.iter()
     }
 
     pub(crate) fn values(&self) -> impl Iterator<Item = &WasmFunctionMeta> {
@@ -5919,7 +5692,6 @@ pub(crate) fn build_function_metas(
                 is_synthetic_default_derived_constructor: function
                     .is_synthetic_default_derived_constructor,
                 class_instance_element_plan: function.class_instance_element_plan.clone(),
-                super_constructor_target: function.super_constructor_target.clone(),
                 uses_super: function.uses_super,
                 this_before_super: function.this_before_super,
                 captures_private_environment: function.captures_private_environment,
@@ -5968,7 +5740,6 @@ pub(crate) fn build_function_metas(
             is_derived_constructor: false,
             is_synthetic_default_derived_constructor: false,
             class_instance_element_plan: None,
-            super_constructor_target: None,
             uses_super: false,
             this_before_super: false,
             captures_private_environment: false,
@@ -5993,7 +5764,6 @@ pub(crate) fn build_function_metas(
         is_derived_constructor: false,
         is_synthetic_default_derived_constructor: false,
         class_instance_element_plan: None,
-        super_constructor_target: None,
         uses_super: false,
         this_before_super: false,
         captures_private_environment: false,
@@ -6737,6 +6507,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::ReferenceErrorConstructor => 1,
         StandardBuiltinId::ArraySpeciesGetter
         | StandardBuiltinId::TypedArraySpeciesGetter
+        | StandardBuiltinId::TypedArrayConstructor
         | StandardBuiltinId::ArrayBufferSpeciesGetter
         | StandardBuiltinId::RegExpSpeciesGetter
         | StandardBuiltinId::PromiseSpeciesGetter
@@ -6908,13 +6679,13 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         // result through observable object coercion even when neither raw
         // operand advertises BigInt in its pre-ToPrimitive kind set.
         ExprIr::BitwiseNumeric { op, .. } => op.bigint_op().is_some(),
-        ExprIr::UnaryBitwiseNumeric { .. } => true,
+        ExprIr::UnaryMinusNumeric { .. } | ExprIr::UnaryBitwiseNumeric { .. } => true,
         ExprIr::UpdateIdentifier {
-            value_kind: ValueKind::Dynamic,
+            value_kind: NumericUpdateValueKind::Dynamic,
             ..
         }
         | ExprIr::GlobalPropertyUpdate {
-            value_kind: ValueKind::Dynamic,
+            value_kind: NumericUpdateValueKind::Dynamic,
             ..
         }
         | ExprIr::This
@@ -6945,13 +6716,15 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         } => true,
         ExprIr::SuperPropertyMutation(mutation) => match mutation.operation() {
             SuperPropertyMutationOperationIr::NumericUpdate { value_kind, .. } => {
-                *value_kind == ValueKind::Dynamic
+                *value_kind == NumericUpdateValueKind::Dynamic
             }
             SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
                 expr_result_tag_is_runtime_dynamic(&result.expr)
             }
         },
-        ExprIr::OrdinaryPropertyNumericUpdate(update) => update.value_kind() == ValueKind::Dynamic,
+        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
+            update.value_kind() == NumericUpdateValueKind::Dynamic
+        }
         ExprIr::OrdinaryPropertyAssignment(assignment) => {
             expr_result_tag_is_runtime_dynamic(&assignment.rhs().expr)
         }
@@ -7015,846 +6788,6 @@ pub(crate) fn count_param_binding_locals(
         }
     }
     locals
-}
-
-pub(crate) fn script_uses_env(script: &ScriptIr) -> bool {
-    !script.owned_env_bindings.is_empty()
-        || script
-            .functions
-            .iter()
-            .any(|function| !function.owned_env_bindings.is_empty())
-}
-
-pub(crate) fn script_uses_calls(script: &ScriptIr) -> bool {
-    script
-        .functions
-        .iter()
-        .any(|function| block_uses_calls(&function.body))
-        || block_uses_calls(&script.body)
-}
-
-pub(crate) fn script_uses_function_heap(script: &ScriptIr) -> bool {
-    script
-        .functions
-        .iter()
-        .any(|function| function.protocol.flavor() == FunctionFlavor::Ordinary)
-}
-
-pub(crate) fn script_uses_function_table(script: &ScriptIr) -> bool {
-    script
-        .functions
-        .iter()
-        .any(|function| block_uses_function_table(&function.body))
-        || block_uses_function_table(&script.body)
-}
-
-pub(crate) fn block_uses_function_table(block: &BlockIr) -> bool {
-    block.statements.iter().any(statement_uses_function_table)
-}
-
-pub(crate) fn block_uses_calls(block: &BlockIr) -> bool {
-    block.statements.iter().any(statement_uses_calls)
-}
-
-pub(crate) fn statement_uses_calls(statement: &StatementIr) -> bool {
-    match statement {
-        // A module unit body runs arbitrary code.
-        StatementIr::ModuleUnitOnce { .. } => true,
-        StatementIr::Empty
-        | StatementIr::AnnexBFunctionCopy { .. }
-        | StatementIr::Debugger
-        | StatementIr::Break { .. }
-        | StatementIr::Continue { .. } => false,
-        StatementIr::Lexical { init, .. } | StatementIr::Expression(init) => expr_uses_calls(init),
-        StatementIr::GeneratorYield {
-            value, resume_mode, ..
-        } => {
-            expr_uses_calls(value)
-                || match resume_mode {
-                    GeneratorResumeModeIr::AssignProperty(reference) => {
-                        suspended_property_reference_operand_matches(reference, expr_uses_calls)
-                    }
-                    GeneratorResumeModeIr::Ignore
-                    | GeneratorResumeModeIr::Return
-                    | GeneratorResumeModeIr::AssignIdentifier(_) => false,
-                }
-        }
-        StatementIr::AsyncAwait { .. } => true,
-        StatementIr::LexicalBlock(statements)
-        | StatementIr::ParameterInitialization { statements, .. } => {
-            statements.iter().any(statement_uses_calls)
-        }
-        StatementIr::SyncDisposableScope { .. } | StatementIr::AsyncDisposableScope { .. } => true,
-        StatementIr::Return(value) | StatementIr::Throw(value) => expr_uses_calls(value),
-        StatementIr::Var(declarators) => declarators
-            .iter()
-            .filter_map(|declarator| declarator.init.as_ref())
-            .any(expr_uses_calls),
-        StatementIr::Block(block) => block_uses_calls(block),
-        StatementIr::TryCatch {
-            try_block,
-            catch_block,
-            ..
-        } => block_uses_calls(try_block) || block_uses_calls(catch_block),
-        StatementIr::TryFinally {
-            try_block,
-            finally_block,
-            ..
-        } => block_uses_calls(try_block) || block_uses_calls(finally_block),
-        StatementIr::TryCatchFinally {
-            try_block,
-            catch_block,
-            finally_block,
-            ..
-        } => {
-            block_uses_calls(try_block)
-                || block_uses_calls(catch_block)
-                || block_uses_calls(finally_block)
-        }
-        StatementIr::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            expr_uses_calls(condition)
-                || statement_uses_calls(then_branch)
-                || else_branch
-                    .as_deref()
-                    .map(statement_uses_calls)
-                    .unwrap_or(false)
-        }
-        StatementIr::While { condition, body } => {
-            expr_uses_calls(condition) || statement_uses_calls(body)
-        }
-        StatementIr::DoWhile { body, condition } => {
-            statement_uses_calls(body) || expr_uses_calls(condition)
-        }
-        StatementIr::For {
-            init,
-            test,
-            update,
-            body,
-            ..
-        } => {
-            init.as_ref().map(for_init_uses_calls).unwrap_or(false)
-                || test.as_ref().map(expr_uses_calls).unwrap_or(false)
-                || update.as_ref().map(expr_uses_calls).unwrap_or(false)
-                || statement_uses_calls(body)
-        }
-        StatementIr::GeneratorLoop {
-            init,
-            test,
-            update,
-            before_suspension,
-            suspension_statement,
-            after_suspension,
-            ..
-        } => {
-            init.as_ref().is_some_and(for_init_uses_calls)
-                || test.as_ref().is_some_and(expr_uses_calls)
-                || update.as_ref().is_some_and(expr_uses_calls)
-                || before_suspension.iter().any(statement_uses_calls)
-                || statement_uses_calls(suspension_statement)
-                || after_suspension.iter().any(statement_uses_calls)
-        }
-        StatementIr::GeneratorIf {
-            condition,
-            then_before_yield,
-            then_yield_statement,
-            then_after_yield,
-            else_before_yield,
-            else_yield_statement,
-            else_after_yield,
-            ..
-        } => {
-            expr_uses_calls(condition)
-                || then_before_yield
-                    .iter()
-                    .chain(then_yield_statement.as_deref())
-                    .chain(then_after_yield)
-                    .chain(else_before_yield)
-                    .chain(else_yield_statement.as_deref())
-                    .chain(else_after_yield)
-                    .any(statement_uses_calls)
-        }
-        StatementIr::ForOfArray { iterable, body, .. }
-        | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForInArray {
-            target: iterable,
-            body,
-            ..
-        }
-        | StatementIr::ForInString {
-            target: iterable,
-            body,
-            ..
-        }
-        | StatementIr::ForInObject {
-            target: iterable,
-            body,
-            ..
-        } => expr_uses_calls(iterable) || statement_uses_calls(body),
-        // The generic protocol always calls @@iterator/next and may call return.
-        // A resource head additionally calls the captured disposer, so neither
-        // closed head can be represented as call-free.
-        StatementIr::ForOfIterator { .. } => true,
-        StatementIr::Switch {
-            discriminant,
-            lexical_declarations,
-            cases,
-            ..
-        } => {
-            expr_uses_calls(discriminant)
-                || lexical_declarations.iter().any(statement_uses_calls)
-                || cases.iter().any(|case| {
-                    case.condition
-                        .as_ref()
-                        .map(expr_uses_calls)
-                        .unwrap_or(false)
-                        || block_uses_calls(&case.body)
-                })
-        }
-        StatementIr::Labelled { statement, .. } => statement_uses_calls(statement),
-    }
-}
-
-pub(crate) fn for_init_uses_calls(init: &ForInitIr) -> bool {
-    match init {
-        ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => expr_uses_calls(init),
-        ForInitIr::LexicalBlock(bindings) => bindings
-            .iter()
-            .any(|binding| expr_uses_calls(&binding.init)),
-        ForInitIr::Var(declarators) => declarators
-            .iter()
-            .filter_map(|declarator| declarator.init.as_ref())
-            .any(expr_uses_calls),
-        ForInitIr::Statements(statements) => statements.iter().any(statement_uses_calls),
-        ForInitIr::SyncDisposable(_) | ForInitIr::AsyncDisposable(_) => true,
-    }
-}
-
-pub(crate) fn statement_uses_function_table(statement: &StatementIr) -> bool {
-    match statement {
-        StatementIr::ModuleUnitOnce { .. } => true,
-        StatementIr::Empty
-        | StatementIr::AnnexBFunctionCopy { .. }
-        | StatementIr::Debugger
-        | StatementIr::Break { .. }
-        | StatementIr::Continue { .. } => false,
-        StatementIr::Lexical { init, .. }
-        | StatementIr::Expression(init)
-        | StatementIr::Return(init)
-        | StatementIr::Throw(init) => expr_uses_function_table(init),
-        StatementIr::GeneratorYield {
-            value, resume_mode, ..
-        } => {
-            expr_uses_function_table(value)
-                || match resume_mode {
-                    GeneratorResumeModeIr::AssignProperty(reference) => {
-                        suspended_property_reference_operand_matches(
-                            reference,
-                            expr_uses_function_table,
-                        )
-                    }
-                    GeneratorResumeModeIr::Ignore
-                    | GeneratorResumeModeIr::Return
-                    | GeneratorResumeModeIr::AssignIdentifier(_) => false,
-                }
-        }
-        StatementIr::AsyncAwait { .. } => true,
-        StatementIr::LexicalBlock(statements)
-        | StatementIr::ParameterInitialization { statements, .. } => {
-            statements.iter().any(statement_uses_function_table)
-        }
-        StatementIr::SyncDisposableScope { .. } | StatementIr::AsyncDisposableScope { .. } => true,
-        StatementIr::Var(declarators) => declarators
-            .iter()
-            .filter_map(|declarator| declarator.init.as_ref())
-            .any(expr_uses_function_table),
-        StatementIr::Block(block) => block_uses_function_table(block),
-        StatementIr::TryCatch {
-            try_block,
-            catch_block,
-            ..
-        } => block_uses_function_table(try_block) || block_uses_function_table(catch_block),
-        StatementIr::TryFinally {
-            try_block,
-            finally_block,
-            ..
-        } => block_uses_function_table(try_block) || block_uses_function_table(finally_block),
-        StatementIr::TryCatchFinally {
-            try_block,
-            catch_block,
-            finally_block,
-            ..
-        } => {
-            block_uses_function_table(try_block)
-                || block_uses_function_table(catch_block)
-                || block_uses_function_table(finally_block)
-        }
-        StatementIr::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            expr_uses_function_table(condition)
-                || statement_uses_function_table(then_branch)
-                || else_branch
-                    .as_deref()
-                    .map(statement_uses_function_table)
-                    .unwrap_or(false)
-        }
-        StatementIr::While { condition, body } => {
-            expr_uses_function_table(condition) || statement_uses_function_table(body)
-        }
-        StatementIr::DoWhile { body, condition } => {
-            statement_uses_function_table(body) || expr_uses_function_table(condition)
-        }
-        StatementIr::For {
-            init,
-            test,
-            update,
-            body,
-            ..
-        } => {
-            init.as_ref()
-                .map(for_init_uses_function_table)
-                .unwrap_or(false)
-                || test.as_ref().map(expr_uses_function_table).unwrap_or(false)
-                || update
-                    .as_ref()
-                    .map(expr_uses_function_table)
-                    .unwrap_or(false)
-                || statement_uses_function_table(body)
-        }
-        StatementIr::GeneratorLoop {
-            init,
-            test,
-            update,
-            before_suspension,
-            suspension_statement,
-            after_suspension,
-            ..
-        } => {
-            init.as_ref().is_some_and(for_init_uses_function_table)
-                || test.as_ref().is_some_and(expr_uses_function_table)
-                || update.as_ref().is_some_and(expr_uses_function_table)
-                || before_suspension.iter().any(statement_uses_function_table)
-                || statement_uses_function_table(suspension_statement)
-                || after_suspension.iter().any(statement_uses_function_table)
-        }
-        StatementIr::GeneratorIf {
-            condition,
-            then_before_yield,
-            then_yield_statement,
-            then_after_yield,
-            else_before_yield,
-            else_yield_statement,
-            else_after_yield,
-            ..
-        } => {
-            expr_uses_function_table(condition)
-                || then_before_yield
-                    .iter()
-                    .chain(then_yield_statement.as_deref())
-                    .chain(then_after_yield)
-                    .chain(else_before_yield)
-                    .chain(else_yield_statement.as_deref())
-                    .chain(else_after_yield)
-                    .any(statement_uses_function_table)
-        }
-        StatementIr::ForOfArray { iterable, body, .. }
-        | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForInArray {
-            target: iterable,
-            body,
-            ..
-        }
-        | StatementIr::ForInString {
-            target: iterable,
-            body,
-            ..
-        }
-        | StatementIr::ForInObject {
-            target: iterable,
-            body,
-            ..
-        } => expr_uses_function_table(iterable) || statement_uses_function_table(body),
-        StatementIr::ForOfIterator { .. } => true,
-        StatementIr::Switch {
-            discriminant,
-            lexical_declarations,
-            cases,
-            ..
-        } => {
-            expr_uses_function_table(discriminant)
-                || lexical_declarations
-                    .iter()
-                    .any(statement_uses_function_table)
-                || cases.iter().any(|case| {
-                    case.condition
-                        .as_ref()
-                        .map(expr_uses_function_table)
-                        .unwrap_or(false)
-                        || block_uses_function_table(&case.body)
-                })
-        }
-        StatementIr::Labelled { statement, .. } => statement_uses_function_table(statement),
-    }
-}
-
-pub(crate) fn for_init_uses_function_table(init: &ForInitIr) -> bool {
-    match init {
-        ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
-            expr_uses_function_table(init)
-        }
-        ForInitIr::LexicalBlock(bindings) => bindings
-            .iter()
-            .any(|binding| expr_uses_function_table(&binding.init)),
-        ForInitIr::Var(declarators) => declarators
-            .iter()
-            .filter_map(|declarator| declarator.init.as_ref())
-            .any(expr_uses_function_table),
-        ForInitIr::Statements(statements) => statements.iter().any(statement_uses_function_table),
-        ForInitIr::SyncDisposable(_) | ForInitIr::AsyncDisposable(_) => true,
-    }
-}
-
-pub(crate) fn expr_uses_function_table(expr: &TypedExpr) -> bool {
-    match &expr.expr {
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
-        // `import()` materializes a promise with function reactions.
-        ExprIr::DynamicImport { .. } => true,
-        ExprIr::FunctionValue(_)
-        | ExprIr::CallIndirect { .. }
-        | ExprIr::JsonParseStaticReviver { .. }
-        | ExprIr::CallMethod { .. }
-        | ExprIr::Construct { .. }
-        | ExprIr::ClassDefinition(_)
-        | ExprIr::SuperConstruct { .. }
-        | ExprIr::SuperPropertyRead { .. }
-        | ExprIr::SuperPropertyWrite { .. }
-        | ExprIr::SuperPropertyMutation(_)
-        | ExprIr::PrivateRead { .. }
-        | ExprIr::PrivateWrite { .. }
-        | ExprIr::PrivateIn { .. } => true,
-        ExprIr::GlobalPropertyRead { .. }
-        | ExprIr::GlobalIdentifierRead { .. }
-        | ExprIr::GlobalPropertyUpdate { .. } => false,
-        ExprIr::GlobalPropertyWrite { value, .. }
-        | ExprIr::GlobalPropertyCompoundAssign { value, .. } => expr_uses_function_table(value),
-        ExprIr::AssignIdentifier { value, .. }
-        | ExprIr::CompoundAssignIdentifier { value, .. }
-        | ExprIr::UnaryNumber { expr: value, .. }
-        | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
-        | ExprIr::StringFromCharCode { code: value }
-        | ExprIr::LogicalNot { expr: value }
-        | ExprIr::TypeOf { expr: value }
-        | ExprIr::Void { expr: value }
-        | ExprIr::DeleteValue { expr: value } => expr_uses_function_table(value),
-        ExprIr::SpecOperation { operands, .. } => operands.iter().any(expr_uses_function_table),
-        ExprIr::StringCharCodeAt { target, index } => {
-            expr_uses_function_table(target) || expr_uses_function_table(index)
-        }
-        ExprIr::DeleteIdentifier { .. } | ExprIr::DeleteGlobalProperty { .. } => false,
-        ExprIr::TypeOfUnresolvedIdentifier { .. } => false,
-        ExprIr::NewTarget => false,
-        ExprIr::ObjectLiteral(properties) => properties.iter().any(|property| match property {
-            ObjectPropertyIr::PrototypeSetter { value }
-            | ObjectPropertyIr::Spread { source: value }
-            | ObjectPropertyIr::Data { value, .. }
-            | ObjectPropertyIr::NonEnumerableData { value, .. } => expr_uses_function_table(value),
-            ObjectPropertyIr::ComputedData { key, value } => {
-                expr_uses_function_table(key) || expr_uses_function_table(value)
-            }
-            ObjectPropertyIr::ComputedMethod { .. }
-            | ObjectPropertyIr::ComputedGetter { .. }
-            | ObjectPropertyIr::ComputedSetter { .. } => true,
-            ObjectPropertyIr::Method { .. }
-            | ObjectPropertyIr::Getter { .. }
-            | ObjectPropertyIr::Setter { .. } => true,
-        }),
-        ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_function_table),
-        ExprIr::ArrayAccumulation(accumulation) => {
-            array_accumulation_has_spread(accumulation)
-                || array_accumulation_expressions(accumulation).any(expr_uses_function_table)
-        }
-        ExprIr::OptionalPropertyChain { target, chain } => {
-            let mut chain_uses_function_table = false;
-            let mut has_call = false;
-            for operation in chain {
-                match operation {
-                    OptionalChainOperationIr::Property { key, .. } => {
-                        chain_uses_function_table |= match key {
-                            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                            PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                                expr_uses_function_table(expr.as_ref())
-                            }
-                        };
-                    }
-                    OptionalChainOperationIr::PrivateProperty { .. } => {
-                        chain_uses_function_table = true;
-                    }
-                    OptionalChainOperationIr::Call { args, .. } => {
-                        chain_uses_function_table |= args.iter().any(expr_uses_function_table);
-                        has_call = true;
-                    }
-                }
-            }
-            matches!(target.kind, ValueKind::Object)
-                || expr_uses_function_table(target)
-                || chain_uses_function_table
-                // The callee itself must be dynamically callable.
-                || has_call
-        }
-        ExprIr::PropertyRead { target, key } => {
-            matches!(target.kind, ValueKind::Object)
-                || expr_uses_function_table(target)
-                || match key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_function_table(expr)
-                    }
-                }
-        }
-        ExprIr::PropertyWrite {
-            target, key, value, ..
-        } => {
-            matches!(target.kind, ValueKind::Object)
-                || expr_uses_function_table(target)
-                || expr_uses_function_table(value)
-                || match key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_function_table(expr)
-                    }
-                }
-        }
-        ExprIr::OrdinaryPropertyAssignment(assignment) => {
-            matches!(assignment.base_and_receiver().kind, ValueKind::Object)
-                || expr_uses_function_table(assignment.base_and_receiver())
-                || expr_uses_function_table(assignment.rhs())
-                || match assignment.referenced_name() {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_function_table(expr)
-                    }
-                }
-        }
-        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
-            matches!(assignment.base_and_receiver().kind, ValueKind::Object)
-                || expr_uses_function_table(assignment.base_and_receiver())
-                || expr_uses_function_table(assignment.rhs())
-                || match assignment.referenced_name() {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_function_table(expr)
-                    }
-                }
-        }
-        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
-            matches!(update.base_and_receiver().kind, ValueKind::Object)
-                || expr_uses_function_table(update.base_and_receiver())
-                || match update.referenced_name() {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_function_table(expr)
-                    }
-                }
-        }
-        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
-            matches!(mutation.base_and_receiver().kind, ValueKind::Object)
-                || expr_uses_function_table(mutation.base_and_receiver())
-                || expr_uses_function_table(mutation.result())
-                || match mutation.referenced_name() {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_function_table(expr)
-                    }
-                }
-        }
-        ExprIr::DeleteProperty { target, key, .. } => {
-            matches!(target.kind, ValueKind::Object)
-                || expr_uses_function_table(target)
-                || match key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_function_table(expr)
-                    }
-                }
-        }
-        ExprIr::BinaryNumber { lhs, rhs, .. }
-        | ExprIr::CoerciveAdd { lhs, rhs }
-        | ExprIr::CoerciveBinaryNumber { lhs, rhs, .. }
-        | ExprIr::BitwiseNumeric { lhs, rhs, .. }
-        | ExprIr::CompareNumber { lhs, rhs, .. }
-        | ExprIr::CompareValue { lhs, rhs, .. }
-        | ExprIr::StrictEquality { lhs, rhs, .. }
-        | ExprIr::LooseEquality { lhs, rhs, .. }
-        | ExprIr::AssertSameValue {
-            actual: lhs,
-            expected: rhs,
-            ..
-        }
-        | ExprIr::LogicalShortCircuit { lhs, rhs, .. }
-        | ExprIr::In { lhs, rhs }
-        | ExprIr::StringConcat { lhs, rhs }
-        | ExprIr::Comma { lhs, rhs } => {
-            expr_uses_function_table(lhs)
-                || expr_uses_function_table(rhs)
-                || lhs.possible_kinds.contains(ValueKind::Object)
-                || rhs.possible_kinds.contains(ValueKind::Object)
-        }
-        ExprIr::MaterializeBinding { value, body, .. } => {
-            expr_uses_function_table(value)
-                || expr_uses_function_table(body)
-                || value.possible_kinds.contains(ValueKind::Object)
-                || body.possible_kinds.contains(ValueKind::Object)
-        }
-        ExprIr::ArrayDestructure { value, pattern, .. } => {
-            let _ = (value, pattern);
-            true
-        }
-        ExprIr::ObjectDestructure { value, pattern } => {
-            let _ = (value, pattern);
-            true
-        }
-        ExprIr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
-        } => {
-            expr_uses_function_table(condition)
-                || expr_uses_function_table(then_expr)
-                || expr_uses_function_table(else_expr)
-        }
-        ExprIr::CallNamed { args, .. } => args.iter().any(expr_uses_function_table),
-        ExprIr::SpreadArgument(_) => true,
-        ExprIr::InstanceOf { lhs, rhs } => {
-            expr_uses_function_table(lhs) || expr_uses_function_table(rhs)
-        }
-        ExprIr::Arguments => false,
-        ExprIr::RuntimeThrow { .. } => false,
-        ExprIr::Undefined
-        | ExprIr::ArrayHole
-        | ExprIr::Null
-        | ExprIr::Boolean(_)
-        | ExprIr::Number(_)
-        | ExprIr::BigInt(_)
-        | ExprIr::Symbol { .. }
-        | ExprIr::String(_)
-        | ExprIr::TemplateObject(_)
-        | ExprIr::RegExpLiteral { .. }
-        | ExprIr::This
-        | ExprIr::Identifier(_)
-        | ExprIr::UpdateIdentifier { .. } => false,
-    }
-}
-
-pub(crate) fn expr_uses_calls(expr: &TypedExpr) -> bool {
-    match &expr.expr {
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
-        ExprIr::DynamicImport { .. } => true,
-        ExprIr::CallNamed { .. }
-        | ExprIr::SpreadArgument(_)
-        | ExprIr::CallIndirect { .. }
-        | ExprIr::JsonParseStaticReviver { .. }
-        | ExprIr::CallMethod { .. }
-        | ExprIr::Construct { .. }
-        | ExprIr::ClassDefinition(_)
-        | ExprIr::SuperConstruct { .. }
-        | ExprIr::SuperPropertyRead { .. }
-        | ExprIr::SuperPropertyWrite { .. }
-        | ExprIr::SuperPropertyMutation(_)
-        | ExprIr::PrivateRead { .. }
-        | ExprIr::PrivateWrite { .. }
-        | ExprIr::PrivateIn { .. } => true,
-        ExprIr::GlobalPropertyRead { .. }
-        | ExprIr::GlobalIdentifierRead { .. }
-        | ExprIr::GlobalPropertyUpdate { .. } => false,
-        ExprIr::GlobalPropertyWrite { value, .. }
-        | ExprIr::GlobalPropertyCompoundAssign { value, .. } => expr_uses_calls(value),
-        ExprIr::AssignIdentifier { value, .. }
-        | ExprIr::CompoundAssignIdentifier { value, .. }
-        | ExprIr::UnaryNumber { expr: value, .. }
-        | ExprIr::UnaryBitwiseNumeric { expr: value, .. }
-        | ExprIr::StringFromCharCode { code: value }
-        | ExprIr::LogicalNot { expr: value }
-        | ExprIr::TypeOf { expr: value }
-        | ExprIr::Void { expr: value }
-        | ExprIr::DeleteValue { expr: value } => expr_uses_calls(value),
-        ExprIr::SpecOperation { operands, .. } => operands.iter().any(expr_uses_calls),
-        ExprIr::StringCharCodeAt { target, index } => {
-            expr_uses_calls(target) || expr_uses_calls(index)
-        }
-        ExprIr::DeleteIdentifier { .. } | ExprIr::DeleteGlobalProperty { .. } => false,
-        ExprIr::TypeOfUnresolvedIdentifier { .. } => false,
-        ExprIr::NewTarget => false,
-        ExprIr::ObjectLiteral(properties) => properties.iter().any(|property| match property {
-            ObjectPropertyIr::PrototypeSetter { value }
-            | ObjectPropertyIr::Spread { source: value }
-            | ObjectPropertyIr::Data { value, .. }
-            | ObjectPropertyIr::NonEnumerableData { value, .. } => expr_uses_calls(value),
-            ObjectPropertyIr::ComputedData { key, value } => {
-                expr_uses_calls(key) || expr_uses_calls(value)
-            }
-            ObjectPropertyIr::ComputedMethod { key, .. }
-            | ObjectPropertyIr::ComputedGetter { key, .. }
-            | ObjectPropertyIr::ComputedSetter { key, .. } => expr_uses_calls(key),
-            ObjectPropertyIr::Method { .. }
-            | ObjectPropertyIr::Getter { .. }
-            | ObjectPropertyIr::Setter { .. } => false,
-        }),
-        ExprIr::ArrayLiteral(elements) => elements.iter().any(expr_uses_calls),
-        ExprIr::ArrayAccumulation(accumulation) => {
-            array_accumulation_has_spread(accumulation)
-                || array_accumulation_expressions(accumulation).any(expr_uses_calls)
-        }
-        ExprIr::OptionalPropertyChain { target, chain } => {
-            let mut chain_uses_calls = false;
-            let mut has_call = false;
-            for operation in chain {
-                match operation {
-                    OptionalChainOperationIr::Property { key, .. } => {
-                        chain_uses_calls |= match key {
-                            PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                            PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                                expr_uses_calls(expr.as_ref())
-                            }
-                        };
-                    }
-                    OptionalChainOperationIr::PrivateProperty { .. } => {
-                        chain_uses_calls = true;
-                    }
-                    OptionalChainOperationIr::Call { args, .. } => {
-                        chain_uses_calls |= args.iter().any(expr_uses_calls);
-                        has_call = true;
-                    }
-                }
-            }
-            expr_uses_calls(target) || chain_uses_calls || has_call
-        }
-        ExprIr::PropertyRead { target, key } => {
-            expr_uses_calls(target)
-                || match key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_calls(expr)
-                    }
-                }
-        }
-        ExprIr::PropertyWrite {
-            target, key, value, ..
-        } => {
-            expr_uses_calls(target)
-                || expr_uses_calls(value)
-                || match key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_calls(expr)
-                    }
-                }
-        }
-        ExprIr::OrdinaryPropertyAssignment(assignment) => {
-            expr_uses_calls(assignment.base_and_receiver())
-                || expr_uses_calls(assignment.rhs())
-                || match assignment.referenced_name() {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_calls(expr)
-                    }
-                }
-        }
-        ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
-            expr_uses_calls(assignment.base_and_receiver())
-                || expr_uses_calls(assignment.rhs())
-                || match assignment.referenced_name() {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_calls(expr)
-                    }
-                }
-        }
-        ExprIr::OrdinaryPropertyNumericUpdate(update) => {
-            expr_uses_calls(update.base_and_receiver())
-                || match update.referenced_name() {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_calls(expr)
-                    }
-                }
-        }
-        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {
-            expr_uses_calls(mutation.base_and_receiver())
-                || expr_uses_calls(mutation.result())
-                || match mutation.referenced_name() {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_calls(expr)
-                    }
-                }
-        }
-        ExprIr::DeleteProperty { target, key, .. } => {
-            expr_uses_calls(target)
-                || match key {
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => false,
-                    PropertyKeyIr::StringExpr(expr) | PropertyKeyIr::ArrayIndex(expr) => {
-                        expr_uses_calls(expr)
-                    }
-                }
-        }
-        ExprIr::BinaryNumber { lhs, rhs, .. }
-        | ExprIr::CoerciveAdd { lhs, rhs }
-        | ExprIr::CoerciveBinaryNumber { lhs, rhs, .. }
-        | ExprIr::BitwiseNumeric { lhs, rhs, .. }
-        | ExprIr::CompareNumber { lhs, rhs, .. }
-        | ExprIr::CompareValue { lhs, rhs, .. }
-        | ExprIr::StrictEquality { lhs, rhs, .. }
-        | ExprIr::LooseEquality { lhs, rhs, .. }
-        | ExprIr::AssertSameValue {
-            actual: lhs,
-            expected: rhs,
-            ..
-        }
-        | ExprIr::LogicalShortCircuit { lhs, rhs, .. }
-        | ExprIr::In { lhs, rhs }
-        | ExprIr::StringConcat { lhs, rhs }
-        | ExprIr::Comma { lhs, rhs } => {
-            expr_uses_calls(lhs)
-                || expr_uses_calls(rhs)
-                || lhs.possible_kinds.contains(ValueKind::Object)
-                || rhs.possible_kinds.contains(ValueKind::Object)
-        }
-        ExprIr::MaterializeBinding { value, body, .. } => {
-            expr_uses_calls(value)
-                || expr_uses_calls(body)
-                || value.possible_kinds.contains(ValueKind::Object)
-                || body.possible_kinds.contains(ValueKind::Object)
-        }
-        ExprIr::ArrayDestructure { .. } | ExprIr::ObjectDestructure { .. } => true,
-        ExprIr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
-        } => expr_uses_calls(condition) || expr_uses_calls(then_expr) || expr_uses_calls(else_expr),
-        ExprIr::InstanceOf { lhs, rhs } => expr_uses_calls(lhs) || expr_uses_calls(rhs),
-        ExprIr::Arguments
-        | ExprIr::RuntimeThrow { .. }
-        | ExprIr::Undefined
-        | ExprIr::ArrayHole
-        | ExprIr::Null
-        | ExprIr::Boolean(_)
-        | ExprIr::Number(_)
-        | ExprIr::BigInt(_)
-        | ExprIr::Symbol { .. }
-        | ExprIr::String(_)
-        | ExprIr::TemplateObject(_)
-        | ExprIr::RegExpLiteral { .. }
-        | ExprIr::FunctionValue(_)
-        | ExprIr::This
-        | ExprIr::Identifier(_)
-        | ExprIr::UpdateIdentifier { .. } => false,
-    }
 }
 
 pub(crate) fn count_block_lexicals(block: &BlockIr) -> usize {
@@ -8054,6 +6987,19 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                     .map(count_statement_lexicals)
                     .sum::<usize>()
         }
+        StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
+            count_for_in_of_binding_lexicals(
+                plan.value_mode(),
+                plan.value_name(),
+                plan.head_environment(),
+            ) + plan
+                .before_await()
+                .iter()
+                .chain(std::iter::once(plan.await_statement()))
+                .chain(plan.after_await())
+                .map(count_statement_lexicals)
+                .sum::<usize>()
+        }
         StatementIr::GeneratorIf {
             then_before_yield,
             then_yield_statement,
@@ -8071,21 +7017,6 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             .chain(else_after_yield)
             .map(count_statement_lexicals)
             .sum(),
-        StatementIr::ForOfArray {
-            head,
-            body,
-            lexical_environment,
-            ..
-        }
-        | StatementIr::ForOfString {
-            head,
-            body,
-            lexical_environment,
-            ..
-        } => {
-            count_for_in_of_binding_lexicals(head.mode, &head.name, lexical_environment.as_ref())
-                + count_statement_lexicals(body)
-        }
         StatementIr::ForOfIterator {
             head,
             body,
@@ -8301,6 +7232,20 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     .unwrap_or(0),
             )
             .max(1),
+        StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+            RESUMABLE_SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(iterable)
+                    .max(
+                        plan.before_await()
+                            .iter()
+                            .chain(std::iter::once(plan.await_statement()))
+                            .chain(plan.after_await())
+                            .map(count_statement_temp_locals)
+                            .max()
+                            .unwrap_or(0),
+                    )
+                    .max(FOR_OF_ITERATOR_HELPER_TEMP_LOCALS)
+        }
         StatementIr::GeneratorIf {
             condition,
             then_before_yield,
@@ -8324,23 +7269,26 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     .unwrap_or(0),
             )
             .max(1),
-        StatementIr::ForOfArray { iterable, body, .. } => 7
-            .max(count_expr_temp_locals(iterable))
-            .max(count_statement_temp_locals(body)),
-        StatementIr::ForOfString { iterable, body, .. } => 12
-            .max(count_expr_temp_locals(iterable))
-            .max(count_statement_temp_locals(body)),
         StatementIr::ForOfIterator {
             head,
             iterable,
             body,
             ..
         } => match head {
-            ForOfIteratorHeadIr::Assignment { .. } => 18
-                .max(count_expr_temp_locals(iterable))
-                .max(count_statement_temp_locals(body)),
+            ForOfIteratorHeadIr::Assignment { async_plan, .. } => {
+                let persistent = if async_plan.is_some() {
+                    ASYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS
+                } else {
+                    SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS
+                };
+                persistent
+                    + count_expr_temp_locals(iterable)
+                        .max(count_statement_temp_locals(body))
+                        .max(FOR_OF_ITERATOR_HELPER_TEMP_LOCALS)
+            }
             ForOfIteratorHeadIr::SyncDisposable(_) => {
-                18 + 5
+                SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS
+                    + 5
                     + count_expr_temp_locals(iterable)
                         .max(count_statement_temp_locals(body))
                         .max(SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS)
@@ -8442,6 +7390,20 @@ pub(crate) const REFERENCE_STRICTNESS_FLAG_LOCALS: usize = 1;
 // phases do not overlap initializer/body child temporaries, so their maximum
 // is the accurate budget rather than an additive guess.
 const SYNC_DISPOSABLE_SCOPE_COMPLETION_TEMP_LOCALS: usize = 4 + 7 + 64;
+
+// The synchronous emitter holds seven tagged pairs, one property-key local and
+// two four-local saved-completion bundles across iterable evaluation, iterator
+// calls and the body. The async emitter instead holds its state, nine tagged
+// pairs, key, close-method auxiliary, resume-kind flag and one saved bundle.
+// Both call through the same conservative indirect-call allowance while those
+// persistent locals remain live.
+const SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS: usize = 7 * 2 + 1 + 2 * 4;
+const ASYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS: usize = 1 + 9 * 2 + 1 + 1 + 1 + 4;
+// The resumable synchronous emitter retains state, the eleven shared iterator
+// locals, the iterator/return method pair, the raw done flag and two completion
+// bundles. Iterable evaluation reuses the shared value pair before stepping.
+const RESUMABLE_SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS: usize = 1 + 11 + 2 + 1 + 2 * 4;
+const FOR_OF_ITERATOR_HELPER_TEMP_LOCALS: usize = 64;
 
 // The activation-backed path holds five detached-capability locals while it
 // materializes five locals per statically possible entry. Acquisition instead
@@ -8772,19 +7734,10 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 }
             };
             let to_numeric_temps = match update.value_kind() {
-                ValueKind::Dynamic => ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS,
-                ValueKind::Number | ValueKind::BigInt => 0,
-                ValueKind::Undefined
-                | ValueKind::Null
-                | ValueKind::Boolean
-                | ValueKind::String
-                | ValueKind::Symbol
-                | ValueKind::Object
-                | ValueKind::Array
-                | ValueKind::Function
-                | ValueKind::Arguments => {
-                    unreachable!("ordinary property numeric update kind is closed")
+                NumericUpdateValueKind::Dynamic => {
+                    ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS
                 }
+                NumericUpdateValueKind::Number | NumericUpdateValueKind::BigInt => 0,
             };
             let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS
                 + count_expr_temp_locals(update.base_and_receiver())
@@ -8834,11 +7787,12 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             }
         }
         ExprIr::AssignIdentifier { value, .. }
-        | ExprIr::UnaryNumber { expr: value, .. }
+        | ExprIr::UnaryPlus { expr: value }
         | ExprIr::StringFromCharCode { code: value }
         | ExprIr::LogicalNot { expr: value }
         | ExprIr::Void { expr: value }
         | ExprIr::DeleteValue { expr: value } => count_expr_temp_locals(value),
+        ExprIr::UnaryMinusNumeric { expr: value } => 2 + count_expr_temp_locals(value).max(2),
         ExprIr::UnaryBitwiseNumeric { expr: value, .. } => 2 + count_expr_temp_locals(value).max(2),
         ExprIr::SpecOperation {
             operation: SpecOperationIr::IsCallable,
@@ -9253,7 +8207,15 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .max(this_arg.as_deref().map(count_expr_temp_locals).unwrap_or(0))
             .max(args.iter().map(count_expr_temp_locals).max().unwrap_or(0))
             .max(if call_args_have_spread(args) { 192 } else { 64 }),
-        ExprIr::JsonParseStaticReviver { reviver, .. } => count_expr_temp_locals(reviver).max(64),
+        ExprIr::JsonParseStaticReviver {
+            callee,
+            input,
+            reviver,
+            ..
+        } => count_expr_temp_locals(callee)
+            .max(count_expr_temp_locals(input))
+            .max(count_expr_temp_locals(reviver))
+            .max(64),
         ExprIr::Construct { callee, args, .. } => count_expr_temp_locals(callee)
             .max(args.iter().map(count_expr_temp_locals).max().unwrap_or(0))
             .max(if call_args_have_spread(args) {
@@ -9464,6 +8426,19 @@ pub(crate) fn collect_hoisted_vars_statement(
                 collect_hoisted_vars_statement(statement, names);
             }
         }
+        StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
+            if plan.value_mode() == BindingMode::Var {
+                names.insert(plan.value_name().to_string());
+            }
+            for statement in plan
+                .before_await()
+                .iter()
+                .chain(std::iter::once(plan.await_statement()))
+                .chain(plan.after_await())
+            {
+                collect_hoisted_vars_statement(statement, names);
+            }
+        }
         StatementIr::GeneratorIf {
             then_before_yield,
             then_yield_statement,
@@ -9483,13 +8458,6 @@ pub(crate) fn collect_hoisted_vars_statement(
             {
                 collect_hoisted_vars_statement(statement, names);
             }
-        }
-        StatementIr::ForOfArray { head, body, .. }
-        | StatementIr::ForOfString { head, body, .. } => {
-            if head.mode == BindingMode::Var {
-                names.insert(head.name.clone());
-            }
-            collect_hoisted_vars_statement(body, names);
         }
         StatementIr::ForOfIterator { head, body, .. } => {
             if let ForOfIteratorHeadIr::Assignment { binding, .. } = head {

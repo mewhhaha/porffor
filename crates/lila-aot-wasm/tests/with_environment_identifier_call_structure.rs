@@ -156,7 +156,7 @@ fn lowerer_intercepts_before_folds_and_keeps_fallback_runtime_authoritative() {
     );
     assert!(fallback.contains("let dynamic = unknown_runtime_value_info();"));
     assert!(fallback.contains("ExprIr::GlobalIdentifierRead"));
-    assert!(fallback.contains("self.set_binding_value_info(name, dynamic.clone());"));
+    assert!(fallback.contains("self.widen_binding_for_possible_replacement(name);"));
     assert!(!fallback.contains("ExprIr::CallNamed"));
     assert!(!fallback.contains("ExprIr::FunctionValue"));
 
@@ -168,8 +168,8 @@ fn lowerer_intercepts_before_folds_and_keeps_fallback_runtime_authoritative() {
     for marker in [
         "binding.kind = dynamic.kind;",
         "binding.possible_kinds = dynamic.possible_kinds;",
-        "binding.function_targets.clear();",
-        "property.value_info = dynamic;",
+        "widen_for_possible_replacement();",
+        "property.value_info.widen_for_possible_replacement();",
         "property.proven_present = false;",
     ] {
         assert!(

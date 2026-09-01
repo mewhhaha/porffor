@@ -1,14 +1,14 @@
 //! `collections` intrinsic installation.
 //!
 //! Extracted verbatim from `builtins/bootstrap.rs::init_builtin_constructor_object`.
-//! Property installation order is observable through `Object.keys`, so the
-//! statement order inside each installer is load-bearing — do not reorder.
+//! Property installation order is observable through `Reflect.ownKeys`, so
+//! the statement order inside each installer is load-bearing — do not reorder.
 
 use super::super::*;
 use super::IntrinsicInstall;
+use crate::functions::NonArrayRealmIntrinsicSlot;
 
-#[derive(Clone, Copy)]
-enum CollectionPrototypeIntrinsic {
+pub(crate) enum CollectionPrototypeIntrinsic {
     Map,
     Set,
     WeakMap,
@@ -16,7 +16,7 @@ enum CollectionPrototypeIntrinsic {
 }
 
 impl CollectionPrototypeIntrinsic {
-    const fn prototype_global_index(self) -> u32 {
+    const fn prototype_global_index(&self) -> u32 {
         match self {
             Self::Map => MAP_PROTOTYPE_GLOBAL_INDEX,
             Self::Set => SET_PROTOTYPE_GLOBAL_INDEX,
@@ -25,7 +25,7 @@ impl CollectionPrototypeIntrinsic {
         }
     }
 
-    const fn to_string_tag(self) -> &'static str {
+    const fn to_string_tag(&self) -> &'static str {
         match self {
             Self::Map => "Map",
             Self::Set => "Set",
@@ -33,10 +33,19 @@ impl CollectionPrototypeIntrinsic {
             Self::WeakSet => "WeakSet",
         }
     }
+
+    pub(crate) const fn realm_slot(&self) -> NonArrayRealmIntrinsicSlot {
+        match self {
+            Self::Map => NonArrayRealmIntrinsicSlot::MapPrototype,
+            Self::Set => NonArrayRealmIntrinsicSlot::SetPrototype,
+            Self::WeakMap => NonArrayRealmIntrinsicSlot::WeakMapPrototype,
+            Self::WeakSet => NonArrayRealmIntrinsicSlot::WeakSetPrototype,
+        }
+    }
 }
 
 impl<'a> FunctionBuilder<'a> {
-    fn emit_collection_prototype_to_string_tag(
+    pub(crate) fn emit_collection_prototype_to_string_tag(
         &mut self,
         intrinsic: CollectionPrototypeIntrinsic,
         prototype_local: u32,

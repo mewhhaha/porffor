@@ -10,6 +10,14 @@ Implements: ECMA-262 6.2.6 (6.2.6.1 IsAccessorDescriptor, 6.2.6.2 IsDataDescript
 Short-name pointer (to be written by the ENCODER after landing):
 `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
 
+> Current-status note (2026-08-28): the LN3 positional
+> `emit_object_define_entry` adapter described by this historical integration
+> plan has been retired. The two ordinary `Object.defineProperty` branches now
+> construct `ObjectDefinePropertyDescriptorLocals::{Data, Accessor}` and call
+> the validated boundary directly. The short-name contract and
+> `object-define-property-descriptor-roles.md` are authoritative for the landed
+> state.
+
 ---
 
 ## 0. How to read this, and what is measured
@@ -547,7 +555,7 @@ rather than a conformance delta.
 |---|---|---|---|---|
 | I1 | The 6.2.6.1–3 partition is closed and has three cases | `enum PropertyDescriptorKind { Data, Accessor, Generic }`, exhaustive matches, **no `_` arm anywhere in the workspace** | M5 | `lila-ir` |
 | I2 | A stored property is `Data` or `Accessor`, and `Accessor` has no `[[Writable]]` | `enum CompleteDescriptor<C> { Data{..}, Accessor{..} }` — `Accessor` has no `writable` field | M1 | `lila-ir` |
-| I3 | Presence is one closed 3-state question per field (**partial** — see below) | `enum Presence<T, R> { Absent, Present(T), Runtime { present: R, value: T } }` | M2, M5 | `lila-ir` |
+| I3 | Presence is one closed 3-state question per field | `enum Presence<T, R> { Absent, Present(T), Runtime { present: R, value: T } }`, projected exhaustively to private `DescriptorCompatibilityPredicate::{Never, Always, AtRuntime}` | M2, M5 | `lila-ir` + `lila-aot-wasm` |
 | I4 | A partial descriptor is one value, not 15 positional parameters | `struct PartialDescriptor<C>` with six `Presence` fields | M2 | `lila-ir` |
 | I5 | The partition is a theorem about *validated* descriptors | `struct ValidatedDescriptor<C>(PartialDescriptor<C>)`, static constructor validates 6.2.6.5 step 9 | — | `lila-ir` |
 | I6 | `classify` is the only derivation of the partition | `fn classify(&ValidatedDescriptor<C>) -> DescriptorClassification`, and the seed decision in `emit_object_define_entry_validated` derives from the two `KindTerms` rather than from `[[Value]]` | M5 | `lila-ir` (+ the one consumer) |
@@ -559,20 +567,17 @@ rather than a conformance delta.
 | I12 | The six field names are a closed domain | `enum DescriptorField { Value, Writable, Get, Set, Enumerable, Configurable }` with `const fn key(self) -> &'static str` | M7 | `lila-ir` |
 | I13 | FromPropertyDescriptor's two codomain shapes | `CompleteDescriptor::keys() -> [DescriptorField; 4]`, and `PartialDescriptor::present_fields()` for the partial case | M6 | `lila-ir` |
 | I14 | Descriptor source text is built from the field domain, not from string literals | `struct DescriptorSourceText` over `PartialDescriptor<SourceText>` where `SourceText::RuntimeFlag = core::convert::Infallible` | M7 | `lila-ir` (consumed in `modules/namespace.rs`) |
-| I15 | The 6.2.6.5 field-read order is a table, not a hand-written literal | `const TO_PROPERTY_DESCRIPTOR_ORDER: [DescriptorField; 6]` + `const _: () = assert!(..)` that every variant appears exactly once, **and `emit_to_property_descriptor_object` iterates it** (with 6.2.6.4's own `DescriptorField::ALL` order driving the FromPropertyDescriptor loop below it) | partial M4 | `lila-ir` + `lila-aot-wasm/objects.rs` |
+| I15 | The 6.2.6.5 field-read order is a table, not a hand-written literal | `const TO_PROPERTY_DESCRIPTOR_ORDER: [DescriptorField; 6]` + `const _: () = assert!(..)` that every variant appears exactly once, **and `emit_to_property_descriptor` iterates it** (with 6.2.6.4's own `DescriptorField::ALL` order driving `emit_from_present_property_descriptor`) | partial M4 | `lila-ir` + `lila-aot-wasm/objects.rs` |
 
-**I3 is discharged for the contradictory pair and OPEN for the `Present`/step-4
-conflation.** `Presence::Runtime` requires a value carrier, so
+**I3 is discharged for both the contradictory pair and compatibility
+emission.** `Presence::Runtime` requires a value carrier, so
 `(data: None, data_present_local: Some(_))` — the state in which the static
 classification said "accessor" while the run-time one said "maybe data" — is
-unspellable, which is A3(a). But every 10.1.6.3 step-4 arm and every carry-over
-arm in `emit_object_define_entry_validated` treats `Present` exactly like
-`Absent`, and that is sound only for the two internal defines that chose the
-*value* as well as the presence. Step 4 fires on "Desc **has** the field". A
-new caller spelling a genuinely user-supplied field as `Present` compiles and
-silently skips steps 4.a/4.b/4.d/4.e. Ledger row **LN10** carries it, and every
-such arm is now written as two separate arms so the exemption is stated where it
-is taken rather than hidden in an or-pattern.
+unspellable, which is A3(a). The private compatibility predicate maps
+`Absent` to `Never`, `Present` to `Always`, and `Runtime` to `AtRuntime` in one
+exhaustive match. Ordinary and stored/Array validators consume only that
+predicate, including both statically-known kind-change sides. LN10 is closed;
+section 14 records the integration.
 
 Ledger:
 
@@ -587,7 +592,7 @@ Ledger:
 | LN7 | The 8 array/arguments derivation sites | The named Array validator and Arguments `length` kind carrier have landed. Index/callee derivation and remaining raw application sites stay note-routed; §4.5 records the historical coordinates and current replacement shape. |
 | LN8 | `lowering.rs`'s three shape sites | Shared hub; batch 5 is in `standard.rs` this round and `lowering.rs` is the crate's largest contention surface. **Note-routed** with the exact replacement per site (§4.5). |
 | LN9 | The seed when **both** 6.2.6 sides are run-time-possible | The stored kind is then genuinely a run-time value, and the emitter assembles the word in one Wasm local with a compile-time typestate, so there is no representation for "either". The case is reachable only through `from_runtime_checked`, whose emitted 6.2.6.5 step-9 throw dominates both callers and leaves exactly one side live per branch; the seed is taken from the operand the caller materialised. A caller that materialises operands on both sides needs a run-time seed and a run-time `stored_kind()`, which is a larger change than a seed derivation. |
-| LN10 | `Presence::Present` exempts a field from 10.1.6.3 step 4 | Step 4 fires on *Desc has the field*, not on "the program discovered it". A `Present` field is exempt only because the compiler chose the value too — true of `emit_object_define_accessor_with_flag_local` and of `emit_object_define_entry`'s two `Present` slots, false of anything a program supplies. The same fact exempts a **statically-true side** from step 6.a/7.a. Closing it needs a `DischargesStepFour` witness threaded through `ValidatedDescriptor` and produced only by the owned helpers, plus the run-time-emitting arms that witness's absence would demand — a design, not an edit. Every arm and `emit_descriptor_kind_change_throw`'s exhaustive four-case `match` now state the exemption at the point of risk instead of reaching it through `runtime_flags().is_empty()`. |
+| LN10 (closed) | `Presence::Present` once exempted a field from 10.1.6.3 step 4 | `DescriptorCompatibilityPredicate::from_presence` makes `Present` unconditional, while `from_kind_terms` makes every statically-true side unconditional. Both ordinary and stored/Array consumers emit through the same closed predicate; section 14 records the focused structure and execution witnesses. |
 
 ### 2.1 `DescriptorField` — I12
 
@@ -897,7 +902,7 @@ distinguish all four:
 | false | false | unconditionally **false** | nothing — the obligation does not arise |
 | false | true | the OR-fold | the OR-fold |
 | true | true | unconditionally **true** | `I32Const(1)`; the OR-fold alone would *under-fire* on the descriptor the static field already decides |
-| true | false | unconditionally **true** | nothing, **and only because** every field on the side is `Presence::Present`, i.e. this is one of the internal defines the compiler wrote itself — the same unproven caller property as the `Present` arms of step 4, ledger row **LN10** |
+| true | false | unconditionally **true** | the compatibility check body, without a run-time guard |
 
 The same distinction governs step 4.c: `restore_existing_accessor_kind_if_runtime_generic`
 takes both sides' `KindTerms`, not a flat list of run-time flags, because
@@ -2464,9 +2469,64 @@ field-specific 10.1.6.3 checks. Consequently:
 This is a consumed seam, not a second descriptor model: the same validated
 value that rules out a statically mixed data/accessor record drives the actual
 array validation emitter. It does not yet replace the raw descriptor-word
-application in the rest of `builtins/array.rs`, and it deliberately retains
-the documented LN10 behavior for `Presence::Present`. Those remain T10 work.
+application in the rest of `builtins/array.rs`. Its historical LN10 behavior
+is superseded by section 14 below.
 
 This integration was dry-written. `rustfmt`, source-shape checks and diff checks
 were run; Cargo compilation, focused tests and emitted-Wasm comparison were
 left to the shared verification lease.
+
+---
+
+## 14. T10 known-present compatibility integration
+
+This section supersedes every earlier statement that LN10 remains open or that
+`Presence::Present` discharges 10.1.6.3 compatibility by construction.
+
+`objects.rs` now owns one private closed emission domain:
+
+```rust
+enum DescriptorCompatibilityPredicate {
+    Never,
+    Always,
+    AtRuntime { first: u32, second: Option<u32> },
+}
+```
+
+It deliberately implements none of `Clone`, `Copy`, `Debug`, equality or
+`Default`. `from_presence` maps all three `Presence` variants exhaustively:
+`Absent` becomes `Never`, `Present` becomes `Always`, and `Runtime` becomes
+`AtRuntime`. `from_kind_terms` maps an impossible side to `Never`, any
+statically-true side to `Always`, and the remaining one- or two-flag
+disjunction to `AtRuntime`.
+
+The ordinary-object validator and the stored-descriptor validator used by
+Array index and Array named properties both emit configurable, enumerable,
+writable, value, getter and setter compatibility through that domain. Their
+kind-change checks use the same domain. A known-present field or statically
+known descriptor side therefore cannot silently omit its check. Fresh-property
+creation is unchanged naturally: compatibility emission is reached only after
+the existing-entry search succeeds.
+
+The focused fixture covers ordinary objects and non-index Array named
+properties for non-configurable attribute rejection, data `SameValue` with
+`NaN` and signed zero, accessor identity and change, data/accessor transitions,
+absent-field carry-over, configurable transitions and missing-property
+creation. The computed static `prototype` case does **not** reach the
+`Presence::Present` validator route: the pre-existing explicit class guard
+rejects it first and remains a separate witness. No user-reachable Array named-property
+operation currently supplies a known-present descriptor while redefining an
+existing entry; that branch is covered structurally at the shared stored
+validator rather than claimed as an execution witness.
+
+Focused verification on 2026-08-27 passed the six-test
+`descriptor_known_present_compatibility_structure` target, the exact CLI
+fixture test at `1/1`, and seven selected pinned Test262 paths at `14/14`
+strict/non-strict executions with every failure bucket zero:
+`15.2.3.6-4-85.js`, `-87.js`, `-12.js`, `-14.js`, `-277.js`, `-281.js` and
+`-285.js`. `cargo xc` passes with the repository's existing warnings. The
+following shared semantic golden passes `2/2` in 676.81 seconds with 683 dumps,
+adds only this fixture and removes none. Every one of the 682 retained dumps
+preserves its non-accounting summary after normalizing the main-local and
+emitted-size fields; byte hashes change because the common descriptor and
+fresh-error emitters changed.

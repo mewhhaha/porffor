@@ -34,6 +34,88 @@ use crate::functions::NewTargetPrototypeFallback;
 use crate::objects::TaggedLocals;
 use lila_intl::{IntlHostCallOutcome, IntlHostOp, MAX_INTL_IDENTIFIER_BYTES};
 
+mod construction_lifecycle;
+
+mod canonical_locale_tag_invocation {
+    pub(in crate::builtins) struct CanonicalLocaleTagInputPayloadLocal(u32);
+    pub(in crate::builtins) struct CanonicalLocaleTagPayloadLocal(u32);
+    pub(in crate::builtins) struct CanonicalLocaleLanguagePayloadLocal(u32);
+    pub(in crate::builtins) struct CanonicalLocaleScriptPayloadLocal(u32);
+    pub(in crate::builtins) struct CanonicalLocaleRegionPayloadLocal(u32);
+    pub(in crate::builtins) struct CanonicalLocaleBaseNamePayloadLocal(u32);
+    pub(in crate::builtins) struct CanonicalLocaleValidityLocal(u32);
+
+    macro_rules! local_role {
+        ($role:ident) => {
+            impl $role {
+                pub(in crate::builtins) const fn new(local: u32) -> Self {
+                    Self(local)
+                }
+            }
+        };
+    }
+
+    local_role!(CanonicalLocaleTagInputPayloadLocal);
+    local_role!(CanonicalLocaleTagPayloadLocal);
+    local_role!(CanonicalLocaleLanguagePayloadLocal);
+    local_role!(CanonicalLocaleScriptPayloadLocal);
+    local_role!(CanonicalLocaleRegionPayloadLocal);
+    local_role!(CanonicalLocaleBaseNamePayloadLocal);
+    local_role!(CanonicalLocaleValidityLocal);
+
+    #[must_use]
+    pub(in crate::builtins) struct CanonicalLocaleTagInvocationLocals {
+        input: CanonicalLocaleTagInputPayloadLocal,
+        tag: CanonicalLocaleTagPayloadLocal,
+        language: CanonicalLocaleLanguagePayloadLocal,
+        script: CanonicalLocaleScriptPayloadLocal,
+        region: CanonicalLocaleRegionPayloadLocal,
+        base_name: CanonicalLocaleBaseNamePayloadLocal,
+        validity: CanonicalLocaleValidityLocal,
+    }
+
+    impl CanonicalLocaleTagInvocationLocals {
+        pub(in crate::builtins) const fn new(
+            input: CanonicalLocaleTagInputPayloadLocal,
+            tag: CanonicalLocaleTagPayloadLocal,
+            language: CanonicalLocaleLanguagePayloadLocal,
+            script: CanonicalLocaleScriptPayloadLocal,
+            region: CanonicalLocaleRegionPayloadLocal,
+            base_name: CanonicalLocaleBaseNamePayloadLocal,
+            validity: CanonicalLocaleValidityLocal,
+        ) -> Self {
+            Self {
+                input,
+                tag,
+                language,
+                script,
+                region,
+                base_name,
+                validity,
+            }
+        }
+
+        pub(super) const fn into_parts(self) -> (u32, u32, u32, u32, u32, u32, u32) {
+            (
+                self.input.0,
+                self.tag.0,
+                self.language.0,
+                self.script.0,
+                self.region.0,
+                self.base_name.0,
+                self.validity.0,
+            )
+        }
+    }
+}
+
+pub(super) use canonical_locale_tag_invocation::{
+    CanonicalLocaleBaseNamePayloadLocal, CanonicalLocaleLanguagePayloadLocal,
+    CanonicalLocaleRegionPayloadLocal, CanonicalLocaleScriptPayloadLocal,
+    CanonicalLocaleTagInputPayloadLocal, CanonicalLocaleTagInvocationLocals,
+    CanonicalLocaleTagPayloadLocal, CanonicalLocaleValidityLocal,
+};
+
 /// Sort key used to force the `x-` private-use sequence after every other
 /// extension sequence. Real singleton bytes are ASCII, so 0x100 sorts last.
 const INTL_PRIVATE_USE_SORT_KEY: i64 = 0x100;
@@ -61,21 +143,39 @@ impl CanonicalLocaleListArrayLikeLocals {
     }
 }
 
-/// An allocated `Intl.Locale` result that is not yet branded or initialized.
+/// The represented string slot of an initialized `Intl.Locale` object.
 ///
-/// The raw local is private and this state is deliberately non-`Copy`:
-/// `Intl.Locale` must perform `OrdinaryCreateFromConstructor` before observing
-/// its tag, but an abrupt tag/options completion must not publish that partial
-/// object. Only `emit_initialize_intl_locale_object` can consume this state.
-#[must_use]
-struct ReservedIntlLocaleObjectLocal(u32);
+/// Each variant owns both its record offset and whether an absent subtag is
+/// returned as `undefined`, so callers cannot select those policies separately.
+enum IntlLocaleStringSlot {
+    Tag,
+    Language,
+    Script,
+    Region,
+    BaseName,
+}
 
-/// An `Intl.Locale` result whose complete represented record and brand exist.
-///
-/// Only this state can cross the constructor's result boundary. Keeping the
-/// raw local private makes publishing a reserved object a Rust type error.
-#[must_use]
-struct InitializedIntlLocaleObjectLocal(u32);
+impl IntlLocaleStringSlot {
+    const fn offset(&self) -> u64 {
+        match self {
+            Self::Tag => HEAP_INTL_LOCALE_TAG_OFFSET,
+            Self::Language => HEAP_INTL_LOCALE_LANGUAGE_OFFSET,
+            Self::Script => HEAP_INTL_LOCALE_SCRIPT_OFFSET,
+            Self::Region => HEAP_INTL_LOCALE_REGION_OFFSET,
+            Self::BaseName => HEAP_INTL_LOCALE_BASE_NAME_OFFSET,
+        }
+    }
+
+    const fn is_optional(&self) -> bool {
+        match self {
+            Self::Tag => false,
+            Self::Language => false,
+            Self::Script => true,
+            Self::Region => true,
+            Self::BaseName => false,
+        }
+    }
+}
 
 impl<'a> FunctionBuilder<'a> {
     fn intl_call_import_function_index(&self) -> Result<u32, EmitError> {
@@ -424,18 +524,20 @@ impl<'a> FunctionBuilder<'a> {
     /// string payloads into a freshly allocated buffer; `script` and `region`
     /// are 0 when the tag carries no such subtag. On failure `ok_local` is 0
     /// and every output is 0 — the caller decides which error to raise.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn emit_intl_canonicalize_locale_tag(
+    pub(super) fn emit_intl_canonicalize_locale_tag(
         &mut self,
-        input_payload_local: u32,
-        tag_payload_local: u32,
-        language_payload_local: u32,
-        script_payload_local: u32,
-        region_payload_local: u32,
-        base_name_payload_local: u32,
-        ok_local: u32,
+        invocation: CanonicalLocaleTagInvocationLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let (
+            input_payload_local,
+            tag_payload_local,
+            language_payload_local,
+            script_payload_local,
+            region_payload_local,
+            base_name_payload_local,
+            ok_local,
+        ) = invocation.into_parts();
         let src_offset_local = self.reserve_temp_local();
         let src_len_local = self.reserve_temp_local();
         let buf_local = self.reserve_temp_local();
@@ -1468,104 +1570,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// ECMA-402 `Intl.Locale` step 6: resolve `NewTarget.prototype` and reserve
-    /// the result object before the first observable tag or options operation.
-    fn emit_reserve_intl_locale_object(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<ReservedIntlLocaleObjectLocal, EmitError> {
-        // The retained object local is reserved first. Prototype locals can
-        // then be released in strict LIFO order while the lifecycle keeps the
-        // object live across tag/options work.
-        let object_payload_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let prototype_tag_local = self.reserve_temp_local();
-        let prototype = TaggedLocals::new(prototype_payload_local, prototype_tag_local);
-        let result = (|| {
-            self.emit_new_target_prototype_to_locals(
-                INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX,
-                NewTargetPrototypeFallback::CurrentGlobal,
-                prototype.payload,
-                prototype.tag,
-                function,
-            )?;
-            self.emit_alloc_plain_object_with_prototype_and_tag(
-                Some(prototype.payload),
-                Some(prototype.tag),
-                None,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(object_payload_local));
-            Ok(())
-        })();
-        self.release_temp_local(prototype.tag);
-        self.release_temp_local(prototype.payload);
-        if let Err(error) = result {
-            self.release_temp_local(object_payload_local);
-            return Err(error);
-        }
-        Ok(ReservedIntlLocaleObjectLocal(object_payload_local))
-    }
-
-    /// Consume the unreachable reserved result and install every Locale slot
-    /// represented by the current backend before making it publishable.
-    #[allow(clippy::too_many_arguments)]
-    fn emit_initialize_intl_locale_object(
-        &mut self,
-        reserved: ReservedIntlLocaleObjectLocal,
-        tag_payload_local: u32,
-        language_payload_local: u32,
-        script_payload_local: u32,
-        region_payload_local: u32,
-        base_name_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<InitializedIntlLocaleObjectLocal, EmitError> {
-        let object_payload_local = reserved.0;
-        let record_local = self.reserve_temp_local();
-        if let Err(error) = self.emit_heap_alloc_const(HEAP_INTL_LOCALE_RECORD_SIZE, function) {
-            self.release_temp_local(record_local);
-            self.release_temp_local(object_payload_local);
-            return Err(error);
-        }
-        function.instruction(&Instruction::LocalSet(record_local));
-        for (offset, value_local) in [
-            (HEAP_INTL_LOCALE_TAG_OFFSET, tag_payload_local),
-            (HEAP_INTL_LOCALE_LANGUAGE_OFFSET, language_payload_local),
-            (HEAP_INTL_LOCALE_SCRIPT_OFFSET, script_payload_local),
-            (HEAP_INTL_LOCALE_REGION_OFFSET, region_payload_local),
-            (HEAP_INTL_LOCALE_BASE_NAME_OFFSET, base_name_payload_local),
-        ] {
-            self.store_i64_local_at_offset(record_local, offset, value_local, function);
-        }
-        self.store_i64_const_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_INTL_LOCALE,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            object_payload_local,
-            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
-            record_local,
-            function,
-        );
-        self.release_temp_local(record_local);
-        Ok(InitializedIntlLocaleObjectLocal(object_payload_local))
-    }
-
-    /// Publish the only `Intl.Locale` lifecycle state allowed to escape.
-    fn emit_publish_intl_locale_object(
-        &mut self,
-        initialized: InitializedIntlLocaleObjectLocal,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(initialized.0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(initialized.0);
-    }
-
     pub(crate) fn emit_intl_locale_constructor(
         &mut self,
         function: &mut Function,
@@ -1614,13 +1618,15 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_intl_canonicalize_locale_tag(
-            input_payload_local,
-            tag_payload_local,
-            language_payload_local,
-            script_payload_local,
-            region_payload_local,
-            base_name_payload_local,
-            ok_local,
+            CanonicalLocaleTagInvocationLocals::new(
+                CanonicalLocaleTagInputPayloadLocal::new(input_payload_local),
+                CanonicalLocaleTagPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleLanguagePayloadLocal::new(language_payload_local),
+                CanonicalLocaleScriptPayloadLocal::new(script_payload_local),
+                CanonicalLocaleRegionPayloadLocal::new(region_payload_local),
+                CanonicalLocaleBaseNamePayloadLocal::new(base_name_payload_local),
+                CanonicalLocaleValidityLocal::new(ok_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::LocalGet(ok_local));
@@ -1660,20 +1666,52 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Emits one of the `Intl.Locale.prototype` string slots. `optional` marks
-    /// the slots that are `undefined` when the tag omits the subtag.
-    pub(crate) fn emit_intl_locale_string_slot(
+    pub(super) fn emit_intl_locale_language_getter_builtin(
         &mut self,
-        slot_offset: u64,
-        optional: bool,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_intl_locale_string_slot(IntlLocaleStringSlot::Language, function)
+    }
+
+    pub(super) fn emit_intl_locale_script_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_intl_locale_string_slot(IntlLocaleStringSlot::Script, function)
+    }
+
+    pub(super) fn emit_intl_locale_region_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_intl_locale_string_slot(IntlLocaleStringSlot::Region, function)
+    }
+
+    pub(super) fn emit_intl_locale_base_name_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_intl_locale_string_slot(IntlLocaleStringSlot::BaseName, function)
+    }
+
+    pub(super) fn emit_intl_locale_to_string_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_intl_locale_string_slot(IntlLocaleStringSlot::Tag, function)
+    }
+
+    fn emit_intl_locale_string_slot(
+        &mut self,
+        slot: IntlLocaleStringSlot,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record_local = self.reserve_temp_local();
         let value_local = self.reserve_temp_local();
 
         self.emit_intl_locale_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(record_local, slot_offset, value_local, function);
-        if optional {
+        self.load_i64_to_local_from_offset(record_local, slot.offset(), value_local, function);
+        if slot.is_optional() {
             function.instruction(&Instruction::LocalGet(value_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
@@ -1959,13 +1997,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_intl_canonicalize_locale_tag(
-            input_payload_local,
-            tag_payload_local,
-            language_payload_local,
-            script_payload_local,
-            region_payload_local,
-            base_name_payload_local,
-            ok_local,
+            CanonicalLocaleTagInvocationLocals::new(
+                CanonicalLocaleTagInputPayloadLocal::new(input_payload_local),
+                CanonicalLocaleTagPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleLanguagePayloadLocal::new(language_payload_local),
+                CanonicalLocaleScriptPayloadLocal::new(script_payload_local),
+                CanonicalLocaleRegionPayloadLocal::new(region_payload_local),
+                CanonicalLocaleBaseNamePayloadLocal::new(base_name_payload_local),
+                CanonicalLocaleValidityLocal::new(ok_local),
+            ),
             function,
         )?;
         function.instruction(&Instruction::LocalGet(ok_local));
@@ -2167,19 +2207,104 @@ impl<'a> FunctionBuilder<'a> {
 mod intl_locale_construction_order_tests {
     #[test]
     fn reserved_locale_lifecycle_preserves_order_and_prototype_tag() {
-        let source = include_str!("intl.rs");
-        let reserve = source
-            .split_once("fn emit_reserve_intl_locale_object(")
+        let parent_source = include_str!("intl.rs");
+        let production_parent = parent_source
+            .split_once("#[cfg(test)]")
+            .expect("Locale production source should be bounded")
+            .0;
+        let lifecycle_source = include_str!("intl/construction_lifecycle.rs");
+        let functions_source = include_str!("../functions.rs");
+        let recursive_source = format!("{production_parent}{lifecycle_source}");
+
+        for state in [
+            ["ReservedIntl", "LocaleObjectLocal"].concat(),
+            ["InitializedIntl", "LocaleObjectLocal"].concat(),
+        ] {
+            let declaration = format!("pub(super) struct {state}(u32);");
+            assert_eq!(recursive_source.matches(&declaration).count(), 1);
+            let before = lifecycle_source
+                .split_once(&declaration)
+                .expect("Locale lifecycle state should exist")
+                .0;
+            let attributes = before
+                .rsplit_once("\n\n")
+                .expect("lifecycle state should be separated from its predecessor")
+                .1;
+            assert!(attributes.contains("#[must_use]"));
+            assert!(
+                !attributes.contains("derive"),
+                "{state} must remain non-Copy"
+            );
+            assert!(!production_parent.contains(&state));
+            assert_eq!(recursive_source.matches(&state).count(), 4);
+        }
+        assert_eq!(
+            production_parent
+                .matches("mod construction_lifecycle;")
+                .count(),
+            1
+        );
+        let qualified_module = ["construction_lifecycle", "::"].concat();
+        assert!(!production_parent.contains(&qualified_module));
+        assert!(!lifecycle_source.lines().any(|line| {
+            line.trim_start().starts_with("impl ")
+                && (line.contains(" for ReservedIntlLocaleObjectLocal")
+                    || line.contains(" for InitializedIntlLocaleObjectLocal"))
+        }));
+        for transition in [
+            "emit_reserve_intl_locale_object(",
+            "emit_initialize_intl_locale_object(",
+            "emit_publish_intl_locale_object(",
+        ] {
+            assert_eq!(recursive_source.matches(transition).count(), 2);
+        }
+        assert_eq!(lifecycle_source.matches("reserved.0").count(), 1);
+        assert_eq!(lifecycle_source.matches("initialized.0").count(), 2);
+
+        let direct_returning_constructors = functions_source
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        assert_eq!(
+            direct_returning_constructors
+                .matches("StandardBuiltinId::IntlLocaleConstructor,")
+                .count(),
+            1,
+            "Intl.Locale must reserve its result before generic receiver allocation"
+        );
+
+        let reserve = lifecycle_source
+            .split_once("pub(super) fn emit_reserve_intl_locale_object(")
             .expect("Locale reserve transition should exist")
             .1
             .split_once("/// Consume the unreachable reserved result")
             .expect("Locale reserve transition should be bounded")
             .0;
-        let constructor = source
+        let initializer = lifecycle_source
+            .split_once("pub(super) fn emit_initialize_intl_locale_object(")
+            .expect("Locale initialize transition should exist")
+            .1
+            .split_once("/// Publish the only `Intl.Locale` lifecycle state")
+            .expect("Locale initialize transition should be bounded")
+            .0;
+        let publisher = lifecycle_source
+            .split_once("pub(super) fn emit_publish_intl_locale_object(")
+            .expect("Locale publish transition should exist")
+            .1
+            .split_once("\n    }\n}")
+            .expect("Locale publish transition should be bounded")
+            .0;
+        let constructor = production_parent
             .split_once("pub(crate) fn emit_intl_locale_constructor(")
             .expect("Locale constructor should exist")
             .1
-            .split_once("/// Emits one of the `Intl.Locale.prototype` string slots")
+            .split_once(concat!(
+                "    pub(super) fn emit_intl_locale_",
+                "language_getter_builtin("
+            ))
             .expect("Locale constructor should be bounded")
             .0;
 
@@ -2231,6 +2356,14 @@ mod intl_locale_construction_order_tests {
         assert!(prototype_tag_release < prototype_payload_release);
         assert!(prototype_payload_release < retained_object_error_release);
 
+        assert!(initializer.contains("reserved: ReservedIntlLocaleObjectLocal"));
+        assert!(initializer.contains("-> Result<InitializedIntlLocaleObjectLocal, EmitError>"));
+        assert!(initializer.contains("OBJECT_INTERNAL_BRAND_INTL_LOCALE"));
+        assert!(initializer.contains("HEAP_OBJECT_BOXED_PAYLOAD_OFFSET"));
+        assert!(publisher.contains("initialized: InitializedIntlLocaleObjectLocal"));
+        assert!(publisher.contains("Instruction::LocalSet(self.result_local)"));
+        assert!(publisher.contains("self.release_temp_local(initialized.0);"));
+
         let reserve_call = constructor
             .find("let reserved_object = self.emit_reserve_intl_locale_object(function)?;")
             .expect("the constructor should reserve the result");
@@ -2246,5 +2379,23 @@ mod intl_locale_construction_order_tests {
         assert!(reserve_call < tag_observation);
         assert!(tag_observation < initialize_call);
         assert!(initialize_call < publish_call);
+        assert_eq!(
+            constructor
+                .matches("emit_reserve_intl_locale_object(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            constructor
+                .matches("emit_initialize_intl_locale_object(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            constructor
+                .matches("emit_publish_intl_locale_object(")
+                .count(),
+            1
+        );
     }
 }

@@ -1,6 +1,8 @@
 use super::super::*;
 use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
-use super::temporal_plain_date::{TemporalCalendarId, TemporalEraField};
+use super::temporal_plain_date::{
+    TemporalCalendarCanonicalizationContext, TemporalCalendarId, TemporalEraField,
+};
 use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
 use crate::operations::BigIntNumberPolicy;
 
@@ -59,7 +61,6 @@ pub(crate) enum ZonedDateTimeField {
 /// Making that unrepresentable would mean the `NumberOnStack` value being
 /// constructible only by the helper that pushes the `i64`; that is not what
 /// this is.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ZdtFieldResult {
     /// The arm left exactly one `i64` on the stack and did not touch the result
     /// pair.
@@ -146,6 +147,11 @@ const TEMPORAL_INSTANT_LIMIT_LOW_LIMB: i64 = 6_923_773_503_929_843_712;
 const NANOSECONDS_PER_MILLISECOND: i64 = 1_000_000;
 const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
 const SECONDS_PER_DAY: i64 = 86_400;
+
+enum ZonedDateTimeCalendarCoercion {
+    ToTemporalCalendarIdentifier,
+    CanonicalizeCalendar,
+}
 
 #[derive(Clone, Copy)]
 pub(super) enum TemporalTimeCalendarUse {
@@ -847,9 +853,9 @@ impl<'a> FunctionBuilder<'a> {
         let offset_present_local = self.reserve_temp_local();
         let second_local = self.reserve_temp_local();
         let year_local = self.reserve_temp_local();
-        // Last, so the resolver below — which runs before any further
-        // reservation in this function — can release them off the top of the
-        // LIFO temp stack.
+        // Last persistent reservation. Every intervening helper restores the
+        // temporary stack depth, so the resolver can release these slots from
+        // the top of the strict LIFO stack.
         let era_slots = self.reserve_temporal_era_slots();
 
         function.instruction(&Instruction::I64Const(self.strings.payload("calendar")));
@@ -870,7 +876,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_zoned_date_time_calendar(
             calendar_payload_local,
             calendar_tag_local,
-            true,
+            ZonedDateTimeCalendarCoercion::ToTemporalCalendarIdentifier,
             function,
         )?;
 
@@ -1045,6 +1051,23 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::LocalGet(time_zone_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Temporal.ZonedDateTime property bag requires timeZone",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.emit_temporal_zoned_date_time_time_zone(
+            time_zone_payload_local,
+            time_zone_tag_local,
+            function,
+        )?;
 
         self.emit_temporal_property_bag_integer(
             argument_payload_local,
@@ -1059,27 +1082,14 @@ impl<'a> FunctionBuilder<'a> {
             "Temporal.ZonedDateTime property bag field must be finite",
             function,
         )?;
-        // KNOWN STEP-ORDER DIVERGENCE, and the only one of the five bag paths
-        // that has it. `ToTemporalZonedDateTime` steps 2.h-2.k read the options
-        // object — `GetOptionsObject`, then the disambiguation/offset/overflow
-        // casts — *before* `InterpretTemporalDateTimeFields` reaches
-        // `CalendarResolveFields`. Here the resolver, and the two "requires
-        // year"/"requires day" TypeErrors below it, all run before
-        // `emit_temporal_zoned_date_time_options` at the bottom of this
-        // function, so an era `RangeError`/`TypeError` beats an observable
-        // option read:
-        //
-        //   Temporal.ZonedDateTime.from(
-        //     { month: 1, day: 1, timeZone: "UTC", era: "xyz", eraYear: 2025,
-        //       calendar: "gregory" },
-        //     { overflow: { get valueOf() { throw new Test262Error(); } } })
-        //
-        // throws the era RangeError where the specification throws from the
-        // option read. Nothing in the pinned corpus is currently sensitive to
-        // it. The repair is to move all three — resolver, `requires year`,
-        // `requires day` — below the options call together; moving the resolver
-        // alone would reorder it against the two pre-existing checks, which is a
-        // different observable order again.
+        self.emit_temporal_zoned_date_time_options(
+            options_payload_local,
+            options_tag_local,
+            offset_option_local,
+            overflow_option_local,
+            function,
+        )?;
+
         let resolved_year = self.emit_temporal_resolve_era_to_year(
             era,
             calendar_payload_local,
@@ -1110,32 +1120,6 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-
-        self.emit_temporal_zoned_date_time_options(
-            options_payload_local,
-            options_tag_local,
-            offset_option_local,
-            overflow_option_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(time_zone_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime property bag requires timeZone",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_temporal_zoned_date_time_time_zone(
-            time_zone_payload_local,
-            time_zone_tag_local,
-            function,
-        )?;
 
         function.instruction(&Instruction::LocalGet(month_code_present_local));
         function.instruction(&Instruction::I64Eqz);
@@ -1961,7 +1945,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_zoned_date_time_calendar(
             calendar_payload_local,
             calendar_tag_local,
-            false,
+            ZonedDateTimeCalendarCoercion::CanonicalizeCalendar,
             function,
         )?;
         self.emit_error_new_target_prototype_to_local(
@@ -2319,41 +2303,29 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// `Temporal.ZonedDateTime`'s calendar coercion.
-    ///
-    /// `parse_iso_strings` selects the specification operation, and the two are
-    /// not interchangeable. The property-bag path
-    /// (`emit_temporal_zoned_date_time_from_property_bag`) performs
-    /// `ToTemporalCalendarIdentifier`, which runs `ParseTemporalCalendarString`
-    /// and therefore accepts `"1111-11-11"`. The constructor performs
-    /// `CanonicalizeCalendar` only, where the same string must stay a
-    /// RangeError (`ZonedDateTime/calendar-invalid-iso-string.js`).
     fn emit_temporal_zoned_date_time_calendar(
         &mut self,
         calendar_payload_local: u32,
         calendar_tag_local: u32,
-        parse_iso_strings: bool,
+        coercion: ZonedDateTimeCalendarCoercion,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if parse_iso_strings {
-            return self.emit_temporal_to_temporal_calendar_identifier(
-                calendar_payload_local,
-                calendar_tag_local,
-                "Temporal.ZonedDateTime calendar must be a string",
-                function,
-            );
+        match coercion {
+            ZonedDateTimeCalendarCoercion::ToTemporalCalendarIdentifier => self
+                .emit_temporal_to_temporal_calendar_identifier(
+                    calendar_payload_local,
+                    calendar_tag_local,
+                    "Temporal.ZonedDateTime calendar must be a string",
+                    function,
+                ),
+            ZonedDateTimeCalendarCoercion::CanonicalizeCalendar => self
+                .emit_temporal_canonicalize_calendar(
+                    calendar_payload_local,
+                    calendar_tag_local,
+                    TemporalCalendarCanonicalizationContext::ZonedDateTime,
+                    function,
+                ),
         }
-        // Same operation as the four date types' constructors, so it is the
-        // same emitter; only the two error messages differ. Duplicating the
-        // body here is how `gregory` could have been accepted by
-        // `new Temporal.PlainDate` and rejected by `new Temporal.ZonedDateTime`.
-        self.emit_temporal_canonicalize_calendar(
-            calendar_payload_local,
-            calendar_tag_local,
-            "Temporal.ZonedDateTime calendar must be a string",
-            "Invalid Temporal.ZonedDateTime calendar",
-            function,
-        )
     }
 
     #[allow(clippy::too_many_arguments)]

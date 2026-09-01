@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::Path;
+
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const OBJECT_BUILTINS_SOURCE: &str = include_str!("../src/builtins/object.rs");
 const REFLECT_BUILTINS_SOURCE: &str = include_str!("../src/builtins/reflect.rs");
@@ -5,6 +8,187 @@ const CLI_OBJECT_SOURCE: &str = include_str!("../../lila-cli/tests/cli/object.rs
 const OWN_KEYS_FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_proxy_own_keys.js");
 const HANDLER_PROTOCOL_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_proxy_own_keys_handler_protocol.js");
+const CONTRACT: &str =
+    include_str!("../../../docs/rust-rewrite/contracts/proxy-own-keys-result-ownership.md");
+const TASK: &str = include_str!("../../../tasks/11-proxy-reflect-metaobject.md");
+
+fn quoted_literal_end(source: &str, quote_start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut offset = quote_start + 1;
+    let mut escaped = false;
+    while offset < bytes.len() {
+        let byte = bytes[offset];
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            return Some(offset + 1);
+        }
+        offset += 1;
+    }
+    None
+}
+
+fn character_literal_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let value_start = start + 1;
+    if value_start >= bytes.len() {
+        return None;
+    }
+    let value_end = if bytes[value_start] == b'\\' {
+        let mut offset = value_start + 1;
+        if offset >= bytes.len() {
+            return None;
+        }
+        if bytes[offset] == b'u' && bytes.get(offset + 1) == Some(&b'{') {
+            offset += 2;
+            while bytes.get(offset).is_some_and(|byte| *byte != b'}') {
+                offset += 1;
+            }
+            if bytes.get(offset) != Some(&b'}') {
+                return None;
+            }
+            offset + 1
+        } else if bytes[offset] == b'x'
+            && bytes
+                .get(offset + 1..offset + 3)
+                .is_some_and(|digits| digits.iter().all(u8::is_ascii_hexdigit))
+        {
+            offset + 3
+        } else {
+            offset + 1
+        }
+    } else {
+        value_start + source[value_start..].chars().next()?.len_utf8()
+    };
+    (bytes.get(value_end) == Some(&b'\'')).then_some(value_end + 1)
+}
+
+fn raw_literal_end(source: &str, start: usize, prefix_len: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut quote_start = start + prefix_len;
+    while bytes.get(quote_start) == Some(&b'#') {
+        quote_start += 1;
+    }
+    if bytes.get(quote_start) != Some(&b'"') {
+        return None;
+    }
+    let hashes = quote_start - start - prefix_len;
+    let mut offset = quote_start + 1;
+    while offset < bytes.len() {
+        if bytes[offset] == b'"'
+            && bytes
+                .get(offset + 1..offset + 1 + hashes)
+                .is_some_and(|suffix| suffix.iter().all(|byte| *byte == b'#'))
+        {
+            return Some(offset + 1 + hashes);
+        }
+        offset += 1;
+    }
+    None
+}
+
+fn literal_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    match bytes.get(start).copied()? {
+        b'"' => quoted_literal_end(source, start),
+        b'\'' => character_literal_end(source, start),
+        b'b' if bytes.get(start + 1) == Some(&b'\'') => character_literal_end(source, start + 1),
+        b'b' | b'c' if bytes.get(start + 1) == Some(&b'"') => quoted_literal_end(source, start + 1),
+        b'r' => raw_literal_end(source, start, 1),
+        b'b' | b'c' if bytes.get(start + 1) == Some(&b'r') => raw_literal_end(source, start, 2),
+        _ => None,
+    }
+}
+
+fn rust_identifiers(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut identifiers = String::new();
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some(end) = literal_end(source, offset) {
+            identifiers.push(' ');
+            offset = end;
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"//") {
+            identifiers.push(' ');
+            offset += 2;
+            while bytes.get(offset).is_some_and(|byte| *byte != b'\n') {
+                offset += 1;
+            }
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"/*") {
+            identifiers.push(' ');
+            offset += 2;
+            let mut depth = 1;
+            while offset < bytes.len() && depth != 0 {
+                if bytes.get(offset..offset + 2) == Some(b"/*") {
+                    depth += 1;
+                    offset += 2;
+                } else if bytes.get(offset..offset + 2) == Some(b"*/") {
+                    depth -= 1;
+                    offset += 2;
+                } else {
+                    offset += 1;
+                }
+            }
+            assert_eq!(depth, 0, "unterminated block comment");
+            continue;
+        }
+        if bytes.get(offset..offset + 2) == Some(b"r#")
+            && source[offset + 2..]
+                .chars()
+                .next()
+                .is_some_and(|character| character == '_' || character.is_alphabetic())
+        {
+            offset += 2;
+            continue;
+        }
+        let character = source[offset..].chars().next().unwrap();
+        identifiers.push(if character.is_whitespace() {
+            ' '
+        } else {
+            character
+        });
+        offset += character.len_utf8();
+    }
+    identifiers
+}
+
+fn exact_identifier_count(source: &str, identifier: &str) -> usize {
+    source
+        .match_indices(identifier)
+        .filter(|(offset, _)| {
+            let before = source[..*offset].chars().next_back();
+            let after = source[*offset + identifier.len()..].chars().next();
+            [before, after].into_iter().all(|edge| {
+                edge.map(|character| !character.is_alphanumeric() && character != '_')
+                    .unwrap_or(true)
+            })
+        })
+        .count()
+}
+
+fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
+    fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
+        .map(|entry| entry.expect("failed to read Rust source entry").path())
+        .map(|path| {
+            if path.is_dir() {
+                return count_identifier_in_rust_sources(&path, identifier);
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+                return 0;
+            }
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+            exact_identifier_count(&rust_identifiers(&source), identifier)
+        })
+        .sum()
+}
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -195,7 +379,15 @@ fn own_keys_acquisition() -> &'static str {
     )
 }
 
-fn assert_typed_caller(caller: &str, object: &str, target: &str, handler: &str, validator: &str) {
+fn assert_typed_caller(
+    caller: &str,
+    object: &str,
+    target: &str,
+    handler: &str,
+    result_binding: &str,
+    validator: &str,
+    validator_handler_count: usize,
+) {
     assert_eq!(
         caller
             .matches("self.emit_proxy_own_keys_trap_result(")
@@ -203,13 +395,36 @@ fn assert_typed_caller(caller: &str, object: &str, target: &str, handler: &str, 
         1
     );
     assert_eq!(caller.matches("ProxySlotLocals::new(").count(), 1);
-    assert_eq!(caller.matches("ProxyTargetLocals::new(").count(), 1);
-    assert_eq!(caller.matches("ProxyHandlerLocals::new(").count(), 1);
-    assert_eq!(caller.matches("TaggedLocals::new(").count(), 3);
+    assert_eq!(caller.matches("ProxyTargetLocals::new(").count(), 2);
+    assert_eq!(
+        caller.matches("ProxyHandlerLocals::new(").count(),
+        validator_handler_count + 1
+    );
+    assert_eq!(caller.matches("ProxyOwnKeysTrapLocals::new(").count(), 1);
+    assert_eq!(
+        caller.matches("ProxyOwnKeysTrapResultLocals::new(").count(),
+        1
+    );
+    assert_eq!(caller.matches("TaggedLocals::new(").count(), 1);
     assert!(caller.contains(object));
     assert!(caller.contains(target));
     assert!(caller.contains(handler));
     assert_eq!(caller.matches(validator).count(), 1);
+    assert_eq!(
+        caller
+            .matches(&format!(
+                "let {result_binding} = self.emit_proxy_own_keys_trap_result("
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(
+        caller
+            .lines()
+            .filter(|line| line.trim() == format!("{result_binding},"))
+            .count(),
+        1
+    );
     assert_before(
         caller,
         "ProxyTargetLocals::new(",
@@ -228,14 +443,77 @@ fn assert_typed_caller(caller: &str, object: &str, target: &str, handler: &str, 
 }
 
 #[test]
+fn own_keys_trap_roles_are_distinct_non_copy_and_closed_over_product_sources() {
+    let lexical_probe = rust_identifiers(
+        r###"
+        // ProxyOwnKeysTrapLocals
+        ProxyOwnKeysTrapLocals /* nested /* ignored */ comment */;
+        "ProxyOwnKeysTrapLocals"; b"ProxyOwnKeysTrapLocals";
+        c"ProxyOwnKeysTrapLocals"; r"ProxyOwnKeysTrapLocals";
+        br##"ProxyOwnKeysTrapLocals"##; cr#"ProxyOwnKeysTrapLocals"#;
+        'P'; b'P'; 'lifetime; r#ProxyOwnKeysTrapLocals;
+        "###,
+    );
+    assert_eq!(
+        exact_identifier_count(&lexical_probe, "ProxyOwnKeysTrapLocals"),
+        2
+    );
+
+    let roles = bounded(
+        OBJECTS_SOURCE,
+        "/// The prospective Proxy `[[OwnPropertyKeys]]` trap method.",
+        "/// A Proxy `[[Get]]` trap result whose completion has not yet been consumed.",
+    );
+    for (role, must_use) in [
+        (
+            "ProxyOwnKeysTrapLocals",
+            "#[must_use = \"Proxy OwnPropertyKeys trap locals must be consumed by trap acquisition\"]",
+        ),
+        (
+            "ProxyOwnKeysTrapResultLocals",
+            "#[must_use = \"a Proxy OwnPropertyKeys trap result must be consumed by one validator\"]",
+        ),
+    ] {
+        assert!(roles.contains(must_use));
+        assert!(roles.contains(&format!("pub(crate) struct {role}(TaggedLocals);")));
+    }
+    for forbidden in ["#[derive", "impl Clone for", "impl Copy for"] {
+        assert!(!roles.contains(forbidden), "found `{forbidden}`");
+    }
+
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert_eq!(
+        count_identifier_in_rust_sources(&source_root, "ProxyOwnKeysTrapLocals"),
+        9
+    );
+    assert_eq!(
+        count_identifier_in_rust_sources(&source_root, "ProxyOwnKeysTrapResultLocals"),
+        14
+    );
+}
+
+#[test]
+fn contract_and_t11_own_the_result_authority() {
+    for marker in [
+        "ProxyOwnKeysTrapLocals",
+        "ProxyOwnKeysTrapResultLocals",
+        "proxy_own_keys_handler_protocol_structure",
+    ] {
+        assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
+        assert!(TASK.contains(marker), "task marker `{marker}`");
+    }
+    assert!(CONTRACT.contains("transposing them compiled"));
+}
+
+#[test]
 fn acquisition_has_one_typed_live_slot_read() {
     let acquisition = own_keys_acquisition();
 
     for role in [
         "object: TaggedLocals,",
         "slots: ProxySlotLocals,",
-        "trap: TaggedLocals,",
-        "trap_result: TaggedLocals,",
+        "trap: ProxyOwnKeysTrapLocals,",
+        "trap_result: ProxyOwnKeysTrapResultLocals,",
     ] {
         assert_eq!(acquisition.matches(role).count(), 1, "typed role `{role}`");
     }
@@ -246,10 +524,11 @@ fn acquisition_has_one_typed_live_slot_read() {
         "let target_tag_local = slots.target.0.tag;",
         "let handler_payload_local = slots.handler.0.payload;",
         "let handler_tag_local = slots.handler.0.tag;",
-        "let trap_payload_local = trap.payload;",
-        "let trap_tag_local = trap.tag;",
-        "let trap_result_payload_local = trap_result.payload;",
-        "let trap_result_tag_local = trap_result.tag;",
+        "let trap_payload_local = trap.0.payload;",
+        "let trap_tag_local = trap.0.tag;",
+        "let trap_result_payload_local = trap_result.0.payload;",
+        "let trap_result_tag_local = trap_result.0.tag;",
+        "Ok(trap_result)",
     ] {
         assert_eq!(
             acquisition.matches(mapping).count(),
@@ -406,7 +685,9 @@ fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
         "TaggedLocals::new(arg_payload_local, arg_tag_local)",
         "ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local)",
         "ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local)",
+        "proxy_trap_result",
         "self.emit_proxy_own_keys_filtered_result(",
+        0,
     );
 
     let symbols = bounded(
@@ -419,7 +700,9 @@ fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
         "TaggedLocals::new(arg_payload_local, arg_tag_local)",
         "ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local)",
         "ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local)",
+        "proxy_trap_result",
         "self.emit_proxy_own_keys_filtered_result(",
+        0,
     );
 
     let keys = bounded(
@@ -432,7 +715,9 @@ fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
         "TaggedLocals::new(arg_payload_local, arg_tag_local)",
         "ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local)",
         "ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local)",
+        "proxy_trap_result",
         "self.emit_proxy_object_keys_from_own_keys_result(",
+        1,
     );
 
     let reflect = after(
@@ -444,7 +729,9 @@ fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
         "TaggedLocals::new(target_payload_local, target_tag_local)",
         "ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local)",
         "ProxyHandlerLocals::new(handler_payload_local, handler_tag_local)",
+        "trap_result",
         "self.emit_proxy_own_keys_array_result(",
+        0,
     );
 }
 

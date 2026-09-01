@@ -5,7 +5,7 @@ fn output_coordinator() -> &'static str {
         .split_once("mod annexb_unescape_output {")
         .expect("Annex B unescape output module")
         .1
-        .split_once("#[derive(Clone, Copy, PartialEq, Eq)]\npub(crate) enum UriCodecKind")
+        .split_once("pub(crate) enum UriCodecKind")
         .expect("Annex B unescape output module end")
         .0
 }

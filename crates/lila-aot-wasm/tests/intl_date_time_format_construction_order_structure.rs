@@ -1,15 +1,21 @@
 #[test]
 fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
-    let source = include_str!("../src/builtins/intl_datetimeformat.rs");
+    let parent_source = include_str!("../src/builtins/intl_datetimeformat.rs");
+    let lifecycle_source =
+        include_str!("../src/builtins/intl_datetimeformat/construction_lifecycle.rs");
+    let source = concat!(
+        include_str!("../src/builtins/intl_datetimeformat.rs"),
+        include_str!("../src/builtins/intl_datetimeformat/construction_lifecycle.rs")
+    );
     let functions = include_str!("../src/functions.rs");
 
     for state in [
         "ReservedIntlDateTimeFormatObjectLocal",
         "InitializedIntlDateTimeFormatObjectLocal",
     ] {
-        let declaration = format!("struct {state}(u32);");
+        let declaration = format!("pub(super) struct {state}(u32);");
         assert_eq!(source.matches(&declaration).count(), 1);
-        let before = source
+        let before = lifecycle_source
             .split_once(&declaration)
             .expect("DateTimeFormat lifecycle state should exist")
             .0;
@@ -22,30 +28,47 @@ fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
             !attributes.contains("derive"),
             "{state} must remain non-Copy"
         );
+        assert!(!parent_source.contains(state));
+        assert_eq!(source.matches(state).count(), 4);
     }
+    assert!(!parent_source.contains("construction_lifecycle::"));
+    assert!(!lifecycle_source.lines().any(|line| {
+        line.trim_start().starts_with("impl ")
+            && (line.contains(" for ReservedIntlDateTimeFormatObjectLocal")
+                || line.contains(" for InitializedIntlDateTimeFormatObjectLocal"))
+    }));
+    for transition in [
+        "emit_reserve_intl_date_time_format_object(",
+        "emit_initialize_intl_date_time_format_object(",
+        "emit_publish_intl_date_time_format_object(",
+    ] {
+        assert_eq!(source.matches(transition).count(), 2);
+    }
+    assert_eq!(lifecycle_source.matches("reserved.0").count(), 1);
+    assert_eq!(lifecycle_source.matches("initialized.0").count(), 2);
 
-    let reserve = source
-        .split_once("fn emit_reserve_intl_date_time_format_object(")
+    let reserve = lifecycle_source
+        .split_once("pub(super) fn emit_reserve_intl_date_time_format_object(")
         .expect("DateTimeFormat reserve transition should exist")
         .1
         .split_once("/// Consume the unreachable reserved result")
         .expect("DateTimeFormat reserve transition should be bounded")
         .0;
-    let initializer = source
-        .split_once("fn emit_initialize_intl_date_time_format_object(")
+    let initializer = lifecycle_source
+        .split_once("pub(super) fn emit_initialize_intl_date_time_format_object(")
         .expect("DateTimeFormat initialize transition should exist")
         .1
         .split_once("/// Publish the only DateTimeFormat lifecycle state")
         .expect("DateTimeFormat initialize transition should be bounded")
         .0;
-    let publisher = source
-        .split_once("fn emit_publish_intl_date_time_format_object(")
+    let publisher = lifecycle_source
+        .split_once("pub(super) fn emit_publish_intl_date_time_format_object(")
         .expect("DateTimeFormat publish transition should exist")
         .1
-        .split_once("pub(crate) fn emit_intl_date_time_format_constructor(")
+        .split_once("\n    }\n}")
         .expect("DateTimeFormat publish transition should be bounded")
         .0;
-    let constructor = source
+    let constructor = parent_source
         .split_once("pub(crate) fn emit_intl_date_time_format_constructor(")
         .expect("DateTimeFormat constructor should exist")
         .1

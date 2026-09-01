@@ -67,6 +67,9 @@ impl CallableDeclaration for AsyncFunctionDeclaration {
     fn body_allow_await(&self) -> bool {
         true
     }
+    fn contains_super_error_message(&self) -> &'static str {
+        "async function declaration cannot contain super"
+    }
     fn parameters_await_is_early_error(&self) -> bool {
         true
     }

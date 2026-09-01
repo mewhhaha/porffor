@@ -24,7 +24,8 @@ This follows ECMA-262 `RegExpInitialize` (22.2.3.3): without `u` or `v`, each
 
 ## Closed parsed-term protocol
 
-`LegacyUtf16Pair` can be constructed only from a validated astral Unicode
+`lila-ir/src/regexp/legacy_utf16_pair.rs` is the sole owner of
+`LegacyUtf16Pair`. It can be constructed only from a validated astral Unicode
 scalar and privately owns its lead and trail surrogate code units.
 `ParsedTerm` then has two exhaustive cases:
 
@@ -50,7 +51,12 @@ legacy forms. The Wasm CLI fixture fixes observable matching for:
 - greedy versus lazy trail choice with a following literal; and
 - the contrasting whole-code-point quantifier boundary in `u` mode.
 
-## Nonclaims and deferred gates
+`lila-ir/tests/legacy_utf16_pair_structure.rs` owns the private file-module,
+exact type/method inventory and caller census. It also pins parser admission,
+mandatory-lead nullability, and the opposite forward/reverse instruction
+orders while leaving parsed-term and lowering ownership in `regexp.rs`.
+
+## Nonclaims and verification
 
 This seam does not complete escaped-surrogate interpretation, supplementary
 ignore-case folding, astral terms inside the currently restricted lookbehind
@@ -58,8 +64,10 @@ subset, arbitrary runtime pattern compilation, the full RegExp grammar, or the
 RegExp object protocol. It changes no matcher opcode, bytecode encoding,
 resource limit, or published conformance count.
 
-Static freeze gates are `rustfmt --check` for the two touched Rust files,
-`node --check` for the fixture, focused source searches, `git diff --check`, and
-manual exhaustive-match review. Cargo, fixture execution, focused pinned
-Test262 RegExp trees, and the broad batch ladder remain deferred until the
-frozen patch is independently reviewed.
+The dedicated structure target passes `3/3`, the focused direct-non-Unicode IR
+regression passes `1/1`, and `cargo xc` is green. The 647-artifact Wasm golden
+has an empty recursive pre/post diff. The existing CLI fixture remains red on
+its Unicode-mode optional-full-scalar assertion; the byte-identical golden
+demonstrates that the extraction neither caused nor repaired that semantic
+failure. Focused pinned Test262 RegExp trees and the broad batch ladder remain
+outside this ownership-only claim.

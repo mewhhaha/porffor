@@ -37,7 +37,7 @@ fn dynamic_value_info() -> ValueInfo {
         kind: ValueKind::Dynamic,
         possible_kinds: KindSet::all_runtime_tags(),
         heap_shape: None,
-        function_targets: BTreeSet::new(),
+        function_targets: FunctionTargetKnowledge::unknown(),
     }
 }
 
@@ -137,7 +137,7 @@ impl EagerCompoundAssignmentOp {
                         kind: possible_kinds.as_value_kind(),
                         possible_kinds,
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::CoerciveAdd {
                         lhs: Box::new(lhs),
@@ -161,7 +161,7 @@ impl EagerCompoundAssignmentOp {
                         kind: possible_kinds.as_value_kind(),
                         possible_kinds,
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::CoerciveBinaryNumber {
                         op,
@@ -190,7 +190,7 @@ impl EagerCompoundAssignmentOp {
                         kind: possible_kinds.as_value_kind(),
                         possible_kinds,
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     },
                     ExprIr::BitwiseNumeric {
                         op,
@@ -428,7 +428,7 @@ pub struct OrdinaryPropertyNumericUpdateIr {
     strictness: Strictness,
     op: NumericUpdateOp,
     return_mode: UpdateReturnMode,
-    value_kind: ValueKind,
+    value_kind: NumericUpdateValueKind,
     possible_getters: PropertyHookTargets,
     possible_setters: PropertyHookTargets,
 }
@@ -449,7 +449,7 @@ impl OrdinaryPropertyNumericUpdateIr {
             strictness,
             op,
             return_mode,
-            value_kind: ValueKind::Dynamic,
+            value_kind: NumericUpdateValueKind::Dynamic,
             possible_getters,
             possible_setters,
         }
@@ -481,7 +481,7 @@ impl OrdinaryPropertyNumericUpdateIr {
     }
 
     #[must_use]
-    pub fn value_kind(&self) -> ValueKind {
+    pub fn value_kind(&self) -> NumericUpdateValueKind {
         self.value_kind
     }
 
@@ -614,7 +614,7 @@ impl OrdinaryPropertyReferencePlan {
             possible_kinds: KindSet::from_kind(ValueKind::Number)
                 .union(KindSet::from_kind(ValueKind::BigInt)),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         TypedExpr::from_info(
             info,
@@ -655,7 +655,7 @@ pub enum SuperPropertyMutationOperationIr {
     NumericUpdate {
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
-        value_kind: ValueKind,
+        value_kind: NumericUpdateValueKind,
     },
     EagerCompound {
         old_value_binding: String,
@@ -730,28 +730,19 @@ impl SuperPropertyReferencePlan {
         self,
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
-        value_kind: ValueKind,
+        value_kind: NumericUpdateValueKind,
     ) -> TypedExpr {
         let info = match value_kind {
-            ValueKind::Number | ValueKind::BigInt => ValueInfo::new(value_kind),
-            ValueKind::Dynamic => ValueInfo {
+            NumericUpdateValueKind::Number | NumericUpdateValueKind::BigInt => {
+                ValueInfo::new(value_kind.value_kind())
+            }
+            NumericUpdateValueKind::Dynamic => ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::from_kind(ValueKind::Number)
                     .union(KindSet::from_kind(ValueKind::BigInt)),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
-            ValueKind::Undefined
-            | ValueKind::Null
-            | ValueKind::Boolean
-            | ValueKind::String
-            | ValueKind::Symbol
-            | ValueKind::Object
-            | ValueKind::Array
-            | ValueKind::Function
-            | ValueKind::Arguments => {
-                unreachable!("numeric update value kind must be Number, BigInt, or Dynamic")
-            }
         };
         TypedExpr::from_info(
             info,
@@ -1165,7 +1156,7 @@ impl ObjectEnvironmentBindingObject {
             possible_kinds: KindSet::from_kind(ValueKind::Number)
                 .union(KindSet::from_kind(ValueKind::BigInt)),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         };
         let update = TypedExpr::from_info(
             numeric_info.clone(),
@@ -1173,7 +1164,7 @@ impl ObjectEnvironmentBindingObject {
                 name: old_value_name.clone(),
                 op,
                 return_mode,
-                value_kind: ValueKind::Dynamic,
+                value_kind: NumericUpdateValueKind::Dynamic,
             },
         );
         let updated_value = TypedExpr::from_info(
@@ -2518,7 +2509,8 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         | ExprIr::OptionalPropertyChain { .. }
         | ExprIr::UpdateIdentifier { .. }
         | ExprIr::CompoundAssignIdentifier { .. }
-        | ExprIr::UnaryNumber { .. }
+        | ExprIr::UnaryPlus { .. }
+        | ExprIr::UnaryMinusNumeric { .. }
         | ExprIr::UnaryBitwiseNumeric { .. }
         | ExprIr::Void { .. }
         | ExprIr::DeleteValue { .. }
@@ -2794,7 +2786,8 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::GlobalPropertyUpdate { .. }
         | ExprIr::CompoundAssignIdentifier { .. }
         | ExprIr::GlobalPropertyCompoundAssign { .. }
-        | ExprIr::UnaryNumber { .. }
+        | ExprIr::UnaryPlus { .. }
+        | ExprIr::UnaryMinusNumeric { .. }
         | ExprIr::UnaryBitwiseNumeric { .. }
         | ExprIr::Void { .. }
         | ExprIr::DeleteValue { .. }
@@ -3388,7 +3381,7 @@ mod tests {
                 name,
                 op: NumericUpdateOp::Increment,
                 return_mode: UpdateReturnMode::Prefix,
-                value_kind: ValueKind::Dynamic,
+                value_kind: NumericUpdateValueKind::Dynamic,
             } if name == "$object.environment.update.old"
         ));
 
@@ -3762,7 +3755,7 @@ mod tests {
                     name,
                     op: actual_op,
                     return_mode: actual_return_mode,
-                    value_kind: ValueKind::Dynamic,
+                    value_kind: NumericUpdateValueKind::Dynamic,
                 } if name == "$object.environment.update.old"
                     && *actual_op == op
                     && *actual_return_mode == return_mode

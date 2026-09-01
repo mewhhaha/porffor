@@ -2,9 +2,10 @@
 //!
 //! The catalog is **evidence**, not documentation. A row that claims an
 //! operation is implemented can only be produced from something that implements
-//! it: either a [`SpecOperationIr`] variant (which the shared emitter arm in
-//! `lila-aot-wasm/src/operations.rs` must handle, or the match there fails to
-//! build), or an [`EmissionSite`] naming a statement-shaped emitter arm (which
+//! it: a [`SpecOperationIr`] variant (which the shared expression emitter arm
+//! in `lila-aot-wasm/src/operations.rs` must handle, or the match there fails
+//! to build), a [`BackendSpecOperation`] variant joined to its backend emitter,
+//! or an [`EmissionSite`] naming a statement-shaped emitter arm (which
 //! `lila-aot-wasm/src/emission_sites.rs` joins to a real function path).
 //! Everything else is a [`TrackedGapRow`], whose type has no field capable of
 //! holding an implementation status.
@@ -14,7 +15,7 @@
 
 use crate::{
     iterator_obligations::{site_emits, EmissionSite, IteratorObligation},
-    TaskId,
+    TaskId, ValueKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,12 +23,6 @@ pub enum BindingMode {
     Let,
     Const,
     Var,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryNumericOp {
-    Plus,
-    Minus,
 }
 
 /// The unary bitwise operations whose result follows `ToNumeric`'s closed
@@ -121,6 +116,24 @@ pub enum LogicalBinaryOp {
 pub enum NumericUpdateOp {
     Increment,
     Decrement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumericUpdateValueKind {
+    Number,
+    BigInt,
+    Dynamic,
+}
+
+impl NumericUpdateValueKind {
+    #[must_use]
+    pub const fn value_kind(self) -> ValueKind {
+        match self {
+            Self::Number => ValueKind::Number,
+            Self::BigInt => ValueKind::BigInt,
+            Self::Dynamic => ValueKind::Dynamic,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,8 +266,10 @@ impl DoneSlot {
 /// set by the single reachable constructor is a constant, and a constant cannot
 /// disagree with anything — it is decoration by the same argument the contract
 /// uses to delete `OperationLoweringStatus::SharedRustModel`. The sync/async
-/// distinction is carried by *which plan owns the record*; reintroduce the
-/// enum in the patch that gives the sync for-of path a record of its own.
+/// distinction is carried by *which plan owns the record*:
+/// [`crate::AsyncFunctionForOfIteratorPlanIr`] owns the resumable synchronous
+/// record, while [`crate::AsyncForOfIteratorPlanIr`] owns the async-protocol
+/// record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IteratorRecordIr {
     iterator: IteratorSlot,
@@ -288,114 +303,148 @@ impl IteratorRecordIr {
 // Completion Records (6.2.4)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum CompletionAbruptKind {
-    Throw,
-    Return,
-    Break,
-    Continue,
-}
-
-impl CompletionAbruptKind {
-    /// Every abrupt completion kind, in 6.2.4 order.
-    ///
-    /// A value to quantify over, so that "this row admits every abrupt kind"
-    /// can be a membership scan rather than `abrupt.len() == 4` — a length test
-    /// that `&[Throw, Return, Break, Break]` passes while `Continue`, the kind
-    /// whose outer-label carve-out is the subtlest part of 14.7.1.1, is absent.
-    pub const ALL: [Self; 4] = [Self::Throw, Self::Return, Self::Break, Self::Continue];
-}
-
-// `ALL` lists each kind exactly once. Not a tautology: a duplicated entry with
-// an omitted one preserves the length, and the length is what J12(b) used to
-// test.
-const _: () = {
-    let mut mask = 0u8;
-    let mut i = 0;
-    while i < CompletionAbruptKind::ALL.len() {
-        mask |= 1u8 << (CompletionAbruptKind::ALL[i] as u8);
-        i += 1;
-    }
-    assert!(
-        mask == 0b1111,
-        "CompletionAbruptKind::ALL must list every kind exactly once",
-    );
-};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum CompletionKindIr {
-    Normal,
-    Throw,
-    Return,
-    Break,
-    Continue,
-    Empty,
-}
-
-impl CompletionKindIr {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Normal => "normal",
-            Self::Throw => "throw",
-            Self::Return => "return",
-            Self::Break => "break",
-            Self::Continue => "continue",
-            Self::Empty => "empty",
+macro_rules! completion_abrupt_kinds {
+    ($( $variant:ident ),+ $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        pub enum CompletionAbruptKind {
+            $( $variant, )+
         }
-    }
 
-    pub const fn abi_code(self) -> i64 {
-        match self {
-            Self::Normal => 0,
-            Self::Throw => 1,
-            Self::Return => 2,
-            Self::Break => 3,
-            Self::Continue => 4,
-            Self::Empty => 5,
+        impl CompletionAbruptKind {
+            /// Every abrupt completion kind, in 6.2.4 order.
+            pub const ALL: &'static [Self] = &[ $( Self::$variant, )+ ];
         }
-    }
-
-    pub const fn carries_value(self) -> bool {
-        match self {
-            Self::Normal | Self::Throw | Self::Return | Self::Break | Self::Continue => true,
-            Self::Empty => false,
-        }
-    }
-
-    pub const fn carries_target(self) -> bool {
-        match self {
-            Self::Break | Self::Continue => true,
-            Self::Normal | Self::Throw | Self::Return | Self::Empty => false,
-        }
-    }
+    };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CompletionAbiSlot {
-    pub kind: CompletionKindIr,
-    pub name: &'static str,
-    pub code: i64,
-    pub carries_value: bool,
-    pub carries_target: bool,
+completion_abrupt_kinds! { Throw, Return, Break, Continue }
+
+macro_rules! completion_kinds {
+    ($(
+        $variant:ident => {
+            name: $name:literal,
+            code: $code:literal,
+            carries_value: $carries_value:literal,
+            carries_target: $carries_target:literal,
+        }
+    );+ $(;)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        pub enum CompletionKindIr {
+            $( $variant, )+
+        }
+
+        impl CompletionKindIr {
+            pub const ALL: &'static [Self] = &[ $( Self::$variant, )+ ];
+
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $( Self::$variant => $name, )+
+                }
+            }
+
+            pub const fn abi_code(self) -> i64 {
+                match self {
+                    $( Self::$variant => $code, )+
+                }
+            }
+
+            pub const fn carries_value(self) -> bool {
+                match self {
+                    $( Self::$variant => $carries_value, )+
+                }
+            }
+
+            pub const fn carries_target(self) -> bool {
+                match self {
+                    $( Self::$variant => $carries_target, )+
+                }
+            }
+        }
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub struct CompletionAbiSlot(CompletionKindIr);
+
+        impl CompletionAbiSlot {
+            const fn new(kind: CompletionKindIr) -> Self {
+                Self(kind)
+            }
+
+            pub const fn kind(self) -> CompletionKindIr {
+                self.0
+            }
+
+            pub const fn name(self) -> &'static str {
+                self.0.name()
+            }
+
+            pub const fn code(self) -> i64 {
+                self.0.abi_code()
+            }
+
+            pub const fn carries_value(self) -> bool {
+                self.0.carries_value()
+            }
+
+            pub const fn carries_target(self) -> bool {
+                self.0.carries_target()
+            }
+        }
+
+        pub const COMPLETION_ABI_SLOTS: &[CompletionAbiSlot] = &[
+            $( completion_abi_slot(CompletionKindIr::$variant), )+
+        ];
+
+        pub const fn completion_abi_slot(kind: CompletionKindIr) -> CompletionAbiSlot {
+            CompletionAbiSlot::new(kind)
+        }
+
+        const _: () = {
+            let mut index = 0;
+            while index < CompletionKindIr::ALL.len() {
+                assert!(CompletionKindIr::ALL[index].abi_code() == index as i64);
+                index += 1;
+            }
+        };
+    };
 }
 
-pub const COMPLETION_ABI_SLOTS: &[CompletionAbiSlot] = &[
-    completion_slot(CompletionKindIr::Normal),
-    completion_slot(CompletionKindIr::Throw),
-    completion_slot(CompletionKindIr::Return),
-    completion_slot(CompletionKindIr::Break),
-    completion_slot(CompletionKindIr::Continue),
-    completion_slot(CompletionKindIr::Empty),
-];
-
-pub const fn completion_slot(kind: CompletionKindIr) -> CompletionAbiSlot {
-    CompletionAbiSlot {
-        kind,
-        name: kind.name(),
-        code: kind.abi_code(),
-        carries_value: kind.carries_value(),
-        carries_target: kind.carries_target(),
-    }
+completion_kinds! {
+    Normal => {
+        name: "normal",
+        code: 0,
+        carries_value: true,
+        carries_target: false,
+    };
+    Throw => {
+        name: "throw",
+        code: 1,
+        carries_value: true,
+        carries_target: false,
+    };
+    Return => {
+        name: "return",
+        code: 2,
+        carries_value: true,
+        carries_target: false,
+    };
+    Break => {
+        name: "break",
+        code: 3,
+        carries_value: true,
+        carries_target: true,
+    };
+    Continue => {
+        name: "continue",
+        code: 4,
+        carries_value: true,
+        carries_target: true,
+    };
+    Empty => {
+        name: "empty",
+        code: 5,
+        carries_value: false,
+        carries_target: false,
+    };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -553,10 +602,26 @@ impl EmitterEvidence {
     }
 }
 
+/// Proof that a [`BackendSpecOperation`] variant stands behind a catalog row.
+///
+/// The field is private and there is no public constructor. The backend joins
+/// every operation in this closed domain to a concrete emitter function.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendEmitterEvidence {
+    operation: BackendSpecOperation,
+}
+
+impl BackendEmitterEvidence {
+    pub const fn operation(self) -> BackendSpecOperation {
+        self.operation
+    }
+}
+
 /// Why an operation has no implementation. Closed; no free text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TrackedGapReason {
-    /// No `SpecOperationIr` variant and no emitter arm implements it.
+    /// No [`SpecOperationIr`] or [`BackendSpecOperation`] variant and no
+    /// emitter arm implements it.
     NoImplementation,
     /// A Rust model type exists in `lila-ir` but nothing on the product path
     /// constructs it.
@@ -575,7 +640,7 @@ impl TrackedGapReason {
 /// How an operation reaches emitted Wasm — or the honest statement that it does
 /// not.
 ///
-/// Three variants, and both implementation-claiming variants carry evidence
+/// Four variants, and every implementation-claiming variant carries evidence
 /// that cannot be produced by hand:
 ///
 /// - `SharedWasmEmitter` needs an [`EmitterEvidence`], whose only constructor is
@@ -583,6 +648,9 @@ impl TrackedGapReason {
 ///   name resolution and match exhaustiveness, **not** that the arm emits
 ///   anything: an arm may satisfy both backend matches with
 ///   `Err(EmitError::unsupported(..))`. Closing that is ledger **L2**.
+/// - `SharedBackendEmitter` needs [`BackendEmitterEvidence`], whose only
+///   constructor is [`BackendSpecOperation::emitter_evidence`]. The backend
+///   resolves every operation in that closed domain to a concrete emitter.
 /// - `StatementEmission` needs at least one [`EmissionSite`], every variant of
 ///   which is joined to a real function path by
 ///   `lila-aot-wasm/src/emission_sites.rs::emission_sites_are_backed`. It is
@@ -598,6 +666,7 @@ impl TrackedGapReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationLoweringStatus {
     SharedWasmEmitter(EmitterEvidence),
+    SharedBackendEmitter(BackendEmitterEvidence),
     StatementEmission(&'static [EmissionSite]),
     TrackedGap {
         reason: TrackedGapReason,
@@ -624,7 +693,6 @@ pub enum NormalResult {
     Object,
     ObjectOrUndefined,
     ObjectOrFalse,
-    Array,
     Constructor,
     CallableOrUndefined,
     PropertyKey,
@@ -649,7 +717,6 @@ impl NormalResult {
             Self::Object => "Object",
             Self::ObjectOrUndefined => "Object or Undefined",
             Self::ObjectOrFalse => "Object or false",
-            Self::Array => "Array",
             Self::Constructor => "Constructor",
             Self::CallableOrUndefined => "Callable or Undefined",
             Self::PropertyKey => "PropertyKey",
@@ -673,6 +740,7 @@ impl NormalResult {
 pub enum OperationDomain {
     Value,
     ValuePair,
+    ValueAndInteger,
     ObjectAndPropertyKey,
     ValueAndPropertyKey,
     ObjectPropertyKeyValue,
@@ -686,6 +754,7 @@ impl OperationDomain {
         match self {
             Self::Value => operand_count == 1,
             Self::ValuePair
+            | Self::ValueAndInteger
             | Self::ObjectAndPropertyKey
             | Self::ValueAndPropertyKey
             | Self::ObjectAndSourceValue => operand_count == 2,
@@ -699,6 +768,7 @@ impl OperationDomain {
         match self {
             Self::Value => "1 value",
             Self::ValuePair => "2 values",
+            Self::ValueAndInteger => "a value and an integer",
             Self::ObjectAndPropertyKey => "an object and a property key",
             Self::ValueAndPropertyKey => "a value and a property key",
             Self::ObjectPropertyKeyValue => "an object, a property key, and a value",
@@ -711,10 +781,10 @@ impl OperationDomain {
 
 /// The abrupt-completion capability of a shared operation.
 ///
-/// Shared expression-shaped operations either cannot leave abruptly or may
-/// throw. Return/break/continue belong to statement-shaped completion rows and
-/// remain represented by [`CompletionAbruptKind`]. Keeping this distinction as
-/// an enum, rather than a boolean or a hand-written slice, gives the backend a
+/// Shared value-producing operations either cannot leave abruptly or may throw.
+/// Return/break/continue belong to statement-shaped completion rows and remain
+/// represented by [`CompletionAbruptKind`]. Keeping this distinction as an
+/// enum, rather than a boolean or a hand-written slice, gives the backend a
 /// closed routing contract and makes a newly introduced capability an
 /// exhaustive-match error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -739,11 +809,12 @@ impl AbruptCapability {
     }
 }
 
-/// The complete, typed signature of one [`SpecOperationIr`] row.
+/// The complete, typed signature of one shared-emitter catalog row.
 ///
-/// Values are produced only by the `spec_operations!` declaration below. The
-/// enum variant, canonical enumeration, name, family, operand domain, normal
-/// result and abrupt capability therefore have one source of truth.
+/// Values are produced only by the `spec_operations!` and
+/// `backend_spec_operations!` declarations below. Within each domain, the enum
+/// variants, canonical enumeration, names, families, operand domains, normal
+/// results, and abrupt capabilities therefore have one source of truth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OperationDescriptor {
     name: &'static str,
@@ -1085,12 +1156,72 @@ spec_operations! {
     };
 }
 
+/// Declares the closed set of catalog operations emitted by dedicated backend
+/// functions rather than the shared [`SpecOperationIr`] expression emitter.
+///
+/// The enum, its canonical enumeration, and every descriptor column come from
+/// the same row list. Adding an operation without describing its typed contract
+/// therefore fails to build.
+macro_rules! backend_spec_operations {
+    ($(
+        $variant:ident => {
+            name: $name:literal,
+            family: $family:ident,
+            domain: $domain:ident,
+            result: $result:ident,
+            abrupt: $abrupt:ident,
+        }
+    );+ $(;)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        pub enum BackendSpecOperation {
+            $( $variant, )+
+        }
+
+        impl BackendSpecOperation {
+            pub const ALL: &'static [BackendSpecOperation] = &[
+                $( BackendSpecOperation::$variant, )+
+            ];
+
+            pub const fn descriptor(self) -> OperationDescriptor {
+                match self {
+                    $(
+                        BackendSpecOperation::$variant => OperationDescriptor::new(
+                            $name,
+                            SpecOperationFamily::$family,
+                            OperationDomain::$domain,
+                            NormalResult::$result,
+                            AbruptCapability::$abrupt,
+                        ),
+                    )+
+                }
+            }
+        }
+    };
+}
+
+backend_spec_operations! {
+    ArraySpeciesCreate => {
+        name: "ArraySpeciesCreate",
+        family: Invocation,
+        domain: ValueAndInteger,
+        result: Object,
+        abrupt: MayThrow,
+    };
+    ToPropertyDescriptor => {
+        name: "ToPropertyDescriptor",
+        family: Object,
+        domain: Value,
+        result: PropertyDescriptor,
+        abrupt: MayThrow,
+    };
+}
+
 const NO_ABRUPT: &[CompletionAbruptKind] = &[];
 const MAY_THROW: &[CompletionAbruptKind] = &[CompletionAbruptKind::Throw];
 /// All four abrupt kinds, as a row value. Defined *from*
 /// [`CompletionAbruptKind::ALL`] rather than beside it: two hand-written lists
 /// of the same four kinds is the drift shape this area exists to remove.
-const CONTROL_COMPLETIONS: &[CompletionAbruptKind] = &CompletionAbruptKind::ALL;
+const CONTROL_COMPLETIONS: &[CompletionAbruptKind] = CompletionAbruptKind::ALL;
 
 impl SpecOperationIr {
     pub const fn name(self) -> &'static str {
@@ -1166,12 +1297,37 @@ impl SpecOperationIr {
     }
 }
 
-/// Which of the three row constructors produced a
-/// [`SpecOperationCatalogEntry`].
+impl BackendSpecOperation {
+    pub const fn name(self) -> &'static str {
+        self.descriptor().name()
+    }
+
+    /// The only constructor of [`BackendEmitterEvidence`].
+    pub const fn emitter_evidence(self) -> BackendEmitterEvidence {
+        BackendEmitterEvidence { operation: self }
+    }
+
+    pub const fn catalog_entry(self) -> SpecOperationCatalogEntry {
+        let descriptor = self.descriptor();
+        let evidence = self.emitter_evidence();
+        SpecOperationCatalogEntry {
+            name: evidence.operation().name(),
+            family: descriptor.family(),
+            normal_result: descriptor.normal_result(),
+            abrupt: descriptor.abrupt().completions(),
+            lowering_status: OperationLoweringStatus::SharedBackendEmitter(evidence),
+            source: RowSource::DerivedFromBackendOperation,
+        }
+    }
+}
+
+/// Which row constructor produced a [`SpecOperationCatalogEntry`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RowSource {
     /// [`SpecOperationIr::catalog_entry`] — the row *is* the variant.
     DerivedFromOperation,
+    /// [`BackendSpecOperation::catalog_entry`] — the row *is* the variant.
+    DerivedFromBackendOperation,
     /// The crate-private `StatementEmissionRow::into_entry` constructor.
     StatementEmissionTable,
     /// The crate-private `TrackedGapRow::into_entry` constructor.
@@ -1181,14 +1337,14 @@ pub enum RowSource {
 /// One row of [`SPEC_OPERATION_CATALOG`].
 ///
 /// **Every field is private and there is no public constructor.** The evidence
-/// design protects `EmitterEvidence` and `EmissionSite`, but that is worth
-/// nothing while the entry those produce can be written out by hand: with `pub`
-/// fields this compiled, and forged an implementation claim for an operation
-/// nobody implemented —
+/// design protects `EmitterEvidence`, `BackendEmitterEvidence`, and
+/// `EmissionSite`, but that is worth nothing while the entry those produce can
+/// be written out by hand: with `pub` fields this compiled, and forged an
+/// implementation claim for an operation nobody implemented —
 ///
 /// ```ignore
 /// pub const FORGED: SpecOperationCatalogEntry = SpecOperationCatalogEntry {
-///     name: "ArraySpeciesCreate",
+///     name: "SpeciesConstructor",
 ///     lowering_status: OperationLoweringStatus::SharedWasmEmitter(
 ///         SpecOperationIr::ToString.emitter_evidence()),
 ///     ..
@@ -1197,10 +1353,11 @@ pub enum RowSource {
 ///
 /// The private `source` field closes both halves of that hole: the struct is
 /// unconstructible outside this module, so the only producers are
-/// [`SpecOperationIr::catalog_entry`], `StatementEmissionRow::into_entry` and
-/// `TrackedGapRow::into_entry`; and the derived constructor takes `name` from
-/// the evidence rather than from a free field, so evidence and name cannot
-/// disagree (const assert J6 checks that for every assembled row).
+/// [`SpecOperationIr::catalog_entry`], [`BackendSpecOperation::catalog_entry`],
+/// `StatementEmissionRow::into_entry`, and `TrackedGapRow::into_entry`; and the
+/// derived constructors take `name` from the evidence rather than from a free
+/// field, so evidence and name cannot disagree (const assert J6 checks that for
+/// every assembled row).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpecOperationCatalogEntry {
     name: &'static str,
@@ -1386,7 +1543,7 @@ pub(crate) struct StatementEmissionRow {
 impl StatementEmissionRow {
     /// `pub(crate)`, and that is load-bearing. Every field of
     /// [`SpecOperationCatalogEntry`] is private so that the only producers are
-    /// the three constructors in this module; a `pub` `into_entry` on a struct
+    /// the four constructors in this module; a `pub` `into_entry` on a struct
     /// whose own fields are all `pub` handed that guarantee straight back, since
     /// any consumer crate could mint an entry claiming `StatementEmission` for
     /// an unimplemented operation and bypass J7, J10, J12 and J13 — which
@@ -1404,8 +1561,9 @@ impl StatementEmissionRow {
 }
 
 /// A row for an operation we have *not* implemented. By construction it cannot
-/// carry `SharedWasmEmitter` or `StatementEmission`: there is no field for one.
-/// The raw row is crate-private; the assembled catalog is the public surface.
+/// carry `SharedWasmEmitter`, `SharedBackendEmitter`, or `StatementEmission`:
+/// there is no field for one. The raw row is crate-private; the assembled
+/// catalog is the public surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TrackedGapRow {
     pub name: &'static str,
@@ -1445,6 +1603,8 @@ const T04: TaskId = TaskId::T04;
 /// `"done"`/`"value"` reads, and routes exits through
 /// `emit_iterator_close_condition_i32` (`:8451`) into `emit_iterator_close`
 /// (`:8479`) or `emit_iterator_close_preserving_current_throw` (`:8622`).
+/// `compile_async_function_for_of_iterator` emits the same synchronous
+/// protocol while keeping its Iterator Record in the async activation.
 /// `compile_async_for_of_iterator` (`control_flow.rs:5577`) open-codes the async
 /// close. `compile_array_destructure_from_value_locals` (`control_flow.rs:7656`)
 /// runs the same four operations for every array destructuring — it has no array
@@ -1466,6 +1626,7 @@ const T04: TaskId = TaskId::T04;
 /// satisfy J10's converse).
 const SYNC_PROTOCOL_SITES: &[EmissionSite] = &[
     EmissionSite::SyncForOfIterator,
+    EmissionSite::ResumableSyncForOfIterator,
     EmissionSite::AsyncForOfIterator,
     EmissionSite::ArrayDestructuring,
     EmissionSite::CallArgumentSpread,
@@ -1474,6 +1635,7 @@ const SYNC_PROTOCOL_SITES: &[EmissionSite] = &[
 ];
 const SYNC_CLOSE_SITES: &[EmissionSite] = &[
     EmissionSite::SyncForOfIterator,
+    EmissionSite::ResumableSyncForOfIterator,
     EmissionSite::AsyncForOfIterator,
     EmissionSite::ArrayDestructuring,
     EmissionSite::GeneratorDelegation,
@@ -1568,7 +1730,7 @@ pub(crate) const STATEMENT_EMISSION_ROWS: &[StatementEmissionRow] = &[
 ///
 /// `ModelWithoutCallSite` marks the three whose Rust model exists and is
 /// correct but has zero product call sites (measured); `NoImplementation` marks
-/// the nine whose model type was deleted along with the false row, because a
+/// the seven whose model type was deleted along with the false row, because a
 /// type with no call site is a claim and this area exists because claims were
 /// being read as implementations.
 pub(crate) const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[
@@ -1613,14 +1775,6 @@ pub(crate) const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[
         owner: T04,
     },
     TrackedGapRow {
-        name: "ToPropertyDescriptor",
-        family: SpecOperationFamily::Object,
-        normal_result: NormalResult::PropertyDescriptor,
-        abrupt: MAY_THROW,
-        reason: TrackedGapReason::NoImplementation,
-        owner: T04,
-    },
-    TrackedGapRow {
         name: "FromPropertyDescriptor",
         family: SpecOperationFamily::Object,
         normal_result: NormalResult::ObjectOrUndefined,
@@ -1645,14 +1799,6 @@ pub(crate) const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[
         owner: T04,
     },
     TrackedGapRow {
-        name: "ArraySpeciesCreate",
-        family: SpecOperationFamily::Invocation,
-        normal_result: NormalResult::Array,
-        abrupt: MAY_THROW,
-        reason: TrackedGapReason::NoImplementation,
-        owner: T04,
-    },
-    TrackedGapRow {
         name: "Completion",
         family: SpecOperationFamily::Completion,
         normal_result: NormalResult::CompletionRecord,
@@ -1670,8 +1816,10 @@ pub(crate) const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[
     },
 ];
 
-pub const SPEC_OPERATION_ROW_COUNT: usize =
-    SpecOperationIr::ALL.len() + STATEMENT_EMISSION_ROWS.len() + TRACKED_GAP_ROWS.len();
+pub const SPEC_OPERATION_ROW_COUNT: usize = SpecOperationIr::ALL.len()
+    + BackendSpecOperation::ALL.len()
+    + STATEMENT_EMISSION_ROWS.len()
+    + TRACKED_GAP_ROWS.len();
 
 const CATALOG_PLACEHOLDER: SpecOperationCatalogEntry = SpecOperationIr::IsCallable.catalog_entry();
 
@@ -1687,17 +1835,24 @@ const fn build_catalog() -> [SpecOperationCatalogEntry; SPEC_OPERATION_ROW_COUNT
     }
 
     let mut j = 0;
-    while j < STATEMENT_EMISSION_ROWS.len() {
-        rows[next] = STATEMENT_EMISSION_ROWS[j].into_entry();
+    while j < BackendSpecOperation::ALL.len() {
+        rows[next] = BackendSpecOperation::ALL[j].catalog_entry();
         next += 1;
         j += 1;
     }
 
     let mut k = 0;
-    while k < TRACKED_GAP_ROWS.len() {
-        rows[next] = TRACKED_GAP_ROWS[k].into_entry();
+    while k < STATEMENT_EMISSION_ROWS.len() {
+        rows[next] = STATEMENT_EMISSION_ROWS[k].into_entry();
         next += 1;
         k += 1;
+    }
+
+    let mut m = 0;
+    while m < TRACKED_GAP_ROWS.len() {
+        rows[next] = TRACKED_GAP_ROWS[m].into_entry();
+        next += 1;
+        m += 1;
     }
 
     rows
@@ -1732,7 +1887,7 @@ pub(crate) const fn str_eq(a: &str, b: &str) -> bool {
 
 // (J1) Every catalog name is distinct. Replaces the runtime test
 //      `operations_catalog_names_are_unique`. Because emitter rows are derived
-//      from `SpecOperationIr` and every hand-written row is a
+//      from closed operation enums and every hand-written row is a
 //      `StatementEmissionRow` or `TrackedGapRow`, this also subsumes (J2): a
 //      gap row can never shadow an implemented operation.
 const _: () = {
@@ -1751,24 +1906,26 @@ const _: () = {
 };
 
 // (J3) was "catalog_index is dense over ALL". Deleted with `catalog_index`
-//      itself: `ALL` and the enum are now one macro expansion, so density is
-//      definitional, and an assertion that cannot fail is decoration by
+//      itself: each `ALL` and its enum are now one macro expansion, so density
+//      is definitional, and an assertion that cannot fail is decoration by
 //      AGENTS.md's own test.
 
 // (J4) The census the contract states, tied to the tables that produce it:
-//      29 shared-emitter rows + 5 statement-emission rows + 12 tracked gaps.
-//      Changing any of the three tables without restating the census here is a
-//      compile error, which is the point — the row counts are the claim this
-//      area exists to keep honest.
+//      29 shared-expression rows + 2 shared-backend rows + 5 statement-emission
+//      rows + 10 tracked gaps. Changing any table without restating the census
+//      is a compile error, which is the point — the row counts are the claim
+//      this area exists to keep honest.
 const _: () = {
     assert!(SpecOperationIr::ALL.len() == 29);
+    assert!(BackendSpecOperation::ALL.len() == 2);
     assert!(STATEMENT_EMISSION_ROWS.len() == 5);
-    assert!(TRACKED_GAP_ROWS.len() == 12);
+    assert!(TRACKED_GAP_ROWS.len() == 10);
     assert!(SPEC_OPERATION_ROW_COUNT == 46);
 };
 
-// (J5) Row order: `build_catalog` lays the derived rows down first, in `ALL`
-//      order. This is a real check on `build_catalog`, not on `ALL`.
+// (J5) Row order: `build_catalog` lays each derived domain down first, in its
+//      `ALL` order. This is a real check on `build_catalog`, not on either
+//      enumeration.
 const _: () = {
     let mut i = 0;
     while i < SpecOperationIr::ALL.len() {
@@ -1778,13 +1935,25 @@ const _: () = {
         );
         i += 1;
     }
+
+    let mut j = 0;
+    while j < BackendSpecOperation::ALL.len() {
+        assert!(
+            str_eq(
+                CATALOG[SpecOperationIr::ALL.len() + j].name,
+                BackendSpecOperation::ALL[j].name()
+            ),
+            "build_catalog does not lay backend-derived rows down in ALL order"
+        );
+        j += 1;
+    }
 };
 
-// (J6) A `SharedWasmEmitter` row names the operation its evidence is for.
-//      `EmitterEvidence` is unforgeable, but before the entry's fields became
-//      private a legitimately-obtained evidence could still be attached to any
-//      name. `catalog_entry` now derives `name` from the evidence; this pins
-//      that for every assembled row rather than for the one constructor.
+// (J6) A shared-emitter row names the operation its evidence is for. Both
+//      evidence types are unforgeable, but before the entry's fields became
+//      private legitimately obtained evidence could still be attached to any
+//      name. Each `catalog_entry` derives `name` from its evidence; this pins
+//      that for every assembled row rather than for the constructors alone.
 const _: () = {
     let mut i = 0;
     while i < SPEC_OPERATION_ROW_COUNT {
@@ -1793,6 +1962,12 @@ const _: () = {
                 assert!(
                     str_eq(CATALOG[i].name, evidence.operation().name()),
                     "a shared-emitter row names an operation its evidence is not for"
+                );
+            }
+            OperationLoweringStatus::SharedBackendEmitter(evidence) => {
+                assert!(
+                    str_eq(CATALOG[i].name, evidence.operation().name()),
+                    "a shared-backend row names an operation its evidence is not for"
                 );
             }
             OperationLoweringStatus::StatementEmission(_)
@@ -2018,10 +2193,6 @@ pub fn completion_abi_slots() -> &'static [CompletionAbiSlot] {
     COMPLETION_ABI_SLOTS
 }
 
-pub fn find_completion_abi_slot(kind: CompletionKindIr) -> Option<&'static CompletionAbiSlot> {
-    COMPLETION_ABI_SLOTS.iter().find(|slot| slot.kind == kind)
-}
-
 /// Ties the catalog's descriptive [`NormalResult`] rows to the codomain types in
 /// [`crate::numeric_conversions`], so the two cannot drift.
 ///
@@ -2106,13 +2277,15 @@ mod tests {
     fn operations_completion_abi_slots_are_stable_and_dense() {
         for (expected, slot) in completion_abi_slots().iter().enumerate() {
             assert_eq!(
-                slot.code, expected as i64,
+                slot.code(),
+                expected as i64,
                 "completion kind {} should stay at {}",
-                slot.name, expected
+                slot.name(),
+                expected
             );
-            assert_eq!(slot.name, slot.kind.name());
-            assert_eq!(slot.carries_value, slot.kind.carries_value());
-            assert_eq!(slot.carries_target, slot.kind.carries_target());
+            assert_eq!(slot.name(), slot.kind().name());
+            assert_eq!(slot.carries_value(), slot.kind().carries_value());
+            assert_eq!(slot.carries_target(), slot.kind().carries_target());
         }
     }
 
@@ -2120,8 +2293,8 @@ mod tests {
     fn operations_completion_abi_documents_values_and_targets() {
         let value_slots = completion_abi_slots()
             .iter()
-            .filter(|slot| slot.carries_value)
-            .map(|slot| slot.name)
+            .filter(|slot| slot.carries_value())
+            .map(|slot| slot.name())
             .collect::<Vec<_>>();
         assert_eq!(
             value_slots,
@@ -2130,16 +2303,16 @@ mod tests {
 
         let target_slots = completion_abi_slots()
             .iter()
-            .filter(|slot| slot.carries_target)
-            .map(|slot| slot.name)
+            .filter(|slot| slot.carries_target())
+            .map(|slot| slot.name())
             .collect::<Vec<_>>();
         assert_eq!(target_slots, vec!["break", "continue"]);
     }
 
     #[test]
-    fn operations_completion_abi_slot_lookup_matches_kind() {
+    fn operations_completion_abi_slot_construction_is_total() {
         for slot in COMPLETION_ABI_SLOTS {
-            assert_eq!(find_completion_abi_slot(slot.kind), Some(slot));
+            assert_eq!(completion_abi_slot(slot.kind()), *slot);
         }
     }
 

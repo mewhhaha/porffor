@@ -210,11 +210,8 @@ impl ModuleItemList {
                     requests.insert(import.request().clone());
                 }
                 ModuleItem::ExportDeclaration(export) => {
-                    if let ExportDeclaration::ReExport {
-                        specifier, ..
-                    } = &**export
-                    {
-                        requests.insert(ModuleRequest::from(*specifier));
+                    if let ExportDeclaration::ReExport { request, .. } = &**export {
+                        requests.insert(request.module_request().clone());
                     }
                 }
                 ModuleItem::StatementListItem(_) => {}
@@ -322,8 +319,8 @@ impl ModuleItemList {
                 node: &'ast ExportDeclaration,
             ) -> ControlFlow<Self::BreakTy> {
                 let name = match node {
-                    ExportDeclaration::ReExport { kind, specifier } => {
-                        let module = ModuleRequest::from(*specifier);
+                    ExportDeclaration::ReExport { kind, request } => {
+                        let module = request.module_request().clone();
 
                         match kind {
                             ReExportKind::Namespaced { name: Some(name) } => {

@@ -1,86 +1,86 @@
-# Array `@@isConcatSpreadable` as an exact tagged slot
+# Array `@@isConcatSpreadable` ordinary-property ownership
 
 ## Semantic boundary
 
-An Array's own `Symbol.isConcatSpreadable` property is an ordinary JavaScript
-property value. `[[Get]]` must return that value unchanged. The later
-`IsConcatSpreadable` abstract operation decides whether to apply `ToBoolean`,
-and treats only `undefined` as the signal to fall back to `IsArray`.
+An Array's `Symbol.isConcatSpreadable` property is an ordinary JavaScript
+property. Get, Set and DefineProperty must therefore share the same descriptor
+authority as every other Array Symbol key. Concat obtains the exact property
+value through ordinary Get and applies `ToBoolean` only afterward; only
+Undefined falls back to `IsArray`.
 
-The old Array-specific slot crossed that boundary early. A data-property write
-stored only the value's truthiness, using `u64::MAX` as an `undefined`
-sentinel, and a read reconstructed either Boolean or Undefined. Concat itself
-usually remained correct because it needs only the eventual truthiness, while
-ordinary reads silently lost object and Symbol identity, string and numeric
-types, signed zero, and NaN.
+## Single owner
 
-## Closed stored-value shape
+The ordinary Array named-property owner is the only Array storage for
+`@@isConcatSpreadable`. It owns complete data descriptors and complete accessor
+descriptors, including getter, setter, writable, enumerable and configurable
+state. Ordinary Set consequently decides getter-only rejection, setter calls,
+non-writable failure, extensibility, inherited setters and Proxy order without a
+second Array-specific interpretation.
 
-The occupied special slot has exactly two shapes:
+The former dedicated representation could encode a getter but not its setter.
+Its receiver-side write branch also treated every occupied descriptor as
+writable data. Those states are no longer representable: the capability enum,
+read/write emitters, four heap fields, four layout rows and both initializer
+sites are deleted. Recursive source evidence pins zero occurrences of every
+removed owner name.
 
-```text
-ArrayConcatSpreadableSlotValue
-  Data(TaggedLocals)
-  Getter(TaggedLocals)
-```
+The removed offsets remain padding. `HEAP_ARRAY_RECORD_SIZE` and all unrelated
+Array offsets are unchanged; this closure does not move dense elements or named
+property storage.
 
-Both variants carry one complete tagged JavaScript value. Exhaustive
-projections select the tagged locals and the corresponding data/accessor
-descriptor shape. The sole occupied-slot writer accepts this enum, so a
-producer cannot write a payload without its tag or select a getter descriptor
-for data. Adding another stored shape fails compilation until both projections
-are defined.
+## Routing
 
-Descriptor word zero remains the absent state. It is not an enum variant
-because there is no occupied value to carry; a read returns Undefined without
-consulting stale slot contents.
+Static and computed Array assignment both call the ordinary object Set owner.
+Static Array reads and concat call ordinary object Get. Object.defineProperty
+routes both accessor and data descriptors through the existing Array named
+descriptor compilers. Arguments objects retain their distinct exotic
+`@@isConcatSpreadable` implementation.
 
-## Physical storage
-
-Data and accessor descriptors are mutually exclusive, so they share the
-existing tag/payload pair historically named for the getter. The descriptor
-shape decides whether the pair is the exact data value or the getter value.
-That payload word is already declared as a strong heap edge, unlike the old
-truthiness word, so object, string, BigInt, Symbol and callable values remain
-reachable without growing the Array record.
-
-The old pointer-free truthiness word is no longer read or written by property
-semantics. Its allocator initialization and physical record slot remain until
-the shared Array allocator can be compacted without colliding with active
-compiler work.
-
-## Read and use order
-
-An Array `[[Get]]` of `@@isConcatSpreadable` now follows one closed dispatch:
-
-1. an absent descriptor returns Undefined;
-2. a data descriptor copies the stored tagged value exactly;
-3. an accessor descriptor calls its callable getter with the Array receiver,
-   or returns Undefined for an absent getter.
-
-Callable Proxy getters use the same callability gate and call path as other
-property accessors. The reader does not coerce the result. Array concat obtains
-that exact result and performs `ToBoolean` only inside `IsConcatSpreadable`.
+This routing leaves one representation and one observable order. Adding a new
+dedicated producer or consumer makes the recursive owner test fail, while new
+ordinary descriptor fields are inherited automatically by this Symbol key.
 
 ## Durable evidence
 
-The focused concat-spreadable fixture retains its existing concat cases and
-also reads Array-owned data values back directly. It covers object and Symbol
-identity, string and numeric tags, signed zero, NaN, Undefined fallback, and
-the distinction between truthy spreading and falsey non-Undefined suppression.
-An Array-owned accessor also returns its exact object result with the Array as
-receiver. A callable Proxy getter proves the same receiver, exact-result and
-concat path through the callability abstraction, while a second Array-owned
-getter throws a unique object sentinel that concat must propagate unchanged
-through the nested accessor and `IsConcatSpreadable` abrupt routes.
+The descriptor-assignment fixture covers three observable descriptor shapes:
 
-The Rust projection test fixes the two occupied shapes, their complete tagged
-carriers and their data/accessor descriptor roles. Static source checks keep
-the old truthiness word out of behavioral reads and writes.
+- a getter-only accessor ignores sloppy assignment and throws in strict code;
+- a getter/setter accessor calls its setter with the Array receiver and exact
+  assigned value;
+- a non-writable data property ignores sloppy assignment and throws in strict
+  code.
+
+Each false-valued property also suppresses spreading and leaves the Array itself
+as the concat result element. The existing aggregate, direct accessor, receiver
+and order/error fixtures retain exact tagged values, accessor receivers, Proxy
+calls, prototype traversal and abrupt completion coverage.
+
+The recursive structure target passes `5/5`. The focused
+`array_concat_spreadable` CLI filter passes `5/5`: aggregate core, direct
+accessor, descriptor assignment, receiver and order/error. The descriptor case
+also passes alone as an exact `1/1` witness. The neighboring Array-at receiver
+policy target passes `3/3`.
+
+The pinned `is-concat-spreadable-val-truthy.js`,
+`is-concat-spreadable-get-order.js` and `is-concat-spreadable-get-err.js`
+controls pass all `6/6`
+sloppy/strict Wasm-AOT executions with every failure bucket at zero. The shared
+`cargo xc` checkpoint is green.
+
+The frozen raw-body SHA-256 values are:
+
+- Array named data descriptor owner: `b970db24ecd2f945b25e564610b598b5c4163a4661bb61a507f38a81cb760bde`;
+- Array named accessor descriptor owner: `88549739cc949da6a6e5834ef75e52593b5cdd85ba87899f416ddca4bb3771de`;
+- canonical concat compiler: `e3bcf4992367960b8a205469f5ec94e1d56ade0a4039ff7f64ebf2995a7fd3e4`;
+- Array own named-property reader: `febe236df75d13bf589053d980867bb63f44e595c9e1a4a1613bb111b164098f`;
+- OrdinarySet receiver-fallback owner: `d58fee7ab153c8d398a112fb38ac086c3661c3f198b3503add6ff960d70f454c`.
+
+Recursive product-source census finds zero removed owner names. Object
+definition has eight calls into the two ordinary Array named-descriptor
+compilers, in addition to the data-property compiler's internal data-descriptor
+call. The semantic golden remains deferred.
 
 ## Nonclaims
 
-This seam does not complete the special property's descriptor-attribute,
-deletion, redefinition, inherited-setter or Proxy-trap behavior. It does not
-change generic object or Arguments-object storage, compact the Array record,
-remove Array Test262 materializers, or establish full Array conformance.
+This seam does not shrink the Array record, move later fields into the padding,
+change Arguments-object storage, or establish complete Array conformance.

@@ -74,12 +74,13 @@ changed.
 
 After the repair, the unique message occurs once across pinned Boa Rust
 sources. The later FunctionDeclaration lane gives the ordinary declaration its
-own unique message while retaining the shared generic default for the three
-other hoistable forms. The later AsyncFunctionExpression and
-GeneratorExpression lanes give those productions their own messages. On
-current head, the old generic literal occurs three times: one fixed ScriptBody
-producer, that declaration default, and the async-generator-expression
-producer.
+own unique message while retaining the then-shared generic declaration default. The
+later AsyncFunctionExpression, GeneratorExpression, AsyncGeneratorExpression
+and AsyncFunctionDeclaration lanes give those productions their own messages.
+On current head, the old generic literal occurs exactly once at the fixed
+ScriptBody producer. All four declaration implementations, including
+AsyncGeneratorDeclaration, have their own unique messages, and the shared hook
+has no default.
 
 ## Typed and retained boundaries
 
@@ -89,16 +90,16 @@ The closed front domain and parse table grow from 65 to 66 entries. One
 single-owner assertion, disjoint table witnesses, exhaustive wire-name checks,
 and `lila-ir`'s no-catch-all rejection-kind match make the addition structural.
 
-Classifier checks keep the new prefix distinct from both generic
+Classifier checks keep the new prefix distinct from both the remaining raw
 `invalid super usage` and method-owned `invalid super call usage`. A Module
 duplicate-export diagnostic containing the complete new prefix remains
 `ModuleDuplicateExport`, proving user-controlled text cannot forge the code.
 
 A real failed Module parse crosses `module_parse_failure_diagnostic`. A real
-dependency is retained as `ModuleSourceIr::Rejected`, exposes no module
-requests, and crosses `build_graph` with the same code, phase, error type and
-span. A valid parenthesized function-expression dependency remains a parsed
-graph node.
+dependency remains a `ModuleSourceIr` whose retained parse is
+`ModuleParse::Rejected`, exposes no module requests, and crosses `build_graph`
+with the same code, phase, error type and span. A valid parenthesized
+function-expression dependency remains a parsed graph node.
 
 ## Permanent behavior and precedence matrix
 
@@ -130,12 +131,19 @@ The shared super-producer guard recursively requires:
   new message and retained `params_start_position` together;
 - exactly one separately typed FunctionDeclaration message selected from the
   shared callable-declaration predicate;
+- exactly one separately typed AsyncFunctionDeclaration message selected from
+  the shared callable-declaration predicate;
+- exactly one separately typed GeneratorDeclaration message selected from the
+  shared callable-declaration predicate;
 - exactly one async-function-expression-specific message on its completed-node
   `Contains Super` branch;
 - exactly one generator-expression-specific message on its completed-node
   `Contains Super` branch;
-- exactly three remaining generic messages, with their fixed Script or shared
-  callable parameter-start positions;
+- exactly one async-generator-expression-specific message on its completed-node
+  `Contains Super` branch;
+- exactly one remaining raw generic message at the fixed ScriptBody position;
+- one required declaration-message hook and one production-owned override for
+  each of the four declaration implementations;
 - the existing class constructor, static-block, field and method message
   censuses;
 - ordinary/async-arrow traversal and ordinary callable/nested-class stopping

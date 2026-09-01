@@ -141,7 +141,7 @@ fn one_private_fixed_role_carrier_drives_the_shared_numeric_lifecycle() {
         "let NumericUpdateBindings {",
         "let old_value = self.clone().get_value(referenced_name, strictness);",
         "ExprIr::UpdateIdentifier {",
-        "value_kind: ValueKind::Dynamic",
+        "value_kind: NumericUpdateValueKind::Dynamic",
         "let write = self.put_value(referenced_name, strictness, updated_value);",
         "name: write_name.clone()",
         "name: result_name.clone()",
@@ -256,7 +256,7 @@ fn lowering_routes_all_four_closed_modes_only_for_unproven_unresolvable_globals(
         "    fn lower_located_identifier_numeric_update(",
     );
     for marker in [
-        "info.value_info = unknown_runtime_value_info();",
+        "info.value_info.widen_for_possible_replacement();",
         "info.proven_present = false;",
         "NumericUpdateBindings::allocate(",
         "let strictness = self.reference_strictness();",
@@ -265,7 +265,11 @@ fn lowering_routes_all_four_closed_modes_only_for_unproven_unresolvable_globals(
     ] {
         assert!(helper.contains(marker), "missing lowering seam: {marker}");
     }
-    assert_before(helper, "info.value_info =", "info.proven_present =");
+    assert_before(
+        helper,
+        "info.value_info.widen_for_possible_replacement();",
+        "info.proven_present =",
+    );
     assert_before(helper, "let bindings =", "let strictness =");
     assert_before(
         helper,

@@ -1,7 +1,14 @@
+use std::fs;
+use std::path::Path;
+
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
+const MAPPING_OWNER_SOURCE: &str = include_str!("../src/functions/arguments_index_mapping.rs");
 const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const DEFINE_PROPERTY_SOURCE: &str = include_str!("../src/builtins/object/define_property.rs");
+const GET_OWN_PROPERTY_DESCRIPTOR_SOURCE: &str =
+    include_str!("../src/builtins/object/get_own_property_descriptor.rs");
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_arguments_mapped_descriptors.js");
@@ -20,22 +27,49 @@ fn function_source<'a>(source: &'a str, signature: &str) -> &'a str {
     &source[start..after_signature + end]
 }
 
+fn recursive_rust_source_count(root: &Path, needle: &str) -> usize {
+    fs::read_dir(root)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()))
+        .map(|entry| entry.expect("failed to read Rust source entry").path())
+        .map(|path| {
+            if path.is_dir() {
+                return recursive_rust_source_count(&path, needle);
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+                return 0;
+            }
+            fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+                .matches(needle)
+                .count()
+        })
+        .sum()
+}
+
 #[test]
 fn arguments_index_define_has_one_typed_validated_boundary() {
     assert!(CONTRACT.contains("ECMA-262 10.4.4.1-5"));
-    assert!(!OBJECT_SOURCE.contains("fn emit_arguments_define_data_index("));
-    assert!(!OBJECT_SOURCE.contains("fn emit_arguments_define_accessor_index("));
+    assert!(!DEFINE_PROPERTY_SOURCE.contains("fn emit_arguments_define_data_index("));
+    assert!(!DEFINE_PROPERTY_SOURCE.contains("fn emit_arguments_define_accessor_index("));
     assert_eq!(
-        OBJECT_SOURCE
+        DEFINE_PROPERTY_SOURCE
             .matches("self.emit_arguments_define_index_descriptor(")
             .count(),
         2
     );
 
-    let body = function_source(OBJECT_SOURCE, "fn emit_arguments_define_index_descriptor(");
+    let body = function_source(
+        DEFINE_PROPERTY_SOURCE,
+        "fn emit_arguments_define_index_descriptor(",
+    );
     assert!(body.contains("descriptor: WasmDescriptor"));
-    assert!(body
-        .contains("StoredDescriptorLocals::new(existing_value, existing_value, existing_setter)"));
+    for projection in [
+        "StoredDescriptorDataLocals::new(existing_value)",
+        "StoredDescriptorGetterLocals::new(existing_value)",
+        "StoredDescriptorSetterLocals::new(existing_setter)",
+    ] {
+        assert!(body.contains(projection));
+    }
     let mapping = body
         .find("self.emit_arguments_index_mapping_from_descriptor_word(")
         .expect("pre-mutation mapping capture");
@@ -64,17 +98,49 @@ fn arguments_index_define_has_one_typed_validated_boundary() {
 
 #[test]
 fn mapped_slot_is_one_private_typed_role_across_descriptor_mutation() {
-    let mapping_type = FUNCTIONS_SOURCE
+    assert_eq!(
+        FUNCTIONS_SOURCE
+            .matches("\nmod arguments_index_mapping;\n")
+            .count(),
+        1
+    );
+    assert!(!FUNCTIONS_SOURCE.contains("\npub mod arguments_index_mapping;\n"));
+    assert!(!FUNCTIONS_SOURCE.contains("arguments_index_mapping::"));
+
+    let mapping_type = MAPPING_OWNER_SOURCE
         .find("pub(crate) struct ArgumentsIndexMappingLocals")
         .expect("typed mapping carrier");
-    let declaration_start = FUNCTIONS_SOURCE[..mapping_type]
+    let declaration_start = MAPPING_OWNER_SOURCE[..mapping_type]
         .rfind("#[must_use")
         .expect("mapping carrier must-use attribute");
-    let mapping_declaration = &FUNCTIONS_SOURCE[declaration_start..mapping_type];
+    let mapping_declaration = &MAPPING_OWNER_SOURCE[declaration_start..mapping_type];
     assert!(!mapping_declaration.contains("derive(Clone, Copy"));
+    assert!(!FUNCTIONS_SOURCE.contains("struct ArgumentsIndexMappingLocals"));
+
+    for owner_method in [
+        "emit_arguments_index_mapping_from_descriptor_word",
+        "emit_arguments_parameter_map_read",
+        "emit_arguments_parameter_map_write",
+        "emit_arguments_mapping_restore_on_data_descriptor",
+        "release_arguments_index_mapping",
+    ] {
+        let definition = format!("pub(crate) fn {owner_method}(");
+        assert_eq!(MAPPING_OWNER_SOURCE.matches(&definition).count(), 1);
+        assert!(!FUNCTIONS_SOURCE.contains(&definition));
+    }
+    assert_eq!(
+        MAPPING_OWNER_SOURCE
+            .matches("ArgumentsIndexMappingLocals { mapped, slot }")
+            .count(),
+        1
+    );
+    assert!(!FUNCTIONS_SOURCE.contains("ArgumentsIndexMappingLocals {"));
+    assert!(!OBJECT_SOURCE.contains("ArgumentsIndexMappingLocals {"));
+    assert_eq!(MAPPING_OWNER_SOURCE.matches("mapping.mapped").count(), 4);
+    assert_eq!(MAPPING_OWNER_SOURCE.matches("mapping.slot").count(), 6);
 
     let capture = function_source(
-        FUNCTIONS_SOURCE,
+        MAPPING_OWNER_SOURCE,
         "pub(crate) fn emit_arguments_index_mapping_from_descriptor_word(",
     );
     assert!(capture.contains("ARGUMENTS_DESCRIPTOR_MAPPED"));
@@ -87,7 +153,7 @@ fn mapped_slot_is_one_private_typed_role_across_descriptor_mutation() {
     assert!(!read.contains("MappedSlot::SHIFT"));
 
     let write = function_source(
-        FUNCTIONS_SOURCE,
+        MAPPING_OWNER_SOURCE,
         "pub(crate) fn emit_arguments_parameter_map_write(",
     );
     assert!(write.contains("mapping: &ArgumentsIndexMappingLocals"));
@@ -113,20 +179,35 @@ fn mapped_slot_is_one_private_typed_role_across_descriptor_mutation() {
     assert!(absent_creation.contains("self.emit_arguments_store_index_entry("));
 
     let restore = function_source(
-        FUNCTIONS_SOURCE,
+        MAPPING_OWNER_SOURCE,
         "pub(crate) fn emit_arguments_mapping_restore_on_data_descriptor(",
     );
     assert!(restore.contains("ARGUMENTS_DESCRIPTOR_MAPPED"));
     assert!(restore.contains("mapping.slot"));
     assert!(restore.contains("MappedSlot::SHIFT"));
     assert!(restore.contains("Instruction::I64Shl"));
+
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for (call, expected) in [
+        ("self.emit_arguments_index_mapping_from_descriptor_word(", 5),
+        ("self.emit_arguments_parameter_map_read(", 3),
+        ("self.emit_arguments_parameter_map_write(", 4),
+        ("self.emit_arguments_mapping_restore_on_data_descriptor(", 1),
+        ("self.release_arguments_index_mapping(", 5),
+    ] {
+        assert_eq!(
+            recursive_rust_source_count(&source_root, call),
+            expected,
+            "unexpected recursive caller census for {call}"
+        );
+    }
 }
 
 #[test]
 fn arguments_index_accessor_descriptor_materialization_is_storage_only() {
     let body = function_source(
-        OBJECT_SOURCE,
-        "pub(super) fn compile_object_get_own_property_descriptor_builtin(",
+        GET_OWN_PROPERTY_DESCRIPTOR_SOURCE,
+        "pub(in crate::builtins) fn compile_object_get_own_property_descriptor_builtin(",
     );
     let indexed = body
         .find("self.emit_array_descriptor_kind_for_index(")
@@ -185,6 +266,10 @@ fn dynamic_arguments_named_writes_never_enter_ordinary_object_storage() {
         OBJECTS_SOURCE,
         "pub(crate) fn emit_ordinary_set_result_with_receiver_fallback(",
     );
+    assert!(ordinary_set.contains("ValueKind::Arguments.tag() as i64"));
+    assert!(ordinary_set.contains("self.strings.payload(\"length\")"));
+    assert!(ordinary_set.contains("self.strings.payload(\"callee\")"));
+    assert!(ordinary_set.contains("self.emit_arguments_property_write("));
     assert!(ordinary_set.contains("emit_is_array_named_entry_backed_tag_i32("));
     assert!(ordinary_set.contains("HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET"));
     let indexed_source = ordinary_set

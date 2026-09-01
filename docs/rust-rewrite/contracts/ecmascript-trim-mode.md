@@ -34,12 +34,19 @@ enum EcmaTrimMode {
 }
 ```
 
-The enum and raw core remain private to `operations.rs`. Sibling backend
-modules can reach the core only through three named wrappers that fix Start,
-End, or Both. The core projects the mode through exhaustive Rust matches with
-no `_` arm and no Boolean fallback. Adding a fourth mode must therefore fail to
-compile until both boundary scans state what it means, while passing the former
-Boolean pair must fail at the call boundary.
+The enum, owner-private `ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8` table and raw
+core remain private to `operations/string_trim.rs`. The table has exactly one
+owner and its only two consumers are the forward and backward scans. Sibling
+backend modules can reach the core only through three named wrappers that fix
+Start, End, or Both. The core projects the mode through exhaustive Rust matches
+with no `_` arm and no Boolean fallback. Adding a fourth mode must therefore
+fail to compile until both boundary scans state what it means, while passing the
+former Boolean pair must fail at the call boundary.
+
+The mode derives no cloning, copying, formatting, equality or default
+capability. The start scan borrows it, preserving the same owned decision for
+the later end scan; that second exhaustive match consumes it. No cloned or
+copied policy can diverge between the two ordered scans.
 
 This is an emitter-time policy. It does not add a runtime Wasm mode word or a
 runtime policy branch. The emitted start scan, end scan and final slice remain
@@ -93,13 +100,28 @@ A bounded source-structure regression must require:
 - exactly three named wrappers, each forwarding one distinct variant to the
   raw core;
 - exhaustive, catch-all-free Start/End/Both projection for both boundary
-  scans, with Start excluded only from the end scan and End excluded only from
+  scans, with the complete borrowed start body before the complete consuming
+  end body, Start excluded only from the end scan and End excluded only from
   the start scan;
+- an attribute-free, capability-free declaration with the exact recursive
+  eleven-mention census and four appearances of each declared row;
 - exactly the three consumer families and the mappings listed above;
 - the Both wrapper before BigInt source unpacking and the trim wrappers after
   String receiver coercion in both String-method paths; and
 - no additional direct call, method-item reference, visibility escape,
   Boolean-policy spelling or local reconstruction of the raw trim pair.
+
+The whitespace table moved unchanged from the broad builtin namespace into its
+sole private trim owner. Restoring its former `pub(crate)` declaration produces
+the exact original 21-line source with SHA-256
+`3b3f4cb67213c7881b83d193a979ff4ae654805c1e7c783c473d781eb5395bd8`.
+This source-equivalent ownership closure has no new String behavior and changes
+no row, scan order, emitted instruction, Test262 materialization or published
+count.
+
+At the Batch BR checkpoint, `cargo xc` is green, the strengthened structure
+target passes `3/3`, and the exact all-whitespace `trimStart` and `trimEnd`
+leaves pass all four Wasm-AOT executions with every failure bucket at zero.
 
 The guard must fail if Start and End are inverted at any inventoried caller,
 if either alias moves to Both, if String-to-BigInt stops trimming both ends, if
@@ -124,6 +146,11 @@ These are focused policy, String and BigInt witnesses. No Test262 cohort or
 aggregate status was refreshed, and no conformance movement is inferred from
 this policy-only migration.
 
+The 2026-08-27 capability/lifecycle checkpoint retained the structure target
+green at `2/2`; the exact trim and arbitrary-precision BigInt CLI witnesses
+both passed `1/1`. Scoped formatter, diff and task-plan checks also pass for
+this source-equivalent hardening.
+
 ## Nonclaims
 
 This seam does not change the ECMAScript whitespace set, UTF-8 decoding,
@@ -131,3 +158,6 @@ String allocation or slicing, receiver coercion, alias installation, BigInt
 grammar, radix/sign handling, error-Realm selection or completion ABI. It does
 not migrate other String algorithms, remove a Test262 rewrite, prove the full
 String or BigInt trees, change published counts, or complete T04.
+Independent dry review is clean. The following shared workspace checkpoint
+passes `cargo fmt --all -- --check`, `cargo xc`, the recursive module-boundary
+check, the task-plan check and `git diff --check`.

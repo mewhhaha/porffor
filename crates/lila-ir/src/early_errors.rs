@@ -28,7 +28,8 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             state.super_calls += 1;
             state.saw_super = true;
         }
-        ExprIr::UnaryNumber { expr: operand, .. }
+        ExprIr::UnaryPlus { expr: operand }
+        | ExprIr::UnaryMinusNumeric { expr: operand }
         | ExprIr::UnaryBitwiseNumeric { expr: operand, .. }
         | ExprIr::SpreadArgument(SpreadArgumentIr { value: operand, .. })
         | ExprIr::StringFromCharCode { code: operand }
@@ -130,7 +131,14 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 expr_contains_this_before_super(arg, state);
             }
         }
-        ExprIr::JsonParseStaticReviver { reviver, .. } => {
+        ExprIr::JsonParseStaticReviver {
+            callee,
+            input,
+            reviver,
+            ..
+        } => {
+            expr_contains_this_before_super(callee, state);
+            expr_contains_this_before_super(input, state);
             expr_contains_this_before_super(reviver, state);
         }
         ExprIr::Construct { callee, args, .. } => {
@@ -575,9 +583,21 @@ fn statement_contains_this_before_super(
                 statement_contains_this_before_super(statement, state);
             }
         }
-        StatementIr::ForOfArray { iterable, body, .. }
-        | StatementIr::ForOfString { iterable, body, .. }
-        | StatementIr::ForOfIterator { iterable, body, .. }
+        StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+            expr_contains_this_before_super(iterable, state);
+            for statement in plan
+                .before_await()
+                .iter()
+                .chain(std::iter::once(plan.await_statement()))
+                .chain(plan.after_await())
+            {
+                if state.saw_super {
+                    break;
+                }
+                statement_contains_this_before_super(statement, state);
+            }
+        }
+        StatementIr::ForOfIterator { iterable, body, .. }
         | StatementIr::ForInArray {
             target: iterable,
             body,

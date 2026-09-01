@@ -1,14 +1,23 @@
 use super::*;
 use lila_ir::NativeErrorKind;
 use wasm_encoder::{
-    ConstExpr, DataSection, ElementSection, ExportSection, FunctionSection, GlobalSection,
-    GlobalType, ImportSection, MemorySection, Module, TableSection, TypeSection,
+    ConstExpr, DataSection, ExportSection, FunctionSection, GlobalSection, GlobalType,
+    ImportSection, MemorySection, Module, TypeSection,
 };
 
 use crate::emit::MainFunctionCompilation;
 use crate::emitted_function::ModuleFunctionTable;
 pub(crate) use crate::gc_types::FinalizedModuleGlobals;
 use crate::gc_types::RuntimeModuleTypes;
+
+mod error_prototype_location;
+pub(crate) use error_prototype_location::{
+    error_prototype_global_index, error_realm_prototype_entries, error_realm_prototype_offset,
+};
+mod compiled_module_package;
+pub(crate) use compiled_module_package::{
+    ModuleAssemblySections, ModuleGlobalSectionBuilder, ModuleTypeRegistry,
+};
 
 pub(crate) const RESULT_TAG_EXPORT: &str = "result_tag";
 pub(crate) const COMPLETION_KIND_EXPORT: &str = "completion_kind";
@@ -230,297 +239,6 @@ pub(crate) const HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX: u32 = 14;
 pub(crate) const HOST_RANDOM_F64_IMPORT_TYPE_INDEX: u32 = HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX;
 pub(crate) const HOST_AGENT_CAN_SUSPEND_IMPORT_FUNCTION_INDEX: u32 = 0;
 pub(crate) const HOST_PRINT_IMPORT_FUNCTION_INDEX: u32 = 1;
-
-/// The one type section and the typed indices assigned while constructing it.
-pub(crate) struct ModuleTypeRegistry {
-    section: TypeSection,
-    runtime: RuntimeModuleTypes,
-}
-
-impl ModuleTypeRegistry {
-    pub(crate) fn new(uses_function_table: bool) -> Self {
-        let mut types = ModuleTypeSectionBuilder::new();
-        types.function([], [ValType::I64]);
-        if uses_function_table {
-            types.function(
-                function_param_types(),
-                [ValType::I64, ValType::I64, ValType::I64, ValType::I64],
-            );
-        }
-        types.function([ValType::I64], [ValType::I64]);
-        types.function(
-            [
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
-            [],
-        );
-        types.function(
-            [
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
-            [],
-        );
-        types.function(
-            [
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
-            [ValType::I64],
-        );
-        types.function([ValType::I64, ValType::I64], [ValType::I64]);
-        types.function([ValType::I64], [ValType::I64, ValType::I64]);
-        types.function([ValType::I32, ValType::I32], []);
-        types.function([ValType::F64, ValType::F64], [ValType::F64]);
-        types.function([], [ValType::I32]);
-        types.function([], [ValType::I64]);
-        types.function([ValType::I64], []);
-        types.function([ValType::I64, ValType::I64, ValType::I64], [ValType::I64]);
-        types.function([], [ValType::F64]);
-
-        let runtime = RuntimeModuleTypes::register(&mut types.section);
-
-        Self {
-            section: types.finish(),
-            runtime,
-        }
-    }
-
-    /// Consumes every scalar/dynamic global and returns the sealed section with
-    /// the runtime schema derived from its actual final scalar index.
-    pub(crate) fn finalize_globals(
-        self,
-        globals: ModuleGlobalSectionBuilder,
-    ) -> FinalizedModuleSections {
-        let Self { section, runtime } = self;
-        FinalizedModuleSections {
-            types: section,
-            globals: globals.finish(runtime),
-        }
-    }
-}
-
-/// The type and global sections finalized as one consume-once package.
-///
-/// Consuming [`ModuleTypeRegistry`] prevents a second global package from being
-/// finalized against the same typed registry. The only next transition accepts
-/// the emitter's closed main-compilation plan, compiles it against this exact
-/// package and starts package-owned code with that main body.
-pub(crate) struct FinalizedModuleSections {
-    types: TypeSection,
-    globals: FinalizedModuleGlobals,
-}
-
-impl FinalizedModuleSections {
-    pub(crate) fn compile_main(
-        self,
-        compilation: MainFunctionCompilation<'_>,
-    ) -> Result<CompiledModulePackage, EmitError> {
-        let mut code = ModuleCode::new(compilation.first_wasm_index());
-        let main_emitted_local_count = compilation.compile_into(&self.globals, &mut code)?;
-        Ok(CompiledModulePackage {
-            types: self.types,
-            globals: self.globals,
-            code,
-            main_emitted_local_count,
-        })
-    }
-}
-
-/// Type, rooted globals and code whose first body is main compiled against that
-/// exact root, sealed together behind one consuming assembly operation.
-///
-/// None of the three Wasm sections has an independent append method. Remaining
-/// bodies extend package-owned code by mutable borrow; only the final assembly
-/// transition consumes the package. Normal Rust code therefore cannot combine
-/// A's main with B's types or globals or reuse either package for another
-/// module.
-pub(crate) struct CompiledModulePackage {
-    types: TypeSection,
-    globals: FinalizedModuleGlobals,
-    code: ModuleCode,
-    main_emitted_local_count: u32,
-}
-
-impl CompiledModulePackage {
-    pub(crate) fn append_remaining_functions(&mut self, remaining_functions: Vec<EmittedFunction>) {
-        for function in remaining_functions {
-            self.code.push(function);
-        }
-    }
-
-    pub(crate) const fn main_emitted_local_count(&self) -> u32 {
-        self.main_emitted_local_count
-    }
-
-    pub(crate) fn append_to_module(
-        self,
-        module: &mut Module,
-        sections: ModuleAssemblySections,
-    ) -> ModuleFunctionTable {
-        let Self {
-            types,
-            globals,
-            code,
-            main_emitted_local_count: _,
-        } = self;
-        let (code, function_table) = code.finish();
-        let ModuleAssemblySections {
-            imports,
-            functions,
-            tables,
-            memories,
-            exports,
-            elements,
-            data,
-        } = sections;
-
-        module.section(&types);
-        module.section(&imports);
-        module.section(&functions);
-        if let Some(tables) = tables {
-            module.section(&tables);
-        }
-        if let Some(memories) = memories {
-            module.section(&memories);
-        }
-        module.section(&globals);
-        module.section(&exports);
-        if let Some(elements) = elements {
-            module.section(&elements);
-        }
-        module.section(&code);
-        if let Some(data) = data {
-            module.section(&data);
-        }
-
-        function_table
-    }
-}
-
-/// The non-runtime core sections that must be interleaved with one compiled
-/// runtime package according to Wasm's canonical section order.
-pub(crate) struct ModuleAssemblySections {
-    imports: ImportSection,
-    functions: FunctionSection,
-    tables: Option<TableSection>,
-    memories: Option<MemorySection>,
-    exports: ExportSection,
-    elements: Option<ElementSection>,
-    data: Option<DataSection>,
-}
-
-impl ModuleAssemblySections {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        imports: ImportSection,
-        functions: FunctionSection,
-        tables: Option<TableSection>,
-        memories: Option<MemorySection>,
-        exports: ExportSection,
-        elements: Option<ElementSection>,
-        data: Option<DataSection>,
-    ) -> Self {
-        Self {
-            imports,
-            functions,
-            tables,
-            memories,
-            exports,
-            elements,
-            data,
-        }
-    }
-}
-
-// These function-pointer assignments are compile-time lifecycle gates. Main
-// compilation and module assembly must consume their package states, while
-// adding the already-compiled internal bodies may only borrow the one compiled
-// package. A future edit that weakens those ownership transitions no longer
-// matches these function types and fails to compile.
-const _: for<'a> fn(
-    FinalizedModuleSections,
-    MainFunctionCompilation<'a>,
-) -> Result<CompiledModulePackage, EmitError> = FinalizedModuleSections::compile_main;
-const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>) =
-    CompiledModulePackage::append_remaining_functions;
-const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections) -> ModuleFunctionTable =
-    CompiledModulePackage::append_to_module;
-
-/// Single-use owner of the module type section.
-///
-/// Function signatures are appended here. The opaque runtime-GC registration
-/// operation borrows the same section once, so GC types follow those signatures
-/// without exposing their assigned indices back to module assembly.
-struct ModuleTypeSectionBuilder {
-    section: TypeSection,
-}
-
-impl ModuleTypeSectionBuilder {
-    fn new() -> Self {
-        Self {
-            section: TypeSection::new(),
-        }
-    }
-
-    fn function<P, R>(&mut self, params: P, results: R)
-    where
-        P: IntoIterator<Item = ValType>,
-        P::IntoIter: ExactSizeIterator,
-        R: IntoIterator<Item = ValType>,
-        R::IntoIter: ExactSizeIterator,
-    {
-        self.section.ty().function(params, results);
-    }
-
-    fn finish(self) -> TypeSection {
-        self.section
-    }
-}
-
-/// The sole construction path for the module global section.
-///
-/// The inner encoder is private and this wrapper is not a Wasm section. A
-/// caller must finish it through the type registry before the result can be
-/// attached to a module. Finalization both appends the GC root and creates the
-/// only matching runtime schema, which makes omission or a separately planned
-/// root index a compile error rather than an out-of-band convention.
-pub(crate) struct ModuleGlobalSectionBuilder {
-    section: GlobalSection,
-}
-
-impl ModuleGlobalSectionBuilder {
-    pub(crate) fn new() -> Self {
-        Self {
-            section: GlobalSection::new(),
-        }
-    }
-
-    pub(crate) fn global(&mut self, global_type: GlobalType, init_expr: &ConstExpr) -> &mut Self {
-        self.section.global(global_type, init_expr);
-        self
-    }
-
-    fn finish(self, runtime: RuntimeModuleTypes) -> FinalizedModuleGlobals {
-        runtime.finalize_globals(self.section)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct GlobalIndexSlot {
@@ -1142,6 +860,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
             Some(SHARED_ARRAY_BUFFER_CONSTRUCTOR_GLOBAL_INDEX)
         }
         StandardBuiltinId::DataViewConstructor => Some(DATA_VIEW_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::TypedArrayConstructor => Some(TYPED_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::DateConstructor => Some(DATE_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::TemporalInstantConstructor => {
             Some(TEMPORAL_INSTANT_CONSTRUCTOR_GLOBAL_INDEX)
@@ -2104,151 +1823,6 @@ pub(crate) const fn throw_error_message_global_index(uses_heap: bool) -> u32 {
     }
 }
 
-/// The two addresses by which the backend reaches one error prototype.
-///
-/// Keeping the global and per-realm locations in one row prevents the two
-/// independently-maintained maps from assigning an error kind to different
-/// prototypes. The exhaustive match is the authority: adding a
-/// `NativeErrorKind` without assigning both locations is a compile error.
-#[derive(Clone, Copy)]
-struct ErrorPrototypeLocation {
-    global_index: u32,
-    realm_offset: u64,
-}
-
-const fn error_prototype_location(kind: NativeErrorKind) -> ErrorPrototypeLocation {
-    let (global_index, realm_offset) = match kind {
-        NativeErrorKind::Error => (
-            ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_ERROR_PROTOTYPE_OFFSET,
-        ),
-        NativeErrorKind::EvalError => (
-            EVAL_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_EVAL_ERROR_PROTOTYPE_OFFSET,
-        ),
-        NativeErrorKind::RangeError => (
-            RANGE_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_RANGE_ERROR_PROTOTYPE_OFFSET,
-        ),
-        NativeErrorKind::ReferenceError => (
-            REFERENCE_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_REFERENCE_ERROR_PROTOTYPE_OFFSET,
-        ),
-        NativeErrorKind::SyntaxError => (
-            SYNTAX_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_SYNTAX_ERROR_PROTOTYPE_OFFSET,
-        ),
-        NativeErrorKind::TypeError => (
-            TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-        ),
-        NativeErrorKind::URIError => (
-            URI_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_URI_ERROR_PROTOTYPE_OFFSET,
-        ),
-        NativeErrorKind::AggregateError => (
-            AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
-        ),
-        NativeErrorKind::SuppressedError => (
-            SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
-            HEAP_FUNCTION_REALM_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
-        ),
-    };
-    ErrorPrototypeLocation {
-        global_index,
-        realm_offset,
-    }
-}
-
-pub(crate) const fn error_prototype_global_index(kind: NativeErrorKind) -> u32 {
-    error_prototype_location(kind).global_index
-}
-
-pub(crate) const fn error_realm_prototype_offset(kind: NativeErrorKind) -> u64 {
-    error_prototype_location(kind).realm_offset
-}
-
-pub(crate) fn error_realm_prototype_entries() -> [(NativeErrorKind, u32, u64); 9] {
-    NativeErrorKind::ALL.map(|kind| {
-        let location = error_prototype_location(kind);
-        (kind, location.global_index, location.realm_offset)
-    })
-}
-
-pub(crate) fn standard_builtin_prototype_global_index(builtin: StandardBuiltinId) -> Option<u32> {
-    match builtin {
-        StandardBuiltinId::ObjectConstructor => Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::FunctionConstructor => Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::PromiseConstructor => Some(PROMISE_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::MapConstructor => Some(MAP_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::WeakMapConstructor => Some(WEAK_MAP_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::WeakSetConstructor => Some(WEAK_SET_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::WeakRefConstructor => Some(WEAK_REF_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::FinalizationRegistryConstructor => {
-            Some(FINALIZATION_REGISTRY_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::AsyncDisposableStackConstructor => {
-            Some(ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::DisposableStackConstructor => {
-            Some(DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::SetConstructor => Some(SET_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::ArrayConstructor => Some(ARRAY_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::IteratorConstructor => Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::NumberConstructor => Some(NUMBER_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::StringConstructor => Some(STRING_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::BooleanConstructor => Some(BOOLEAN_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::SymbolConstructor => Some(SYMBOL_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::ErrorConstructor => Some(ERROR_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::EvalErrorConstructor => Some(EVAL_ERROR_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::AggregateErrorConstructor => {
-            Some(AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::SuppressedErrorConstructor => {
-            Some(SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::RangeErrorConstructor => Some(RANGE_ERROR_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::SyntaxErrorConstructor => Some(SYNTAX_ERROR_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::TypeErrorConstructor => Some(TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::URIErrorConstructor => Some(URI_ERROR_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::ReferenceErrorConstructor => {
-            Some(REFERENCE_ERROR_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::RegExpConstructor => Some(REGEXP_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::TemporalInstantConstructor => {
-            Some(TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::TemporalZonedDateTimeConstructor => {
-            Some(TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::TemporalPlainDateConstructor => {
-            Some(TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::TemporalDurationConstructor => {
-            Some(TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::TemporalPlainTimeConstructor => {
-            Some(TEMPORAL_PLAIN_TIME_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::TemporalPlainDateTimeConstructor => {
-            Some(TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::TemporalPlainYearMonthConstructor => {
-            Some(TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::TemporalPlainMonthDayConstructor => {
-            Some(TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_GLOBAL_INDEX)
-        }
-        StandardBuiltinId::IntlLocaleConstructor => Some(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX),
-        StandardBuiltinId::IntlDateTimeFormatConstructor => {
-            Some(INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX)
-        }
-        _ => None,
-    }
-}
-
 pub(crate) fn standard_builtin_function_global_index(builtin: StandardBuiltinId) -> Option<u32> {
     match builtin {
         StandardBuiltinId::FunctionPrototype => Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
@@ -2370,10 +1944,15 @@ mod tests {
     #[test]
     fn finalized_runtime_sections_have_one_unsplittable_assembly_surface() {
         let module_source = include_str!("module.rs");
+        let package_source = include_str!("module/compiled_module_package.rs");
         let emit_source = include_str!("emit.rs");
+        let module_production = module_source
+            .split_once("#[cfg(test)]")
+            .expect("module test boundary")
+            .0;
 
         assert_eq!(
-            module_source
+            package_source
                 .matches(concat!("pub(crate) fn append_", "to_module("))
                 .count(),
             1,
@@ -2387,12 +1966,13 @@ mod tests {
             concat!("impl FnOnce(&Finalized", "ModuleGlobals)"),
         ] {
             assert!(
-                !module_source.contains(rejected_surface),
+                !package_source.contains(rejected_surface),
                 "split package surface returned: {rejected_surface}"
             );
         }
-        assert!(module_source.contains("compilation.compile_into(&self.globals, &mut code)?"));
-        assert!(module_source.contains("CompiledModulePackage::append_remaining_functions;"));
+        assert!(package_source.contains("compilation.compile_into(&self.globals, &mut code)?"));
+        assert!(package_source.contains("CompiledModulePackage::append_remaining_functions;"));
+        assert!(!module_production.contains("struct CompiledModulePackage"));
         assert_eq!(
             emit_source
                 .matches("module_package.append_to_module(")

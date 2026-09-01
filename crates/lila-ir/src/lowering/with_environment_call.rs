@@ -43,11 +43,11 @@ impl<'a> ScriptLowerer<'a> {
         // storage/global Reference, but deliberately discard every pre-With
         // value/target fact and widen mutable compiler metadata before
         // lowering arguments, which execute after callee GetValue.
+        self.invalidate_unknown_user_code_effects();
         let fallback_callee = self.with_identifier_call_fallback(&name, fallback_reference);
-        let args = match self.lower_call_args_expanding_spread(source_args) {
-            Some(args) => args,
-            None => return Some(TypedExpr::undefined()),
-        };
+        let args = self
+            .lower_call_args_expanding_spread(source_args)
+            .into_arguments_without_predecessor();
         let fallback = TypedExpr::from_info(
             unknown_runtime_value_info(),
             ExprIr::CallIndirect {
@@ -57,7 +57,9 @@ impl<'a> ScriptLowerer<'a> {
                 static_regexp_compilation: None,
             },
         );
-        Some(plan.call(args, fallback))
+        let result = plan.call(args, fallback);
+        self.observe_unaccounted_invocation_effects(InvocationTargetProvenance::Erased);
+        Some(result)
     }
 
     /// Consume the already located fallback into a fresh run-time callee read.
@@ -87,7 +89,7 @@ impl<'a> ScriptLowerer<'a> {
                 BindingResolution::Uninitialized(violation) => violation.into_throw(),
                 BindingResolution::Initialized(binding) => {
                     if binding.mode != BindingMode::Const {
-                        self.set_binding_value_info(name, dynamic.clone());
+                        self.widen_binding_for_possible_replacement(name);
                     }
                     TypedExpr::from_info(dynamic, ExprIr::Identifier(binding.storage_name))
                 }
@@ -112,10 +114,10 @@ impl<'a> ScriptLowerer<'a> {
             binding.kind = dynamic.kind;
             binding.possible_kinds = dynamic.possible_kinds;
             binding.heap_shape = None;
-            binding.function_targets.clear();
+            binding.function_targets.widen_for_possible_replacement();
         }
         if let Some(property) = self.global_properties.get_mut(name) {
-            property.value_info = dynamic;
+            property.value_info.widen_for_possible_replacement();
             if property.configurable {
                 property.proven_present = false;
             }
@@ -150,7 +152,7 @@ mod tests {
             .expect("arguments must be lowered once");
         assert!(locate < args, "callee Reference must precede arguments");
         assert!(lowering.contains("ExprIr::GlobalIdentifierRead"));
-        assert!(lowering.contains("function_targets.clear()"));
+        assert!(lowering.contains("widen_for_possible_replacement()"));
         assert!(lowering.contains("this_arg: None"));
     }
 }

@@ -2582,7 +2582,6 @@ fn is_identifier_continue(ch: char) -> bool {
     is_identifier_start(ch) || ch.is_ascii_digit()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Test262VerdictCommand {
     Run,
     Shard,

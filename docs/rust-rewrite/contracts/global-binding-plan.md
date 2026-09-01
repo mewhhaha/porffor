@@ -69,6 +69,15 @@ descriptor payload directly. This applies even to a property that was fresh at
 instantiation because script code can subsequently make it non-writable. The
 cache therefore cannot retain a value rejected by the global object.
 
+The global object is also authoritative for every script-global read-modify-
+write. Arithmetic compound assignment therefore lowers to
+`GlobalPropertyCompoundAssign` in both the main script owner and nested
+functions; it never reads the main-frame cache and then mirrors a result. A
+nested call may have changed the property since the cache was populated, so a
+local-cache compound assignment would overwrite that change from a stale left
+operand. The IR regression pins both owners, and the ToLength abrupt-route CLI
+fixture supplies an end-to-end nested-callback counterexample.
+
 `AnnexBFunctionCopyTargetIr` makes its variable-environment destination
 explicit. A function-owned copy writes only an owner binding. A script-owned
 copy writes the planned script-global binding and uses the same mirror policy

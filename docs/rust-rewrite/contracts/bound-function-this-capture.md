@@ -45,10 +45,11 @@ The backend has exactly two current producers of its bound-function record:
    closure and captures the already-allocated Proxy as a known Object.
 
 A private, exhaustive `ExactBoundThisSource` domain owns those two cases. The
-raw `(payload, tag)` allocator is private to `functions.rs`; sibling modules
-can call only the two semantic entry points. Adding another bound-function
-producer therefore requires choosing how its exact `[[BoundThis]]` value is
-obtained rather than passing an arbitrary, possibly adapted pair.
+raw `(payload, tag)` allocator is private to
+`functions/bound_function_allocation.rs`; sibling modules can call only the two
+semantic entry points. Adding another bound-function producer therefore
+requires choosing how its exact `[[BoundThis]]` value is obtained rather than
+passing an arbitrary, possibly adapted pair.
 
 The private dispatcher reserves the payload/tag locals, materializes the
 selected source without conversion, calls the raw allocator, and releases the

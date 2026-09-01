@@ -376,7 +376,6 @@ pub(crate) struct LexicalScopeInstantiation {
 /// The push is therefore part of the constructor and the pop is
 /// [`LexicalScopeInstantiation::finish`], which consumes the token. A caller
 /// that pushes on its own now gets a frame it has no token to pop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InstantiatedFrame {
     /// The constructor pushed the declarative Environment Record the bindings
     /// live in, and `finish` pops it.
@@ -626,7 +625,7 @@ impl TdzViolation {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::RuntimeThrow {
                 name: error.kind(),
@@ -651,7 +650,7 @@ impl BindingInfo {
             kind: ValueKind::Dynamic,
             possible_kinds: KindSet::all_runtime_tags(),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::unknown(),
             initialization: Initialization::Uninitialized(UninitializedStorage::Placeholder),
         }
     }

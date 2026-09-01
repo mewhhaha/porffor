@@ -75,12 +75,14 @@ class field initializer cannot contain super call at line
 After the repair, that new raw message occurs exactly four times, all in the
 reviewed field arms. The later ordinary function expression/declaration lanes
 give two callable productions their own messages. The subsequent
-AsyncFunctionExpression and GeneratorExpression lanes give two more
-productions their own messages. On current head, `invalid super usage` occurs
-exactly three times across pinned `boa_parser`: the fixed-position Script
-producer, the shared generic declaration default and the async-generator-
-expression producer. The base-constructor, static-block and four separately
-typed function conditions retain their unique messages.
+AsyncFunctionExpression, GeneratorExpression, AsyncGeneratorExpression and
+AsyncFunctionDeclaration lanes give four more productions their own messages;
+the later GeneratorDeclaration lane gives the seventh function production its
+own message, and the AsyncGeneratorDeclaration lane gives the eighth its own
+message. On current head, `invalid super usage` occurs exactly once across
+pinned `boa_parser`, at the fixed-position Script producer. The
+base-constructor, static-block and eight separately typed function conditions
+retain their unique messages.
 
 ## Typed encoding and classifier safety
 
@@ -125,18 +127,18 @@ deferred base-constructor check, while the existing per-field
 check.
 
 A real failed Module parse crosses `module_parse_failure_diagnostic`, and a
-real rejected dependency crosses `ModuleSourceIr::Rejected` and `build_graph`
-without request rescanning. A valid dependency with `field = super.value`
-remains a parsed graph node.
+real rejected dependency remains a `ModuleSourceIr` whose retained parse is
+`ModuleParse::Rejected`; it crosses `build_graph` without request rescanning. A
+valid dependency with `field = super.value` remains a parsed graph node.
 
 ## Durable structural guard
 
 The shared super-producer source guard recursively inventories pinned Boa and
 requires:
 
-- exactly three remaining `invalid super usage` literals: the fixed Script
-  owner, shared declaration default and async-generator-expression owner, with
-  their common or direct parameter-start positions preserved;
+- exactly two remaining `invalid super usage` literals: the fixed Script owner
+  and shared declaration default, with their fixed or parameter-start positions
+  preserved;
 - exactly one ordinary-function-expression-specific message on its completed-
   node `Contains Super` branch;
 - exactly one ordinary-function-declaration-specific message selected by the
@@ -145,6 +147,12 @@ requires:
   `Contains Super` branch;
 - exactly one generator-expression-specific message on its completed-node
   `Contains Super` branch;
+- exactly one async-generator-expression-specific message on its completed-node
+  `Contains Super` branch;
+- exactly one async-function-declaration-specific message selected by the
+  shared callable-declaration predicate;
+- exactly one generator-declaration-specific message selected by the shared
+  callable-declaration predicate;
 - exactly four field-specific messages, all in `class_decl/mod.rs`;
 - exactly one match in each of the private, private-static, grouped-public and
   static-auto-accessor field arms;

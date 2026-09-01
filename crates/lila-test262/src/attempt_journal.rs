@@ -52,9 +52,11 @@
 //!   constructor is `admit` itself, and [`crate::run_case_entry`] accepts
 //!   nothing else. A worker therefore *cannot* run a case it did not admit:
 //!   "forgot to check the quarantine" is an E0603, not a silent re-attempt
-//!   loop. The earlier shape stopped at [`QueuedCase`], which closed the
-//!   queue-pop path but left `run_case_entry(&cases[0])` compiling from inside
-//!   the very worker closure that captures `cases`.
+//!   loop. The queue, admission result and admitted proof are non-cloneable,
+//!   and `run_case_entry` consumes that proof, so one admission cannot be used
+//!   for two attempts. The earlier shape stopped at [`QueuedCase`], which
+//!   closed the queue-pop path but left `run_case_entry(&cases[0])` compiling
+//!   from inside the very worker closure that captures `cases`.
 //!
 //! # Strikes are charged for a death and forgiven by a completion
 //!
@@ -170,7 +172,8 @@ const SERIAL: NonZeroUsize = match NonZeroUsize::new(1) {
 ///
 /// Non-zero by construction: a case with no strikes has no entry, so there is
 /// no `0` that some call site can read as "has strikes" or "is quarantined".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
 pub(crate) struct CaseStrikes(NonZeroU32);
 
 impl CaseStrikes {
@@ -179,7 +182,7 @@ impl CaseStrikes {
 
     /// The only way to read a persisted count back into the type. `None` means
     /// "no strikes", which is exactly what an absent journal entry means.
-    pub(crate) fn from_count(count: u32) -> Option<Self> {
+    fn from_count(count: u32) -> Option<Self> {
         NonZeroU32::new(count).map(Self)
     }
 
@@ -235,8 +238,9 @@ impl core::fmt::Display for CrashStrikeLimit {
 /// The inner `TestCase` is private, so the only way to get a runnable
 /// `TestCase` out of one is [`AttemptJournal::admit`] — which writes the
 /// journal entry first and may instead answer
-/// [`CaseAdmission::Quarantined`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// [`CaseAdmission::Quarantined`]. This authority is non-cloneable and is
+/// consumed by `admit`.
+#[derive(Debug)]
 pub(crate) struct QueuedCase(TestCase);
 
 /// A case that has been journalled and cleared to run.
@@ -246,8 +250,8 @@ pub(crate) struct QueuedCase(TestCase);
 /// and nothing else — cannot be reached with a case that was never admitted.
 /// That matters because the worker closure has the whole `&[TestCase]` in
 /// scope; before this type existed, `run_case_entry(.., &cases[0], ..)`
-/// compiled there.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// compiled there. The runner consumes this non-cloneable proof.
+#[derive(Debug)]
 pub(crate) struct AdmittedCase(TestCase);
 
 impl AdmittedCase {
@@ -263,8 +267,9 @@ impl AdmittedCase {
     }
 }
 
-/// The only value [`AttemptJournal::admit`] returns.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The only value [`AttemptJournal::admit`] returns. It is consumed by the
+/// worker's exhaustive run-versus-quarantine match.
+#[derive(Debug)]
 pub(crate) enum CaseAdmission {
     /// Journalled and cleared to run.
     Run(AdmittedCase),
@@ -302,8 +307,8 @@ struct AttemptJournalFile {
     /// this is empty; a non-empty list at startup *is* the record of a process
     /// death, and is the only thing that grants a strike.
     in_flight: Vec<InFlightAttempt>,
-    /// Accumulated strikes per execution id.
-    strikes: BTreeMap<TestExecutionId, u32>,
+    /// Accumulated non-zero strikes per execution id.
+    strikes: BTreeMap<TestExecutionId, CaseStrikes>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -465,16 +470,12 @@ impl AttemptJournal {
                     // slots somehow recorded the same path.
                     continue;
                 }
-                let previous = state
-                    .strikes
-                    .get(&attempt.test_id)
-                    .copied()
-                    .and_then(CaseStrikes::from_count);
+                let previous = state.strikes.get(&attempt.test_id).copied();
                 let strikes = match previous {
                     Some(previous) => previous.next(),
                     None => CaseStrikes::FIRST,
                 };
-                state.strikes.insert(attempt.test_id.clone(), strikes.get());
+                state.strikes.insert(attempt.test_id.clone(), strikes);
                 struck.push(StruckCase {
                     test_id: attempt.test_id,
                     strikes,
@@ -504,11 +505,7 @@ impl AttemptJournal {
                     case.execution_id
                 ));
             }
-            let strikes = state
-                .strikes
-                .get(&case.execution_id)
-                .copied()
-                .and_then(CaseStrikes::from_count);
+            let strikes = state.strikes.get(&case.execution_id).copied();
             if let Some(strikes) = strikes {
                 if self.limit.is_reached_by(strikes) {
                     return Ok(CaseAdmission::Quarantined {
@@ -617,7 +614,6 @@ impl AttemptJournal {
             .strikes
             .get(test_id)
             .copied()
-            .and_then(CaseStrikes::from_count)
     }
 
     /// The paths currently recorded as in flight, in journal order.
@@ -666,8 +662,9 @@ pub(crate) fn simulate_process_death_with_cases_in_flight(
 /// `completed_test_ids`, in `failures`, or in any outcome count. That is precisely
 /// the class of loss this module exists to end, and AGENTS.md ("Correctness
 /// Rules") bans it outright, so it is spelled as a type the value cannot take
-/// rather than a clamp somebody has to remember.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// rather than a clamp somebody has to remember. The phase is non-cloneable;
+/// `into_queue` consumes it to create the only production queue authorities.
+#[derive(Debug)]
 pub(crate) struct RunPhase {
     worker_count: NonZeroUsize,
     cases: Vec<TestCase>,
@@ -876,20 +873,21 @@ fn decode_current_journal(
             test_id,
         });
     }
-    let mut strikes = BTreeMap::new();
+    let mut admitted_strikes = BTreeMap::new();
     for (key, count) in wire.strikes.0 {
-        if count == 0 {
-            return Err(format!(
-                "current journal contains zero strikes for execution key `{key}`"
-            ));
-        }
+        let case_strikes = CaseStrikes::from_count(count).ok_or_else(|| {
+            format!("current journal contains zero strikes for execution key `{key}`")
+        })?;
         let test_id = TestExecutionId::parse_wire_key(&key)?;
         if !selected.contains(&test_id) {
             return Err(format!(
                 "current journal contains foreign strike execution {test_id}"
             ));
         }
-        if strikes.insert(test_id.clone(), count).is_some() {
+        if admitted_strikes
+            .insert(test_id.clone(), case_strikes)
+            .is_some()
+        {
             return Err(format!(
                 "current journal contains duplicate strike execution {test_id}"
             ));
@@ -902,7 +900,7 @@ fn decode_current_journal(
         execution_backend,
         selected_test_ids: selected,
         in_flight,
-        strikes,
+        strikes: admitted_strikes,
     })
 }
 
@@ -1048,6 +1046,39 @@ mod tests {
         let err = serde_json::from_str::<AttemptJournalWire>(raw)
             .expect_err("an unknown producer must not enter journal state");
         assert!(err.to_string().contains("unknown variant"));
+    }
+
+    #[test]
+    fn attempt_journal_persists_typed_strikes_as_numeric_counts() {
+        let path = journal_path("typed-strikes-serialize-as-counts");
+        let poison = case("poison.js");
+        let selected = [poison.clone()];
+        let journal_identity = identity(&selected);
+        simulate_process_death_with_cases_in_flight(
+            path.clone(),
+            journal_identity.clone(),
+            &selected,
+        )
+        .expect("seeded death should write the journal");
+
+        let journal = AttemptJournal::open(
+            path.clone(),
+            true,
+            CrashStrikeLimit::DEFAULT,
+            journal_identity,
+        );
+        journal
+            .charge_strikes_for_survivors()
+            .expect("charging should persist one typed strike");
+
+        let persisted: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(path).expect("attempt journal should be readable"),
+        )
+        .expect("attempt journal should remain valid JSON");
+        assert_eq!(
+            persisted["strikes"][poison.execution_id.wire_key()],
+            serde_json::json!(1)
+        );
     }
 
     #[test]

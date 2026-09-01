@@ -6,4 +6,6 @@
 *.exe
 
 .claude
+node_modules/
+pnpm-lock.yaml
 target/

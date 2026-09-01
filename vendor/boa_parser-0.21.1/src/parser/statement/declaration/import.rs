@@ -24,6 +24,7 @@ use boa_ast::{
         ImportAttribute as AstImportAttribute, ImportDeclaration as AstImportDeclaration,
         ImportKind, ImportPhase, ModuleRequest as AstModuleRequest,
         ImportSpecifier as AstImportSpecifier, ModuleSpecifier,
+        ReExportRequest as AstReExportRequest,
     },
     expression::Identifier,
 };
@@ -107,8 +108,12 @@ where
                 let module_identifier = *module_identifier;
 
                 cursor.advance(interner);
-                let request =
-                    parse_import_request(cursor, interner, ModuleSpecifier::new(module_identifier), ImportPhase::Evaluation)?;
+                let request = parse_module_request(
+                    cursor,
+                    interner,
+                    ModuleSpecifier::new(module_identifier),
+                    ImportPhase::Evaluation,
+                )?;
                 cursor.expect_semicolon("import declaration", interner)?;
 
                 return Ok(AstImportDeclaration::new(
@@ -253,7 +258,7 @@ where
         };
 
         let module_identifier = FromClause::new("import declaration").parse(cursor, interner)?;
-        let request = parse_import_request(
+        let request = parse_module_request(
             cursor,
             interner,
             module_identifier,
@@ -264,12 +269,31 @@ where
     }
 }
 
-fn parse_import_request<R: ReadChar>(
+fn parse_module_request<R: ReadChar>(
     cursor: &mut Cursor<R>,
     interner: &mut Interner,
     specifier: ModuleSpecifier,
     phase: ImportPhase,
 ) -> ParseResult<AstModuleRequest> {
+    let attributes = parse_module_request_attributes(cursor, interner)?;
+    Ok(AstModuleRequest::with_phase_and_attributes(
+        specifier, phase, attributes,
+    ))
+}
+
+pub(super) fn parse_re_export_request<R: ReadChar>(
+    cursor: &mut Cursor<R>,
+    interner: &mut Interner,
+    specifier: ModuleSpecifier,
+) -> ParseResult<AstReExportRequest> {
+    let attributes = parse_module_request_attributes(cursor, interner)?;
+    Ok(AstReExportRequest::new(specifier, attributes))
+}
+
+fn parse_module_request_attributes<R: ReadChar>(
+    cursor: &mut Cursor<R>,
+    interner: &mut Interner,
+) -> ParseResult<Box<[AstImportAttribute]>> {
     let mut attributes = Vec::new();
 
     if let Some(token) = cursor.peek(0, interner)?
@@ -366,11 +390,7 @@ fn parse_import_request<R: ReadChar>(
         }
     }
 
-    Ok(AstModuleRequest::with_phase_and_attributes(
-        specifier,
-        phase,
-        attributes.into_boxed_slice(),
-    ))
+    Ok(attributes.into_boxed_slice())
 }
 
 /// Parses an imported binding

@@ -1,0 +1,59 @@
+const OBJECT_PARENT: &str = include_str!("../src/builtins/object.rs");
+const OWNER: &str = include_str!("../src/builtins/object/assign.rs");
+const STANDARD: &str = include_str!("../src/builtins/standard.rs");
+const CONTRACT: &str = include_str!("../../../docs/rust-rewrite/contracts/object-assign-owner.md");
+const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
+const T10: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
+
+#[test]
+fn object_assign_has_one_private_module_owner() {
+    assert_eq!(OBJECT_PARENT.matches("mod assign;").count(), 1);
+    assert!(!OBJECT_PARENT.contains("pub mod assign;"));
+    assert!(!OBJECT_PARENT.contains("compile_object_assign_builtin("));
+    assert_eq!(
+        OWNER
+            .matches("pub(in crate::builtins) fn compile_object_assign_builtin(")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn fixed_dispatcher_entry_is_the_only_external_call() {
+    assert_eq!(STANDARD.matches("ObjectAssign =>").count(), 1);
+    assert_eq!(
+        STANDARD
+            .matches("self.compile_object_assign_builtin(function)?")
+            .count(),
+        1
+    );
+    assert!(!STANDARD.contains("object::assign::"));
+}
+
+#[test]
+fn complete_assign_compiler_family_moved_together() {
+    assert_eq!(OWNER.matches("impl<'a> FunctionBuilder<'a> {").count(), 1);
+    assert_eq!(OWNER.matches("Result<(), EmitError>").count(), 1);
+    assert_eq!(OWNER.matches("        Ok(())").count(), 1);
+    for marker in [
+        "StandardBuiltinId::ReflectOwnKeys.function_id()",
+        "StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id()",
+        "StandardBuiltinId::ReflectSet.function_id()",
+        "self.emit_object_own_data_field_read(",
+        "self.emit_property_key_payload_from_value_local(",
+        "self.emit_object_read_with_key_tag(",
+    ] {
+        assert!(OWNER.contains(marker), "missing compiler marker `{marker}`");
+    }
+    assert!(OWNER.contains("Object.assign called on null or undefined"));
+    assert!(!OBJECT_PARENT.contains("Object.assign called on null or undefined"));
+}
+
+#[test]
+fn owner_evidence_records_scope_and_nonclaim() {
+    for evidence in [CONTRACT, T02, T10] {
+        assert!(evidence.contains("object/assign.rs"));
+        assert!(evidence.contains("source-equivalent"));
+        assert!(evidence.contains("no new Object behavior"));
+    }
+}

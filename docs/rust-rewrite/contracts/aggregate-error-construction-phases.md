@@ -64,6 +64,13 @@ not a raw `usize`; neither caller may recover the index and pass it through a
 second untyped entry. `SuppressedError` has no `options` or `cause` step and is
 not a member of this domain.
 
+The role has no derived clone, copy, debug or equality capabilities, and its
+index projection consumes it. A second consuming observation therefore fails
+to compile. The lexical structure guard additionally rejects borrowed or
+recomputed observations, aliases, casts and raw-index bypasses while pinning
+the complete cause installer. This is a source-equivalent ownership hardening;
+the emitted argument reads and abrupt-completion order are unchanged.
+
 The two message-constructor branches must both pass `MessageError`. The one
 AggregateError preparation phase must pass `AggregateError`. A new
 cause-installing signature therefore requires an explicit variant and an
@@ -72,10 +79,15 @@ exhaustive projection update.
 ## Prepared AggregateError lifecycle
 
 The AggregateError arm must not expose an allocator that can install `errors`
-before cause. One private, non-`Copy`, `#[must_use]`
-`PreparedAggregateErrorLocal` means that the specification-specific prefix for
-one AggregateError origin has completed and the object is ready for its
-`errors` property.
+before cause. The private `builtins/errors/aggregate_error_preparation.rs`
+owner contains one non-`Copy`, `#[must_use]` `PreparedAggregateErrorLocal`.
+Its three methods are visible only to the parent error family, while the
+carrier's object field, both raw constructions and its consuming projection
+remain private to the child. The parent and Promise.any sibling may pass the
+inferred carrier between those methods, but cannot name, import, re-export,
+construct or project it. Holding the carrier means that the
+specification-specific prefix for one AggregateError origin has completed and
+the object is ready for its `errors` property.
 
 The constructor producer returns the token only after exactly this prefix has
 been emitted:
@@ -88,11 +100,12 @@ been emitted:
 The constructor's errors iterator is consumed only after that producer returns.
 
 A second private producer exists only for `PerformPromiseAny`. It allocates the
-object with the intrinsic AggregateError prototype and installs the Error
-brand, but deliberately performs no message or cause operation because the
-Promise algorithm specifies neither. A narrowly named crate-visible wrapper
-keeps that token private, immediately sends it to the same consuming finalizer,
-and has exactly the two Promise.any callers required by the standard: the
+object with the selected AggregateError prototype and installs the Error brand,
+but deliberately performs no message or cause operation because the Promise
+algorithm specifies neither. A narrowly named builtins-visible wrapper
+consumes the allocation context, keeps the prepared token private, immediately
+sends it to the same consuming finalizer, then releases the context prototype.
+It has exactly the two Promise.any callers required by the standard: the
 empty/exhausted input path and the last reject-element path.
 
 The sole finalizer takes ownership of either prepared token, defines `errors`,
@@ -127,9 +140,14 @@ cause-options domain, the prepared-prefix producer and the consuming finalizer.
 It must pin:
 
 - exactly the two options-role variants and an exhaustive one/two projection;
+- exactly six source-wide role identifiers, two local-role identifiers and the
+  three typed producers in their exact constructor branches, with no derived
+  or manual capabilities;
 - a typed cause-installer signature with no raw options index;
 - exactly two `MessageError` callers and one `AggregateError` caller;
 - a private, must-use, non-`Copy` prepared token with one object-local field;
+- one private preparation child with no import or re-export, sole carrier,
+  construction, projection and method ownership;
 - exactly two private token producers and one consuming finalizer;
 - one allocation and Error-brand write in each producer;
 - optional message conversion/definition before cause installation;
@@ -143,6 +161,22 @@ It must pin:
 
 The guard checks compiler structure, not runtime behavior. It should normalize
 whitespace only around exact wiring sentinels and avoid a broad source snapshot.
+
+The source-equivalent owner move selected the exact four-line carrier block at
+SHA-256
+`59ab0448985ad9c7999915fdec43a0d61fdb5515c4eca589644fc8e53b15d5fd`
+and the exact 109-line method block at SHA-256
+`8e329e9650c12ffc058d579336106ab0697bb75936e8ef63ee76d1924291c337`.
+Their combined 113 selected lines retain SHA-256
+`c088d2a5a86fb16727fb262bae571a421a54f0f0247d2df25f03e55064af5e63`.
+The resulting 118-line child has SHA-256
+`575af1e9b93d451beea17409ada96654d169668747f91432a8161a834d96490e`,
+and the parent decreases from 1,557 to 1,443 lines. Method and caller bodies are
+unchanged; only module indentation and the parent-facing `pub(super)` spelling
+were added. The recursive AggregateError structure target passes `3/3`; the
+module-boundary, task-plan, focused formatting and diff audits are green. The
+shared `cargo xc` checkpoint and exact constructor-properties CLI control pass.
+Semantic goldens were not rerun for this source-equivalent extraction.
 
 ## Focused runtime evidence
 
@@ -168,6 +202,7 @@ cargo test -p lila-aot-wasm \
 cargo test -p lila-aot-wasm --lib \
   tests::error_prototype_to_string_has_typed_ordered_observable_phases -- \
   --exact --test-threads=1
+cargo test -p lila-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_error_constructor_properties_fixture
 cargo test -p lila-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_aggregateerror_constructor_properties_fixture
 cargo test -p lila-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_aggregateerror_iterable_to_list_fixture
 ./target/debug/lila --jobs 1 test262 run built-ins/AggregateError/cause-property.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
@@ -184,7 +219,8 @@ eight-core and 22 GB resource cap. `cargo fmt --all -- --check`, `cargo xc` and
 `3/3`, and the existing exact
 `error_prototype_to_string_has_typed_ordered_observable_phases` library witness
 passes `1/1`. The constructor-properties and iterable-to-list CLI fixtures each
-pass `1/1`. Each of the four AggregateError and two Promise.any current-pin
+pass `1/1`; the Error constructor-properties ownership control also passes
+`1/1`. Each of the four AggregateError and two Promise.any current-pin
 Test262 leaves above passes its ordinary sloppy and strict variants, for `12/12`
 Wasm-AOT executions with every failure bucket at zero under
 `--jobs 1 --threads 1`.

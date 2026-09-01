@@ -31,7 +31,7 @@ parser errors and are boundary evidence, not claimed conformance delta.
 
 ## Closed head domain
 
-The three existing for-of statement shapes do not share a loose `(mode, name)`
+The two direct for-of statement shapes do not share a loose `(mode, name)`
 pair. Their heads use this closed split:
 
 ```rust
@@ -45,24 +45,33 @@ ForOfIteratorHeadIr::Assignment {
 ForOfIteratorHeadIr::SyncDisposable(SyncDisposableForOfHeadIr)
 ```
 
-`StatementIr::ForOfArray` and `StatementIr::ForOfString` accept only
-`ForOfAssignmentIr`. `StatementIr::ForOfIterator` accepts the exhaustive
-`ForOfIteratorHeadIr`. `SyncDisposableForOfHeadIr` has one private
+`StatementIr::ForOfIterator` accepts the exhaustive `ForOfIteratorHeadIr`, and
+all direct synchronous Array and String heads now use that generic statement.
+`SyncDisposableForOfHeadIr` has one private
 `binding_name` field, one crate-private constructor, and a read-only accessor.
 It contains no mode, vector, pattern, initializer, disposal-kind Boolean, or
 async plan. The only producer therefore means exactly one immutable synchronous
 resource binding.
 
-This split is load-bearing. A future lowerer cannot put a synchronous resource
-head on the array or string index-walk specialization: doing so is an `E0308`
-type error. A backend consumer of the generic iterator must exhaustively choose
-ordinary assignment or synchronous acquisition/disposal. The ordinary variant
+This split is load-bearing. The IR has no direct synchronous Array or String
+walk variant on which a future lowerer could place a resource head. A backend
+consumer of the generic iterator must exhaustively choose ordinary assignment
+or synchronous acquisition/disposal. The ordinary variant
 owns both its optional async plan and its protocol witness. The synchronous
 variant owns neither, so pairing it with an async plan or async protocol is not
 constructible. Its sole lowering path supplies
 `IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL` to `ForOfLoweringIr`.
 `for-await-of` remains a different unsupported source form rather than an
 optional flag on the resource head.
+
+Because the synchronous resource head shares `compile_for_of_iterator` with
+ordinary assignment heads, its source `@@iterator` and cached `next` methods
+now use general `IsCallable` and Proxy-aware `Call`. Callable Proxies receive
+the original iterable or iterator with no arguments. Their apply-trap and
+revoked-Proxy completions propagate before resource acquisition and do not
+enter IteratorClose. The source-kind-independent runtime witness uses an
+ordinary assignment head; the bounded owner guard also covers the synchronous
+resource-head route.
 
 ## Environment and head evaluation
 
@@ -115,9 +124,9 @@ An unlabelled continue or a continue targeting this loop therefore disposes the
 current resource and advances without closing the iterator. A continue targeting
 an outer loop, break, return, body throw, acquisition failure, or disposer throw
 is abrupt for this loop and reaches IteratorClose. Disposal happens first, so a
-disposer error is the completion supplied to IteratorClose. Array and string
-index walks are deliberately unavailable to this head, keeping that ordering on
-the one generic protocol path.
+disposer error is the completion supplied to IteratorClose. Direct synchronous
+Array and String iteration have no specialized walk statement, keeping this
+ordering on the generic protocol path.
 
 The enclosing label still targets the direct `ForOfIterator` statement. No
 synthetic outer Block or body-only disposal scope may take ownership of its

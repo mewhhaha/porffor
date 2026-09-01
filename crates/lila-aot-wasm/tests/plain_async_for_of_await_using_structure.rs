@@ -127,9 +127,9 @@ fn ir_head_makes_the_repeating_async_capability_and_iterator_record_indivisible(
     assert!(!async_head.contains("async_plan"));
     assert!(!async_head.contains("protocol"));
 
-    let statements = bounded(IR_SOURCE, "    ForOfArray {", "    ForInArray {");
-    assert_eq!(statements.matches("head: ForOfAssignmentIr").count(), 2);
-    let iterator = bounded(statements, "    ForOfIterator {", "    },");
+    assert!(!IR_SOURCE.contains("    ForOfArray {"));
+    assert!(!IR_SOURCE.contains("    ForOfString {"));
+    let iterator = bounded(IR_SOURCE, "    ForOfIterator {", "    ForInArray {");
     assert!(iterator.contains("head: ForOfIteratorHeadIr"));
     assert!(!iterator.contains("async_plan:"));
     assert!(!iterator.contains("protocol:"));
@@ -267,8 +267,8 @@ fn lowering_holds_the_iterator_roles_until_the_body_has_allocated_source_states(
         lower
             .matches("&& head_kind == LoweredForOfHeadKind::Assignment")
             .count(),
-        2,
-        "Array and String specializations must reject resource heads"
+        0,
+        "ordinary for-of heads must not select an iterator-protocol bypass"
     );
 
     assert!(IR_TEST_SOURCE

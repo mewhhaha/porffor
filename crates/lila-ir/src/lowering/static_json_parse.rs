@@ -1,42 +1,95 @@
 use super::*;
 
+#[must_use = "a prepared static JSON.parse reviver must be emitted or rejected"]
+pub(super) struct PreparedStaticJsonParseReviver {
+    parsed_value: JsonStaticValueIr,
+}
+
 impl<'a> ScriptLowerer<'a> {
-    pub(super) fn try_lower_static_json_parse_reviver(
-        &mut self,
+    pub(super) fn prepare_static_json_parse_reviver(
+        &self,
         function_id: &FunctionId,
-        args: &[TypedExpr],
-    ) -> Option<ExprIr> {
+        arguments: &[Expression],
+    ) -> Option<PreparedStaticJsonParseReviver> {
         if StandardBuiltinId::from_function_id(function_id)? != StandardBuiltinId::JsonParse {
             return None;
         }
-        if args.len() != 2 {
+        if arguments.len() != 2 {
             return None;
         }
-        if !args[1]
+        if arguments
+            .iter()
+            .any(|argument| matches!(argument, Expression::Spread(_)))
+        {
+            return None;
+        }
+        let input = self.static_string_expression(&arguments[0]).or_else(|| {
+            if !self.with_environment_chain.is_empty() {
+                return None;
+            }
+            let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(&arguments[0])
+            else {
+                return None;
+            };
+            let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let binding = self.lookup_binding(&name)?;
+            if binding.initialization != Initialization::Initialized
+                || binding.possible_kinds != KindSet::from_kind(ValueKind::String)
+            {
+                return None;
+            }
+            let mutable_binding_may_be_reobserved = binding.mode != BindingMode::Const
+                && (self.loop_depth > 0
+                    || self
+                        .captured_binding_positions
+                        .contains_key(&binding.storage_name));
+            if mutable_binding_may_be_reobserved {
+                return None;
+            }
+            self.static_string_bindings.get(&binding).cloned()
+        })?;
+        let parsed_value = JsonStaticParser::new(&input).parse()?;
+        Some(PreparedStaticJsonParseReviver { parsed_value })
+    }
+
+    pub(super) fn finish_static_json_parse_reviver(
+        &self,
+        prepared: PreparedStaticJsonParseReviver,
+        callee: &TypedExpr,
+        arguments: &[TypedExpr],
+    ) -> Option<TypedExpr> {
+        let [input, reviver] = arguments else {
+            panic!(
+                "prepared static JSON.parse expected 2 lowered arguments, got {}",
+                arguments.len()
+            );
+        };
+        if input.possible_kinds != KindSet::from_kind(ValueKind::String) {
+            return None;
+        }
+        if !reviver
             .possible_kinds
             .is_subset_of(KindSet::from_kind(ValueKind::Function))
         {
             return None;
         }
-        let input = self.static_json_parse_input(&args[0])?;
-        let parsed_value = JsonStaticParser::new(&input).parse()?;
-        if self.known_json_parse_reviver_targets(args).is_empty() {
+        if self.known_json_parse_reviver_targets(arguments).is_empty() {
             return None;
         }
-        Some(ExprIr::JsonParseStaticReviver {
-            value: parsed_value,
-            reviver: Box::new(args[1].clone()),
-        })
-    }
-
-    fn static_json_parse_input(&self, arg: &TypedExpr) -> Option<String> {
-        match &arg.expr {
-            ExprIr::String(input) => Some(input.clone()),
-            ExprIr::Identifier(name) | ExprIr::GlobalPropertyRead { name } => {
-                self.static_string_bindings.get(name).cloned()
-            }
-            _ => None,
-        }
+        Some(TypedExpr::from_info(
+            ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::all_runtime_tags(),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::unknown(),
+            },
+            ExprIr::JsonParseStaticReviver {
+                callee: Box::new(callee.clone()),
+                input: Box::new(input.clone()),
+                value: prepared.parsed_value,
+                reviver: Box::new(reviver.clone()),
+            },
+        ))
     }
 }
 

@@ -257,13 +257,38 @@ const _: () = {
     }
 };
 
+/// The property and `auto` policy for `GetTemporalUnitValuedOption`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TemporalUnitOptionProperty {
+    LargestUnit,
+    SmallestUnit,
+    Unit,
+}
+
+impl TemporalUnitOptionProperty {
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            TemporalUnitOptionProperty::LargestUnit => "largestUnit",
+            TemporalUnitOptionProperty::SmallestUnit => "smallestUnit",
+            TemporalUnitOptionProperty::Unit => "unit",
+        }
+    }
+
+    pub(crate) const fn allows_auto(self) -> bool {
+        match self {
+            TemporalUnitOptionProperty::LargestUnit => true,
+            TemporalUnitOptionProperty::SmallestUnit | TemporalUnitOptionProperty::Unit => false,
+        }
+    }
+}
+
 /// What a `GetTemporalUnitValuedOption` read can produce. The reader is the one
 /// place a JS string becomes a unit; every consumer downstream takes the code
 /// this produces.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum TemporalUnitSlot {
     Unit(TemporalUnit),
-    /// `"auto"`, accepted only where the reader was called with `allow_auto`.
+    /// `"auto"`, accepted only for [`TemporalUnitOptionProperty::LargestUnit`].
     Auto,
     /// The property was absent.
     Unset,
@@ -416,6 +441,18 @@ pub(crate) trait StringValuedOption: Copy + 'static {
     const ALLOWED: &'static [Self];
     fn name(self) -> &'static str;
     fn code(self) -> i64;
+}
+
+/// Whether a `ToTemporal*` conversion owns an observable `overflow` options
+/// read.
+///
+/// `Read` carries the only local pair the conversion may observe. `Omit`
+/// carries no placeholder locals, so an internal conversion cannot
+/// accidentally read a dummy or unrelated options value.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum TemporalConversionOverflowOptions {
+    Read { payload_local: u32, tag_local: u32 },
+    Omit,
 }
 
 /// `GetTemporalOverflowOption`. One definition for all seven Temporal types.

@@ -1,6 +1,36 @@
 use super::super::*;
 use crate::functions::NewTargetPrototypeFallback;
 
+enum FinalizationRegistryTypeError {
+    ConstructorRequiresNew,
+    CleanupCallbackNotCallable,
+    TargetCannotBeHeldWeakly,
+    TargetMatchesHoldings,
+    UnregisterTokenCannotBeHeldWeakly,
+    ReceiverMissingCells,
+}
+
+impl FinalizationRegistryTypeError {
+    fn message(self) -> &'static str {
+        match self {
+            Self::ConstructorRequiresNew => "FinalizationRegistry constructor requires new",
+            Self::CleanupCallbackNotCallable => {
+                "FinalizationRegistry cleanup callback is not callable"
+            }
+            Self::TargetCannotBeHeldWeakly => "FinalizationRegistry target cannot be held weakly",
+            Self::TargetMatchesHoldings => {
+                "FinalizationRegistry target and holdings must not be the same value"
+            }
+            Self::UnregisterTokenCannotBeHeldWeakly => {
+                "FinalizationRegistry unregister token cannot be held weakly"
+            }
+            Self::ReceiverMissingCells => {
+                "FinalizationRegistry method receiver does not have [[Cells]]"
+            }
+        }
+    }
+}
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_finalization_registry_constructor(
         &mut self,
@@ -26,7 +56,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_finalization_registry_type_error(
-            "FinalizationRegistry constructor requires new",
+            FinalizationRegistryTypeError::ConstructorRequiresNew,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -45,7 +75,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_finalization_registry_type_error(
-            "FinalizationRegistry cleanup callback is not callable",
+            FinalizationRegistryTypeError::CleanupCallbackNotCallable,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -161,7 +191,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_finalization_registry_type_error(
-            "FinalizationRegistry target cannot be held weakly",
+            FinalizationRegistryTypeError::TargetCannotBeHeldWeakly,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -176,7 +206,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_finalization_registry_type_error(
-            "FinalizationRegistry target and holdings must not be the same value",
+            FinalizationRegistryTypeError::TargetMatchesHoldings,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -190,7 +220,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_finalization_registry_type_error(
-            "FinalizationRegistry unregister token cannot be held weakly",
+            FinalizationRegistryTypeError::UnregisterTokenCannotBeHeldWeakly,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -251,8 +281,33 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Add);
             function.instruction(&Instruction::LocalSet(indexed_cell_local));
         }
+        self.load_i64_to_local_from_offset(
+            old_cell_local,
+            HEAP_FINALIZATION_REGISTRY_CELL_STATE_OFFSET,
+            copied_value_local,
+            function,
+        );
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        for cell_state in FinalizationRegistryCellState::ALL {
+            function.instruction(&Instruction::LocalGet(copied_value_local));
+            function.instruction(&Instruction::I64Const(cell_state.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            match cell_state {
+                FinalizationRegistryCellState::Vacant | FinalizationRegistryCellState::Occupied => {
+                    self.store_finalization_registry_cell_state(
+                        new_cell_local,
+                        cell_state,
+                        function,
+                    );
+                }
+            }
+            function.instruction(&Instruction::Br(1));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
         for offset in [
-            HEAP_FINALIZATION_REGISTRY_CELL_PRESENT_OFFSET,
             HEAP_FINALIZATION_REGISTRY_CELL_TARGET_TAG_OFFSET,
             HEAP_FINALIZATION_REGISTRY_CELL_TARGET_PAYLOAD_OFFSET,
             HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET,
@@ -299,10 +354,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(cell_local));
-        self.store_i64_const_at_offset(
+        self.store_finalization_registry_cell_state(
             cell_local,
-            HEAP_FINALIZATION_REGISTRY_CELL_PRESENT_OFFSET,
-            1,
+            &FinalizationRegistryCellState::Occupied,
             function,
         );
         for (offset, value_local) in [
@@ -380,7 +434,7 @@ impl<'a> FunctionBuilder<'a> {
         let cells_len_local = self.reserve_temp_local();
         let index_local = self.reserve_temp_local();
         let cell_local = self.reserve_temp_local();
-        let present_local = self.reserve_temp_local();
+        let cell_state_local = self.reserve_temp_local();
         let stored_token_payload_local = self.reserve_temp_local();
         let stored_token_tag_local = self.reserve_temp_local();
 
@@ -390,7 +444,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_finalization_registry_type_error(
-            "FinalizationRegistry unregister token cannot be held weakly",
+            FinalizationRegistryTypeError::UnregisterTokenCannotBeHeldWeakly,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -429,53 +483,63 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(cell_local));
         self.load_i64_to_local_from_offset(
             cell_local,
-            HEAP_FINALIZATION_REGISTRY_CELL_PRESENT_OFFSET,
-            present_local,
+            HEAP_FINALIZATION_REGISTRY_CELL_STATE_OFFSET,
+            cell_state_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            cell_local,
-            HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET,
-            stored_token_tag_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            cell_local,
-            HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET,
-            stored_token_payload_local,
-            function,
-        );
-        self.emit_tagged_payload_same_value_i32(
-            stored_token_tag_local,
-            stored_token_payload_local,
-            token_tag_local,
-            token_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            cell_local,
-            HEAP_FINALIZATION_REGISTRY_CELL_PRESENT_OFFSET,
-            0,
-            function,
-        );
-        for offset in [
-            HEAP_FINALIZATION_REGISTRY_CELL_TARGET_TAG_OFFSET,
-            HEAP_FINALIZATION_REGISTRY_CELL_TARGET_PAYLOAD_OFFSET,
-            HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET,
-            HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_PAYLOAD_OFFSET,
-            HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET,
-            HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET,
-        ] {
-            self.store_i64_const_at_offset(cell_local, offset, 0, function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        for cell_state in FinalizationRegistryCellState::ALL {
+            function.instruction(&Instruction::LocalGet(cell_state_local));
+            function.instruction(&Instruction::I64Const(cell_state.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            match cell_state {
+                FinalizationRegistryCellState::Vacant => {}
+                FinalizationRegistryCellState::Occupied => {
+                    self.load_i64_to_local_from_offset(
+                        cell_local,
+                        HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET,
+                        stored_token_tag_local,
+                        function,
+                    );
+                    self.load_i64_to_local_from_offset(
+                        cell_local,
+                        HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET,
+                        stored_token_payload_local,
+                        function,
+                    );
+                    self.emit_tagged_payload_same_value_i32(
+                        stored_token_tag_local,
+                        stored_token_payload_local,
+                        token_tag_local,
+                        token_payload_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.store_finalization_registry_cell_state(
+                        cell_local,
+                        &FinalizationRegistryCellState::Vacant,
+                        function,
+                    );
+                    for offset in [
+                        HEAP_FINALIZATION_REGISTRY_CELL_TARGET_TAG_OFFSET,
+                        HEAP_FINALIZATION_REGISTRY_CELL_TARGET_PAYLOAD_OFFSET,
+                        HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET,
+                        HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_PAYLOAD_OFFSET,
+                        HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET,
+                        HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET,
+                    ] {
+                        self.store_i64_const_at_offset(cell_local, offset, 0, function);
+                    }
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(self.result_local));
+                    function.instruction(&Instruction::End);
+                }
+            }
+            function.instruction(&Instruction::Br(1));
+            function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::I64Const(1));
@@ -487,7 +551,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(stored_token_tag_local);
         self.release_temp_local(stored_token_payload_local);
-        self.release_temp_local(present_local);
+        self.release_temp_local(cell_state_local);
         self.release_temp_local(cell_local);
         self.release_temp_local(index_local);
         self.release_temp_local(cells_len_local);
@@ -496,6 +560,20 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(token_payload_local);
         self.release_temp_local(registry_record_local);
         Ok(())
+    }
+
+    fn store_finalization_registry_cell_state(
+        &mut self,
+        cell_local: u32,
+        state: &FinalizationRegistryCellState,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            cell_local,
+            HEAP_FINALIZATION_REGISTRY_CELL_STATE_OFFSET,
+            state.word(),
+            function,
+        );
     }
 
     fn emit_finalization_registry_record_from_receiver(
@@ -513,7 +591,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_finalization_registry_type_error(
-            "FinalizationRegistry method receiver does not have [[Cells]]",
+            FinalizationRegistryTypeError::ReceiverMissingCells,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -530,7 +608,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_finalization_registry_type_error(
-            "FinalizationRegistry method receiver does not have [[Cells]]",
+            FinalizationRegistryTypeError::ReceiverMissingCells,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -549,11 +627,11 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_finalization_registry_type_error(
         &mut self,
-        message: &'static str,
+        error: FinalizationRegistryTypeError,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_throw_current_function_realm_type_error(
-            message,
+            error.message(),
             self.result_local,
             self.result_tag_local,
             function,
@@ -561,4 +639,27 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         Ok(())
     }
+}
+
+macro_rules! finalization_registry_cell_state_domain {
+    ($($variant:ident = $word:literal),+ $(,)?) => {
+        enum FinalizationRegistryCellState {
+            $($variant),+
+        }
+
+        impl FinalizationRegistryCellState {
+            const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            const fn word(&self) -> u64 {
+                match self {
+                    $(Self::$variant => $word),+
+                }
+            }
+        }
+    };
+}
+
+finalization_registry_cell_state_domain! {
+    Vacant = 0,
+    Occupied = 1,
 }

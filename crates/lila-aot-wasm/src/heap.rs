@@ -1,5 +1,146 @@
 use lila_ir::ValueKind;
 
+#[cfg(test)]
+use super::heap_async_disposable_stack_entry_layout::{
+    AsyncDisposableStackEntryHeapSlot, HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_async_disposable_stack_record_layout::{
+    AsyncDisposableStackRecordHeapSlot, HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_async_generator_object_layout::{
+    AsyncGeneratorObjectHeapSlot, HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_atomics_async_waiter_layout::{
+    AtomicsAsyncWaiterHeapSlot, HEAP_ATOMICS_ASYNC_WAITER_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_bigint_layout::{BigIntHeapSlot, HEAP_BIGINT_LAYOUT};
+#[cfg(test)]
+use super::heap_bound_function_layout::{BoundFunctionHeapSlot, HEAP_BOUND_FUNCTION_LAYOUT};
+#[cfg(test)]
+use super::heap_class_function_context_layout::{
+    ClassFunctionContextHeapSlot, HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_collector_phases::{RequiredHeapCollectorPhase, REQUIRED_HEAP_COLLECTOR_PHASES};
+#[cfg(test)]
+use super::heap_collector_policy::HeapCollectorPolicy;
+use super::heap_collector_policy::HEAP_COLLECTOR_POLICY;
+#[cfg(test)]
+use super::heap_disposable_stack_entry_layout::{
+    DisposableStackEntryHeapSlot, HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_disposable_stack_record_layout::{
+    DisposableStackRecordHeapSlot, HEAP_DISPOSABLE_STACK_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_environment_layout::{EnvironmentHeapSlot, HEAP_ENVIRONMENT_LAYOUT};
+#[cfg(test)]
+use super::heap_finalization_registry_cell_layout::{
+    FinalizationRegistryCellHeapSlot, HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_finalization_registry_record_layout::{
+    FinalizationRegistryRecordHeapSlot, HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_host_boundary::{HeapHostBoundaryPolicy, HEAP_HOST_BOUNDARY_POLICY};
+#[cfg(test)]
+use super::heap_intl_date_time_format_layout::{
+    IntlDateTimeFormatHeapSlot, HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_intl_locale_layout::{IntlLocaleHeapSlot, HEAP_INTL_LOCALE_RECORD_LAYOUT};
+#[cfg(test)]
+use super::heap_map_entry_layout::{MapEntryHeapSlot, HEAP_MAP_ENTRY_LAYOUT};
+#[cfg(test)]
+use super::heap_map_iterator_layout::{MapIteratorHeapSlot, HEAP_MAP_ITERATOR_RECORD_LAYOUT};
+#[cfg(test)]
+use super::heap_map_record_layout::{MapRecordHeapSlot, HEAP_MAP_RECORD_LAYOUT};
+#[cfg(test)]
+use super::heap_object_entry_layout::{ObjectEntryHeapSlot, HEAP_OBJECT_ENTRY_LAYOUT};
+#[cfg(test)]
+use super::heap_pending_completion_layout::{
+    PendingCompletionHeapSlot, HEAP_PENDING_COMPLETION_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_pending_job_layout::{PendingJobHeapSlot, HEAP_PENDING_JOB_LAYOUT};
+#[cfg(test)]
+use super::heap_private_element_entry_layout::{
+    PrivateElementEntryHeapSlot, HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_private_environment_layout::{PrivateEnvironmentHeapSlot, HEAP_PRIVATE_ENV_LAYOUT};
+#[cfg(test)]
+use super::heap_promise_capability_layout::{
+    PromiseCapabilityHeapSlot, HEAP_PROMISE_CAPABILITY_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_promise_reaction_layout::{PromiseReactionHeapSlot, HEAP_PROMISE_REACTION_LAYOUT};
+#[cfg(test)]
+use super::heap_realm_record_layout::{RealmRecordHeapSlot, HEAP_REALM_RECORD_LAYOUT};
+#[cfg(test)]
+use super::heap_root_sources::{HeapRootKind, HeapRootSource, HEAP_ROOT_SOURCES};
+#[cfg(test)]
+use super::heap_set_entry_layout::{SetEntryHeapSlot, HEAP_SET_ENTRY_LAYOUT};
+#[cfg(test)]
+use super::heap_set_iterator_layout::{SetIteratorHeapSlot, HEAP_SET_ITERATOR_RECORD_LAYOUT};
+#[cfg(test)]
+use super::heap_set_record_layout::{SetRecordHeapSlot, HEAP_SET_RECORD_LAYOUT};
+#[cfg(test)]
+use super::heap_side_storage::{LinearSideStorage, LinearSideStorageElement, LINEAR_SIDE_STORAGES};
+#[cfg(test)]
+use super::heap_string_layout::{StringHeapSlot, HEAP_STRING_LAYOUT};
+#[cfg(test)]
+use super::heap_symbol_layout::{SymbolHeapSlot, HEAP_SYMBOL_LAYOUT};
+#[cfg(test)]
+use super::heap_temporal_duration_layout::{
+    TemporalDurationHeapSlot, HEAP_TEMPORAL_DURATION_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_temporal_instant_layout::{
+    TemporalInstantHeapSlot, HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_temporal_plain_date_layout::{
+    TemporalPlainDateHeapSlot, HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_temporal_plain_date_time_layout::{
+    TemporalPlainDateTimeHeapSlot, HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_temporal_plain_time_layout::{
+    TemporalPlainTimeHeapSlot, HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_temporal_zoned_date_time_layout::{
+    TemporalZonedDateTimeHeapSlot, HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_typed_array_iterator_layout::{
+    TypedArrayIteratorHeapSlot, HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT,
+};
+#[cfg(test)]
+use super::heap_value_encodings::{HeapValueEncoding, ValuePayloadEncoding, HEAP_VALUE_ENCODINGS};
+#[cfg(test)]
+use super::heap_weak_edges::{
+    HeapWeakEdge, HeapWeakEdgeKind, HeapWeakEdgeRetention, HEAP_WEAK_EDGES,
+};
+#[cfg(test)]
+use super::heap_weak_map_entry_layout::{WeakMapEntryHeapSlot, HEAP_WEAK_MAP_ENTRY_LAYOUT};
+#[cfg(test)]
+use super::heap_weak_map_record_layout::{WeakMapRecordHeapSlot, HEAP_WEAK_MAP_RECORD_LAYOUT};
+#[cfg(test)]
+use super::heap_weak_ref_layout::{WeakRefHeapSlot, HEAP_WEAK_REF_RECORD_LAYOUT};
+#[cfg(test)]
+use super::heap_weak_set_entry_layout::{WeakSetEntryHeapSlot, HEAP_WEAK_SET_ENTRY_LAYOUT};
+#[cfg(test)]
+use super::heap_weak_set_record_layout::{WeakSetRecordHeapSlot, HEAP_WEAK_SET_RECORD_LAYOUT};
 use super::*;
 
 pub(crate) const WASM_PAGE_SIZE: u64 = 65_536;
@@ -95,11 +236,26 @@ pub(crate) struct HeapLayoutSlot {
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct HeapByteSpanLayout {
-    pub record: &'static str,
-    pub length_source: &'static str,
-    pub element_width: u64,
-    pub pointer: bool,
+pub(crate) enum HeapNamedSlotStorage {
+    StrongReference,
+    Scalar,
+}
+
+#[allow(dead_code)]
+impl HeapNamedSlotStorage {
+    const fn is_strong_reference(self) -> bool {
+        match self {
+            Self::StrongReference => true,
+            Self::Scalar => false,
+        }
+    }
+
+    const fn scans_target(self) -> bool {
+        match self {
+            Self::StrongReference => true,
+            Self::Scalar => false,
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -107,138 +263,7 @@ pub(crate) struct HeapByteSpanLayout {
 pub(crate) struct HeapNamedSlot {
     pub record: &'static str,
     pub key: &'static str,
-    pub strong_reference: bool,
-    pub scans_target: bool,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct HeapRootSource {
-    pub name: &'static str,
-    pub owner: &'static str,
-    pub tagged_values: bool,
-    pub transient: bool,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HeapWeakEdgeKind {
-    EphemeronKey,
-    EphemeronValue,
-    WeakTarget,
-    FinalizerHoldings,
-    FinalizerToken,
-}
-
-/// How one passive weak-edge inventory entry participates in reachability.
-///
-/// This is collector vocabulary, not an executable weak edge. Keeping it
-/// separate from the slot row makes the edge kind the sole semantic authority.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HeapWeakEdgeRetention {
-    DoesNotRetain,
-    ConditionalOnReachableEphemeronKey,
-    StrongUntilCleanup,
-}
-
-impl HeapWeakEdgeKind {
-    /// Exhaustive retention projection for the future weak-processing phase.
-    pub(crate) const fn retention(self) -> HeapWeakEdgeRetention {
-        match self {
-            Self::EphemeronKey | Self::WeakTarget | Self::FinalizerToken => {
-                HeapWeakEdgeRetention::DoesNotRetain
-            }
-            Self::EphemeronValue => HeapWeakEdgeRetention::ConditionalOnReachableEphemeronKey,
-            Self::FinalizerHoldings => HeapWeakEdgeRetention::StrongUntilCleanup,
-        }
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct HeapWeakEdgeSlot {
-    pub record: &'static str,
-    pub name: &'static str,
-    pub kind: HeapWeakEdgeKind,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HeapCollectorPhaseKind {
-    StopTheWorld,
-    RootScan,
-    MarkStrong,
-    ProcessEphemerons,
-    ClearWeakRefs,
-    QueueFinalizers,
-    Sweep,
-    Resume,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct HeapCollectorPhase {
-    pub name: &'static str,
-    pub kind: HeapCollectorPhaseKind,
-    pub required_for_gc_builtin: bool,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HeapCollectorCapability {
-    DocumentedOnly,
-    MetadataChecked,
-    Executable,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct HeapCollectorContract {
-    pub name: &'static str,
-    pub moving: bool,
-    pub capability: HeapCollectorCapability,
-    pub root_sources: &'static [HeapRootSource],
-    pub weak_edges: &'static [HeapWeakEdgeSlot],
-    pub phases: &'static [HeapCollectorPhase],
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HostMemoryBorrowDuration {
-    ImportCallOnly,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct HeapHostBoundaryContract {
-    pub name: &'static str,
-    pub durable_host_pointers: bool,
-    pub memory_borrow_duration: HostMemoryBorrowDuration,
-    pub borrowed_root_source: &'static str,
-    pub reentrant_imports_require_transient_roots: bool,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ValuePayloadEncoding {
-    Immediate,
-    BooleanBit,
-    Ieee754Bits,
-    HeapPointer,
-    StaticOrHeapPointer,
-    I64Temporary,
-    I64TemporaryOrHeapPointer,
-    DynamicTaggedPair,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ValueEncodingSlot {
-    pub kind: ValueKind,
-    pub payload: ValuePayloadEncoding,
-    pub preserves_number_bits: bool,
-    pub arbitrary_precision_ready: bool,
+    pub storage: HeapNamedSlotStorage,
 }
 
 #[allow(dead_code)]
@@ -249,10 +274,10 @@ impl HeapLayoutSlot {
 }
 
 pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
-pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 304;
+pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 312;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 400;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 424;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -306,7 +331,7 @@ pub(crate) const HEAP_PENDING_JOB_RECORD_SIZE: u64 = 56;
 pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE: u64 = 48;
 #[allow(dead_code)]
 pub(crate) const HEAP_PROMISE_CAPABILITY_RECORD_SIZE: u64 = 48;
-pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 136;
+pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 144;
 #[allow(dead_code)]
 pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE: u64 = 184;
 #[allow(dead_code)]
@@ -316,7 +341,7 @@ pub(crate) const HEAP_BOUND_FUNCTION_RECORD_SIZE: u64 = 48;
 // Arguments records reuse the generic array header (ptr/len/cap/prototype at
 // 0/8/16/24) and are also inspected by generic object paths (e.g.
 // `Object.prototype.toString`) that read the boxed-object cluster at
-// 32/40/48 and the internal brand / prototype-tag / proxy fields up to 72.
+// 32/40/48 and the internal brand / prototype-tag / proxy fields up to 80.
 // The arguments-specific fields therefore live past that cluster so mapped
 // arguments objects are not misclassified as boxed primitives.
 pub(crate) const HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET: u64 = 48;
@@ -347,7 +372,6 @@ pub(crate) const HEAP_OBJECT_BOXED_TAG_OFFSET: u64 = 40;
 pub(crate) const HEAP_OBJECT_BOXED_PAYLOAD_OFFSET: u64 = 48;
 pub(crate) const HEAP_OBJECT_INTERNAL_BRAND_OFFSET: u64 = 56;
 pub(crate) const HEAP_OBJECT_PROTOTYPE_TAG_OFFSET: u64 = 64;
-pub(crate) const HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 72;
 pub(crate) const HEAP_PROXY_HANDLER_TAG_OFFSET: u64 = 80;
 const HEAP_GENERATOR_STATE_OFFSET: u64 = 80;
 pub(crate) const HEAP_GENERATOR_FUNCTION_OFFSET: u64 = 88;
@@ -428,10 +452,25 @@ pub(crate) const HEAP_ARRAY_BUFFER_MAX_BYTE_LENGTH_OFFSET: u64 = 96;
 pub(crate) const HEAP_ARRAY_BUFFER_DETACH_KEY_TAG_OFFSET: u64 = 104;
 pub(crate) const HEAP_ARRAY_BUFFER_DETACH_KEY_PAYLOAD_OFFSET: u64 = 112;
 pub(crate) const HEAP_ARRAY_BUFFER_FLAGS_OFFSET: u64 = 120;
-pub(crate) const ARRAY_BUFFER_FLAG_RESIZABLE: u64 = 1;
-pub(crate) const ARRAY_BUFFER_FLAG_SHARED: u64 = 2;
-pub(crate) const ARRAY_BUFFER_FLAG_IMMUTABLE: u64 = 4;
-pub(crate) const ARRAY_BUFFER_FLAG_DETACHED: u64 = 8;
+
+pub(crate) enum ArrayBufferFlag {
+    Resizable,
+    Shared,
+    Immutable,
+    Detached,
+}
+
+impl ArrayBufferFlag {
+    pub(crate) const fn word(&self) -> u64 {
+        match self {
+            Self::Resizable => 1,
+            Self::Shared => 2,
+            Self::Immutable => 4,
+            Self::Detached => 8,
+        }
+    }
+}
+
 // TypedArray instances are ordinary heap objects with integer-indexed exotic
 // behavior.  Their internal slots must not alias user-visible properties: JS
 // can legally create or overwrite names such as `$TypedArrayByteLength`.
@@ -441,6 +480,21 @@ pub(crate) const HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET: u64 = 96;
 pub(crate) const HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET: u64 = 104;
 pub(crate) const HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET: u64 = 112;
 pub(crate) const HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET: u64 = 120;
+
+pub(crate) enum TypedArrayLengthMode {
+    Fixed,
+    Tracking,
+}
+
+impl TypedArrayLengthMode {
+    pub(crate) const fn word(&self) -> u64 {
+        match self {
+            Self::Fixed => 0,
+            Self::Tracking => 1,
+        }
+    }
+}
+
 pub(crate) const HEAP_DATA_VIEW_VIEWED_BUFFER_OFFSET: u64 = 80;
 pub(crate) const HEAP_DATA_VIEW_BYTE_OFFSET: u64 = 88;
 pub(crate) const HEAP_DATA_VIEW_BYTE_LENGTH_OFFSET: u64 = 96;
@@ -500,6 +554,10 @@ pub(crate) const HEAP_FUNCTION_DEFINING_REALM_OFFSET: u64 = 272;
 pub(crate) const HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET: u64 = 280;
 pub(crate) const HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET: u64 = 288;
 pub(crate) const HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET: u64 = 296;
+/// Immutable algorithm state captured by a compiler-owned builtin closure.
+/// The environment handle remains the callable function identity used for
+/// defining-Realm and error-prototype lookup.
+pub(crate) const HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET: u64 = 304;
 // Function objects that need execution context state own this immutable
 // context through `HEAP_FUNCTION_ENV_HANDLE_OFFSET`. It separates lexical
 // scope from a member's [[HomeObject]]; in particular, `super` must not derive
@@ -583,112 +641,6 @@ impl PrivateElementDefinitionKind {
         }
     }
 }
-#[allow(dead_code)]
-pub(crate) const HEAP_PRIVATE_ENV_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "private-environment",
-        name: "parent",
-        offset: HEAP_PRIVATE_ENV_PARENT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "private-environment",
-        name: "class_scope",
-        offset: HEAP_PRIVATE_ENV_CLASS_SCOPE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-#[allow(dead_code)]
-pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "private-element-entry",
-        name: "next",
-        offset: HEAP_PRIVATE_ELEMENT_ENTRY_NEXT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "private-element-entry",
-        name: "receiver",
-        offset: HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "private-element-entry",
-        name: "token",
-        offset: HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "private-element-entry",
-        name: "kind",
-        offset: HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "private-element-entry",
-        name: "value_tag",
-        offset: HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "private-element-entry",
-        name: "value_payload",
-        offset: HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-pub(crate) const HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "class-function-context",
-        name: "lexical_env",
-        offset: HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "class-function-context",
-        name: "active_function",
-        offset: HEAP_CLASS_FUNCTION_CONTEXT_ACTIVE_FUNCTION_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "class-function-context",
-        name: "home_object_payload",
-        offset: HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "class-function-context",
-        name: "home_object_tag",
-        offset: HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "class-function-context",
-        name: "field_keys",
-        offset: HEAP_CLASS_FUNCTION_CONTEXT_FIELD_KEYS_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "class-function-context",
-        name: "private_environment",
-        offset: HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
 pub(crate) const HEAP_REALM_ID_OFFSET: u64 = 0;
 pub(crate) const HEAP_REALM_AGENT_ID_OFFSET: u64 = 8;
 pub(crate) const HEAP_REALM_GLOBAL_OBJECT_OFFSET: u64 = 16;
@@ -748,6 +700,9 @@ pub(crate) const HEAP_REALM_INTRINSICS_RANGE_ERROR_PROTOTYPE_OFFSET: u64 = 368;
 pub(crate) const HEAP_REALM_INTRINSICS_REFERENCE_ERROR_PROTOTYPE_OFFSET: u64 = 376;
 pub(crate) const HEAP_REALM_INTRINSICS_SYNTAX_ERROR_PROTOTYPE_OFFSET: u64 = 384;
 pub(crate) const HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET: u64 = 392;
+pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET: u64 = 400;
+pub(crate) const HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET: u64 = 408;
+pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET: u64 = 416;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -769,10 +724,6 @@ pub(crate) const HEAP_ARRAY_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET: u64 = 16;
 pub(crate) const HEAP_ARRAY_SETTER_TAG_OFFSET: u64 = 24;
 pub(crate) const HEAP_ARRAY_SETTER_PAYLOAD_OFFSET: u64 = 32;
-pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET: u64 = 48;
-pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_DESCRIPTOR_KIND_OFFSET: u64 = 80;
-pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_TAG_OFFSET: u64 = 88;
-pub(crate) const HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_PAYLOAD_OFFSET: u64 = 96;
 pub(crate) const HEAP_ARRAY_PROP_DESCRIPTOR_KIND_OFFSET: u64 = 104;
 pub(crate) const HEAP_ARRAY_PROP_DATA_TAG_OFFSET: u64 = 112;
 pub(crate) const HEAP_ARRAY_PROP_DATA_PAYLOAD_OFFSET: u64 = 120;
@@ -974,7 +925,7 @@ pub(crate) const HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_PAYLOAD_OFFSET: u64
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELLS_PTR_OFFSET: u64 = 16;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELLS_LEN_OFFSET: u64 = 24;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELLS_CAP_OFFSET: u64 = 32;
-pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_PRESENT_OFFSET: u64 = 0;
+pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_STATE_OFFSET: u64 = 0;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TARGET_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_TARGET_PAYLOAD_OFFSET: u64 = 16;
 pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET: u64 = 24;
@@ -1435,6 +1386,7 @@ pub(crate) const HEAP_ASYNC_PROMISE_RECORD_OFFSET: u64 = 104;
 pub(crate) const HEAP_ASYNC_COMPLETED_OFFSET: u64 = 112;
 pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET: u64 = 120;
 pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 128;
+pub(crate) const HEAP_ASYNC_FUNCTION_REALM_OFFSET: u64 = 136;
 
 // The completion with which an ordinary async function resumes after Await.
 //
@@ -1535,7 +1487,7 @@ pub(crate) struct DescriptorWord(u64);
 impl DescriptorWord {
     /// 6.2.6.6 for a data property: `[[Writable]]`, `[[Enumerable]]`,
     /// `[[Configurable]]`, and the accessor bit clear.
-    pub(crate) const fn of_data(writable: bool, enumerable: bool, configurable: bool) -> Self {
+    const fn of_data(writable: bool, enumerable: bool, configurable: bool) -> Self {
         let mut bits = 0u64;
         if writable {
             bits |= DescriptorBit::Writable.word();
@@ -1553,7 +1505,7 @@ impl DescriptorWord {
     /// conversion between kinds preserves only `[[Enumerable]]` and
     /// `[[Configurable]]`; there is no `writable` parameter because an accessor
     /// property has no `[[Writable]]` attribute to preserve.
-    pub(crate) const fn of_accessor(enumerable: bool, configurable: bool) -> Self {
+    const fn of_accessor(enumerable: bool, configurable: bool) -> Self {
         let mut bits = DescriptorBit::Accessor.word();
         if enumerable {
             bits |= DescriptorBit::Enumerable.word();
@@ -1584,6 +1536,39 @@ impl DescriptorWord {
 
     pub(crate) const fn as_i64(self) -> i64 {
         self.0 as i64
+    }
+}
+
+/// Static 6.2.6.6 attributes for a descriptor-kind word stored in the heap.
+pub(crate) enum StoredPropertyAttributes {
+    Data {
+        writable: bool,
+        enumerable: bool,
+        configurable: bool,
+    },
+    Accessor {
+        enumerable: bool,
+        configurable: bool,
+    },
+}
+
+impl StoredPropertyAttributes {
+    pub(crate) const fn descriptor_word(self) -> DescriptorWord {
+        match self {
+            Self::Data {
+                writable,
+                enumerable,
+                configurable,
+            } => DescriptorWord::of_data(writable, enumerable, configurable),
+            Self::Accessor {
+                enumerable,
+                configurable,
+            } => DescriptorWord::of_accessor(enumerable, configurable),
+        }
+    }
+
+    pub(crate) const fn descriptor_kind_bits(self) -> u64 {
+        self.descriptor_word().bits()
     }
 }
 
@@ -2112,13 +2097,6 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
         pointer: false,
     },
     HeapLayoutSlot {
-        record: "object-header",
-        name: "proxy_type_error_prototype",
-        offset: HEAP_PROXY_TYPE_ERROR_PROTOTYPE_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
         record: "proxy-object-header",
         name: "handler_tag",
         offset: HEAP_PROXY_HANDLER_TAG_OFFSET,
@@ -2521,13 +2499,134 @@ pub(crate) const HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 #[allow(dead_code)]
-pub(crate) const HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[HeapLayoutSlot {
-    record: "async-generator-object",
-    name: "activation",
-    offset: HEAP_ASYNC_GENERATOR_ACTIVATION_OFFSET,
-    width: 8,
-    pointer: true,
-}];
+pub(crate) const HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "function_environment",
+        offset: HEAP_ASYNC_FUNCTION_ENV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "function_table_index",
+        offset: HEAP_ASYNC_FUNCTION_TABLE_INDEX_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "this_payload",
+        offset: HEAP_ASYNC_THIS_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "this_tag",
+        offset: HEAP_ASYNC_THIS_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "argc",
+        offset: HEAP_ASYNC_ARGC_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "argv",
+        offset: HEAP_ASYNC_ARGV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "resume_state",
+        offset: HEAP_ASYNC_RESUME_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "resume_payload",
+        offset: HEAP_ASYNC_RESUME_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "resume_tag",
+        offset: HEAP_ASYNC_RESUME_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "resume_completion",
+        offset: HEAP_ASYNC_RESUME_COMPLETION_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "lexical_environment",
+        offset: HEAP_ASYNC_ENV_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "initialized",
+        offset: HEAP_ASYNC_INITIALIZED_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "promise_payload",
+        offset: HEAP_ASYNC_PROMISE_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "promise_record",
+        offset: HEAP_ASYNC_PROMISE_RECORD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "completed",
+        offset: HEAP_ASYNC_COMPLETED_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "pending_completion_head",
+        offset: HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "pending_completion_depth",
+        offset: HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "realm",
+        offset: HEAP_ASYNC_FUNCTION_REALM_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
 
 #[allow(dead_code)]
 pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT: &[HeapLayoutSlot] = &[
@@ -2744,45 +2843,6 @@ pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_ASYNC_GENERATOR_REQUEST_NEXT_OFFSET,
         width: 8,
         pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_PENDING_COMPLETION_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "pending-completion-record",
-        name: "next",
-        offset: HEAP_PENDING_COMPLETION_NEXT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "pending-completion-record",
-        name: "payload",
-        offset: HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "pending-completion-record",
-        name: "tag",
-        offset: HEAP_PENDING_COMPLETION_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "pending-completion-record",
-        name: "kind",
-        offset: HEAP_PENDING_COMPLETION_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "pending-completion-record",
-        name: "aux",
-        offset: HEAP_PENDING_COMPLETION_AUX_OFFSET,
-        width: 8,
-        pointer: false,
     },
 ];
 
@@ -3054,70 +3114,10 @@ pub(crate) const HEAP_FUNCTION_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: false,
     },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_REALM_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
-        record: "realm-record",
-        name: "realm_id",
-        offset: HEAP_REALM_ID_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "realm-record",
-        name: "agent_id",
-        offset: HEAP_REALM_AGENT_ID_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "realm-record",
-        name: "global_object",
-        offset: HEAP_REALM_GLOBAL_OBJECT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "realm-record",
-        name: "global_this",
-        offset: HEAP_REALM_GLOBAL_THIS_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "realm-record",
-        name: "global_environment",
-        offset: HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "realm-record",
-        name: "intrinsics",
-        offset: HEAP_REALM_INTRINSICS_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "realm-record",
-        name: "host_hooks",
-        offset: HEAP_REALM_HOST_HOOKS_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "realm-record",
-        name: "module_registry",
-        offset: HEAP_REALM_MODULE_REGISTRY_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "realm-record",
-        name: "private_elements",
-        offset: HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+        record: "function-object",
+        name: "builtin_closure_context",
+        offset: HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -3475,49 +3475,24 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_BOUND_FUNCTION_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
-        record: "bound-function",
-        name: "target_payload",
-        offset: HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET,
+        record: "realm-intrinsics",
+        name: "%Promise.prototype%",
+        offset: HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
     },
     HeapLayoutSlot {
-        record: "bound-function",
-        name: "target_tag",
-        offset: HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "bound-function",
-        name: "this_payload",
-        offset: HEAP_BOUND_FUNCTION_THIS_PAYLOAD_OFFSET,
+        record: "realm-intrinsics",
+        name: "%Function.prototype%",
+        offset: HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
     },
     HeapLayoutSlot {
-        record: "bound-function",
-        name: "this_tag",
-        offset: HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "bound-function",
-        name: "args_payload",
-        offset: HEAP_BOUND_FUNCTION_ARGS_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "bound-function",
-        name: "self_payload",
-        offset: HEAP_BOUND_FUNCTION_SELF_PAYLOAD_OFFSET,
+        record: "realm-intrinsics",
+        name: "%Promise%",
+        offset: HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -3559,34 +3534,6 @@ pub(crate) const HEAP_ARRAY_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_ARRAY_PROTOTYPE_TAG_OFFSET,
         width: 8,
         pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
-        name: "is_concat_spreadable",
-        offset: HEAP_ARRAY_IS_CONCAT_SPREADABLE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
-        name: "concat_spreadable_descriptor_kind",
-        offset: HEAP_ARRAY_IS_CONCAT_SPREADABLE_DESCRIPTOR_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
-        name: "concat_spreadable_getter_tag",
-        offset: HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "array-object",
-        name: "concat_spreadable_getter_payload",
-        offset: HEAP_ARRAY_IS_CONCAT_SPREADABLE_GETTER_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
     },
     HeapLayoutSlot {
         record: "array-object",
@@ -3731,66 +3678,6 @@ pub(crate) const HEAP_ARRAY_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 #[allow(dead_code)]
-pub(crate) const HEAP_OBJECT_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "object-entry",
-        name: "key",
-        offset: HEAP_OBJECT_KEY_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "object-entry",
-        name: "descriptor_kind",
-        offset: HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "object-entry",
-        name: "data_tag",
-        offset: HEAP_OBJECT_DATA_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "object-entry",
-        name: "data_payload",
-        offset: HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "object-entry",
-        name: "getter_tag",
-        offset: HEAP_OBJECT_GETTER_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "object-entry",
-        name: "getter_payload",
-        offset: HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "object-entry",
-        name: "setter_tag",
-        offset: HEAP_OBJECT_SETTER_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "object-entry",
-        name: "setter_payload",
-        offset: HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
 pub(crate) const HEAP_ARRAY_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
         record: "array-entry",
@@ -3826,127 +3713,6 @@ pub(crate) const HEAP_ARRAY_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_ARRAY_SETTER_PAYLOAD_OFFSET,
         width: 8,
         pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_ENVIRONMENT_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "environment",
-        name: "parent",
-        offset: ENV_PARENT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "environment-slot",
-        name: "tag",
-        offset: ENV_SLOT_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "environment-slot",
-        name: "payload",
-        offset: ENV_SLOT_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_STRING_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "string-record",
-        name: "code_units_ptr",
-        offset: HEAP_STRING_CODE_UNITS_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "string-record",
-        name: "byte_len",
-        offset: HEAP_STRING_BYTE_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "string-record",
-        name: "code_unit_len",
-        offset: HEAP_STRING_CODE_UNIT_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "string-record",
-        name: "intern_id",
-        offset: HEAP_STRING_INTERN_ID_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_BIGINT_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "bigint-record",
-        name: "sign",
-        offset: HEAP_BIGINT_SIGN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "bigint-record",
-        name: "limbs_ptr",
-        offset: HEAP_BIGINT_LIMBS_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "bigint-record",
-        name: "limbs_len",
-        offset: HEAP_BIGINT_LIMBS_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "bigint-record",
-        name: "limbs_cap",
-        offset: HEAP_BIGINT_LIMBS_CAP_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_SYMBOL_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "symbol-record",
-        name: "description_tag",
-        offset: HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "symbol-record",
-        name: "description_payload",
-        offset: HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "symbol-record",
-        name: "registry_key_payload",
-        offset: HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "symbol-record",
-        name: "symbol_id",
-        offset: HEAP_SYMBOL_ID_OFFSET,
-        width: 8,
-        pointer: false,
     },
 ];
 
@@ -4018,1363 +3784,26 @@ pub(crate) const HEAP_PROMISE_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 #[allow(dead_code)]
-pub(crate) const HEAP_PROMISE_CAPABILITY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "promise-capability-record",
-        name: "promise_tag",
-        offset: HEAP_PROMISE_CAPABILITY_PROMISE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "promise-capability-record",
-        name: "promise_payload",
-        offset: HEAP_PROMISE_CAPABILITY_PROMISE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "promise-capability-record",
-        name: "resolve_tag",
-        offset: HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "promise-capability-record",
-        name: "resolve_payload",
-        offset: HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "promise-capability-record",
-        name: "reject_tag",
-        offset: HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "promise-capability-record",
-        name: "reject_payload",
-        offset: HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_MAP_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "map-record",
-        name: "entries_ptr",
-        offset: HEAP_MAP_ENTRIES_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "map-record",
-        name: "entries_len",
-        offset: HEAP_MAP_ENTRIES_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "map-record",
-        name: "entries_cap",
-        offset: HEAP_MAP_ENTRIES_CAP_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "map-record",
-        name: "live_count",
-        offset: HEAP_MAP_LIVE_COUNT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_MAP_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "map-entry",
-        name: "present",
-        offset: HEAP_MAP_ENTRY_PRESENT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "map-entry",
-        name: "key_tag",
-        offset: HEAP_MAP_ENTRY_KEY_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "map-entry",
-        name: "key_payload",
-        offset: HEAP_MAP_ENTRY_KEY_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "map-entry",
-        name: "value_tag",
-        offset: HEAP_MAP_ENTRY_VALUE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "map-entry",
-        name: "value_payload",
-        offset: HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_WEAK_MAP_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "weak-map-record",
-        name: "entries_ptr",
-        offset: HEAP_WEAK_MAP_ENTRIES_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "weak-map-record",
-        name: "entries_len",
-        offset: HEAP_WEAK_MAP_ENTRIES_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-map-record",
-        name: "entries_cap",
-        offset: HEAP_WEAK_MAP_ENTRIES_CAP_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-map-record",
-        name: "live_count",
-        offset: HEAP_WEAK_MAP_LIVE_COUNT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_WEAK_MAP_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "weak-map-entry",
-        name: "present",
-        offset: HEAP_WEAK_MAP_ENTRY_PRESENT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-map-entry",
-        name: "key_tag",
-        offset: HEAP_WEAK_MAP_ENTRY_KEY_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-map-entry",
-        name: "key_payload",
-        offset: HEAP_WEAK_MAP_ENTRY_KEY_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-map-entry",
-        name: "value_tag",
-        offset: HEAP_WEAK_MAP_ENTRY_VALUE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-map-entry",
-        name: "value_payload",
-        offset: HEAP_WEAK_MAP_ENTRY_VALUE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "temporal-instant-record",
-        name: "epoch_nanoseconds_tag",
-        offset: HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-instant-record",
-        name: "epoch_nanoseconds_payload",
-        offset: HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-pub(crate) const HEAP_INTL_LOCALE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "intl-locale-record",
-        name: "tag_payload",
-        offset: HEAP_INTL_LOCALE_TAG_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-locale-record",
-        name: "language_payload",
-        offset: HEAP_INTL_LOCALE_LANGUAGE_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-locale-record",
-        name: "script_payload",
-        offset: HEAP_INTL_LOCALE_SCRIPT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-locale-record",
-        name: "region_payload",
-        offset: HEAP_INTL_LOCALE_REGION_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-locale-record",
-        name: "base_name_payload",
-        offset: HEAP_INTL_LOCALE_BASE_NAME_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "locale_payload",
-        offset: HEAP_INTL_DTF_LOCALE_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "calendar_payload",
-        offset: HEAP_INTL_DTF_CALENDAR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "numbering_system_payload",
-        offset: HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "time_zone_payload",
-        offset: HEAP_INTL_DTF_TIME_ZONE_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    // Sits beside the identifier it belongs to rather than at the end of the
-    // record, because the two are written and read as one value.
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "time_zone_offset_minutes",
-        offset: HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "time_zone_gmt_name_payload",
-        offset: HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "hour_cycle_code",
-        offset: HEAP_INTL_DTF_HOUR_CYCLE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "weekday_code",
-        offset: HEAP_INTL_DTF_WEEKDAY_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "era_code",
-        offset: HEAP_INTL_DTF_ERA_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "year_code",
-        offset: HEAP_INTL_DTF_YEAR_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "month_code",
-        offset: HEAP_INTL_DTF_MONTH_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "day_code",
-        offset: HEAP_INTL_DTF_DAY_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "day_period_code",
-        offset: HEAP_INTL_DTF_DAY_PERIOD_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "hour_code",
-        offset: HEAP_INTL_DTF_HOUR_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "minute_code",
-        offset: HEAP_INTL_DTF_MINUTE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "second_code",
-        offset: HEAP_INTL_DTF_SECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "fractional_second_digits",
-        offset: HEAP_INTL_DTF_FRACTIONAL_SECOND_DIGITS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "time_zone_name_code",
-        offset: HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "date_style_code",
-        offset: HEAP_INTL_DTF_DATE_STYLE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "time_style_code",
-        offset: HEAP_INTL_DTF_TIME_STYLE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "hour12_code",
-        offset: HEAP_INTL_DTF_HOUR12_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "bound_format_payload",
-        offset: HEAP_INTL_DTF_BOUND_FORMAT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "intl-date-time-format-record",
-        name: "need_defaults",
-        offset: HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "temporal-zoned-date-time-record",
-        name: "epoch_nanoseconds_tag",
-        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-zoned-date-time-record",
-        name: "epoch_nanoseconds_payload",
-        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "temporal-zoned-date-time-record",
-        name: "time_zone_tag",
-        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-zoned-date-time-record",
-        name: "time_zone_payload",
-        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "temporal-zoned-date-time-record",
-        name: "calendar_tag",
-        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-zoned-date-time-record",
-        name: "calendar_payload",
-        offset: HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "temporal-plain-date-record",
-        name: "iso_year",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_ISO_YEAR_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-record",
-        name: "iso_month",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_ISO_MONTH_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-record",
-        name: "iso_day",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_ISO_DAY_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-record",
-        name: "calendar_payload",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_CALENDAR_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "iso_year",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_YEAR_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "iso_month",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_MONTH_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "iso_day",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_DAY_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "hour",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_HOUR_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "minute",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_MINUTE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "second",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_SECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "millisecond",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_MILLISECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "microsecond",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_MICROSECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "nanosecond",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_NANOSECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-date-time-record",
-        name: "calendar_payload",
-        offset: HEAP_TEMPORAL_PLAIN_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "temporal-plain-time-record",
-        name: "hour",
-        offset: HEAP_TEMPORAL_PLAIN_TIME_HOUR_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-time-record",
-        name: "minute",
-        offset: HEAP_TEMPORAL_PLAIN_TIME_MINUTE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-time-record",
-        name: "second",
-        offset: HEAP_TEMPORAL_PLAIN_TIME_SECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-time-record",
-        name: "millisecond",
-        offset: HEAP_TEMPORAL_PLAIN_TIME_MILLISECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-time-record",
-        name: "microsecond",
-        offset: HEAP_TEMPORAL_PLAIN_TIME_MICROSECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-plain-time-record",
-        name: "nanosecond",
-        offset: HEAP_TEMPORAL_PLAIN_TIME_NANOSECOND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_TEMPORAL_DURATION_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "years",
-        offset: HEAP_TEMPORAL_DURATION_YEARS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "months",
-        offset: HEAP_TEMPORAL_DURATION_MONTHS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "weeks",
-        offset: HEAP_TEMPORAL_DURATION_WEEKS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "days",
-        offset: HEAP_TEMPORAL_DURATION_DAYS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "hours",
-        offset: HEAP_TEMPORAL_DURATION_HOURS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "minutes",
-        offset: HEAP_TEMPORAL_DURATION_MINUTES_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "seconds",
-        offset: HEAP_TEMPORAL_DURATION_SECONDS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "milliseconds",
-        offset: HEAP_TEMPORAL_DURATION_MILLISECONDS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "microseconds",
-        offset: HEAP_TEMPORAL_DURATION_MICROSECONDS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "temporal-duration-record",
-        name: "nanoseconds",
-        offset: HEAP_TEMPORAL_DURATION_NANOSECONDS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_WEAK_REF_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "weak-ref-record",
-        name: "target_tag",
-        offset: HEAP_WEAK_REF_TARGET_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-ref-record",
-        name: "target_payload",
-        offset: HEAP_WEAK_REF_TARGET_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "finalization-registry-record",
-        name: "cleanup_callback_tag",
-        offset: HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-record",
-        name: "cleanup_callback_payload",
-        offset: HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-record",
-        name: "cells_ptr",
-        offset: HEAP_FINALIZATION_REGISTRY_CELLS_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-record",
-        name: "cells_len",
-        offset: HEAP_FINALIZATION_REGISTRY_CELLS_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-record",
-        name: "cells_cap",
-        offset: HEAP_FINALIZATION_REGISTRY_CELLS_CAP_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "finalization-registry-cell",
-        name: "present",
-        offset: HEAP_FINALIZATION_REGISTRY_CELL_PRESENT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-cell",
-        name: "target_tag",
-        offset: HEAP_FINALIZATION_REGISTRY_CELL_TARGET_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-cell",
-        name: "target_payload",
-        offset: HEAP_FINALIZATION_REGISTRY_CELL_TARGET_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-cell",
-        name: "holdings_tag",
-        offset: HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-cell",
-        name: "holdings_payload",
-        offset: HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-cell",
-        name: "unregister_token_tag",
-        offset: HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "finalization-registry-cell",
-        name: "unregister_token_payload",
-        offset: HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "async-disposable-stack-record",
-        name: "state",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "async-disposable-stack-record",
-        name: "entries_ptr",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "async-disposable-stack-record",
-        name: "entries_len",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "async-disposable-stack-record",
-        name: "entries_cap",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-/// Both the resource value and the dispose method are strongly reachable: an
-/// `AsyncDisposableStack` keeps every registered resource alive until disposal,
-/// which is the whole point of the type and the opposite of a
-/// `FinalizationRegistry` cell.
-#[allow(dead_code)]
-pub(crate) const HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "async-disposable-stack-entry",
-        name: "kind",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "async-disposable-stack-entry",
-        name: "value_tag",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "async-disposable-stack-entry",
-        name: "value_payload",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "async-disposable-stack-entry",
-        name: "method_tag",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "async-disposable-stack-entry",
-        name: "method_payload",
-        offset: HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_DISPOSABLE_STACK_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "disposable-stack-record",
-        name: "state",
-        offset: HEAP_DISPOSABLE_STACK_STATE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "disposable-stack-record",
-        name: "entries_ptr",
-        offset: HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "disposable-stack-record",
-        name: "entries_len",
-        offset: HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "disposable-stack-record",
-        name: "entries_cap",
-        offset: HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-/// A synchronous stack owns both the registered resource and its acquired
-/// method until the entry has been consumed by the LIFO disposal walk.
-#[allow(dead_code)]
-pub(crate) const HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "disposable-stack-entry",
-        name: "kind",
-        offset: HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "disposable-stack-entry",
-        name: "value_tag",
-        offset: HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "disposable-stack-entry",
-        name: "value_payload",
-        offset: HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "disposable-stack-entry",
-        name: "method_tag",
-        offset: HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "disposable-stack-entry",
-        name: "method_payload",
-        offset: HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_MAP_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "map-iterator-record",
-        name: "map_payload",
-        offset: HEAP_MAP_ITERATOR_MAP_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "map-iterator-record",
-        name: "next_index",
-        offset: HEAP_MAP_ITERATOR_NEXT_INDEX_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "map-iterator-record",
-        name: "kind",
-        offset: HEAP_MAP_ITERATOR_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "map-iterator-record",
-        name: "cursor_state",
-        offset: HEAP_MAP_ITERATOR_CURSOR_STATE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_SET_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "set-record",
-        name: "entries_ptr",
-        offset: HEAP_SET_ENTRIES_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "set-record",
-        name: "entries_len",
-        offset: HEAP_SET_ENTRIES_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "set-record",
-        name: "entries_cap",
-        offset: HEAP_SET_ENTRIES_CAP_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "set-record",
-        name: "live_count",
-        offset: HEAP_SET_LIVE_COUNT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_SET_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "set-entry",
-        name: "present",
-        offset: HEAP_SET_ENTRY_PRESENT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "set-entry",
-        name: "value_tag",
-        offset: HEAP_SET_ENTRY_VALUE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "set-entry",
-        name: "value_payload",
-        offset: HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_WEAK_SET_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "weak-set-record",
-        name: "entries_ptr",
-        offset: HEAP_WEAK_SET_ENTRIES_PTR_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "weak-set-record",
-        name: "entries_len",
-        offset: HEAP_WEAK_SET_ENTRIES_LEN_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-set-record",
-        name: "entries_cap",
-        offset: HEAP_WEAK_SET_ENTRIES_CAP_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-set-record",
-        name: "live_count",
-        offset: HEAP_WEAK_SET_LIVE_COUNT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_WEAK_SET_ENTRY_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "weak-set-entry",
-        name: "present",
-        offset: HEAP_WEAK_SET_ENTRY_PRESENT_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-set-entry",
-        name: "value_tag",
-        offset: HEAP_WEAK_SET_ENTRY_VALUE_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "weak-set-entry",
-        name: "value_payload",
-        offset: HEAP_WEAK_SET_ENTRY_VALUE_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_SET_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "set-iterator-record",
-        name: "set_payload",
-        offset: HEAP_SET_ITERATOR_SET_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "set-iterator-record",
-        name: "next_index",
-        offset: HEAP_SET_ITERATOR_NEXT_INDEX_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "set-iterator-record",
-        name: "kind",
-        offset: HEAP_SET_ITERATOR_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "set-iterator-record",
-        name: "cursor_state",
-        offset: HEAP_SET_ITERATOR_CURSOR_STATE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "typed-array-iterator-record",
-        name: "typed_array_payload",
-        offset: HEAP_TYPED_ARRAY_ITERATOR_TYPED_ARRAY_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "typed-array-iterator-record",
-        name: "next_index",
-        offset: HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "typed-array-iterator-record",
-        name: "kind",
-        offset: HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "typed-array-iterator-record",
-        name: "done",
-        offset: HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_PROMISE_REACTION_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "promise-reaction-record",
-        name: "capability",
-        offset: HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "promise-reaction-record",
-        name: "handler_tag",
-        offset: HEAP_PROMISE_REACTION_HANDLER_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "promise-reaction-record",
-        name: "handler_payload",
-        offset: HEAP_PROMISE_REACTION_HANDLER_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "promise-reaction-record",
-        name: "realm",
-        offset: HEAP_PROMISE_REACTION_REALM_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "promise-reaction-record",
-        name: "next",
-        offset: HEAP_PROMISE_REACTION_NEXT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "promise-reaction-record",
-        name: "type",
-        offset: HEAP_PROMISE_REACTION_TYPE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "promise-reaction-record",
-        name: "callback_kind",
-        offset: HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_PENDING_JOB_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "pending-job-record",
-        name: "callback_tag",
-        offset: HEAP_PENDING_JOB_CALLBACK_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "pending-job-record",
-        name: "callback_payload",
-        offset: HEAP_PENDING_JOB_CALLBACK_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "pending-job-record",
-        name: "arg_tag",
-        offset: HEAP_PENDING_JOB_ARG_TAG_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "pending-job-record",
-        name: "arg_payload",
-        offset: HEAP_PENDING_JOB_ARG_PAYLOAD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "pending-job-record",
-        name: "realm",
-        offset: HEAP_PENDING_JOB_REALM_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "pending-job-record",
-        name: "next",
-        offset: HEAP_PENDING_JOB_NEXT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "pending-job-record",
-        name: "kind",
-        offset: HEAP_PENDING_JOB_KIND_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_LAYOUT: &[HeapLayoutSlot] = &[
-    HeapLayoutSlot {
-        record: "atomics-async-waiter",
-        name: "state",
-        offset: HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "atomics-async-waiter",
-        name: "address",
-        offset: HEAP_ATOMICS_ASYNC_WAITER_ADDRESS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "atomics-async-waiter",
-        name: "promise_record",
-        offset: HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "atomics-async-waiter",
-        name: "deadline_nanos",
-        offset: HEAP_ATOMICS_ASYNC_WAITER_DEADLINE_NANOS_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "atomics-async-waiter",
-        name: "next",
-        offset: HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-        width: 8,
-        pointer: true,
-    },
-    HeapLayoutSlot {
-        record: "atomics-async-waiter",
-        name: "host_id",
-        offset: HEAP_ATOMICS_ASYNC_WAITER_HOST_ID_OFFSET,
-        width: 8,
-        pointer: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT: HeapByteSpanLayout = HeapByteSpanLayout {
-    record: "array-buffer-backing-store",
-    length_source: "array-buffer-object-header.max_byte_length",
-    element_width: 1,
-    pointer: false,
-};
-
-#[allow(dead_code)]
-pub(crate) const HEAP_STRING_CODE_UNITS_LAYOUT: HeapByteSpanLayout = HeapByteSpanLayout {
-    record: "string-code-units",
-    length_source: "string-record.code_unit_len",
-    element_width: 2,
-    pointer: false,
-};
-
-#[allow(dead_code)]
-pub(crate) const HEAP_BIGINT_LIMBS_LAYOUT: HeapByteSpanLayout = HeapByteSpanLayout {
-    record: "bigint-limbs",
-    length_source: "bigint-record.limbs_len",
-    element_width: 8,
-    pointer: false,
-};
-
-#[allow(dead_code)]
-pub(crate) const HEAP_RAW_BYTE_SPAN_LAYOUTS: &[HeapByteSpanLayout] = &[
-    HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT,
-    HEAP_STRING_CODE_UNITS_LAYOUT,
-    HEAP_BIGINT_LIMBS_LAYOUT,
-];
-
-#[allow(dead_code)]
 pub(crate) const HEAP_ARRAY_ITERATOR_NAMED_SLOTS: &[HeapNamedSlot] = &[
     HeapNamedSlot {
         record: "array-iterator-object",
         key: "$ArrayIterator.array",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "array-iterator-object",
         key: "$ArrayIterator.index",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "array-iterator-object",
         key: "$ArrayIterator.done",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "array-iterator-object",
         key: "$ArrayIterator.kind",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
 ];
 
@@ -5383,14 +3812,12 @@ pub(crate) const HEAP_STRING_ITERATOR_NAMED_SLOTS: &[HeapNamedSlot] = &[
     HeapNamedSlot {
         record: "string-iterator-object",
         key: "$StringIterator.string",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "string-iterator-object",
         key: "$StringIterator.index",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
 ];
 
@@ -5399,32 +3826,27 @@ pub(crate) const HEAP_REGEXP_STRING_ITERATOR_NAMED_SLOTS: &[HeapNamedSlot] = &[
     HeapNamedSlot {
         record: "regexp-string-iterator-object",
         key: "$RegExpStringIterator.regexp",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "regexp-string-iterator-object",
         key: "$RegExpStringIterator.string",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "regexp-string-iterator-object",
         key: "$RegExpStringIterator.global",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "regexp-string-iterator-object",
         key: "$RegExpStringIterator.unicode",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "regexp-string-iterator-object",
         key: "$RegExpStringIterator.done",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
 ];
 
@@ -5433,134 +3855,112 @@ pub(crate) const HEAP_ITERATOR_HELPER_NAMED_SLOTS: &[HeapNamedSlot] = &[
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFromIterator",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFromNext",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorMapIterator",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorMapNext",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorMapMapper",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFilterIterator",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFilterNext",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFilterPredicate",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFlatMapIterator",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFlatMapNext",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFlatMapMapper",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFlatMapInnerIterator",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFlatMapInnerNext",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorTakeIterator",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorTakeNext",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorDropIterator",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorDropNext",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorMapDone",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFilterDone",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorFlatMapDone",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorTakeDone",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorDropDone",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
 ];
 
@@ -5569,56 +3969,47 @@ pub(crate) const HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS: &[HeapNamedSlot] = &[
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipIterators",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipNextMethods",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipOpen",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipPadding",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipKeys",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipMode",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipDone",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipExecuting",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-zip-state-object",
         key: "$IteratorZipStarted",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
 ];
 
@@ -5627,294 +4018,83 @@ pub(crate) const HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS: &[HeapNamedSlot] = &[
     HeapNamedSlot {
         record: "iterator-concat-state-object",
         key: "$IteratorConcatIterables",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-concat-state-object",
         key: "$IteratorConcatMethods",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-concat-state-object",
         key: "$IteratorConcatCurrentIterator",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-concat-state-object",
         key: "$IteratorConcatCurrentNext",
-        strong_reference: true,
-        scans_target: true,
+        storage: HeapNamedSlotStorage::StrongReference,
     },
     HeapNamedSlot {
         record: "iterator-concat-state-object",
         key: "$IteratorConcatIndex",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-concat-state-object",
         key: "$IteratorConcatActive",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-concat-state-object",
         key: "$IteratorConcatDone",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
     HeapNamedSlot {
         record: "iterator-concat-state-object",
         key: "$IteratorConcatExecuting",
-        strong_reference: false,
-        scans_target: false,
+        storage: HeapNamedSlotStorage::Scalar,
     },
 ];
 
 #[allow(dead_code)]
-pub(crate) const HEAP_NAMED_SLOT_LAYOUTS: &[&[HeapNamedSlot]] = &[
-    HEAP_ARRAY_ITERATOR_NAMED_SLOTS,
-    HEAP_STRING_ITERATOR_NAMED_SLOTS,
-    HEAP_REGEXP_STRING_ITERATOR_NAMED_SLOTS,
-    HEAP_ITERATOR_HELPER_NAMED_SLOTS,
-    HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS,
-    HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS,
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_ROOT_SOURCES: &[HeapRootSource] = &[
-    HeapRootSource {
-        name: "realm-globals",
-        owner: "module-globals",
-        tagged_values: false,
-        transient: false,
-    },
-    HeapRootSource {
-        name: "active-frame-locals",
-        owner: "function-locals",
-        tagged_values: true,
-        transient: true,
-    },
-    HeapRootSource {
-        name: "lexical-environments",
-        owner: "environment-chain",
-        tagged_values: true,
-        transient: false,
-    },
-    HeapRootSource {
-        name: "completion-records",
-        owner: "completion-abi",
-        tagged_values: true,
-        transient: true,
-    },
-    HeapRootSource {
-        name: "function-table",
-        owner: "indirect-call-table",
-        tagged_values: false,
-        transient: false,
-    },
-    HeapRootSource {
-        name: "host-borrowed-values",
-        owner: "host-import-boundary",
-        tagged_values: true,
-        transient: true,
-    },
-    HeapRootSource {
-        name: "pending-jobs",
-        owner: "job-queue",
-        tagged_values: true,
-        transient: false,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_WEAK_EDGE_SLOTS: &[HeapWeakEdgeSlot] = &[
-    HeapWeakEdgeSlot {
-        record: "weak-map-entry",
-        name: "key",
-        kind: HeapWeakEdgeKind::EphemeronKey,
-    },
-    HeapWeakEdgeSlot {
-        record: "weak-map-entry",
-        name: "value",
-        kind: HeapWeakEdgeKind::EphemeronValue,
-    },
-    HeapWeakEdgeSlot {
-        record: "weak-set-entry",
-        name: "value",
-        kind: HeapWeakEdgeKind::EphemeronKey,
-    },
-    HeapWeakEdgeSlot {
-        record: "weak-ref-record",
-        name: "target",
-        kind: HeapWeakEdgeKind::WeakTarget,
-    },
-    HeapWeakEdgeSlot {
-        record: "finalization-registry-cell",
-        name: "target",
-        kind: HeapWeakEdgeKind::WeakTarget,
-    },
-    HeapWeakEdgeSlot {
-        record: "finalization-registry-cell",
-        name: "holdings",
-        kind: HeapWeakEdgeKind::FinalizerHoldings,
-    },
-    HeapWeakEdgeSlot {
-        record: "finalization-registry-cell",
-        name: "unregister-token",
-        kind: HeapWeakEdgeKind::FinalizerToken,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_COLLECTOR_PHASES: &[HeapCollectorPhase] = &[
-    HeapCollectorPhase {
-        name: "stop-the-world",
-        kind: HeapCollectorPhaseKind::StopTheWorld,
-        required_for_gc_builtin: true,
-    },
-    HeapCollectorPhase {
-        name: "scan-roots",
-        kind: HeapCollectorPhaseKind::RootScan,
-        required_for_gc_builtin: true,
-    },
-    HeapCollectorPhase {
-        name: "mark-strong-graph",
-        kind: HeapCollectorPhaseKind::MarkStrong,
-        required_for_gc_builtin: true,
-    },
-    HeapCollectorPhase {
-        name: "process-ephemerons",
-        kind: HeapCollectorPhaseKind::ProcessEphemerons,
-        required_for_gc_builtin: true,
-    },
-    HeapCollectorPhase {
-        name: "clear-weakrefs",
-        kind: HeapCollectorPhaseKind::ClearWeakRefs,
-        required_for_gc_builtin: true,
-    },
-    HeapCollectorPhase {
-        name: "queue-finalizers",
-        kind: HeapCollectorPhaseKind::QueueFinalizers,
-        required_for_gc_builtin: true,
-    },
-    HeapCollectorPhase {
-        name: "sweep-unmarked",
-        kind: HeapCollectorPhaseKind::Sweep,
-        required_for_gc_builtin: true,
-    },
-    HeapCollectorPhase {
-        name: "resume",
-        kind: HeapCollectorPhaseKind::Resume,
-        required_for_gc_builtin: true,
-    },
-];
-
-#[allow(dead_code)]
-pub(crate) const HEAP_COLLECTOR_CONTRACT: HeapCollectorContract = HeapCollectorContract {
-    name: "non-moving-tracing-collector",
-    moving: false,
-    capability: HeapCollectorCapability::MetadataChecked,
-    root_sources: HEAP_ROOT_SOURCES,
-    weak_edges: HEAP_WEAK_EDGE_SLOTS,
-    phases: HEAP_COLLECTOR_PHASES,
-};
-
-#[allow(dead_code)]
-pub(crate) const HEAP_HOST_BOUNDARY_CONTRACT: HeapHostBoundaryContract = HeapHostBoundaryContract {
-    name: "host-import-memory-borrow",
-    durable_host_pointers: false,
-    memory_borrow_duration: HostMemoryBorrowDuration::ImportCallOnly,
-    borrowed_root_source: "host-borrowed-values",
-    reentrant_imports_require_transient_roots: true,
-};
-
-#[allow(dead_code)]
-pub(crate) const fn heap_collector_is_executable() -> bool {
-    matches!(
-        HEAP_COLLECTOR_CONTRACT.capability,
-        HeapCollectorCapability::Executable
-    )
+pub(crate) enum HeapNamedSlotFamily {
+    ArrayIterator,
+    StringIterator,
+    RegExpStringIterator,
+    IteratorHelper,
+    IteratorConcatState,
+    IteratorZipState,
 }
 
 #[allow(dead_code)]
-pub(crate) const VALUE_ENCODING_SLOTS: &[ValueEncodingSlot] = &[
-    ValueEncodingSlot {
-        kind: ValueKind::Undefined,
-        payload: ValuePayloadEncoding::Immediate,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Null,
-        payload: ValuePayloadEncoding::Immediate,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Boolean,
-        payload: ValuePayloadEncoding::BooleanBit,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Number,
-        payload: ValuePayloadEncoding::Ieee754Bits,
-        preserves_number_bits: true,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::String,
-        payload: ValuePayloadEncoding::StaticOrHeapPointer,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Symbol,
-        payload: ValuePayloadEncoding::StaticOrHeapPointer,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Object,
-        payload: ValuePayloadEncoding::HeapPointer,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Array,
-        payload: ValuePayloadEncoding::HeapPointer,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Function,
-        payload: ValuePayloadEncoding::HeapPointer,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Arguments,
-        payload: ValuePayloadEncoding::HeapPointer,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::BigInt,
-        payload: ValuePayloadEncoding::I64TemporaryOrHeapPointer,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: false,
-    },
-    ValueEncodingSlot {
-        kind: ValueKind::Dynamic,
-        payload: ValuePayloadEncoding::DynamicTaggedPair,
-        preserves_number_bits: false,
-        arbitrary_precision_ready: true,
-    },
+impl HeapNamedSlotFamily {
+    pub(crate) const fn slots(&self) -> &'static [HeapNamedSlot] {
+        match self {
+            Self::ArrayIterator => HEAP_ARRAY_ITERATOR_NAMED_SLOTS,
+            Self::StringIterator => HEAP_STRING_ITERATOR_NAMED_SLOTS,
+            Self::RegExpStringIterator => HEAP_REGEXP_STRING_ITERATOR_NAMED_SLOTS,
+            Self::IteratorHelper => HEAP_ITERATOR_HELPER_NAMED_SLOTS,
+            Self::IteratorConcatState => HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS,
+            Self::IteratorZipState => HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS,
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) const HEAP_NAMED_SLOT_FAMILIES: &[HeapNamedSlotFamily] = &[
+    HeapNamedSlotFamily::ArrayIterator,
+    HeapNamedSlotFamily::StringIterator,
+    HeapNamedSlotFamily::RegExpStringIterator,
+    HeapNamedSlotFamily::IteratorHelper,
+    HeapNamedSlotFamily::IteratorConcatState,
+    HeapNamedSlotFamily::IteratorZipState,
 ];
+
+#[allow(dead_code)]
+pub(crate) const fn heap_collector_is_executable() -> bool {
+    HEAP_COLLECTOR_POLICY.is_executable()
+}
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_alloc_bigint_literal(
@@ -6864,7 +5044,9 @@ mod tests {
 
         assert!(heap_implementation.contains("const HEAP_PROMISE_STATE_OFFSET: u64 = 0;"));
         assert_eq!(
-            heap_implementation.matches("HEAP_PROMISE_STATE_OFFSET").count(),
+            heap_implementation
+                .matches("HEAP_PROMISE_STATE_OFFSET")
+                .count(),
             5,
             "only the declaration, layout, initializer, terminal store and strict load own the raw offset"
         );
@@ -7164,19 +5346,13 @@ mod tests {
         }
     }
 
-    fn assert_byte_span_layout(layout: HeapByteSpanLayout) {
-        assert!(!layout.record.is_empty());
-        assert!(!layout.length_source.is_empty());
+    fn assert_linear_side_storage(storage: &LinearSideStorage) {
+        assert!(!storage.record().is_empty());
+        assert!(!storage.length_source().is_empty());
         assert!(
-            matches!(layout.element_width, 1 | 2 | 8),
-            "{} has unsupported element width {}",
-            layout.record,
-            layout.element_width
-        );
-        assert!(
-            !layout.pointer,
+            !storage.element().is_reference_storage(),
             "{} should not be traced as pointer storage",
-            layout.record
+            storage.record()
         );
     }
 
@@ -7185,9 +5361,10 @@ mod tests {
         for slot in layout {
             assert!(!slot.record.is_empty());
             assert!(!slot.key.is_empty());
-            assert!(
-                !slot.scans_target || slot.strong_reference,
-                "{}.{} cannot scan a weak or non-reference target",
+            assert_eq!(
+                slot.storage.scans_target(),
+                slot.storage.is_strong_reference(),
+                "{}.{} must derive tracing and reference strength from one storage class",
                 slot.record,
                 slot.key
             );
@@ -7203,117 +5380,98 @@ mod tests {
     fn assert_root_sources(layout: &[HeapRootSource]) {
         let mut names = BTreeSet::new();
         for source in layout {
-            assert!(!source.name.is_empty());
-            assert!(!source.owner.is_empty());
+            assert!(!source.name().is_empty());
+            assert!(!source.owner().is_empty());
             assert!(
-                names.insert(source.name),
+                names.insert(source.name()),
                 "duplicate root source {}",
-                source.name
+                source.name()
             );
         }
     }
 
-    fn assert_weak_edge_slots(layout: &[HeapWeakEdgeSlot]) {
+    fn assert_weak_edges(layout: &[HeapWeakEdge]) {
         let mut names = BTreeSet::new();
-        for slot in layout {
-            assert!(!slot.record.is_empty());
-            assert!(!slot.name.is_empty());
+        for edge in layout {
+            assert!(!edge.record().is_empty());
+            assert!(!edge.name().is_empty());
             assert!(
-                names.insert((slot.record, slot.name)),
+                names.insert((edge.record(), edge.name())),
                 "{} has duplicate weak edge slot {}",
-                slot.record,
-                slot.name
+                edge.record(),
+                edge.name()
             );
-            match slot.kind.retention() {
+            match edge.kind().retention() {
                 HeapWeakEdgeRetention::DoesNotRetain => assert!(matches!(
-                    slot.kind,
+                    edge.kind(),
                     HeapWeakEdgeKind::EphemeronKey
                         | HeapWeakEdgeKind::WeakTarget
                         | HeapWeakEdgeKind::FinalizerToken
                 )),
                 HeapWeakEdgeRetention::ConditionalOnReachableEphemeronKey => {
-                    assert_eq!(slot.kind, HeapWeakEdgeKind::EphemeronValue)
+                    assert_eq!(edge.kind(), HeapWeakEdgeKind::EphemeronValue)
                 }
                 HeapWeakEdgeRetention::StrongUntilCleanup => {
-                    assert_eq!(slot.kind, HeapWeakEdgeKind::FinalizerHoldings)
+                    assert_eq!(edge.kind(), HeapWeakEdgeKind::FinalizerHoldings)
                 }
             }
         }
     }
 
-    fn assert_collector_contract(contract: HeapCollectorContract) {
-        assert!(!contract.name.is_empty());
+    fn assert_collector_policy(policy: &HeapCollectorPolicy) {
+        assert!(!policy.name().is_empty());
         assert!(
-            !contract.moving,
-            "T05 collector contract must stay non-moving until all roots can be updated"
-        );
-        assert_eq!(
-            contract.capability,
-            HeapCollectorCapability::MetadataChecked,
-            "gc() must not run until the collector is executable"
+            !policy.moves_objects(),
+            "T05 collector policy must stay non-moving until all roots can be updated"
         );
         assert!(!heap_collector_is_executable());
-        assert_eq!(contract.root_sources, HEAP_ROOT_SOURCES);
-        assert_eq!(contract.weak_edges, HEAP_WEAK_EDGE_SLOTS);
+        assert_eq!(policy.root_sources(), HEAP_ROOT_SOURCES);
+        assert_eq!(policy.weak_edges().len(), HEAP_WEAK_EDGES.len());
+        for (actual, expected) in policy.weak_edges().iter().zip(HEAP_WEAK_EDGES) {
+            assert_eq!(actual.record(), expected.record());
+            assert_eq!(actual.name(), expected.name());
+            assert_eq!(actual.kind(), expected.kind());
+        }
 
         let mut phase_names = BTreeSet::new();
         let mut phase_kinds = BTreeSet::new();
-        for phase in contract.phases {
-            assert!(!phase.name.is_empty());
+        for phase in policy.required_phases() {
+            assert!(!phase.name().is_empty());
             assert!(
-                phase.required_for_gc_builtin,
-                "{} must be implemented before exposing gc()",
-                phase.name
-            );
-            assert!(
-                phase_names.insert(phase.name),
+                phase_names.insert(phase.name()),
                 "duplicate collector phase {}",
-                phase.name
+                phase.name()
             );
             assert!(
-                phase_kinds.insert(format!("{:?}", phase.kind)),
-                "duplicate collector phase kind {:?}",
-                phase.kind
+                phase_kinds.insert(format!("{phase:?}")),
+                "duplicate collector phase {phase:?}"
             );
         }
     }
 
-    fn assert_host_boundary_contract(contract: HeapHostBoundaryContract) {
-        assert!(!contract.name.is_empty());
-        assert!(
-            !contract.durable_host_pointers,
-            "host pointers must not be stored as durable Wasm payloads"
-        );
+    fn assert_host_boundary_policy(policy: &HeapHostBoundaryPolicy) {
+        assert_eq!(policy.name(), "host-import-memory-borrow");
+        let borrowed_root_source = policy.borrowed_root_source();
+        assert_eq!(borrowed_root_source, HeapRootSource::HostBorrowedValues);
+        assert_eq!(borrowed_root_source.owner(), "host-import-boundary");
         assert_eq!(
-            contract.memory_borrow_duration,
-            HostMemoryBorrowDuration::ImportCallOnly
+            borrowed_root_source.kind(),
+            HeapRootKind::TransientTaggedValues
         );
-        assert!(
-            contract.reentrant_imports_require_transient_roots,
-            "host re-entrancy must keep tag/payload roots live"
-        );
-        assert!(
-            HEAP_ROOT_SOURCES.iter().any(|source| {
-                source.name == contract.borrowed_root_source
-                    && source.owner == "host-import-boundary"
-                    && source.tagged_values
-                    && source.transient
-            }),
-            "host boundary contract must point at a transient tagged root source"
-        );
+        assert!(HEAP_ROOT_SOURCES.contains(&borrowed_root_source));
     }
 
-    fn assert_value_encoding_slots(layout: &[ValueEncodingSlot]) {
+    fn assert_value_encodings(encodings: &[HeapValueEncoding]) {
         let mut kinds = BTreeSet::new();
-        for slot in layout {
+        for encoding in encodings {
             assert!(
-                kinds.insert(slot.kind.tag()),
+                kinds.insert(encoding.kind().tag()),
                 "duplicate value encoding for {:?}",
-                slot.kind
+                encoding.kind()
             );
-            if slot.preserves_number_bits {
+            if encoding.preserves_number_bits() {
                 assert_eq!(
-                    slot.payload,
+                    encoding.payload(),
                     ValuePayloadEncoding::Ieee754Bits,
                     "only Number values should preserve IEEE-754 payload bits"
                 );
@@ -7336,7 +5494,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 400);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 424);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);
         assert_eq!(
             HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET,
@@ -7350,6 +5508,9 @@ mod tests {
         assert_eq!(HEAP_REALM_INTRINSICS_REFERENCE_ERROR_PROTOTYPE_OFFSET, 376);
         assert_eq!(HEAP_REALM_INTRINSICS_SYNTAX_ERROR_PROTOTYPE_OFFSET, 384);
         assert_eq!(HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET, 392);
+        assert_eq!(HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET, 400);
+        assert_eq!(HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET, 408);
+        assert_eq!(HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET, 416);
         assert_eq!(HEAP_PROMISE_RECORD_SIZE, 72);
         assert_eq!(HEAP_PROMISE_CAPABILITY_RECORD_SIZE, 48);
         assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 56);
@@ -7390,13 +5551,185 @@ mod tests {
 
     #[test]
     fn heap_layout_registry_has_no_slot_collisions() {
+        let atomics_async_waiter_layout = HEAP_ATOMICS_ASYNC_WAITER_LAYOUT
+            .iter()
+            .map(AtomicsAsyncWaiterHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let symbol_layout = HEAP_SYMBOL_LAYOUT
+            .iter()
+            .map(SymbolHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let bigint_layout = HEAP_BIGINT_LAYOUT
+            .iter()
+            .map(BigIntHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let bound_function_layout = HEAP_BOUND_FUNCTION_LAYOUT
+            .iter()
+            .map(BoundFunctionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let class_function_context_layout = HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT
+            .iter()
+            .map(ClassFunctionContextHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let string_layout = HEAP_STRING_LAYOUT
+            .iter()
+            .map(StringHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let environment_layout = HEAP_ENVIRONMENT_LAYOUT
+            .iter()
+            .map(EnvironmentHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let async_generator_object_layout = HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT
+            .iter()
+            .map(AsyncGeneratorObjectHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let pending_completion_layout = HEAP_PENDING_COMPLETION_LAYOUT
+            .iter()
+            .map(PendingCompletionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let pending_job_layout = HEAP_PENDING_JOB_LAYOUT
+            .iter()
+            .map(PendingJobHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let promise_reaction_layout = HEAP_PROMISE_REACTION_LAYOUT
+            .iter()
+            .map(PromiseReactionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let intl_locale_layout = HEAP_INTL_LOCALE_RECORD_LAYOUT
+            .iter()
+            .map(IntlLocaleHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let intl_date_time_format_layout = HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT
+            .iter()
+            .map(IntlDateTimeFormatHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let object_entry_layout = HEAP_OBJECT_ENTRY_LAYOUT
+            .iter()
+            .map(ObjectEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let realm_record_layout = HEAP_REALM_RECORD_LAYOUT
+            .iter()
+            .map(RealmRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let private_element_entry_layout = HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT
+            .iter()
+            .map(PrivateElementEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let map_record_layout = HEAP_MAP_RECORD_LAYOUT
+            .iter()
+            .map(MapRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let weak_map_record_layout = HEAP_WEAK_MAP_RECORD_LAYOUT
+            .iter()
+            .map(WeakMapRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let weak_set_record_layout = HEAP_WEAK_SET_RECORD_LAYOUT
+            .iter()
+            .map(WeakSetRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let set_record_layout = HEAP_SET_RECORD_LAYOUT
+            .iter()
+            .map(SetRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let set_iterator_layout = HEAP_SET_ITERATOR_RECORD_LAYOUT
+            .iter()
+            .map(SetIteratorHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let map_entry_layout = HEAP_MAP_ENTRY_LAYOUT
+            .iter()
+            .map(MapEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let weak_map_entry_layout = HEAP_WEAK_MAP_ENTRY_LAYOUT
+            .iter()
+            .map(WeakMapEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let map_iterator_layout = HEAP_MAP_ITERATOR_RECORD_LAYOUT
+            .iter()
+            .map(MapIteratorHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let weak_set_entry_layout = HEAP_WEAK_SET_ENTRY_LAYOUT
+            .iter()
+            .map(WeakSetEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let set_entry_layout = HEAP_SET_ENTRY_LAYOUT
+            .iter()
+            .map(SetEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let private_environment_layout = HEAP_PRIVATE_ENV_LAYOUT
+            .iter()
+            .map(PrivateEnvironmentHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let weak_ref_layout = HEAP_WEAK_REF_RECORD_LAYOUT
+            .iter()
+            .map(WeakRefHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let finalization_registry_record_layout = HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT
+            .iter()
+            .map(FinalizationRegistryRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let finalization_registry_cell_layout = HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT
+            .iter()
+            .map(FinalizationRegistryCellHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let async_disposable_stack_record_layout = HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT
+            .iter()
+            .map(AsyncDisposableStackRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let async_disposable_stack_entry_layout = HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT
+            .iter()
+            .map(AsyncDisposableStackEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let disposable_stack_record_layout = HEAP_DISPOSABLE_STACK_RECORD_LAYOUT
+            .iter()
+            .map(DisposableStackRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let disposable_stack_entry_layout = HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT
+            .iter()
+            .map(DisposableStackEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_duration_layout = HEAP_TEMPORAL_DURATION_RECORD_LAYOUT
+            .iter()
+            .map(TemporalDurationHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_instant_layout = HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT
+            .iter()
+            .map(TemporalInstantHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_zoned_date_time_layout = HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalZonedDateTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_plain_date_layout = HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT
+            .iter()
+            .map(TemporalPlainDateHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_plain_date_time_layout = HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalPlainDateTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_plain_time_layout = HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalPlainTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let typed_array_iterator_layout = HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT
+            .iter()
+            .map(TypedArrayIteratorHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let promise_capability_layout = HEAP_PROMISE_CAPABILITY_LAYOUT
+            .iter()
+            .map(PromiseCapabilityHeapSlot::layout)
+            .collect::<Vec<_>>();
         assert_layout(HEAP_OBJECT_HEADER_LAYOUT, HEAP_HEADER_SIZE);
         assert_layout(HEAP_GENERATOR_OBJECT_LAYOUT, HEAP_HEADER_SIZE);
         assert_layout(
             HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT,
             HEAP_GENERATOR_DELEGATE_RECORD_SIZE,
         );
-        assert_layout(HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT, HEAP_HEADER_SIZE);
+        assert_layout(&async_generator_object_layout, HEAP_HEADER_SIZE);
+        assert_layout(
+            HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT,
+            HEAP_ASYNC_ACTIVATION_RECORD_SIZE,
+        );
         assert_layout(
             HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT,
             HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE,
@@ -7406,178 +5739,357 @@ mod tests {
             HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE,
         );
         assert_layout(
-            HEAP_PENDING_COMPLETION_LAYOUT,
+            &pending_completion_layout,
             HEAP_PENDING_COMPLETION_RECORD_SIZE,
         );
         assert_layout(HEAP_FUNCTION_OBJECT_LAYOUT, HEAP_FUNCTION_OBJECT_SIZE);
         assert_layout(
-            HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT,
+            &class_function_context_layout,
             HEAP_CLASS_FUNCTION_CONTEXT_SIZE,
         );
-        assert_layout(HEAP_PRIVATE_ENV_LAYOUT, HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET);
-        assert_layout(HEAP_BOUND_FUNCTION_LAYOUT, HEAP_BOUND_FUNCTION_RECORD_SIZE);
         assert_layout(
-            HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT,
+            &private_environment_layout,
+            HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET,
+        );
+        assert_layout(&bound_function_layout, HEAP_BOUND_FUNCTION_RECORD_SIZE);
+        assert_layout(
+            &private_element_entry_layout,
             HEAP_PRIVATE_ELEMENT_ENTRY_SIZE,
         );
         assert_layout(HEAP_ARRAY_OBJECT_LAYOUT, HEAP_ARRAY_RECORD_SIZE);
-        assert_layout(HEAP_OBJECT_ENTRY_LAYOUT, HEAP_OBJECT_ENTRY_SIZE);
+        assert_layout(&object_entry_layout, HEAP_OBJECT_ENTRY_SIZE);
         assert_layout(HEAP_ARRAY_ENTRY_LAYOUT, HEAP_ARRAY_ENTRY_SIZE);
-        assert_layout(HEAP_STRING_LAYOUT, HEAP_STRING_RECORD_SIZE);
-        assert_layout(HEAP_BIGINT_LAYOUT, HEAP_BIGINT_RECORD_SIZE);
-        assert_layout(HEAP_SYMBOL_LAYOUT, HEAP_SYMBOL_RECORD_SIZE);
-        assert_layout(HEAP_REALM_RECORD_LAYOUT, HEAP_REALM_RECORD_SIZE);
+        assert_layout(&string_layout, HEAP_STRING_RECORD_SIZE);
+        assert_layout(&bigint_layout, HEAP_BIGINT_RECORD_SIZE);
+        assert_layout(&symbol_layout, HEAP_SYMBOL_RECORD_SIZE);
+        assert_layout(&realm_record_layout, HEAP_REALM_RECORD_SIZE);
         assert_layout(
             HEAP_REALM_INTRINSICS_LAYOUT,
             HEAP_REALM_INTRINSICS_RECORD_SIZE,
         );
         assert_layout(HEAP_PROMISE_LAYOUT, HEAP_PROMISE_RECORD_SIZE);
         assert_layout(
-            HEAP_PROMISE_CAPABILITY_LAYOUT,
+            &promise_capability_layout,
             HEAP_PROMISE_CAPABILITY_RECORD_SIZE,
         );
-        assert_layout(HEAP_MAP_RECORD_LAYOUT, HEAP_MAP_RECORD_SIZE);
-        assert_layout(HEAP_MAP_ENTRY_LAYOUT, HEAP_MAP_ENTRY_SIZE);
-        assert_layout(HEAP_WEAK_MAP_RECORD_LAYOUT, HEAP_WEAK_MAP_RECORD_SIZE);
-        assert_layout(HEAP_WEAK_MAP_ENTRY_LAYOUT, HEAP_WEAK_MAP_ENTRY_SIZE);
-        assert_layout(HEAP_WEAK_SET_RECORD_LAYOUT, HEAP_WEAK_SET_RECORD_SIZE);
-        assert_layout(HEAP_WEAK_SET_ENTRY_LAYOUT, HEAP_WEAK_SET_ENTRY_SIZE);
-        assert_layout(HEAP_WEAK_REF_RECORD_LAYOUT, HEAP_WEAK_REF_RECORD_SIZE);
+        assert_layout(&map_record_layout, HEAP_MAP_RECORD_SIZE);
+        assert_layout(&map_entry_layout, HEAP_MAP_ENTRY_SIZE);
+        assert_layout(&weak_map_record_layout, HEAP_WEAK_MAP_RECORD_SIZE);
+        assert_layout(&weak_map_entry_layout, HEAP_WEAK_MAP_ENTRY_SIZE);
+        assert_layout(&weak_set_record_layout, HEAP_WEAK_SET_RECORD_SIZE);
+        assert_layout(&weak_set_entry_layout, HEAP_WEAK_SET_ENTRY_SIZE);
+        assert_layout(&weak_ref_layout, HEAP_WEAK_REF_RECORD_SIZE);
         assert_layout(
-            HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT,
+            &finalization_registry_record_layout,
             HEAP_FINALIZATION_REGISTRY_RECORD_SIZE,
         );
         assert_layout(
-            HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT,
+            &finalization_registry_cell_layout,
             HEAP_FINALIZATION_REGISTRY_CELL_SIZE,
         );
         assert_layout(
-            HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT,
+            &async_disposable_stack_record_layout,
             HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE,
         );
         assert_layout(
-            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT,
+            &async_disposable_stack_entry_layout,
             HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE,
         );
         assert_layout(
-            HEAP_DISPOSABLE_STACK_RECORD_LAYOUT,
+            &disposable_stack_record_layout,
             HEAP_DISPOSABLE_STACK_RECORD_SIZE,
         );
         assert_layout(
-            HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT,
+            &disposable_stack_entry_layout,
             HEAP_DISPOSABLE_STACK_ENTRY_SIZE,
         );
+        assert_layout(&temporal_instant_layout, HEAP_TEMPORAL_INSTANT_RECORD_SIZE);
         assert_layout(
-            HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT,
-            HEAP_TEMPORAL_INSTANT_RECORD_SIZE,
-        );
-        assert_layout(
-            HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT,
+            &temporal_zoned_date_time_layout,
             HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE,
         );
         assert_layout(
-            HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT,
+            &temporal_plain_date_layout,
             HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE,
         );
         assert_layout(
-            HEAP_TEMPORAL_DURATION_RECORD_LAYOUT,
+            &temporal_duration_layout,
             HEAP_TEMPORAL_DURATION_RECORD_SIZE,
         );
         assert_layout(
-            HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT,
+            &temporal_plain_time_layout,
             HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE,
         );
         assert_layout(
-            HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT,
+            &temporal_plain_date_time_layout,
             HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE,
         );
-        assert_layout(HEAP_INTL_LOCALE_RECORD_LAYOUT, HEAP_INTL_LOCALE_RECORD_SIZE);
+        assert_layout(&intl_locale_layout, HEAP_INTL_LOCALE_RECORD_SIZE);
         assert_layout(
-            HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT,
+            &intl_date_time_format_layout,
             HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE,
         );
+        assert_layout(&map_iterator_layout, HEAP_MAP_ITERATOR_RECORD_SIZE);
+        assert_layout(&set_record_layout, HEAP_SET_RECORD_SIZE);
+        assert_layout(&set_entry_layout, HEAP_SET_ENTRY_SIZE);
+        assert_layout(&set_iterator_layout, HEAP_SET_ITERATOR_RECORD_SIZE);
         assert_layout(
-            HEAP_MAP_ITERATOR_RECORD_LAYOUT,
-            HEAP_MAP_ITERATOR_RECORD_SIZE,
-        );
-        assert_layout(HEAP_SET_RECORD_LAYOUT, HEAP_SET_RECORD_SIZE);
-        assert_layout(HEAP_SET_ENTRY_LAYOUT, HEAP_SET_ENTRY_SIZE);
-        assert_layout(
-            HEAP_SET_ITERATOR_RECORD_LAYOUT,
-            HEAP_SET_ITERATOR_RECORD_SIZE,
-        );
-        assert_layout(
-            HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT,
+            &typed_array_iterator_layout,
             HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE,
         );
+        assert_layout(&promise_reaction_layout, HEAP_PROMISE_REACTION_RECORD_SIZE);
+        assert_layout(&pending_job_layout, HEAP_PENDING_JOB_RECORD_SIZE);
         assert_layout(
-            HEAP_PROMISE_REACTION_LAYOUT,
-            HEAP_PROMISE_REACTION_RECORD_SIZE,
-        );
-        assert_layout(HEAP_PENDING_JOB_LAYOUT, HEAP_PENDING_JOB_RECORD_SIZE);
-        assert_layout(
-            HEAP_ATOMICS_ASYNC_WAITER_LAYOUT,
+            &atomics_async_waiter_layout,
             HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE,
         );
-        assert_layout(
-            HEAP_ENVIRONMENT_LAYOUT,
-            ENV_SLOT_BASE_OFFSET + ENV_SLOT_SIZE,
-        );
+        assert_layout(&environment_layout, ENV_SLOT_BASE_OFFSET + ENV_SLOT_SIZE);
     }
 
     #[test]
     fn heap_layout_registry_marks_gc_pointer_fields() {
+        let atomics_async_waiter_layout = HEAP_ATOMICS_ASYNC_WAITER_LAYOUT
+            .iter()
+            .map(AtomicsAsyncWaiterHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let bound_function_layout = HEAP_BOUND_FUNCTION_LAYOUT
+            .iter()
+            .map(BoundFunctionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let class_function_context_layout = HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT
+            .iter()
+            .map(ClassFunctionContextHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let pending_completion_layout = HEAP_PENDING_COMPLETION_LAYOUT
+            .iter()
+            .map(PendingCompletionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let pending_job_layout = HEAP_PENDING_JOB_LAYOUT
+            .iter()
+            .map(PendingJobHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let private_element_entry_layout = HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT
+            .iter()
+            .map(PrivateElementEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let finalization_registry_record_layout = HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT
+            .iter()
+            .map(FinalizationRegistryRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let finalization_registry_cell_layout = HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT
+            .iter()
+            .map(FinalizationRegistryCellHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let promise_capability_layout = HEAP_PROMISE_CAPABILITY_LAYOUT
+            .iter()
+            .map(PromiseCapabilityHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let promise_reaction_layout = HEAP_PROMISE_REACTION_LAYOUT
+            .iter()
+            .map(PromiseReactionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let intl_locale_layout = HEAP_INTL_LOCALE_RECORD_LAYOUT
+            .iter()
+            .map(IntlLocaleHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let intl_date_time_format_layout = HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT
+            .iter()
+            .map(IntlDateTimeFormatHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let object_entry_layout = HEAP_OBJECT_ENTRY_LAYOUT
+            .iter()
+            .map(ObjectEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let realm_record_layout = HEAP_REALM_RECORD_LAYOUT
+            .iter()
+            .map(RealmRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_zoned_date_time_layout = HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalZonedDateTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_plain_time_layout = HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalPlainTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_plain_date_time_layout = HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalPlainDateTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let temporal_duration_layout = HEAP_TEMPORAL_DURATION_RECORD_LAYOUT
+            .iter()
+            .map(TemporalDurationHeapSlot::layout)
+            .collect::<Vec<_>>();
         let pointer_slots = HEAP_OBJECT_HEADER_LAYOUT
             .iter()
             .chain(HEAP_GENERATOR_OBJECT_LAYOUT.iter())
             .chain(HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT.iter())
-            .chain(HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT.iter())
+            .chain(HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT.iter())
             .chain(HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT.iter())
             .chain(HEAP_ASYNC_GENERATOR_REQUEST_LAYOUT.iter())
-            .chain(HEAP_PENDING_COMPLETION_LAYOUT.iter())
             .chain(HEAP_FUNCTION_OBJECT_LAYOUT.iter())
-            .chain(HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT.iter())
-            .chain(HEAP_PRIVATE_ENV_LAYOUT.iter())
-            .chain(HEAP_BOUND_FUNCTION_LAYOUT.iter())
-            .chain(HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT.iter())
             .chain(HEAP_ARRAY_OBJECT_LAYOUT.iter())
-            .chain(HEAP_OBJECT_ENTRY_LAYOUT.iter())
             .chain(HEAP_ARRAY_ENTRY_LAYOUT.iter())
-            .chain(HEAP_STRING_LAYOUT.iter())
-            .chain(HEAP_BIGINT_LAYOUT.iter())
-            .chain(HEAP_SYMBOL_LAYOUT.iter())
-            .chain(HEAP_REALM_RECORD_LAYOUT.iter())
             .chain(HEAP_REALM_INTRINSICS_LAYOUT.iter())
             .chain(HEAP_PROMISE_LAYOUT.iter())
-            .chain(HEAP_PROMISE_CAPABILITY_LAYOUT.iter())
-            .chain(HEAP_MAP_RECORD_LAYOUT.iter())
-            .chain(HEAP_MAP_ENTRY_LAYOUT.iter())
-            .chain(HEAP_WEAK_REF_RECORD_LAYOUT.iter())
-            .chain(HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT.iter())
-            .chain(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter())
-            .chain(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT.iter())
-            .chain(HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT.iter())
-            .chain(HEAP_DISPOSABLE_STACK_RECORD_LAYOUT.iter())
-            .chain(HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT.iter())
-            .chain(HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT.iter())
-            .chain(HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT.iter())
-            .chain(HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT.iter())
-            .chain(HEAP_TEMPORAL_DURATION_RECORD_LAYOUT.iter())
-            .chain(HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT.iter())
-            .chain(HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT.iter())
-            .chain(HEAP_INTL_LOCALE_RECORD_LAYOUT.iter())
-            .chain(HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT.iter())
-            .chain(HEAP_MAP_ITERATOR_RECORD_LAYOUT.iter())
-            .chain(HEAP_SET_RECORD_LAYOUT.iter())
-            .chain(HEAP_SET_ENTRY_LAYOUT.iter())
-            .chain(HEAP_SET_ITERATOR_RECORD_LAYOUT.iter())
-            .chain(HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT.iter())
-            .chain(HEAP_PROMISE_REACTION_LAYOUT.iter())
-            .chain(HEAP_PENDING_JOB_LAYOUT.iter())
-            .chain(HEAP_ATOMICS_ASYNC_WAITER_LAYOUT.iter())
-            .chain(HEAP_ENVIRONMENT_LAYOUT.iter())
             .filter(|slot| slot.pointer)
-            .count();
+            .count()
+            + intl_locale_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + intl_date_time_format_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + object_entry_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + realm_record_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + temporal_plain_time_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + temporal_plain_date_time_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + temporal_duration_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + promise_reaction_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + HEAP_SYMBOL_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_BIGINT_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_STRING_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_ENVIRONMENT_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_MAP_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_SET_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_SET_ITERATOR_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_MAP_ENTRY_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_MAP_ITERATOR_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_WEAK_SET_ENTRY_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_SET_ENTRY_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_PRIVATE_ENV_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_WEAK_REF_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_DISPOSABLE_STACK_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT
+                .iter()
+                .filter(|slot| slot.layout().pointer)
+                .count()
+            + pending_completion_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + atomics_async_waiter_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + bound_function_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + class_function_context_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + finalization_registry_record_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + finalization_registry_cell_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + promise_capability_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + pending_job_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + private_element_entry_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + temporal_zoned_date_time_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count();
         assert!(pointer_slots >= 64, "expected GC-visible pointer slots");
         assert!(HEAP_OBJECT_HEADER_LAYOUT.iter().any(|slot| {
             slot.name == "prototype_payload" && slot.offset == HEAP_PROTOTYPE_OFFSET && slot.pointer
@@ -7598,7 +6110,7 @@ mod tests {
                 && slot.offset == HEAP_FUNCTION_ENV_HANDLE_OFFSET
                 && slot.pointer
         }));
-        assert!(HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT.iter().all(|slot| {
+        assert!(class_function_context_layout.iter().all(|slot| {
             (slot.offset == HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET) == !slot.pointer
         }));
         assert!(HEAP_FUNCTION_OBJECT_LAYOUT.iter().any(|slot| {
@@ -7606,7 +6118,13 @@ mod tests {
                 && slot.offset == HEAP_FUNCTION_DEFINING_REALM_OFFSET
                 && slot.pointer
         }));
+        assert!(HEAP_FUNCTION_OBJECT_LAYOUT.iter().any(|slot| {
+            slot.name == "builtin_closure_context"
+                && slot.offset == HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET
+                && slot.pointer
+        }));
         assert!(HEAP_REALM_RECORD_LAYOUT.iter().any(|slot| {
+            let slot = slot.layout();
             slot.name == "global_object"
                 && slot.offset == HEAP_REALM_GLOBAL_OBJECT_OFFSET
                 && slot.pointer
@@ -7682,15 +6200,29 @@ mod tests {
                 "%URIError.prototype%",
                 HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET,
             ),
+            (
+                "%Promise.prototype%",
+                HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
+            ),
+            (
+                "%Function.prototype%",
+                HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
+            ),
+            (
+                "%Promise%",
+                HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
+            ),
         ] {
             assert!(HEAP_REALM_INTRINSICS_LAYOUT
                 .iter()
                 .any(|slot| { slot.name == name && slot.offset == offset && slot.pointer }));
         }
         assert!(HEAP_BIGINT_LAYOUT.iter().any(|slot| {
+            let slot = slot.layout();
             slot.name == "limbs_ptr" && slot.offset == HEAP_BIGINT_LIMBS_PTR_OFFSET && slot.pointer
         }));
         assert!(HEAP_SYMBOL_LAYOUT.iter().any(|slot| {
+            let slot = slot.layout();
             slot.name == "description_payload"
                 && slot.offset == HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET
                 && slot.pointer
@@ -7700,13 +6232,27 @@ mod tests {
                 && slot.offset == HEAP_PROMISE_RESULT_PAYLOAD_OFFSET
                 && slot.pointer
         }));
-        assert!(HEAP_PENDING_JOB_LAYOUT.iter().any(|slot| {
+        assert!(pending_job_layout.iter().any(|slot| {
             slot.name == "next" && slot.offset == HEAP_PENDING_JOB_NEXT_OFFSET && slot.pointer
+        }));
+        assert!(pending_completion_layout.iter().any(|slot| {
+            slot.name == "next"
+                && slot.offset == HEAP_PENDING_COMPLETION_NEXT_OFFSET
+                && slot.pointer
+        }));
+        assert!(pending_completion_layout.iter().any(|slot| {
+            slot.name == "payload"
+                && slot.offset == HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET
+                && slot.pointer
         }));
     }
 
     #[test]
     fn async_generator_records_expose_queue_activation_and_promise_edges_to_gc() {
+        let promise_capability_layout = HEAP_PROMISE_CAPABILITY_LAYOUT
+            .iter()
+            .map(PromiseCapabilityHeapSlot::layout)
+            .collect::<Vec<_>>();
         assert_eq!(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, 184);
         assert_eq!(HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE, 56);
         assert_ne!(
@@ -7728,6 +6274,7 @@ mod tests {
         );
 
         assert!(HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT.iter().any(|slot| {
+            let slot = slot.layout();
             slot.name == "activation"
                 && slot.offset == HEAP_ASYNC_GENERATOR_ACTIVATION_OFFSET
                 && slot.pointer
@@ -7789,6 +6336,7 @@ mod tests {
             );
         }
         assert!(HEAP_PROMISE_REACTION_LAYOUT.iter().any(|slot| {
+            let slot = slot.layout();
             slot.name == "callback_kind"
                 && slot.offset == HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET
                 && !slot.pointer
@@ -7804,22 +6352,12 @@ mod tests {
 
         for name in ["promise_payload", "resolve_payload", "reject_payload"] {
             assert!(
-                HEAP_PROMISE_CAPABILITY_LAYOUT
+                promise_capability_layout
                     .iter()
                     .any(|slot| slot.name == name && slot.pointer),
                 "Promise capability must trace {name}"
             );
         }
-        assert!(HEAP_PENDING_COMPLETION_LAYOUT.iter().any(|slot| {
-            slot.name == "next"
-                && slot.offset == HEAP_PENDING_COMPLETION_NEXT_OFFSET
-                && slot.pointer
-        }));
-        assert!(HEAP_PENDING_COMPLETION_LAYOUT.iter().any(|slot| {
-            slot.name == "payload"
-                && slot.offset == HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET
-                && slot.pointer
-        }));
     }
 
     #[test]
@@ -7841,10 +6379,10 @@ mod tests {
             slot.name == "flags" && slot.offset == HEAP_ARRAY_BUFFER_FLAGS_OFFSET && !slot.pointer
         }));
         assert_eq!(
-            ARRAY_BUFFER_FLAG_RESIZABLE
-                | ARRAY_BUFFER_FLAG_SHARED
-                | ARRAY_BUFFER_FLAG_IMMUTABLE
-                | ARRAY_BUFFER_FLAG_DETACHED,
+            ArrayBufferFlag::Resizable.word()
+                | ArrayBufferFlag::Shared.word()
+                | ArrayBufferFlag::Immutable.word()
+                | ArrayBufferFlag::Detached.word(),
             15
         );
     }
@@ -7878,20 +6416,24 @@ mod tests {
 
     #[test]
     fn heap_named_slot_registry_marks_iterator_references() {
-        for layout in HEAP_NAMED_SLOT_LAYOUTS {
-            assert_named_slots(layout);
+        for family in HEAP_NAMED_SLOT_FAMILIES {
+            assert_named_slots(family.slots());
         }
         assert!(HEAP_ARRAY_ITERATOR_NAMED_SLOTS.iter().any(|slot| {
-            slot.key == "$ArrayIterator.array" && slot.strong_reference && slot.scans_target
+            slot.key == "$ArrayIterator.array"
+                && slot.storage == HeapNamedSlotStorage::StrongReference
         }));
         assert!(HEAP_REGEXP_STRING_ITERATOR_NAMED_SLOTS.iter().any(|slot| {
-            slot.key == "$RegExpStringIterator.regexp" && slot.strong_reference && slot.scans_target
+            slot.key == "$RegExpStringIterator.regexp"
+                && slot.storage == HeapNamedSlotStorage::StrongReference
         }));
         assert!(HEAP_ITERATOR_HELPER_NAMED_SLOTS.iter().any(|slot| {
-            slot.key == "$IteratorFromIterator" && slot.strong_reference && slot.scans_target
+            slot.key == "$IteratorFromIterator"
+                && slot.storage == HeapNamedSlotStorage::StrongReference
         }));
         assert!(HEAP_ITERATOR_HELPER_NAMED_SLOTS.iter().any(|slot| {
-            slot.key == "$IteratorFlatMapInnerNext" && slot.strong_reference && slot.scans_target
+            slot.key == "$IteratorFlatMapInnerNext"
+                && slot.storage == HeapNamedSlotStorage::StrongReference
         }));
     }
 
@@ -7904,9 +6446,9 @@ mod tests {
             "$IteratorZipPadding",
             "$IteratorZipKeys",
         ] {
-            assert!(HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS
-                .iter()
-                .any(|slot| { slot.key == key && slot.strong_reference && slot.scans_target }));
+            assert!(HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS.iter().any(|slot| {
+                slot.key == key && slot.storage == HeapNamedSlotStorage::StrongReference
+            }));
         }
         for key in [
             "$IteratorZipDone",
@@ -7916,7 +6458,7 @@ mod tests {
         ] {
             assert!(HEAP_ITERATOR_ZIP_STATE_NAMED_SLOTS
                 .iter()
-                .any(|slot| { slot.key == key && !slot.strong_reference && !slot.scans_target }));
+                .any(|slot| { slot.key == key && slot.storage == HeapNamedSlotStorage::Scalar }));
         }
     }
 
@@ -7928,9 +6470,9 @@ mod tests {
             "$IteratorConcatCurrentIterator",
             "$IteratorConcatCurrentNext",
         ] {
-            assert!(HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS
-                .iter()
-                .any(|slot| { slot.key == key && slot.strong_reference && slot.scans_target }));
+            assert!(HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS.iter().any(|slot| {
+                slot.key == key && slot.storage == HeapNamedSlotStorage::StrongReference
+            }));
         }
         for key in [
             "$IteratorConcatIndex",
@@ -7940,7 +6482,7 @@ mod tests {
         ] {
             assert!(HEAP_ITERATOR_CONCAT_STATE_NAMED_SLOTS
                 .iter()
-                .any(|slot| { slot.key == key && !slot.strong_reference && !slot.scans_target }));
+                .any(|slot| { slot.key == key && slot.storage == HeapNamedSlotStorage::Scalar }));
         }
     }
 
@@ -7948,58 +6490,61 @@ mod tests {
     fn heap_root_registry_covers_gc_safepoint_sources() {
         assert_root_sources(HEAP_ROOT_SOURCES);
         assert!(HEAP_ROOT_SOURCES.iter().any(|source| {
-            source.name == "active-frame-locals" && source.tagged_values && source.transient
+            *source == HeapRootSource::ActiveFrameLocals
+                && source.kind() == HeapRootKind::TransientTaggedValues
         }));
         assert!(HEAP_ROOT_SOURCES.iter().any(|source| {
-            source.name == "completion-records"
-                && source.owner == "completion-abi"
-                && source.tagged_values
-                && source.transient
+            *source == HeapRootSource::CompletionRecords
+                && source.owner() == "completion-abi"
+                && source.kind() == HeapRootKind::TransientTaggedValues
         }));
         assert!(HEAP_ROOT_SOURCES.iter().any(|source| {
-            source.name == "host-borrowed-values" && source.tagged_values && source.transient
+            *source == HeapRootSource::HostBorrowedValues
+                && source.kind() == HeapRootKind::TransientTaggedValues
         }));
         assert!(HEAP_ROOT_SOURCES.iter().any(|source| {
-            source.name == "pending-jobs" && source.tagged_values && !source.transient
+            *source == HeapRootSource::PendingJobs
+                && source.kind() == HeapRootKind::PersistentTaggedValues
         }));
     }
 
     #[test]
     fn heap_weak_edge_registry_models_ephemerons_and_finalizers() {
-        assert_weak_edge_slots(HEAP_WEAK_EDGE_SLOTS);
-        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-            slot.record == "weak-map-entry"
-                && slot.name == "key"
-                && slot.kind == HeapWeakEdgeKind::EphemeronKey
-                && slot.kind.retention() == HeapWeakEdgeRetention::DoesNotRetain
+        assert_weak_edges(HEAP_WEAK_EDGES);
+        assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+            edge.record() == "weak-map-entry"
+                && edge.name() == "key"
+                && edge.kind() == HeapWeakEdgeKind::EphemeronKey
+                && edge.kind().retention() == HeapWeakEdgeRetention::DoesNotRetain
         }));
-        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-            slot.record == "weak-map-entry"
-                && slot.name == "value"
-                && slot.kind == HeapWeakEdgeKind::EphemeronValue
-                && slot.kind.retention()
+        assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+            edge.record() == "weak-map-entry"
+                && edge.name() == "value"
+                && edge.kind() == HeapWeakEdgeKind::EphemeronValue
+                && edge.kind().retention()
                     == HeapWeakEdgeRetention::ConditionalOnReachableEphemeronKey
         }));
-        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-            slot.record == "weak-ref-record"
-                && slot.kind == HeapWeakEdgeKind::WeakTarget
-                && slot.kind.retention() == HeapWeakEdgeRetention::DoesNotRetain
+        assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+            edge.record() == "weak-ref-record"
+                && edge.kind() == HeapWeakEdgeKind::WeakTarget
+                && edge.kind().retention() == HeapWeakEdgeRetention::DoesNotRetain
         }));
-        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-            slot.record == "weak-set-entry"
-                && slot.name == "value"
-                && slot.kind == HeapWeakEdgeKind::EphemeronKey
-                && slot.kind.retention() == HeapWeakEdgeRetention::DoesNotRetain
+        assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+            edge.record() == "weak-set-entry"
+                && edge.name() == "value"
+                && edge.kind() == HeapWeakEdgeKind::EphemeronKey
+                && edge.kind().retention() == HeapWeakEdgeRetention::DoesNotRetain
         }));
         assert!(HEAP_WEAK_SET_ENTRY_LAYOUT
             .iter()
+            .map(WeakSetEntryHeapSlot::layout)
             .find(|slot| slot.name == "value_payload")
             .is_some_and(|slot| !slot.pointer));
-        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-            slot.record == "finalization-registry-cell"
-                && slot.name == "holdings"
-                && slot.kind == HeapWeakEdgeKind::FinalizerHoldings
-                && slot.kind.retention() == HeapWeakEdgeRetention::StrongUntilCleanup
+        assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+            edge.record() == "finalization-registry-cell"
+                && edge.name() == "holdings"
+                && edge.kind() == HeapWeakEdgeKind::FinalizerHoldings
+                && edge.kind().retention() == HeapWeakEdgeRetention::StrongUntilCleanup
         }));
     }
 
@@ -8032,81 +6577,680 @@ mod tests {
     }
 
     #[test]
-    fn heap_collector_contract_requires_all_gc_builtin_phases() {
-        assert_collector_contract(HEAP_COLLECTOR_CONTRACT);
-        for kind in [
-            HeapCollectorPhaseKind::StopTheWorld,
-            HeapCollectorPhaseKind::RootScan,
-            HeapCollectorPhaseKind::MarkStrong,
-            HeapCollectorPhaseKind::ProcessEphemerons,
-            HeapCollectorPhaseKind::ClearWeakRefs,
-            HeapCollectorPhaseKind::QueueFinalizers,
-            HeapCollectorPhaseKind::Sweep,
-            HeapCollectorPhaseKind::Resume,
+    fn heap_collector_policy_requires_all_gc_builtin_phases() {
+        assert_collector_policy(&HEAP_COLLECTOR_POLICY);
+        for phase in [
+            RequiredHeapCollectorPhase::StopTheWorld,
+            RequiredHeapCollectorPhase::RootScan,
+            RequiredHeapCollectorPhase::MarkStrong,
+            RequiredHeapCollectorPhase::ProcessEphemerons,
+            RequiredHeapCollectorPhase::ClearWeakRefs,
+            RequiredHeapCollectorPhase::QueueFinalizers,
+            RequiredHeapCollectorPhase::Sweep,
+            RequiredHeapCollectorPhase::Resume,
         ] {
             assert!(
-                HEAP_COLLECTOR_PHASES
-                    .iter()
-                    .any(|phase| phase.kind == kind && phase.required_for_gc_builtin),
-                "missing required collector phase {:?}",
-                kind
+                REQUIRED_HEAP_COLLECTOR_PHASES.contains(&phase),
+                "missing required collector phase {phase:?}"
             );
         }
     }
 
     #[test]
-    fn heap_collector_contract_keeps_gc_builtin_unsupported_until_executable() {
+    fn heap_collector_policy_keeps_gc_builtin_unsupported_until_executable() {
         assert!(!heap_collector_is_executable());
-        assert_eq!(
-            HEAP_COLLECTOR_CONTRACT.capability,
-            HeapCollectorCapability::MetadataChecked
-        );
-        assert!(HEAP_COLLECTOR_CONTRACT
-            .phases
+        assert_eq!(HEAP_COLLECTOR_POLICY.name(), "non-moving-tracing-collector");
+        assert!(!HEAP_COLLECTOR_POLICY.moves_objects());
+        assert!(HEAP_COLLECTOR_POLICY
+            .required_phases()
+            .contains(&RequiredHeapCollectorPhase::Sweep));
+        assert!(HEAP_COLLECTOR_POLICY
+            .weak_edges()
             .iter()
-            .any(|phase| phase.kind == HeapCollectorPhaseKind::Sweep));
-        assert!(HEAP_COLLECTOR_CONTRACT
-            .weak_edges
+            .any(|edge| edge.kind() == HeapWeakEdgeKind::EphemeronKey));
+        assert!(HEAP_COLLECTOR_POLICY
+            .weak_edges()
             .iter()
-            .any(|slot| slot.kind == HeapWeakEdgeKind::EphemeronKey));
-        assert!(HEAP_COLLECTOR_CONTRACT
-            .weak_edges
-            .iter()
-            .any(|slot| slot.kind == HeapWeakEdgeKind::FinalizerHoldings));
+            .any(|edge| edge.kind() == HeapWeakEdgeKind::FinalizerHoldings));
     }
 
     #[test]
     fn weak_map_entries_are_ephemerons_not_strong_heap_edges() {
-        assert!(HEAP_WEAK_MAP_ENTRY_LAYOUT.iter().all(|slot| !slot.pointer));
-        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-            slot.record == "weak-map-entry"
-                && slot.name == "key"
-                && slot.kind == HeapWeakEdgeKind::EphemeronKey
+        assert!(HEAP_WEAK_MAP_ENTRY_LAYOUT
+            .iter()
+            .all(|slot| !slot.layout().pointer));
+        assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+            edge.record() == "weak-map-entry"
+                && edge.name() == "key"
+                && edge.kind() == HeapWeakEdgeKind::EphemeronKey
         }));
-        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-            slot.record == "weak-map-entry"
-                && slot.name == "value"
-                && slot.kind == HeapWeakEdgeKind::EphemeronValue
+        assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+            edge.record() == "weak-map-entry"
+                && edge.name() == "value"
+                && edge.kind() == HeapWeakEdgeKind::EphemeronValue
         }));
     }
 
     #[test]
     fn weak_ref_target_is_not_a_strong_heap_edge() {
-        assert!(HEAP_WEAK_REF_RECORD_LAYOUT.iter().all(|slot| !slot.pointer));
-        assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-            slot.record == "weak-ref-record"
-                && slot.name == "target"
-                && slot.kind == HeapWeakEdgeKind::WeakTarget
-                && slot.kind.retention() == HeapWeakEdgeRetention::DoesNotRetain
+        assert!(HEAP_WEAK_REF_RECORD_LAYOUT
+            .iter()
+            .all(|slot| !slot.layout().pointer));
+        assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+            edge.record() == "weak-ref-record"
+                && edge.name() == "target"
+                && edge.kind() == HeapWeakEdgeKind::WeakTarget
+                && edge.kind().retention() == HeapWeakEdgeRetention::DoesNotRetain
         }));
     }
 
     #[test]
+    fn weak_ref_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_WEAK_REF_RECORD_LAYOUT
+            .iter()
+            .map(WeakRefHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 2);
+
+        let tag = &layouts[0];
+        assert_eq!(tag.record, "weak-ref-record");
+        assert_eq!(tag.name, "target_tag");
+        assert_eq!(tag.offset, HEAP_WEAK_REF_TARGET_TAG_OFFSET);
+        assert_eq!(tag.width, 8);
+        assert!(!tag.pointer);
+
+        let payload = &layouts[1];
+        assert_eq!(payload.record, "weak-ref-record");
+        assert_eq!(payload.name, "target_payload");
+        assert_eq!(payload.offset, HEAP_WEAK_REF_TARGET_PAYLOAD_OFFSET);
+        assert_eq!(payload.width, 8);
+        assert!(!payload.pointer);
+
+        assert_layout(&layouts, HEAP_WEAK_REF_RECORD_SIZE);
+    }
+
+    #[test]
+    fn promise_capability_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_PROMISE_CAPABILITY_LAYOUT
+            .iter()
+            .map(PromiseCapabilityHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 6);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "promise_tag",
+                HEAP_PROMISE_CAPABILITY_PROMISE_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[1],
+                "promise_payload",
+                HEAP_PROMISE_CAPABILITY_PROMISE_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[2],
+                "resolve_tag",
+                HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[3],
+                "resolve_payload",
+                HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[4],
+                "reject_tag",
+                HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[5],
+                "reject_payload",
+                HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
+                true,
+            ),
+        ] {
+            assert_eq!(slot.record, "promise-capability-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_PROMISE_CAPABILITY_RECORD_SIZE);
+    }
+
+    #[test]
+    fn intl_locale_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_INTL_LOCALE_RECORD_LAYOUT
+            .iter()
+            .map(IntlLocaleHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 5);
+
+        for (slot, name, offset) in [
+            (&layouts[0], "tag_payload", HEAP_INTL_LOCALE_TAG_OFFSET),
+            (
+                &layouts[1],
+                "language_payload",
+                HEAP_INTL_LOCALE_LANGUAGE_OFFSET,
+            ),
+            (
+                &layouts[2],
+                "script_payload",
+                HEAP_INTL_LOCALE_SCRIPT_OFFSET,
+            ),
+            (
+                &layouts[3],
+                "region_payload",
+                HEAP_INTL_LOCALE_REGION_OFFSET,
+            ),
+            (
+                &layouts[4],
+                "base_name_payload",
+                HEAP_INTL_LOCALE_BASE_NAME_OFFSET,
+            ),
+        ] {
+            assert_eq!(slot.record, "intl-locale-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert!(slot.pointer);
+        }
+
+        assert_layout(&layouts, HEAP_INTL_LOCALE_RECORD_SIZE);
+    }
+
+    #[test]
+    fn intl_date_time_format_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT
+            .iter()
+            .map(IntlDateTimeFormatHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 23);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "locale_payload",
+                HEAP_INTL_DTF_LOCALE_OFFSET,
+                true,
+            ),
+            (
+                &layouts[1],
+                "calendar_payload",
+                HEAP_INTL_DTF_CALENDAR_OFFSET,
+                true,
+            ),
+            (
+                &layouts[2],
+                "numbering_system_payload",
+                HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
+                true,
+            ),
+            (
+                &layouts[3],
+                "time_zone_payload",
+                HEAP_INTL_DTF_TIME_ZONE_OFFSET,
+                true,
+            ),
+            (
+                &layouts[4],
+                "time_zone_offset_minutes",
+                HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
+                false,
+            ),
+            (
+                &layouts[5],
+                "time_zone_gmt_name_payload",
+                HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET,
+                true,
+            ),
+            (
+                &layouts[6],
+                "hour_cycle_code",
+                HEAP_INTL_DTF_HOUR_CYCLE_OFFSET,
+                false,
+            ),
+            (
+                &layouts[7],
+                "weekday_code",
+                HEAP_INTL_DTF_WEEKDAY_OFFSET,
+                false,
+            ),
+            (&layouts[8], "era_code", HEAP_INTL_DTF_ERA_OFFSET, false),
+            (&layouts[9], "year_code", HEAP_INTL_DTF_YEAR_OFFSET, false),
+            (
+                &layouts[10],
+                "month_code",
+                HEAP_INTL_DTF_MONTH_OFFSET,
+                false,
+            ),
+            (&layouts[11], "day_code", HEAP_INTL_DTF_DAY_OFFSET, false),
+            (
+                &layouts[12],
+                "day_period_code",
+                HEAP_INTL_DTF_DAY_PERIOD_OFFSET,
+                false,
+            ),
+            (&layouts[13], "hour_code", HEAP_INTL_DTF_HOUR_OFFSET, false),
+            (
+                &layouts[14],
+                "minute_code",
+                HEAP_INTL_DTF_MINUTE_OFFSET,
+                false,
+            ),
+            (
+                &layouts[15],
+                "second_code",
+                HEAP_INTL_DTF_SECOND_OFFSET,
+                false,
+            ),
+            (
+                &layouts[16],
+                "fractional_second_digits",
+                HEAP_INTL_DTF_FRACTIONAL_SECOND_DIGITS_OFFSET,
+                false,
+            ),
+            (
+                &layouts[17],
+                "time_zone_name_code",
+                HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET,
+                false,
+            ),
+            (
+                &layouts[18],
+                "date_style_code",
+                HEAP_INTL_DTF_DATE_STYLE_OFFSET,
+                false,
+            ),
+            (
+                &layouts[19],
+                "time_style_code",
+                HEAP_INTL_DTF_TIME_STYLE_OFFSET,
+                false,
+            ),
+            (
+                &layouts[20],
+                "hour12_code",
+                HEAP_INTL_DTF_HOUR12_OFFSET,
+                false,
+            ),
+            (
+                &layouts[21],
+                "bound_format_payload",
+                HEAP_INTL_DTF_BOUND_FORMAT_OFFSET,
+                true,
+            ),
+            (
+                &layouts[22],
+                "need_defaults",
+                HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET,
+                false,
+            ),
+        ] {
+            assert_eq!(slot.record, "intl-date-time-format-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE);
+    }
+    #[test]
+    fn object_entry_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_OBJECT_ENTRY_LAYOUT
+            .iter()
+            .map(ObjectEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 8);
+
+        for (slot, name, offset, pointer) in [
+            (&layouts[0], "key", HEAP_OBJECT_KEY_OFFSET, true),
+            (
+                &layouts[1],
+                "descriptor_kind",
+                HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET,
+                false,
+            ),
+            (&layouts[2], "data_tag", HEAP_OBJECT_DATA_TAG_OFFSET, false),
+            (
+                &layouts[3],
+                "data_payload",
+                HEAP_OBJECT_DATA_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[4],
+                "getter_tag",
+                HEAP_OBJECT_GETTER_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[5],
+                "getter_payload",
+                HEAP_OBJECT_GETTER_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[6],
+                "setter_tag",
+                HEAP_OBJECT_SETTER_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[7],
+                "setter_payload",
+                HEAP_OBJECT_SETTER_PAYLOAD_OFFSET,
+                true,
+            ),
+        ] {
+            assert_eq!(slot.record, "object-entry");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_OBJECT_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn realm_record_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_REALM_RECORD_LAYOUT
+            .iter()
+            .map(RealmRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 9);
+
+        for (slot, name, offset, pointer) in [
+            (&layouts[0], "realm_id", HEAP_REALM_ID_OFFSET, false),
+            (&layouts[1], "agent_id", HEAP_REALM_AGENT_ID_OFFSET, false),
+            (
+                &layouts[2],
+                "global_object",
+                HEAP_REALM_GLOBAL_OBJECT_OFFSET,
+                true,
+            ),
+            (
+                &layouts[3],
+                "global_this",
+                HEAP_REALM_GLOBAL_THIS_OFFSET,
+                true,
+            ),
+            (
+                &layouts[4],
+                "global_environment",
+                HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
+                true,
+            ),
+            (
+                &layouts[5],
+                "intrinsics",
+                HEAP_REALM_INTRINSICS_OFFSET,
+                true,
+            ),
+            (
+                &layouts[6],
+                "host_hooks",
+                HEAP_REALM_HOST_HOOKS_OFFSET,
+                true,
+            ),
+            (
+                &layouts[7],
+                "module_registry",
+                HEAP_REALM_MODULE_REGISTRY_OFFSET,
+                true,
+            ),
+            (
+                &layouts[8],
+                "private_elements",
+                HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+                true,
+            ),
+        ] {
+            assert_eq!(slot.record, "realm-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_REALM_RECORD_SIZE);
+    }
+
+    #[test]
+    fn promise_reaction_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_PROMISE_REACTION_LAYOUT
+            .iter()
+            .map(PromiseReactionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 7);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "capability",
+                HEAP_PROMISE_REACTION_CAPABILITY_OFFSET,
+                true,
+            ),
+            (
+                &layouts[1],
+                "handler_tag",
+                HEAP_PROMISE_REACTION_HANDLER_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[2],
+                "handler_payload",
+                HEAP_PROMISE_REACTION_HANDLER_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[3],
+                "realm",
+                HEAP_PROMISE_REACTION_REALM_OFFSET,
+                true,
+            ),
+            (&layouts[4], "next", HEAP_PROMISE_REACTION_NEXT_OFFSET, true),
+            (
+                &layouts[5],
+                "type",
+                HEAP_PROMISE_REACTION_TYPE_OFFSET,
+                false,
+            ),
+            (
+                &layouts[6],
+                "callback_kind",
+                HEAP_PROMISE_REACTION_CALLBACK_KIND_OFFSET,
+                false,
+            ),
+        ] {
+            assert_eq!(slot.record, "promise-reaction-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_PROMISE_REACTION_RECORD_SIZE);
+    }
+
+    #[test]
+    fn pending_job_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_PENDING_JOB_LAYOUT
+            .iter()
+            .map(PendingJobHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 7);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "callback_tag",
+                HEAP_PENDING_JOB_CALLBACK_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[1],
+                "callback_payload",
+                HEAP_PENDING_JOB_CALLBACK_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[2],
+                "arg_tag",
+                HEAP_PENDING_JOB_ARG_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[3],
+                "arg_payload",
+                HEAP_PENDING_JOB_ARG_PAYLOAD_OFFSET,
+                true,
+            ),
+            (&layouts[4], "realm", HEAP_PENDING_JOB_REALM_OFFSET, true),
+            (&layouts[5], "next", HEAP_PENDING_JOB_NEXT_OFFSET, true),
+            (&layouts[6], "kind", HEAP_PENDING_JOB_KIND_OFFSET, false),
+        ] {
+            assert_eq!(slot.record, "pending-job-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_PENDING_JOB_RECORD_SIZE);
+    }
+
+    #[test]
+    fn finalization_registry_record_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_FINALIZATION_REGISTRY_RECORD_LAYOUT
+            .iter()
+            .map(FinalizationRegistryRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 5);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "cleanup_callback_tag",
+                HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[1],
+                "cleanup_callback_payload",
+                HEAP_FINALIZATION_REGISTRY_CLEANUP_CALLBACK_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[2],
+                "cells_ptr",
+                HEAP_FINALIZATION_REGISTRY_CELLS_PTR_OFFSET,
+                true,
+            ),
+            (
+                &layouts[3],
+                "cells_len",
+                HEAP_FINALIZATION_REGISTRY_CELLS_LEN_OFFSET,
+                false,
+            ),
+            (
+                &layouts[4],
+                "cells_cap",
+                HEAP_FINALIZATION_REGISTRY_CELLS_CAP_OFFSET,
+                false,
+            ),
+        ] {
+            assert_eq!(slot.record, "finalization-registry-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_FINALIZATION_REGISTRY_RECORD_SIZE);
+    }
+
+    #[test]
+    fn finalization_registry_cell_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT
+            .iter()
+            .map(FinalizationRegistryCellHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 7);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "state",
+                HEAP_FINALIZATION_REGISTRY_CELL_STATE_OFFSET,
+                false,
+            ),
+            (
+                &layouts[1],
+                "target_tag",
+                HEAP_FINALIZATION_REGISTRY_CELL_TARGET_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[2],
+                "target_payload",
+                HEAP_FINALIZATION_REGISTRY_CELL_TARGET_PAYLOAD_OFFSET,
+                false,
+            ),
+            (
+                &layouts[3],
+                "holdings_tag",
+                HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[4],
+                "holdings_payload",
+                HEAP_FINALIZATION_REGISTRY_CELL_HOLDINGS_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[5],
+                "unregister_token_tag",
+                HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[6],
+                "unregister_token_payload",
+                HEAP_FINALIZATION_REGISTRY_CELL_TOKEN_PAYLOAD_OFFSET,
+                false,
+            ),
+        ] {
+            assert_eq!(slot.record, "finalization-registry-cell");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_FINALIZATION_REGISTRY_CELL_SIZE);
+    }
+
+    #[test]
     fn finalization_registry_cells_keep_only_holdings_strongly_reachable() {
-        assert!(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT
+        let layouts = HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT
+            .iter()
+            .map(FinalizationRegistryCellHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert!(layouts
             .iter()
             .any(|slot| { slot.name == "holdings_payload" && slot.pointer }));
-        assert!(HEAP_FINALIZATION_REGISTRY_CELL_LAYOUT.iter().all(|slot| {
+        assert!(layouts.iter().all(|slot| {
             !matches!(slot.name, "target_payload" | "unregister_token_payload") || !slot.pointer
         }));
         for (name, kind, retention) in [
@@ -8126,23 +7270,23 @@ mod tests {
                 HeapWeakEdgeRetention::DoesNotRetain,
             ),
         ] {
-            assert!(HEAP_WEAK_EDGE_SLOTS.iter().any(|slot| {
-                slot.record == "finalization-registry-cell"
-                    && slot.name == name
-                    && slot.kind == kind
-                    && slot.kind.retention() == retention
+            assert!(HEAP_WEAK_EDGES.iter().any(|edge| {
+                edge.record() == "finalization-registry-cell"
+                    && edge.name() == name
+                    && edge.kind() == kind
+                    && edge.kind().retention() == retention
             }));
         }
     }
 
     #[test]
-    fn heap_host_boundary_contract_rejects_durable_host_pointers() {
-        assert_host_boundary_contract(HEAP_HOST_BOUNDARY_CONTRACT);
+    fn heap_host_boundary_is_call_scoped_and_transiently_rooted() {
+        assert_host_boundary_policy(&HEAP_HOST_BOUNDARY_POLICY);
     }
 
     #[test]
     fn heap_value_encoding_registry_covers_ecmascript_language_types() {
-        assert_value_encoding_slots(VALUE_ENCODING_SLOTS);
+        assert_value_encodings(HEAP_VALUE_ENCODINGS);
         for kind in [
             ValueKind::Undefined,
             ValueKind::Null,
@@ -8154,46 +7298,1497 @@ mod tests {
             ValueKind::BigInt,
         ] {
             assert!(
-                VALUE_ENCODING_SLOTS.iter().any(|slot| slot.kind == kind),
+                HEAP_VALUE_ENCODINGS
+                    .iter()
+                    .any(|encoding| encoding.kind() == kind),
                 "missing value encoding for {:?}",
                 kind
             );
         }
 
-        let number = VALUE_ENCODING_SLOTS
+        let number = HEAP_VALUE_ENCODINGS
             .iter()
-            .find(|slot| slot.kind == ValueKind::Number)
+            .find(|encoding| encoding.kind() == ValueKind::Number)
             .expect("Number encoding should be registered");
-        assert_eq!(number.payload, ValuePayloadEncoding::Ieee754Bits);
-        assert!(number.preserves_number_bits);
+        assert_eq!(number.payload(), ValuePayloadEncoding::Ieee754Bits);
+        assert!(number.preserves_number_bits());
 
-        let bigint = VALUE_ENCODING_SLOTS
+        let bigint = HEAP_VALUE_ENCODINGS
             .iter()
-            .find(|slot| slot.kind == ValueKind::BigInt)
+            .find(|encoding| encoding.kind() == ValueKind::BigInt)
             .expect("BigInt encoding should be registered");
         assert_eq!(
-            bigint.payload,
+            bigint.payload(),
             ValuePayloadEncoding::I64TemporaryOrHeapPointer
         );
         assert!(
-            !bigint.arbitrary_precision_ready,
+            !bigint.arbitrary_precision_ready(),
             "T05 must keep the current BigInt storage gap visible"
         );
     }
 
     #[test]
-    fn heap_raw_byte_span_registry_marks_non_pointer_storage() {
-        assert_eq!(HEAP_RAW_BYTE_SPAN_LAYOUTS.len(), 3);
-        for layout in HEAP_RAW_BYTE_SPAN_LAYOUTS {
-            assert_byte_span_layout(*layout);
+    fn linear_side_storage_identities_own_metadata_and_element_semantics() {
+        assert_eq!(LINEAR_SIDE_STORAGES.len(), 3);
+        for storage in LINEAR_SIDE_STORAGES {
+            assert_linear_side_storage(storage);
         }
         assert_eq!(
-            HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT.length_source,
+            LinearSideStorage::ArrayBufferBackingStore.length_source(),
             "array-buffer-object-header.max_byte_length"
         );
-        assert_eq!(HEAP_ARRAY_BUFFER_BACKING_STORE_LAYOUT.element_width, 1);
-        assert_eq!(HEAP_STRING_CODE_UNITS_LAYOUT.element_width, 2);
-        assert_eq!(HEAP_BIGINT_LIMBS_LAYOUT.element_width, 8);
+        assert_eq!(
+            LinearSideStorage::ArrayBufferBackingStore.element(),
+            LinearSideStorageElement::Byte
+        );
+        assert_eq!(
+            LinearSideStorage::StringCodeUnits.element(),
+            LinearSideStorageElement::Utf16CodeUnit
+        );
+        assert_eq!(
+            LinearSideStorage::BigIntLimbs.element(),
+            LinearSideStorageElement::BigIntLimb
+        );
+        assert_eq!(
+            LinearSideStorage::ArrayBufferBackingStore
+                .element()
+                .byte_width(),
+            1
+        );
+        assert_eq!(LinearSideStorage::StringCodeUnits.element().byte_width(), 2);
+        assert_eq!(LinearSideStorage::BigIntLimbs.element().byte_width(), 8);
+    }
+
+    #[test]
+    fn temporal_instant_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_TEMPORAL_INSTANT_RECORD_LAYOUT
+            .iter()
+            .map(TemporalInstantHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 2);
+
+        let tag = &layouts[0];
+        assert_eq!(tag.record, "temporal-instant-record");
+        assert_eq!(tag.name, "epoch_nanoseconds_tag");
+        assert_eq!(
+            tag.offset,
+            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET
+        );
+        assert_eq!(tag.width, 8);
+        assert!(!tag.pointer);
+
+        let payload = &layouts[1];
+        assert_eq!(payload.record, "temporal-instant-record");
+        assert_eq!(payload.name, "epoch_nanoseconds_payload");
+        assert_eq!(
+            payload.offset,
+            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET
+        );
+        assert_eq!(payload.width, 8);
+        assert!(payload.pointer);
+
+        assert_layout(&layouts, HEAP_TEMPORAL_INSTANT_RECORD_SIZE);
+    }
+
+    #[test]
+    fn temporal_zoned_date_time_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalZonedDateTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 6);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "epoch_nanoseconds_tag",
+                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[1],
+                "epoch_nanoseconds_payload",
+                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[2],
+                "time_zone_tag",
+                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[3],
+                "time_zone_payload",
+                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[4],
+                "calendar_tag",
+                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[5],
+                "calendar_payload",
+                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+                true,
+            ),
+        ] {
+            assert_eq!(slot.record, "temporal-zoned-date-time-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_TEMPORAL_ZONED_DATE_TIME_RECORD_SIZE);
+    }
+
+    #[test]
+    fn class_function_context_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_CLASS_FUNCTION_CONTEXT_LAYOUT
+            .iter()
+            .map(ClassFunctionContextHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 6);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "lexical_env",
+                HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET,
+                true,
+            ),
+            (
+                &layouts[1],
+                "active_function",
+                HEAP_CLASS_FUNCTION_CONTEXT_ACTIVE_FUNCTION_OFFSET,
+                true,
+            ),
+            (
+                &layouts[2],
+                "home_object_payload",
+                HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET,
+                true,
+            ),
+            (
+                &layouts[3],
+                "home_object_tag",
+                HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[4],
+                "field_keys",
+                HEAP_CLASS_FUNCTION_CONTEXT_FIELD_KEYS_OFFSET,
+                true,
+            ),
+            (
+                &layouts[5],
+                "private_environment",
+                HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET,
+                true,
+            ),
+        ] {
+            assert_eq!(slot.record, "class-function-context");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_CLASS_FUNCTION_CONTEXT_SIZE);
+    }
+
+    #[test]
+    fn private_element_entry_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT
+            .iter()
+            .map(PrivateElementEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 6);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "next",
+                HEAP_PRIVATE_ELEMENT_ENTRY_NEXT_OFFSET,
+                true,
+            ),
+            (
+                &layouts[1],
+                "receiver",
+                HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET,
+                true,
+            ),
+            (
+                &layouts[2],
+                "token",
+                HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET,
+                true,
+            ),
+            (
+                &layouts[3],
+                "kind",
+                HEAP_PRIVATE_ELEMENT_ENTRY_KIND_OFFSET,
+                false,
+            ),
+            (
+                &layouts[4],
+                "value_tag",
+                HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_TAG_OFFSET,
+                false,
+            ),
+            (
+                &layouts[5],
+                "value_payload",
+                HEAP_PRIVATE_ELEMENT_ENTRY_VALUE_PAYLOAD_OFFSET,
+                true,
+            ),
+        ] {
+            assert_eq!(slot.record, "private-element-entry");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_PRIVATE_ELEMENT_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn bound_function_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_BOUND_FUNCTION_LAYOUT
+            .iter()
+            .map(BoundFunctionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 6);
+
+        let target_payload = &layouts[0];
+        assert_eq!(target_payload.record, "bound-function");
+        assert_eq!(target_payload.name, "target_payload");
+        assert_eq!(
+            target_payload.offset,
+            HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET
+        );
+        assert_eq!(target_payload.width, 8);
+        assert!(target_payload.pointer);
+
+        let target_tag = &layouts[1];
+        assert_eq!(target_tag.record, "bound-function");
+        assert_eq!(target_tag.name, "target_tag");
+        assert_eq!(target_tag.offset, HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET);
+        assert_eq!(target_tag.width, 8);
+        assert!(!target_tag.pointer);
+
+        let this_payload = &layouts[2];
+        assert_eq!(this_payload.record, "bound-function");
+        assert_eq!(this_payload.name, "this_payload");
+        assert_eq!(this_payload.offset, HEAP_BOUND_FUNCTION_THIS_PAYLOAD_OFFSET);
+        assert_eq!(this_payload.width, 8);
+        assert!(this_payload.pointer);
+
+        let this_tag = &layouts[3];
+        assert_eq!(this_tag.record, "bound-function");
+        assert_eq!(this_tag.name, "this_tag");
+        assert_eq!(this_tag.offset, HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET);
+        assert_eq!(this_tag.width, 8);
+        assert!(!this_tag.pointer);
+
+        let arguments_payload = &layouts[4];
+        assert_eq!(arguments_payload.record, "bound-function");
+        assert_eq!(arguments_payload.name, "args_payload");
+        assert_eq!(
+            arguments_payload.offset,
+            HEAP_BOUND_FUNCTION_ARGS_PAYLOAD_OFFSET
+        );
+        assert_eq!(arguments_payload.width, 8);
+        assert!(arguments_payload.pointer);
+
+        let self_payload = &layouts[5];
+        assert_eq!(self_payload.record, "bound-function");
+        assert_eq!(self_payload.name, "self_payload");
+        assert_eq!(self_payload.offset, HEAP_BOUND_FUNCTION_SELF_PAYLOAD_OFFSET);
+        assert_eq!(self_payload.width, 8);
+        assert!(self_payload.pointer);
+
+        assert_layout(&layouts, HEAP_BOUND_FUNCTION_RECORD_SIZE);
+    }
+
+    #[test]
+    fn atomics_async_waiter_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_ATOMICS_ASYNC_WAITER_LAYOUT
+            .iter()
+            .map(AtomicsAsyncWaiterHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 6);
+
+        let state = &layouts[0];
+        assert_eq!(state.record, "atomics-async-waiter");
+        assert_eq!(state.name, "state");
+        assert_eq!(state.offset, HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET);
+        assert_eq!(state.width, 8);
+        assert!(!state.pointer);
+
+        let address = &layouts[1];
+        assert_eq!(address.record, "atomics-async-waiter");
+        assert_eq!(address.name, "address");
+        assert_eq!(address.offset, HEAP_ATOMICS_ASYNC_WAITER_ADDRESS_OFFSET);
+        assert_eq!(address.width, 8);
+        assert!(!address.pointer);
+
+        let promise_record = &layouts[2];
+        assert_eq!(promise_record.record, "atomics-async-waiter");
+        assert_eq!(promise_record.name, "promise_record");
+        assert_eq!(
+            promise_record.offset,
+            HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET
+        );
+        assert_eq!(promise_record.width, 8);
+        assert!(promise_record.pointer);
+
+        let deadline_nanos = &layouts[3];
+        assert_eq!(deadline_nanos.record, "atomics-async-waiter");
+        assert_eq!(deadline_nanos.name, "deadline_nanos");
+        assert_eq!(
+            deadline_nanos.offset,
+            HEAP_ATOMICS_ASYNC_WAITER_DEADLINE_NANOS_OFFSET
+        );
+        assert_eq!(deadline_nanos.width, 8);
+        assert!(!deadline_nanos.pointer);
+
+        let next = &layouts[4];
+        assert_eq!(next.record, "atomics-async-waiter");
+        assert_eq!(next.name, "next");
+        assert_eq!(next.offset, HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET);
+        assert_eq!(next.width, 8);
+        assert!(next.pointer);
+
+        let host_id = &layouts[5];
+        assert_eq!(host_id.record, "atomics-async-waiter");
+        assert_eq!(host_id.name, "host_id");
+        assert_eq!(host_id.offset, HEAP_ATOMICS_ASYNC_WAITER_HOST_ID_OFFSET);
+        assert_eq!(host_id.width, 8);
+        assert!(!host_id.pointer);
+
+        assert_layout(&layouts, HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE);
+    }
+
+    #[test]
+    fn pending_completion_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_PENDING_COMPLETION_LAYOUT
+            .iter()
+            .map(PendingCompletionHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 5);
+
+        let next = &layouts[0];
+        assert_eq!(next.record, "pending-completion-record");
+        assert_eq!(next.name, "next");
+        assert_eq!(next.offset, HEAP_PENDING_COMPLETION_NEXT_OFFSET);
+        assert_eq!(next.width, 8);
+        assert!(next.pointer);
+
+        let payload = &layouts[1];
+        assert_eq!(payload.record, "pending-completion-record");
+        assert_eq!(payload.name, "payload");
+        assert_eq!(payload.offset, HEAP_PENDING_COMPLETION_PAYLOAD_OFFSET);
+        assert_eq!(payload.width, 8);
+        assert!(payload.pointer);
+
+        let tag = &layouts[2];
+        assert_eq!(tag.record, "pending-completion-record");
+        assert_eq!(tag.name, "tag");
+        assert_eq!(tag.offset, HEAP_PENDING_COMPLETION_TAG_OFFSET);
+        assert_eq!(tag.width, 8);
+        assert!(!tag.pointer);
+
+        let kind = &layouts[3];
+        assert_eq!(kind.record, "pending-completion-record");
+        assert_eq!(kind.name, "kind");
+        assert_eq!(kind.offset, HEAP_PENDING_COMPLETION_KIND_OFFSET);
+        assert_eq!(kind.width, 8);
+        assert!(!kind.pointer);
+
+        let aux = &layouts[4];
+        assert_eq!(aux.record, "pending-completion-record");
+        assert_eq!(aux.name, "aux");
+        assert_eq!(aux.offset, HEAP_PENDING_COMPLETION_AUX_OFFSET);
+        assert_eq!(aux.width, 8);
+        assert!(!aux.pointer);
+
+        assert_layout(&layouts, HEAP_PENDING_COMPLETION_RECORD_SIZE);
+    }
+
+    #[test]
+    fn async_disposable_stack_record_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_ASYNC_DISPOSABLE_STACK_RECORD_LAYOUT
+            .iter()
+            .map(AsyncDisposableStackRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let state = &layouts[0];
+        assert_eq!(state.record, "async-disposable-stack-record");
+        assert_eq!(state.name, "state");
+        assert_eq!(state.offset, HEAP_ASYNC_DISPOSABLE_STACK_STATE_OFFSET);
+        assert_eq!(state.width, 8);
+        assert!(!state.pointer);
+
+        let entries_pointer = &layouts[1];
+        assert_eq!(entries_pointer.record, "async-disposable-stack-record");
+        assert_eq!(entries_pointer.name, "entries_ptr");
+        assert_eq!(
+            entries_pointer.offset,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET
+        );
+        assert_eq!(entries_pointer.width, 8);
+        assert!(entries_pointer.pointer);
+
+        let entries_length = &layouts[2];
+        assert_eq!(entries_length.record, "async-disposable-stack-record");
+        assert_eq!(entries_length.name, "entries_len");
+        assert_eq!(
+            entries_length.offset,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET
+        );
+        assert_eq!(entries_length.width, 8);
+        assert!(!entries_length.pointer);
+
+        let entries_capacity = &layouts[3];
+        assert_eq!(entries_capacity.record, "async-disposable-stack-record");
+        assert_eq!(entries_capacity.name, "entries_cap");
+        assert_eq!(
+            entries_capacity.offset,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET
+        );
+        assert_eq!(entries_capacity.width, 8);
+        assert!(!entries_capacity.pointer);
+
+        assert_layout(&layouts, HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE);
+    }
+
+    #[test]
+    fn async_disposable_stack_entry_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_LAYOUT
+            .iter()
+            .map(AsyncDisposableStackEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 5);
+
+        let kind = &layouts[0];
+        assert_eq!(kind.record, "async-disposable-stack-entry");
+        assert_eq!(kind.name, "kind");
+        assert_eq!(kind.offset, HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_KIND_OFFSET);
+        assert_eq!(kind.width, 8);
+        assert!(!kind.pointer);
+
+        let value_tag = &layouts[1];
+        assert_eq!(value_tag.record, "async-disposable-stack-entry");
+        assert_eq!(value_tag.name, "value_tag");
+        assert_eq!(
+            value_tag.offset,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET
+        );
+        assert_eq!(value_tag.width, 8);
+        assert!(!value_tag.pointer);
+
+        let value_payload = &layouts[2];
+        assert_eq!(value_payload.record, "async-disposable-stack-entry");
+        assert_eq!(value_payload.name, "value_payload");
+        assert_eq!(
+            value_payload.offset,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET
+        );
+        assert_eq!(value_payload.width, 8);
+        assert!(value_payload.pointer);
+
+        let method_tag = &layouts[3];
+        assert_eq!(method_tag.record, "async-disposable-stack-entry");
+        assert_eq!(method_tag.name, "method_tag");
+        assert_eq!(
+            method_tag.offset,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET
+        );
+        assert_eq!(method_tag.width, 8);
+        assert!(!method_tag.pointer);
+
+        let method_payload = &layouts[4];
+        assert_eq!(method_payload.record, "async-disposable-stack-entry");
+        assert_eq!(method_payload.name, "method_payload");
+        assert_eq!(
+            method_payload.offset,
+            HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET
+        );
+        assert_eq!(method_payload.width, 8);
+        assert!(method_payload.pointer);
+
+        assert_layout(&layouts, HEAP_ASYNC_DISPOSABLE_STACK_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn disposable_stack_record_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_DISPOSABLE_STACK_RECORD_LAYOUT
+            .iter()
+            .map(DisposableStackRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let state = &layouts[0];
+        assert_eq!(state.record, "disposable-stack-record");
+        assert_eq!(state.name, "state");
+        assert_eq!(state.offset, HEAP_DISPOSABLE_STACK_STATE_OFFSET);
+        assert_eq!(state.width, 8);
+        assert!(!state.pointer);
+
+        let entries_pointer = &layouts[1];
+        assert_eq!(entries_pointer.record, "disposable-stack-record");
+        assert_eq!(entries_pointer.name, "entries_ptr");
+        assert_eq!(
+            entries_pointer.offset,
+            HEAP_DISPOSABLE_STACK_ENTRIES_PTR_OFFSET
+        );
+        assert_eq!(entries_pointer.width, 8);
+        assert!(entries_pointer.pointer);
+
+        let entries_length = &layouts[2];
+        assert_eq!(entries_length.record, "disposable-stack-record");
+        assert_eq!(entries_length.name, "entries_len");
+        assert_eq!(
+            entries_length.offset,
+            HEAP_DISPOSABLE_STACK_ENTRIES_LEN_OFFSET
+        );
+        assert_eq!(entries_length.width, 8);
+        assert!(!entries_length.pointer);
+
+        let entries_capacity = &layouts[3];
+        assert_eq!(entries_capacity.record, "disposable-stack-record");
+        assert_eq!(entries_capacity.name, "entries_cap");
+        assert_eq!(
+            entries_capacity.offset,
+            HEAP_DISPOSABLE_STACK_ENTRIES_CAP_OFFSET
+        );
+        assert_eq!(entries_capacity.width, 8);
+        assert!(!entries_capacity.pointer);
+
+        assert_layout(&layouts, HEAP_DISPOSABLE_STACK_RECORD_SIZE);
+    }
+
+    #[test]
+    fn disposable_stack_entry_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_DISPOSABLE_STACK_ENTRY_LAYOUT
+            .iter()
+            .map(DisposableStackEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 5);
+
+        let kind = &layouts[0];
+        assert_eq!(kind.record, "disposable-stack-entry");
+        assert_eq!(kind.name, "kind");
+        assert_eq!(kind.offset, HEAP_DISPOSABLE_STACK_ENTRY_KIND_OFFSET);
+        assert_eq!(kind.width, 8);
+        assert!(!kind.pointer);
+
+        let value_tag = &layouts[1];
+        assert_eq!(value_tag.record, "disposable-stack-entry");
+        assert_eq!(value_tag.name, "value_tag");
+        assert_eq!(
+            value_tag.offset,
+            HEAP_DISPOSABLE_STACK_ENTRY_VALUE_TAG_OFFSET
+        );
+        assert_eq!(value_tag.width, 8);
+        assert!(!value_tag.pointer);
+
+        let value_payload = &layouts[2];
+        assert_eq!(value_payload.record, "disposable-stack-entry");
+        assert_eq!(value_payload.name, "value_payload");
+        assert_eq!(
+            value_payload.offset,
+            HEAP_DISPOSABLE_STACK_ENTRY_VALUE_PAYLOAD_OFFSET
+        );
+        assert_eq!(value_payload.width, 8);
+        assert!(value_payload.pointer);
+
+        let method_tag = &layouts[3];
+        assert_eq!(method_tag.record, "disposable-stack-entry");
+        assert_eq!(method_tag.name, "method_tag");
+        assert_eq!(
+            method_tag.offset,
+            HEAP_DISPOSABLE_STACK_ENTRY_METHOD_TAG_OFFSET
+        );
+        assert_eq!(method_tag.width, 8);
+        assert!(!method_tag.pointer);
+
+        let method_payload = &layouts[4];
+        assert_eq!(method_payload.record, "disposable-stack-entry");
+        assert_eq!(method_payload.name, "method_payload");
+        assert_eq!(
+            method_payload.offset,
+            HEAP_DISPOSABLE_STACK_ENTRY_METHOD_PAYLOAD_OFFSET
+        );
+        assert_eq!(method_payload.width, 8);
+        assert!(method_payload.pointer);
+
+        assert_layout(&layouts, HEAP_DISPOSABLE_STACK_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn temporal_plain_date_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_TEMPORAL_PLAIN_DATE_RECORD_LAYOUT
+            .iter()
+            .map(TemporalPlainDateHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let iso_year = &layouts[0];
+        assert_eq!(iso_year.record, "temporal-plain-date-record");
+        assert_eq!(iso_year.name, "iso_year");
+        assert_eq!(iso_year.offset, HEAP_TEMPORAL_PLAIN_DATE_ISO_YEAR_OFFSET);
+        assert_eq!(iso_year.width, 8);
+        assert!(!iso_year.pointer);
+
+        let iso_month = &layouts[1];
+        assert_eq!(iso_month.record, "temporal-plain-date-record");
+        assert_eq!(iso_month.name, "iso_month");
+        assert_eq!(iso_month.offset, HEAP_TEMPORAL_PLAIN_DATE_ISO_MONTH_OFFSET);
+        assert_eq!(iso_month.width, 8);
+        assert!(!iso_month.pointer);
+
+        let iso_day = &layouts[2];
+        assert_eq!(iso_day.record, "temporal-plain-date-record");
+        assert_eq!(iso_day.name, "iso_day");
+        assert_eq!(iso_day.offset, HEAP_TEMPORAL_PLAIN_DATE_ISO_DAY_OFFSET);
+        assert_eq!(iso_day.width, 8);
+        assert!(!iso_day.pointer);
+
+        let calendar_payload = &layouts[3];
+        assert_eq!(calendar_payload.record, "temporal-plain-date-record");
+        assert_eq!(calendar_payload.name, "calendar_payload");
+        assert_eq!(
+            calendar_payload.offset,
+            HEAP_TEMPORAL_PLAIN_DATE_CALENDAR_PAYLOAD_OFFSET
+        );
+        assert_eq!(calendar_payload.width, 8);
+        assert!(calendar_payload.pointer);
+
+        assert_layout(&layouts, HEAP_TEMPORAL_PLAIN_DATE_RECORD_SIZE);
+    }
+
+    #[test]
+    fn temporal_duration_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_TEMPORAL_DURATION_RECORD_LAYOUT
+            .iter()
+            .map(TemporalDurationHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 10);
+
+        for (slot, name, offset) in [
+            (&layouts[0], "years", HEAP_TEMPORAL_DURATION_YEARS_OFFSET),
+            (&layouts[1], "months", HEAP_TEMPORAL_DURATION_MONTHS_OFFSET),
+            (&layouts[2], "weeks", HEAP_TEMPORAL_DURATION_WEEKS_OFFSET),
+            (&layouts[3], "days", HEAP_TEMPORAL_DURATION_DAYS_OFFSET),
+            (&layouts[4], "hours", HEAP_TEMPORAL_DURATION_HOURS_OFFSET),
+            (
+                &layouts[5],
+                "minutes",
+                HEAP_TEMPORAL_DURATION_MINUTES_OFFSET,
+            ),
+            (
+                &layouts[6],
+                "seconds",
+                HEAP_TEMPORAL_DURATION_SECONDS_OFFSET,
+            ),
+            (
+                &layouts[7],
+                "milliseconds",
+                HEAP_TEMPORAL_DURATION_MILLISECONDS_OFFSET,
+            ),
+            (
+                &layouts[8],
+                "microseconds",
+                HEAP_TEMPORAL_DURATION_MICROSECONDS_OFFSET,
+            ),
+            (
+                &layouts[9],
+                "nanoseconds",
+                HEAP_TEMPORAL_DURATION_NANOSECONDS_OFFSET,
+            ),
+        ] {
+            assert_eq!(slot.record, "temporal-duration-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert!(!slot.pointer);
+        }
+
+        assert_layout(&layouts, HEAP_TEMPORAL_DURATION_RECORD_SIZE);
+    }
+
+    #[test]
+    fn temporal_plain_time_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_TEMPORAL_PLAIN_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalPlainTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 6);
+
+        for (slot, name, offset) in [
+            (&layouts[0], "hour", HEAP_TEMPORAL_PLAIN_TIME_HOUR_OFFSET),
+            (
+                &layouts[1],
+                "minute",
+                HEAP_TEMPORAL_PLAIN_TIME_MINUTE_OFFSET,
+            ),
+            (
+                &layouts[2],
+                "second",
+                HEAP_TEMPORAL_PLAIN_TIME_SECOND_OFFSET,
+            ),
+            (
+                &layouts[3],
+                "millisecond",
+                HEAP_TEMPORAL_PLAIN_TIME_MILLISECOND_OFFSET,
+            ),
+            (
+                &layouts[4],
+                "microsecond",
+                HEAP_TEMPORAL_PLAIN_TIME_MICROSECOND_OFFSET,
+            ),
+            (
+                &layouts[5],
+                "nanosecond",
+                HEAP_TEMPORAL_PLAIN_TIME_NANOSECOND_OFFSET,
+            ),
+        ] {
+            assert_eq!(slot.record, "temporal-plain-time-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert!(!slot.pointer);
+        }
+
+        assert_layout(&layouts, HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE);
+    }
+
+    #[test]
+    fn temporal_plain_date_time_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_LAYOUT
+            .iter()
+            .map(TemporalPlainDateTimeHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 10);
+
+        for (slot, name, offset, pointer) in [
+            (
+                &layouts[0],
+                "iso_year",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_YEAR_OFFSET,
+                false,
+            ),
+            (
+                &layouts[1],
+                "iso_month",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_MONTH_OFFSET,
+                false,
+            ),
+            (
+                &layouts[2],
+                "iso_day",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_DAY_OFFSET,
+                false,
+            ),
+            (
+                &layouts[3],
+                "hour",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_HOUR_OFFSET,
+                false,
+            ),
+            (
+                &layouts[4],
+                "minute",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_MINUTE_OFFSET,
+                false,
+            ),
+            (
+                &layouts[5],
+                "second",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_SECOND_OFFSET,
+                false,
+            ),
+            (
+                &layouts[6],
+                "millisecond",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_MILLISECOND_OFFSET,
+                false,
+            ),
+            (
+                &layouts[7],
+                "microsecond",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_MICROSECOND_OFFSET,
+                false,
+            ),
+            (
+                &layouts[8],
+                "nanosecond",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_NANOSECOND_OFFSET,
+                false,
+            ),
+            (
+                &layouts[9],
+                "calendar_payload",
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+                true,
+            ),
+        ] {
+            assert_eq!(slot.record, "temporal-plain-date-time-record");
+            assert_eq!(slot.name, name);
+            assert_eq!(slot.offset, offset);
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.pointer, pointer);
+        }
+
+        assert_layout(&layouts, HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE);
+    }
+
+    #[test]
+    fn private_environment_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_PRIVATE_ENV_LAYOUT
+            .iter()
+            .map(PrivateEnvironmentHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 2);
+
+        let parent = &layouts[0];
+        assert_eq!(parent.record, "private-environment");
+        assert_eq!(parent.name, "parent");
+        assert_eq!(parent.offset, HEAP_PRIVATE_ENV_PARENT_OFFSET);
+        assert_eq!(parent.width, 8);
+        assert!(parent.pointer);
+
+        let class_scope = &layouts[1];
+        assert_eq!(class_scope.record, "private-environment");
+        assert_eq!(class_scope.name, "class_scope");
+        assert_eq!(class_scope.offset, HEAP_PRIVATE_ENV_CLASS_SCOPE_OFFSET);
+        assert_eq!(class_scope.width, 8);
+        assert!(!class_scope.pointer);
+
+        assert_layout(&layouts, HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET);
+    }
+
+    #[test]
+    fn set_entry_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_SET_ENTRY_LAYOUT
+            .iter()
+            .map(SetEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 3);
+
+        let present = &layouts[0];
+        assert_eq!(present.record, "set-entry");
+        assert_eq!(present.name, "present");
+        assert_eq!(present.offset, HEAP_SET_ENTRY_PRESENT_OFFSET);
+        assert_eq!(present.width, 8);
+        assert!(!present.pointer);
+
+        let value_tag = &layouts[1];
+        assert_eq!(value_tag.record, "set-entry");
+        assert_eq!(value_tag.name, "value_tag");
+        assert_eq!(value_tag.offset, HEAP_SET_ENTRY_VALUE_TAG_OFFSET);
+        assert_eq!(value_tag.width, 8);
+        assert!(!value_tag.pointer);
+
+        let value_payload = &layouts[2];
+        assert_eq!(value_payload.record, "set-entry");
+        assert_eq!(value_payload.name, "value_payload");
+        assert_eq!(value_payload.offset, HEAP_SET_ENTRY_VALUE_PAYLOAD_OFFSET);
+        assert_eq!(value_payload.width, 8);
+        assert!(value_payload.pointer);
+
+        assert_layout(&layouts, HEAP_SET_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn weak_set_entry_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_WEAK_SET_ENTRY_LAYOUT
+            .iter()
+            .map(WeakSetEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 3);
+
+        let present = &layouts[0];
+        assert_eq!(present.record, "weak-set-entry");
+        assert_eq!(present.name, "present");
+        assert_eq!(present.offset, HEAP_WEAK_SET_ENTRY_PRESENT_OFFSET);
+        assert_eq!(present.width, 8);
+        assert!(!present.pointer);
+
+        let value_tag = &layouts[1];
+        assert_eq!(value_tag.record, "weak-set-entry");
+        assert_eq!(value_tag.name, "value_tag");
+        assert_eq!(value_tag.offset, HEAP_WEAK_SET_ENTRY_VALUE_TAG_OFFSET);
+        assert_eq!(value_tag.width, 8);
+        assert!(!value_tag.pointer);
+
+        let value_payload = &layouts[2];
+        assert_eq!(value_payload.record, "weak-set-entry");
+        assert_eq!(value_payload.name, "value_payload");
+        assert_eq!(
+            value_payload.offset,
+            HEAP_WEAK_SET_ENTRY_VALUE_PAYLOAD_OFFSET
+        );
+        assert_eq!(value_payload.width, 8);
+        assert!(!value_payload.pointer);
+
+        assert_layout(&layouts, HEAP_WEAK_SET_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn weak_map_entry_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_WEAK_MAP_ENTRY_LAYOUT
+            .iter()
+            .map(WeakMapEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 5);
+
+        let present = &layouts[0];
+        assert_eq!(present.record, "weak-map-entry");
+        assert_eq!(present.name, "present");
+        assert_eq!(present.offset, HEAP_WEAK_MAP_ENTRY_PRESENT_OFFSET);
+        assert_eq!(present.width, 8);
+        assert!(!present.pointer);
+
+        let key_tag = &layouts[1];
+        assert_eq!(key_tag.record, "weak-map-entry");
+        assert_eq!(key_tag.name, "key_tag");
+        assert_eq!(key_tag.offset, HEAP_WEAK_MAP_ENTRY_KEY_TAG_OFFSET);
+        assert_eq!(key_tag.width, 8);
+        assert!(!key_tag.pointer);
+
+        let key_payload = &layouts[2];
+        assert_eq!(key_payload.record, "weak-map-entry");
+        assert_eq!(key_payload.name, "key_payload");
+        assert_eq!(key_payload.offset, HEAP_WEAK_MAP_ENTRY_KEY_PAYLOAD_OFFSET);
+        assert_eq!(key_payload.width, 8);
+        assert!(!key_payload.pointer);
+
+        let value_tag = &layouts[3];
+        assert_eq!(value_tag.record, "weak-map-entry");
+        assert_eq!(value_tag.name, "value_tag");
+        assert_eq!(value_tag.offset, HEAP_WEAK_MAP_ENTRY_VALUE_TAG_OFFSET);
+        assert_eq!(value_tag.width, 8);
+        assert!(!value_tag.pointer);
+
+        let value_payload = &layouts[4];
+        assert_eq!(value_payload.record, "weak-map-entry");
+        assert_eq!(value_payload.name, "value_payload");
+        assert_eq!(
+            value_payload.offset,
+            HEAP_WEAK_MAP_ENTRY_VALUE_PAYLOAD_OFFSET
+        );
+        assert_eq!(value_payload.width, 8);
+        assert!(!value_payload.pointer);
+
+        assert_layout(&layouts, HEAP_WEAK_MAP_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn symbol_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_SYMBOL_LAYOUT
+            .iter()
+            .map(SymbolHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let description_tag = &layouts[0];
+        assert_eq!(description_tag.record, "symbol-record");
+        assert_eq!(description_tag.name, "description_tag");
+        assert_eq!(description_tag.offset, HEAP_SYMBOL_DESCRIPTION_TAG_OFFSET);
+        assert_eq!(description_tag.width, 8);
+        assert!(!description_tag.pointer);
+
+        let description_payload = &layouts[1];
+        assert_eq!(description_payload.record, "symbol-record");
+        assert_eq!(description_payload.name, "description_payload");
+        assert_eq!(
+            description_payload.offset,
+            HEAP_SYMBOL_DESCRIPTION_PAYLOAD_OFFSET
+        );
+        assert_eq!(description_payload.width, 8);
+        assert!(description_payload.pointer);
+
+        let registry_key_payload = &layouts[2];
+        assert_eq!(registry_key_payload.record, "symbol-record");
+        assert_eq!(registry_key_payload.name, "registry_key_payload");
+        assert_eq!(
+            registry_key_payload.offset,
+            HEAP_SYMBOL_REGISTRY_KEY_PAYLOAD_OFFSET
+        );
+        assert_eq!(registry_key_payload.width, 8);
+        assert!(registry_key_payload.pointer);
+
+        let symbol_id = &layouts[3];
+        assert_eq!(symbol_id.record, "symbol-record");
+        assert_eq!(symbol_id.name, "symbol_id");
+        assert_eq!(symbol_id.offset, HEAP_SYMBOL_ID_OFFSET);
+        assert_eq!(symbol_id.width, 8);
+        assert!(!symbol_id.pointer);
+
+        assert_layout(&layouts, HEAP_SYMBOL_RECORD_SIZE);
+    }
+
+    #[test]
+    fn bigint_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_BIGINT_LAYOUT
+            .iter()
+            .map(BigIntHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let sign = &layouts[0];
+        assert_eq!(sign.record, "bigint-record");
+        assert_eq!(sign.name, "sign");
+        assert_eq!(sign.offset, HEAP_BIGINT_SIGN_OFFSET);
+        assert_eq!(sign.width, 8);
+        assert!(!sign.pointer);
+
+        let limbs_pointer = &layouts[1];
+        assert_eq!(limbs_pointer.record, "bigint-record");
+        assert_eq!(limbs_pointer.name, "limbs_ptr");
+        assert_eq!(limbs_pointer.offset, HEAP_BIGINT_LIMBS_PTR_OFFSET);
+        assert_eq!(limbs_pointer.width, 8);
+        assert!(limbs_pointer.pointer);
+
+        let limbs_length = &layouts[2];
+        assert_eq!(limbs_length.record, "bigint-record");
+        assert_eq!(limbs_length.name, "limbs_len");
+        assert_eq!(limbs_length.offset, HEAP_BIGINT_LIMBS_LEN_OFFSET);
+        assert_eq!(limbs_length.width, 8);
+        assert!(!limbs_length.pointer);
+
+        let limbs_capacity = &layouts[3];
+        assert_eq!(limbs_capacity.record, "bigint-record");
+        assert_eq!(limbs_capacity.name, "limbs_cap");
+        assert_eq!(limbs_capacity.offset, HEAP_BIGINT_LIMBS_CAP_OFFSET);
+        assert_eq!(limbs_capacity.width, 8);
+        assert!(!limbs_capacity.pointer);
+
+        assert_layout(&layouts, HEAP_BIGINT_RECORD_SIZE);
+    }
+
+    #[test]
+    fn string_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_STRING_LAYOUT
+            .iter()
+            .map(StringHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let code_units_pointer = &layouts[0];
+        assert_eq!(code_units_pointer.record, "string-record");
+        assert_eq!(code_units_pointer.name, "code_units_ptr");
+        assert_eq!(code_units_pointer.offset, HEAP_STRING_CODE_UNITS_PTR_OFFSET);
+        assert_eq!(code_units_pointer.width, 8);
+        assert!(code_units_pointer.pointer);
+
+        let byte_length = &layouts[1];
+        assert_eq!(byte_length.record, "string-record");
+        assert_eq!(byte_length.name, "byte_len");
+        assert_eq!(byte_length.offset, HEAP_STRING_BYTE_LEN_OFFSET);
+        assert_eq!(byte_length.width, 8);
+        assert!(!byte_length.pointer);
+
+        let code_unit_length = &layouts[2];
+        assert_eq!(code_unit_length.record, "string-record");
+        assert_eq!(code_unit_length.name, "code_unit_len");
+        assert_eq!(code_unit_length.offset, HEAP_STRING_CODE_UNIT_LEN_OFFSET);
+        assert_eq!(code_unit_length.width, 8);
+        assert!(!code_unit_length.pointer);
+
+        let intern_id = &layouts[3];
+        assert_eq!(intern_id.record, "string-record");
+        assert_eq!(intern_id.name, "intern_id");
+        assert_eq!(intern_id.offset, HEAP_STRING_INTERN_ID_OFFSET);
+        assert_eq!(intern_id.width, 8);
+        assert!(!intern_id.pointer);
+
+        assert_layout(&layouts, HEAP_STRING_RECORD_SIZE);
+    }
+
+    #[test]
+    fn environment_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_ENVIRONMENT_LAYOUT
+            .iter()
+            .map(EnvironmentHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 3);
+
+        let parent = &layouts[0];
+        assert_eq!(parent.record, "environment");
+        assert_eq!(parent.name, "parent");
+        assert_eq!(parent.offset, ENV_PARENT_OFFSET);
+        assert_eq!(parent.width, 8);
+        assert!(parent.pointer);
+
+        let binding_tag = &layouts[1];
+        assert_eq!(binding_tag.record, "environment-slot");
+        assert_eq!(binding_tag.name, "tag");
+        assert_eq!(binding_tag.offset, ENV_SLOT_TAG_OFFSET);
+        assert_eq!(binding_tag.width, 8);
+        assert!(!binding_tag.pointer);
+
+        let binding_payload = &layouts[2];
+        assert_eq!(binding_payload.record, "environment-slot");
+        assert_eq!(binding_payload.name, "payload");
+        assert_eq!(binding_payload.offset, ENV_SLOT_PAYLOAD_OFFSET);
+        assert_eq!(binding_payload.width, 8);
+        assert!(binding_payload.pointer);
+
+        assert_layout(&layouts, ENV_SLOT_BASE_OFFSET + ENV_SLOT_SIZE);
+    }
+
+    #[test]
+    fn async_generator_object_heap_slot_identity_owns_layout_metadata() {
+        let layouts = HEAP_ASYNC_GENERATOR_OBJECT_LAYOUT
+            .iter()
+            .map(AsyncGeneratorObjectHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 1);
+
+        let activation = &layouts[0];
+        assert_eq!(activation.record, "async-generator-object");
+        assert_eq!(activation.name, "activation");
+        assert_eq!(activation.offset, HEAP_ASYNC_GENERATOR_ACTIVATION_OFFSET);
+        assert_eq!(activation.width, 8);
+        assert!(activation.pointer);
+
+        assert_layout(&layouts, HEAP_HEADER_SIZE);
+    }
+
+    #[test]
+    fn map_record_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_MAP_RECORD_LAYOUT
+            .iter()
+            .map(MapRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let entries_pointer = &layouts[0];
+        assert_eq!(entries_pointer.record, "map-record");
+        assert_eq!(entries_pointer.name, "entries_ptr");
+        assert_eq!(entries_pointer.offset, HEAP_MAP_ENTRIES_PTR_OFFSET);
+        assert_eq!(entries_pointer.width, 8);
+        assert!(entries_pointer.pointer);
+
+        let entries_length = &layouts[1];
+        assert_eq!(entries_length.record, "map-record");
+        assert_eq!(entries_length.name, "entries_len");
+        assert_eq!(entries_length.offset, HEAP_MAP_ENTRIES_LEN_OFFSET);
+        assert_eq!(entries_length.width, 8);
+        assert!(!entries_length.pointer);
+
+        let entries_capacity = &layouts[2];
+        assert_eq!(entries_capacity.record, "map-record");
+        assert_eq!(entries_capacity.name, "entries_cap");
+        assert_eq!(entries_capacity.offset, HEAP_MAP_ENTRIES_CAP_OFFSET);
+        assert_eq!(entries_capacity.width, 8);
+        assert!(!entries_capacity.pointer);
+
+        let live_count = &layouts[3];
+        assert_eq!(live_count.record, "map-record");
+        assert_eq!(live_count.name, "live_count");
+        assert_eq!(live_count.offset, HEAP_MAP_LIVE_COUNT_OFFSET);
+        assert_eq!(live_count.width, 8);
+        assert!(!live_count.pointer);
+
+        assert_layout(&layouts, HEAP_MAP_RECORD_SIZE);
+    }
+
+    #[test]
+    fn map_entry_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_MAP_ENTRY_LAYOUT
+            .iter()
+            .map(MapEntryHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 5);
+
+        let present = &layouts[0];
+        assert_eq!(present.record, "map-entry");
+        assert_eq!(present.name, "present");
+        assert_eq!(present.offset, HEAP_MAP_ENTRY_PRESENT_OFFSET);
+        assert_eq!(present.width, 8);
+        assert!(!present.pointer);
+
+        let key_tag = &layouts[1];
+        assert_eq!(key_tag.record, "map-entry");
+        assert_eq!(key_tag.name, "key_tag");
+        assert_eq!(key_tag.offset, HEAP_MAP_ENTRY_KEY_TAG_OFFSET);
+        assert_eq!(key_tag.width, 8);
+        assert!(!key_tag.pointer);
+
+        let key_payload = &layouts[2];
+        assert_eq!(key_payload.record, "map-entry");
+        assert_eq!(key_payload.name, "key_payload");
+        assert_eq!(key_payload.offset, HEAP_MAP_ENTRY_KEY_PAYLOAD_OFFSET);
+        assert_eq!(key_payload.width, 8);
+        assert!(key_payload.pointer);
+
+        let value_tag = &layouts[3];
+        assert_eq!(value_tag.record, "map-entry");
+        assert_eq!(value_tag.name, "value_tag");
+        assert_eq!(value_tag.offset, HEAP_MAP_ENTRY_VALUE_TAG_OFFSET);
+        assert_eq!(value_tag.width, 8);
+        assert!(!value_tag.pointer);
+
+        let value_payload = &layouts[4];
+        assert_eq!(value_payload.record, "map-entry");
+        assert_eq!(value_payload.name, "value_payload");
+        assert_eq!(value_payload.offset, HEAP_MAP_ENTRY_VALUE_PAYLOAD_OFFSET);
+        assert_eq!(value_payload.width, 8);
+        assert!(value_payload.pointer);
+
+        assert_layout(&layouts, HEAP_MAP_ENTRY_SIZE);
+    }
+
+    #[test]
+    fn set_iterator_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_SET_ITERATOR_RECORD_LAYOUT
+            .iter()
+            .map(SetIteratorHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let set_payload = &layouts[0];
+        assert_eq!(set_payload.record, "set-iterator-record");
+        assert_eq!(set_payload.name, "set_payload");
+        assert_eq!(set_payload.offset, HEAP_SET_ITERATOR_SET_PAYLOAD_OFFSET);
+        assert_eq!(set_payload.width, 8);
+        assert!(set_payload.pointer);
+
+        let next_index = &layouts[1];
+        assert_eq!(next_index.record, "set-iterator-record");
+        assert_eq!(next_index.name, "next_index");
+        assert_eq!(next_index.offset, HEAP_SET_ITERATOR_NEXT_INDEX_OFFSET);
+        assert_eq!(next_index.width, 8);
+        assert!(!next_index.pointer);
+
+        let kind = &layouts[2];
+        assert_eq!(kind.record, "set-iterator-record");
+        assert_eq!(kind.name, "kind");
+        assert_eq!(kind.offset, HEAP_SET_ITERATOR_KIND_OFFSET);
+        assert_eq!(kind.width, 8);
+        assert!(!kind.pointer);
+
+        let cursor_state = &layouts[3];
+        assert_eq!(cursor_state.record, "set-iterator-record");
+        assert_eq!(cursor_state.name, "cursor_state");
+        assert_eq!(cursor_state.offset, HEAP_SET_ITERATOR_CURSOR_STATE_OFFSET);
+        assert_eq!(cursor_state.width, 8);
+        assert!(!cursor_state.pointer);
+
+        assert_layout(&layouts, HEAP_SET_ITERATOR_RECORD_SIZE);
+    }
+
+    #[test]
+    fn set_record_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_SET_RECORD_LAYOUT
+            .iter()
+            .map(SetRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let entries_pointer = &layouts[0];
+        assert_eq!(entries_pointer.record, "set-record");
+        assert_eq!(entries_pointer.name, "entries_ptr");
+        assert_eq!(entries_pointer.offset, HEAP_SET_ENTRIES_PTR_OFFSET);
+        assert_eq!(entries_pointer.width, 8);
+        assert!(entries_pointer.pointer);
+
+        let entries_length = &layouts[1];
+        assert_eq!(entries_length.record, "set-record");
+        assert_eq!(entries_length.name, "entries_len");
+        assert_eq!(entries_length.offset, HEAP_SET_ENTRIES_LEN_OFFSET);
+        assert_eq!(entries_length.width, 8);
+        assert!(!entries_length.pointer);
+
+        let entries_capacity = &layouts[2];
+        assert_eq!(entries_capacity.record, "set-record");
+        assert_eq!(entries_capacity.name, "entries_cap");
+        assert_eq!(entries_capacity.offset, HEAP_SET_ENTRIES_CAP_OFFSET);
+        assert_eq!(entries_capacity.width, 8);
+        assert!(!entries_capacity.pointer);
+
+        let live_count = &layouts[3];
+        assert_eq!(live_count.record, "set-record");
+        assert_eq!(live_count.name, "live_count");
+        assert_eq!(live_count.offset, HEAP_SET_LIVE_COUNT_OFFSET);
+        assert_eq!(live_count.width, 8);
+        assert!(!live_count.pointer);
+
+        assert_layout(&layouts, HEAP_SET_RECORD_SIZE);
+    }
+
+    #[test]
+    fn weak_set_record_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_WEAK_SET_RECORD_LAYOUT
+            .iter()
+            .map(WeakSetRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let entries_pointer = &layouts[0];
+        assert_eq!(entries_pointer.record, "weak-set-record");
+        assert_eq!(entries_pointer.name, "entries_ptr");
+        assert_eq!(entries_pointer.offset, HEAP_WEAK_SET_ENTRIES_PTR_OFFSET);
+        assert_eq!(entries_pointer.width, 8);
+        assert!(entries_pointer.pointer);
+
+        let entries_length = &layouts[1];
+        assert_eq!(entries_length.record, "weak-set-record");
+        assert_eq!(entries_length.name, "entries_len");
+        assert_eq!(entries_length.offset, HEAP_WEAK_SET_ENTRIES_LEN_OFFSET);
+        assert_eq!(entries_length.width, 8);
+        assert!(!entries_length.pointer);
+
+        let entries_capacity = &layouts[2];
+        assert_eq!(entries_capacity.record, "weak-set-record");
+        assert_eq!(entries_capacity.name, "entries_cap");
+        assert_eq!(entries_capacity.offset, HEAP_WEAK_SET_ENTRIES_CAP_OFFSET);
+        assert_eq!(entries_capacity.width, 8);
+        assert!(!entries_capacity.pointer);
+
+        let live_count = &layouts[3];
+        assert_eq!(live_count.record, "weak-set-record");
+        assert_eq!(live_count.name, "live_count");
+        assert_eq!(live_count.offset, HEAP_WEAK_SET_LIVE_COUNT_OFFSET);
+        assert_eq!(live_count.width, 8);
+        assert!(!live_count.pointer);
+
+        assert_layout(&layouts, HEAP_WEAK_SET_RECORD_SIZE);
+    }
+
+    #[test]
+    fn weak_map_record_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_WEAK_MAP_RECORD_LAYOUT
+            .iter()
+            .map(WeakMapRecordHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let entries_pointer = &layouts[0];
+        assert_eq!(entries_pointer.record, "weak-map-record");
+        assert_eq!(entries_pointer.name, "entries_ptr");
+        assert_eq!(entries_pointer.offset, HEAP_WEAK_MAP_ENTRIES_PTR_OFFSET);
+        assert_eq!(entries_pointer.width, 8);
+        assert!(entries_pointer.pointer);
+
+        let entries_length = &layouts[1];
+        assert_eq!(entries_length.record, "weak-map-record");
+        assert_eq!(entries_length.name, "entries_len");
+        assert_eq!(entries_length.offset, HEAP_WEAK_MAP_ENTRIES_LEN_OFFSET);
+        assert_eq!(entries_length.width, 8);
+        assert!(!entries_length.pointer);
+
+        let entries_capacity = &layouts[2];
+        assert_eq!(entries_capacity.record, "weak-map-record");
+        assert_eq!(entries_capacity.name, "entries_cap");
+        assert_eq!(entries_capacity.offset, HEAP_WEAK_MAP_ENTRIES_CAP_OFFSET);
+        assert_eq!(entries_capacity.width, 8);
+        assert!(!entries_capacity.pointer);
+
+        let live_count = &layouts[3];
+        assert_eq!(live_count.record, "weak-map-record");
+        assert_eq!(live_count.name, "live_count");
+        assert_eq!(live_count.offset, HEAP_WEAK_MAP_LIVE_COUNT_OFFSET);
+        assert_eq!(live_count.width, 8);
+        assert!(!live_count.pointer);
+
+        assert_layout(&layouts, HEAP_WEAK_MAP_RECORD_SIZE);
+    }
+
+    #[test]
+    fn map_iterator_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_MAP_ITERATOR_RECORD_LAYOUT
+            .iter()
+            .map(MapIteratorHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let map_payload = &layouts[0];
+        assert_eq!(map_payload.record, "map-iterator-record");
+        assert_eq!(map_payload.name, "map_payload");
+        assert_eq!(map_payload.offset, HEAP_MAP_ITERATOR_MAP_PAYLOAD_OFFSET);
+        assert_eq!(map_payload.width, 8);
+        assert!(map_payload.pointer);
+
+        let next_index = &layouts[1];
+        assert_eq!(next_index.record, "map-iterator-record");
+        assert_eq!(next_index.name, "next_index");
+        assert_eq!(next_index.offset, HEAP_MAP_ITERATOR_NEXT_INDEX_OFFSET);
+        assert_eq!(next_index.width, 8);
+        assert!(!next_index.pointer);
+
+        let kind = &layouts[2];
+        assert_eq!(kind.record, "map-iterator-record");
+        assert_eq!(kind.name, "kind");
+        assert_eq!(kind.offset, HEAP_MAP_ITERATOR_KIND_OFFSET);
+        assert_eq!(kind.width, 8);
+        assert!(!kind.pointer);
+
+        let cursor_state = &layouts[3];
+        assert_eq!(cursor_state.record, "map-iterator-record");
+        assert_eq!(cursor_state.name, "cursor_state");
+        assert_eq!(cursor_state.offset, HEAP_MAP_ITERATOR_CURSOR_STATE_OFFSET);
+        assert_eq!(cursor_state.width, 8);
+        assert!(!cursor_state.pointer);
+
+        assert_layout(&layouts, HEAP_MAP_ITERATOR_RECORD_SIZE);
+    }
+
+    #[test]
+    fn typed_array_iterator_heap_slot_identities_own_layout_metadata() {
+        let layouts = HEAP_TYPED_ARRAY_ITERATOR_RECORD_LAYOUT
+            .iter()
+            .map(TypedArrayIteratorHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(layouts.len(), 4);
+
+        let typed_array_payload = &layouts[0];
+        assert_eq!(typed_array_payload.record, "typed-array-iterator-record");
+        assert_eq!(typed_array_payload.name, "typed_array_payload");
+        assert_eq!(
+            typed_array_payload.offset,
+            HEAP_TYPED_ARRAY_ITERATOR_TYPED_ARRAY_PAYLOAD_OFFSET
+        );
+        assert_eq!(typed_array_payload.width, 8);
+        assert!(typed_array_payload.pointer);
+
+        let next_index = &layouts[1];
+        assert_eq!(next_index.record, "typed-array-iterator-record");
+        assert_eq!(next_index.name, "next_index");
+        assert_eq!(
+            next_index.offset,
+            HEAP_TYPED_ARRAY_ITERATOR_NEXT_INDEX_OFFSET
+        );
+        assert_eq!(next_index.width, 8);
+        assert!(!next_index.pointer);
+
+        let kind = &layouts[2];
+        assert_eq!(kind.record, "typed-array-iterator-record");
+        assert_eq!(kind.name, "kind");
+        assert_eq!(kind.offset, HEAP_TYPED_ARRAY_ITERATOR_KIND_OFFSET);
+        assert_eq!(kind.width, 8);
+        assert!(!kind.pointer);
+
+        let done = &layouts[3];
+        assert_eq!(done.record, "typed-array-iterator-record");
+        assert_eq!(done.name, "done");
+        assert_eq!(done.offset, HEAP_TYPED_ARRAY_ITERATOR_DONE_OFFSET);
+        assert_eq!(done.width, 8);
+        assert!(!done.pointer);
+
+        assert_layout(&layouts, HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE);
     }
 
     #[test]

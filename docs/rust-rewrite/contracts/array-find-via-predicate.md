@@ -27,8 +27,9 @@ different predicate boundary from their TypedArray counterparts.
 
 ## Closed compiler shape
 
-`FindViaPredicateKind` is the sole four-kind selector shared by Array and
-TypedArray dispatch. Exhaustive projections map every kind to:
+`builtins/array/find_via_predicate.rs` is the sole owner of the shared Array and
+TypedArray compiler family. `FindViaPredicateKind` is its four-kind selector;
+exhaustive projections map every kind to:
 
 | kind | direction | successful projection |
 | --- | --- | --- |
@@ -36,6 +37,28 @@ TypedArray dispatch. Exhaustive projections map every kind to:
 | `FindIndex` | ascending | index |
 | `FindLast` | descending | value |
 | `FindLastIndex` | descending | index |
+
+The capability-free `FindViaPredicateKind` implements no clone, copy, debug,
+default, comparison, ordering or hashing capability. Eight fixed entries move
+exactly one kind into the private Array or TypedArray compiler, and that
+compiler borrows the same authority through all seven exhaustive projections.
+Standard dispatch cannot name the kind or either raw compiler. Duplicating the
+kind, splitting its surface decisions across copied values or collapsing it
+through equality no longer compiles.
+
+The capability-free `FindDirection` is private and similarly owns the selected
+ascending or descending traversal without clone, copy, debug, default,
+comparison, ordering or hashing capability. Each compiler produces one
+direction from its `FindViaPredicateKind`, then borrows that same authority for
+both index initialization and index advancement. Initialization and advance
+cannot be selected from independently copied directions.
+
+The capability-free `FindProjection` is private and owns whether the method returns a
+found value or its index without clone, copy, debug, default, comparison,
+ordering or hashing capability. Each compiler produces one projection from its
+`FindViaPredicateKind`, then borrows it for both the miss-result initialization
+and successful-match projection. The default and success result shapes cannot
+drift through independently copied policies.
 
 The same exhaustive kind also supplies the exact Array and TypedArray method
 names and predicate errors. Result initialization, index initialization,
@@ -69,14 +92,75 @@ specified failure occurs in Proxy `[[Call]]`.
 
 Rust mapping tests fix all four direction/projection/name/error projections.
 Bounded source-structure tests keep both dispatcher families on the shared
-enum, keep the predicate wrapper private and non-`Copy`, and pin the sole
-validator and Proxy-aware consumer.
+enum, require all seven projections to borrow the capability-free kind, pin the
+exact kind-to-direction mapping, require both direction consumers and all four
+call sites to borrow one owned direction, pin the exact kind-to-projection
+mapping, require both result-shape consumers and all four call sites to borrow
+one owned projection, reject derived or manual capabilities, keep the predicate
+wrapper private and non-`Copy`, and pin the sole validator and Proxy-aware
+consumer.
+
+After erasing only the new `&projection` call-site markers, the compiler bodies
+reproduce the frozen Batch X raw hashes
+`ece6c116f388ab7ca262b90d55ff58529e85a2d5ef5c2abfa0610c790ad797c9`
+for TypedArray and
+`21a37e37281c0528d4148d935f56196c14f2e58716e0784a9eea12960dbc136f`
+for Array. Erasing both projection and direction borrow markers reproduces the
+earlier semantic-body hashes
+`5aaece4591126bfc317affcc137762a7f00bba4288ce5f8cd8e93dc6331fa32e`
+for TypedArray and
+`9f54a114dbee477e0c430d03e54159cd3a452247ac3f58a17969fdbf54622103`
+for Array. The fully borrowed raw-source hashes are
+`40be1db2dd3ccb1f35a9e022061f4fb23a8adc8fac8e446f06fdb93879b3e92d`
+and `b71e9cfcea61c77cdbef9aeb68917c65e1e54ab1bbe735e49a4175d82f00673e`.
+The unchanged kind-to-direction projection is
+`ff78990936edbc59ba6caec6fc58a107f7ee318714ee3f5381adad04d35a866a`.
+The borrowed initialization and advance consumers normalize to their frozen
+instruction-arm hashes
+`e33ff2bad904f64e169937a5cfa2eaf34e37cd79faf6e44bfc4e76f23438288e`
+and `d2be00944522054e0575e4cde514488767125adc14e0cb2551476eb65dbb8259`.
+The unchanged kind-to-result projection is
+`bec47d1927099f9da9b358f71c884f90c28c5e24901ade28e3e122d2564db23a`.
+The borrowed default-result and successful-match consumers normalize to their
+frozen instruction-arm hashes
+`09f3b0deba372b7c4a5af87d28d3ae9748686f4f852d29eeb25e8b2e6d513a78`
+and `2b97905a18c0a0d42b705b6664002ef9fb5dbb1c00c614e1200d429182e50af5`.
+The eight standard mappings remain byte-identical at
+`13b2e609dd878f19762612dad1851febd9390c21b4bca021c3f41c71908ff1a8`.
+The capability-hardened child module is
+`59072414dbc8488ce29feb46271997f6bc9ad8ba65fafb3dc287c96a4a48157b`.
+At the 2026-08-28 Batch X checkpoint, `cargo xc` is green, the strengthened
+structure target passes `5/5`, and the exact Array, reverse Array and TypedArray
+CLI controls pass `3/3`. The three pinned Wasm-AOT leaves pass all `5/5`
+executions, covering resizable-buffer observation, strict callback `this` and
+abrupt length completion, with every failure bucket at zero.
+At the 2026-08-28 Batch Y checkpoint, projection hardening passes the same
+structure target `5/5` and the same exact Array, reverse Array and TypedArray CLI
+controls `3/3`. Its four projection-focused Wasm-AOT leaves pass all `8/8`
+executions with every failure bucket at zero, and the shared `cargo xc`
+checkpoint is green.
+
+Batch BF makes `FindViaPredicateKind` and both raw family compilers private to
+the child owner. The catalog can call only eight fixed entries, one for every
+Array/TypedArray and find/findIndex/findLast/findLastIndex pairing. Restoring
+only former visibility produces the exact original six-line kind selection
+with SHA-256
+`3989f2ebe1ce925d23b20d4e06eb35f00e1e840f7509b8226b9b425a639c4e5c`.
+Restoring the former names and visibility of the 188-line TypedArray and
+310-line Array raw compilers reproduces SHA-256
+`40be1db2dd3ccb1f35a9e022061f4fb23a8adc8fac8e446f06fdb93879b3e92d`
+and
+`b71e9cfcea61c77cdbef9aeb68917c65e1e54ab1bbe735e49a4175d82f00673e`.
+At the Batch BF checkpoint, `cargo xc` is green, the structure target passes
+`5/5`, and the exact forward Array, reverse Array and TypedArray controls pass
+`3/3`. Formatting, module-boundary, task-plan and shortcut gates are green.
+This source-equivalent hardening has no new Array behavior and does not close T16.
 
 ## Nonclaims
 
 This seam does not complete the other Array callback families, Array exotic
 descriptors, species behavior, Proxy receiver traps, cross-realm callbacks or
 full Array/Test262 conformance. It does not remove a Test262 materializer,
-change published conformance counts, or establish runtime verification; the
-expensive Cargo and Test262 gates remain deferred to the coordinated batch
-checkpoint.
+change published conformance counts, or establish a broader Array/Test262
+baseline. Semantic snapshot and broad conformance verification remain
+deferred.

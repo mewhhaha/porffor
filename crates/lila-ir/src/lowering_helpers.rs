@@ -22,11 +22,6 @@ pub(crate) fn numeric_domain(primitive: Option<&ValueInfo>) -> (bool, bool) {
     }
 }
 
-pub(crate) enum StaticStringGeneratorLoopBody {
-    FromCharCode,
-    FromCharCodeUnlessRegexpMatch(Regex),
-}
-
 /// Splices out the scope wrappers that hoisting an `await`/`yield` operand puts
 /// around a loop body, so the suspension becomes a direct statement again.
 ///

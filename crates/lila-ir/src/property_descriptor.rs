@@ -186,8 +186,8 @@ pub enum Presence<T, R> {
     /// runs.
     Absent,
     /// The record has this field, and the compiler knows it. There is no
-    /// run-time flag to test, so a consumer that emits 10.1.6.3 step-4
-    /// validation from a flag emits nothing here.
+    /// run-time flag to test, so a consumer of the field's presence must take
+    /// its branch unconditionally.
     Present(T),
     /// Whether the record has this field is decided when the program runs:
     /// `present` is non-zero iff the field is there. `value` is meaningful only
@@ -464,12 +464,16 @@ impl<C: DescriptorCarrier> PartialDescriptor<C> {
     ///
     /// Declared call sites, and the lines that discharge the obligation:
     ///
-    /// * `lila-aot-wasm/src/objects.rs`, `emit_object_define_entry` — the
-    ///   positional adapter for the two `Object.defineProperty` sites in
-    ///   `builtins/standard.rs`, both of which are dominated by the emitted
-    ///   6.2.6.5 step 9 throw in that file (`if (getter_present ||
-    ///   setter_present) && (value_present || writable_present) throw
-    ///   TypeError`).
+    /// * `lila-aot-wasm/src/objects.rs`,
+    ///   `FunctionBuilder::emit_to_property_descriptor` — its emitted
+    ///   `Property descriptor cannot be both accessor and data` throw
+    ///   immediately dominates construction of the returned reserved
+    ///   descriptor witness.
+    /// * `lila-aot-wasm/src/builtins/object/define_property.rs`,
+    ///   `ArgumentsCalleeDescriptorLocals::validated_descriptor` — its sole
+    ///   producer receives fields from the object materialized from that
+    ///   reserved descriptor witness, so the same emitted step-9 throw
+    ///   dominates the Arguments `callee` dispatch.
     ///
     /// Adding a caller without adding a line here is the defect this doc
     /// comment exists to make visible to `rg from_runtime_checked`. The
@@ -729,10 +733,10 @@ impl<C: DescriptorCarrier> fmt::Debug for DescriptorClassification<C> {
 impl<C: DescriptorCarrier> DescriptorClassification<C> {
     /// One side's terms, whichever case this classification is in.
     ///
-    /// A `Static` classification has no run-time terms by definition, so a
-    /// consumer that emits from `runtime` emits nothing — which is exactly the
-    /// "this is an internal define, 10.1.6.3 step 4 is discharged by
-    /// construction" case.
+    /// A `Static` classification has no run-time terms by definition. Its
+    /// `statically_true` bit is therefore the complete predicate: consumers
+    /// must emit the corresponding compatibility check unconditionally when
+    /// it is set.
     pub fn terms(&self, side: DescriptorSide) -> KindTerms<C> {
         match self {
             Self::Static(kind) => KindTerms::static_only(match (*kind, side) {
@@ -1081,13 +1085,23 @@ impl<S: DescriptorSideMarker> DescriptorSourceText<S> {
         }
     }
 
-    pub fn enumerable(mut self, flag: bool) -> Self {
-        self.partial.enumerable = Presence::Present(flag);
+    pub fn enumerable(mut self) -> Self {
+        self.partial.enumerable = Presence::Present(true);
         self
     }
 
-    pub fn configurable(mut self, flag: bool) -> Self {
-        self.partial.configurable = Presence::Present(flag);
+    pub fn non_enumerable(mut self) -> Self {
+        self.partial.enumerable = Presence::Present(false);
+        self
+    }
+
+    pub fn configurable(mut self) -> Self {
+        self.partial.configurable = Presence::Present(true);
+        self
+    }
+
+    pub fn non_configurable(mut self) -> Self {
+        self.partial.configurable = Presence::Present(false);
         self
     }
 
@@ -1118,8 +1132,13 @@ impl DescriptorSourceText<DataSide> {
         self
     }
 
-    pub fn writable(mut self, flag: bool) -> Self {
-        self.partial.writable = Presence::Present(flag);
+    pub fn writable(mut self) -> Self {
+        self.partial.writable = Presence::Present(true);
+        self
+    }
+
+    pub fn non_writable(mut self) -> Self {
+        self.partial.writable = Presence::Present(false);
         self
     }
 
@@ -1428,10 +1447,31 @@ mod tests {
         assert_eq!(
             DescriptorSourceText::accessor()
                 .get("() => value")
-                .enumerable(true)
-                .configurable(false)
+                .enumerable()
+                .non_configurable()
                 .render(),
             "{ get: () => value, enumerable: true, configurable: false }",
+        );
+    }
+
+    #[test]
+    fn source_descriptor_attribute_methods_preserve_explicit_false_fields() {
+        assert_eq!(
+            DescriptorSourceText::data()
+                .value("1")
+                .non_writable()
+                .enumerable()
+                .non_configurable()
+                .render(),
+            "{ value: 1, writable: false, enumerable: true, configurable: false }",
+        );
+        assert_eq!(
+            DescriptorSourceText::accessor()
+                .get("getter")
+                .non_enumerable()
+                .configurable()
+                .render(),
+            "{ get: getter, enumerable: false, configurable: true }",
         );
     }
 

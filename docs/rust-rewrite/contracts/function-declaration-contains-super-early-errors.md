@@ -1,7 +1,7 @@
 # FunctionDeclaration `Contains super` early errors
 
-**Status:** Product condition and GeneratorExpression-updated shared producer
-census focused-verified 2026-08-24
+**Status:** Product condition focused-verified 2026-08-24; current shared
+producer census through GeneratorDeclaration focused-verified 2026-09-01
 
 ## Decision
 
@@ -20,8 +20,9 @@ async arrows remain lexical traversal paths. Nested ordinary callable bodies
 and nested classes retain their own static-semantics boundaries.
 
 Generator, async-function and async-generator declarations are distinct
-productions. They remain rejected by their existing generic diagnostic and do
-not acquire this code.
+productions. Async-function and generator declarations now have their own typed
+conditions; AsyncGeneratorDeclaration now has its own distinct typed condition.
+None acquires this code.
 
 ## Specification boundary
 
@@ -56,8 +57,8 @@ if contains(&body, ContainsSymbol::Super)
 
 One private `CallableDeclaration::contains_super_error_message` method keeps
 that predicate and its order shared. Its default remains `invalid super usage`.
-Only the ordinary implementation in `hoistable/function_decl/mod.rs` overrides
-it with:
+The ordinary implementation in `hoistable/function_decl/mod.rs` overrides it
+with:
 
 ```text
 function declaration cannot contain super
@@ -74,13 +75,14 @@ No grammar, `Contains` predicate, early-error order, accepted source or source
 location changes. The seam selects a diagnostic by production; it does not
 duplicate the semantic check.
 
-The new message occurs exactly once across pinned Boa Rust sources. The later
-AsyncFunctionExpression and GeneratorExpression lanes give those productions
-their own messages. On current head, `invalid super usage` occurs three times:
-the fixed ScriptBody producer, the shared declaration default used by generator,
-async-function and async-generator declarations, and the async-generator-
-expression producer. The four typed function messages occur once each, and the
-method-owned `invalid super call usage` census remains eleven.
+The AsyncFunctionDeclaration implementation now independently overrides the
+same hook with its own production-specific text. The ordinary message still
+occurs exactly once across pinned Boa Rust sources. On current head, `invalid
+super usage` occurs once at the fixed ScriptBody producer; the declaration hook
+is required and has no default. GeneratorDeclaration and
+AsyncGeneratorDeclaration have their own production-specific overrides. Each expression and typed declaration message
+occurs once, and the method-owned `invalid super call usage` census remains
+eleven.
 
 ## Typed and retained boundaries
 
@@ -91,16 +93,16 @@ single-owner assertion, disjoint table witnesses, exhaustive wire-name checks
 and `lila-ir`'s no-catch-all rejection-kind match make the addition structural.
 
 Classifier checks keep the new prefix distinct from the separately typed
-FunctionExpression prefix, generic adjacent declarations/expressions and
+FunctionExpression prefix, adjacent typed declarations/expressions and
 method-owned text. A Module duplicate-export diagnostic containing the complete
 new prefix remains `ModuleDuplicateExport`, so user-controlled text cannot
 forge the code.
 
 A real exported declaration failure crosses
-`module_parse_failure_diagnostic`. A real rejected dependency is retained as
-`ModuleSourceIr::Rejected`, exposes no module requests, and crosses
-`build_graph` with the same code, phase, error type and span. A valid exported
-ordinary function remains a parsed graph node.
+`module_parse_failure_diagnostic`. A real rejected dependency remains a
+`ModuleSourceIr` whose retained parse is `ModuleParse::Rejected`, exposes no
+module requests, and crosses `build_graph` with the same code, phase, error
+type and span. A valid exported ordinary function remains a parsed graph node.
 
 ## Permanent behavior and precedence matrix
 
@@ -121,9 +123,9 @@ The parser's existing check order remains observable through typed diagnostics:
 - a Use Strict Directive with non-simple parameters precedes it; and
 - a formal parameter/body lexical declaration conflict precedes it.
 
-Generator, async-function and async-generator declaration sources remain
-parse failures with `ParseCode::Malformed`, as do the adjacent generator/async
-expression and method owners.
+GeneratorDeclaration, AsyncFunctionDeclaration and the adjacent expression
+producers have independently typed conditions. AsyncGeneratorDeclaration has
+its own typed code; adjacent method owners remain `ParseCode::Malformed`.
 
 ## Durable source guard
 
@@ -131,22 +133,21 @@ The shared super-producer guard recursively requires:
 
 - exactly one function-declaration-specific message across pinned Boa Rust
   sources and no generic message in `function_decl/mod.rs`;
-- one generic default on `CallableDeclaration`, one ordinary override, and no
-  override in the three adjacent declaration implementations;
+- one required diagnostic hook on `CallableDeclaration`, plus one override for
+  each of ordinary, async-function, generator and async-generator declarations;
 - the exact shared body-or-parameters `Contains Super` predicate, production-
   selected message and retained `params_start_position` in one branch;
 - the branch remains after parameter/body lexical-name validation and before
   the generator parameter checks;
 - each declaration parser still calls the common parser once;
-- exactly three generic raw messages plus the existing ordinary-function,
-  async-function-expression, generator-expression, class and method message
-  censuses;
+- exactly one generic raw message plus the existing declaration, expression,
+  class and method message censuses;
 - ordinary/async-arrow traversal and ordinary callable/nested-class stopping
   behavior in pinned `boa_ast`; and
 - the sole parse/classifier product boundary.
 
-Literal counts alone are insufficient: moving the ordinary message into the
-shared default, adding an adjacent override, or detaching message selection
+Literal counts alone are insufficient: adding a shared default, removing an
+override, or detaching message selection
 from the common predicate fails the bounded source shape.
 
 ## Complete pinned Test262 cohort
@@ -190,10 +191,15 @@ graph groups are green with that census.
 The subsequent GeneratorExpression producer-census update passes the complete
 `142/142` front gate and relevant `50/50` IR early and `51/51` graph groups.
 
+The subsequent AsyncGeneratorExpression and AsyncFunctionDeclaration lanes
+update the current shared producer census. Their focused checkpoint passes the
+shared producer guard `1/1` and parse-pattern structure target `4/4`; this does
+not refresh the historical broad-group counts above.
+
 ## Nonclaims
 
-This lane does not classify generator or async declarations, classify the
-remaining async-generator-expression message, change `Contains`,
-add syntax, support eval or Function-constructor dynamic source, alter function
-lowering or execution, claim that typed classification caused a new Test262 pass, refresh
-aggregate status, close callable grammar, or complete T07.
+This lane does not classify generator or async-generator declarations, change
+`Contains`, add syntax, support eval or Function-constructor dynamic source,
+alter function lowering or execution, claim that typed classification caused a
+new Test262 pass, refresh aggregate status, close callable grammar, or complete
+T07.

@@ -56,6 +56,29 @@ identity that crosses the resolver boundary.
 This lets evaluation, defer and source occurrences share one resolution while
 remaining distinguishable and source ordered wherever phase has semantics.
 
+## Attributed re-export retention
+
+Boa's `ExportDeclaration::ReExport` owns a private-field `ReExportRequest`.
+Its sole public constructor accepts only the phase-free specifier and
+attributes and constructs the inner `ModuleRequest` with
+`ImportPhase::Evaluation`; consumers receive only a shared reference to that
+request. Custom deserialization rejects another phase and reconstructs through
+the same constructor. A public AST re-export therefore cannot carry a source-
+or defer-phase request.
+
+Imports and all three re-export forms share one attribute parser, but the
+export parser never accepts or names an `ImportPhase`. The AST visitors, scope
+analyzer, `ModuleRequests` operation and export-entry operation all traverse or
+clone the full request through the typed owner. There is no parallel
+bare-specifier or raw-`ModuleRequest` re-export representation.
+
+Lila converts that request through the same `module_request` boundary in both
+the source-ordered requested-module pass and the export-entry pass. Star,
+namespace and named re-exports therefore retain the exact phase and attributes
+in every record table. Canonical attribute ordering still occurs once at the
+IR boundary, so an attributed import and re-export with the same key deduplicate
+without losing their source order.
+
 ## Public boundary and migration
 
 These public surfaces now carry `ModuleRequestKeyIr`:
@@ -88,6 +111,7 @@ same `(referrer, key)` and different targets remove the mapping and produce
 7. Evaluation order walks the phaseful list; a phase-free projection cannot
    reorder dependencies.
 8. Runtime dynamic-import lookup still retains phase in its full occurrence.
+9. A public AST re-export can contain only an evaluation-phase request.
 
 ## Durable regressions
 
@@ -97,6 +121,16 @@ and reject duplicate keys. They also require evaluation, defer and source
 occurrences to remain three entries in `requested_modules` while coalescing to
 one `module_resolution_requests` key.
 
+Attributed re-export record tests cover star, namespace and named entry shapes,
+require evaluation phase and exact attributes in each table, and require an
+attributed import and re-export with opposite attribute orders to share one
+canonical request. An in-memory graph test supplies an attributed host
+resolution row independently of the retained parse and requires the named
+re-export to resolve through that exact key. The structural boundary in
+`crates/lila-ir/tests/attributed_reexport_request_structure.rs` pins the typed
+Boa AST owner and sole constructor, shared attribute parser, exhaustive
+consumer migration and these behavior witnesses.
+
 Graph and filesystem-loader regressions require one phase-free row to serve all
 three phase variants. A public graph-row regression supplies attributes in the
 opposite order from source. Another supplies two different targets for one key
@@ -104,16 +138,30 @@ and requires an inconsistent-resolution error with no retained winner.
 Interleaved source/evaluation and defer/evaluation regressions require the
 evaluation dependencies to remain in their phaseful source order.
 
+## Verification
+
+At 2026-09-01, the product-path `cargo check -p lila-ir --lib` is green. A
+disposable external crate also compiles the vendored `boa_ast` path with its
+`serde` and `arbitrary` features enabled. Running `cargo check -p boa_ast` at
+the repository root is not a valid equivalent because the vendored crate is
+not a workspace member.
+
+The full `lila-front` suite passes `152/152`, including the focused duplicate-
+attribute set at `3/3`. The attributed record and graph witnesses pass `2/2`;
+their surrounding record and graph groups pass `31/31` and `56/56`. The new
+typed-request structure target passes `4/4`, and its six adjacent structure
+targets pass `20/20`. The exact export duplicate-key Test262 case passes `1/1`.
+Formatting, diff, module-boundary, task-plan and scoped source-audit gates are
+green.
+
 ## Nonclaims
 
-Boa 0.21.1 parses attributed re-exports but discards their attributes:
-`ExportDeclaration::ReExport` retains only a `ModuleSpecifier`, and the parser
-calls `parse_ignored_import_attributes`. Lila therefore still records
-attributed re-exports as attribute-free requests. Preserving them requires a
-Boa AST/parser change and is explicitly not claimed by this seam.
-
-This contract also does not add a module type to the default filesystem
-loader, make dynamic target evaluation lazy, implement exact namespace exotic
-internal methods, coordinate top-level-await jobs, or close T12/Test262. The
-default loader continues to reject every attributed request until it implements
-the requested module type.
+This contract does not add a module type to the default filesystem loader,
+make dynamic target evaluation lazy, implement exact namespace exotic internal
+methods, coordinate top-level-await jobs, or close T12/Test262. The default
+loader continues to reject every attributed request until it implements the
+requested module type. Direct record and in-memory graph tests establish this
+retention seam; no positive attributed-module execution or broad attribute-
+directory result is claimed. Boa's pre-existing attribute-order-sensitive
+`ModuleRequest` equality inside `ModuleItemList` is also unchanged; Lila's
+canonical IR boundary remains the ordering authority for this slice.

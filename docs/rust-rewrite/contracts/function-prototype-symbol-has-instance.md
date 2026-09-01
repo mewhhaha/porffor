@@ -59,6 +59,19 @@ error at every emitter consumer. The different field order is intentional and
 mirrors the specification signatures `InstanceofOperator(O, C)` and
 `OrdinaryHasInstance(C, O)`.
 
+The backend persists that request mode in one raw Wasm `i64` local. Its private,
+non-copyable `HasInstanceRuntimeState` authority projects the stable internal
+codes exhaustively: `InstanceofOperator` is 0 and `OrdinaryHasInstance` is 1.
+The selected initial state, the operator gate, the absent-handler transition
+and the bound-target transition all use that borrowed projection; Rust enum
+declaration order is not an implicit ABI. Adding a Rust state without assigning
+its code is therefore `E0004`.
+
+This is deliberately narrower than a typed runtime state machine. Wasm locals
+remain numeric, so the structure guard pins the one comparison, all three
+writes and their variant polarity. It does not claim that every possible
+numeric runtime transition is made unrepresentable by Rust's type system.
+
 ## `InstanceofOperator`
 
 For an `InstanceofOperator { object: O, constructor: C }` request:
@@ -142,8 +155,14 @@ On 2026-08-21, the complete eleven-file intrinsic leaf passed 22/22 strict and
 sloppy Wasm-AOT executions. The adjacent four-file operator-hook prefix passed
 8/8. `cargo xc`, all five bounded structure checks and the created-realm CLI
 consumer were also green. These are focused current-HEAD checkpoints, not a
-complete current-pin publication. Dynamic Function source generation remains a
-non-claim of this lane.
+complete current-pin publication.
+Dynamic Function source generation remains a non-claim of this lane.
+
+On 2026-08-27, the source-equivalent runtime-code hardening retained all five
+structure checks and the CLI consumer green. The exact bound-target,
+non-callable intrinsic receiver, operator-hook invocation and non-callable
+operator leaves pass all `8/8` sloppy/strict Wasm-AOT executions with every
+failure bucket at zero.
 
 ## Focused verification
 
@@ -160,3 +179,9 @@ cargo test -p lila-cli --test cli run_wasm_backend_supports_function_prototype_s
 
 The focused Test262 directory contains eleven files. Its result is a bounded
 checkpoint, not a replacement for a complete current-pin Wasm-AOT publication.
+
+The runtime-code follow-up is independently clean after the guard was extended
+to pin the first `state_local` reservation and complete reverse-release tail.
+The following shared workspace checkpoint passes `cargo fmt --all -- --check`,
+`cargo xc`, the recursive module-boundary check, the task-plan check and
+`git diff --check`.

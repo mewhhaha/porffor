@@ -151,6 +151,84 @@ construct path has already repeated both operations. The complete boundary is
 recorded in
 `contracts/regexp-constructor-realm-prototype.md`.
 
+Escaping Promise algorithm closures now have a separate typed Realm boundary.
+Their private non-copyable materialization context couples one defining Realm
+with that Realm's Function, TypeError and RangeError prototypes. Algorithm
+captures live in a dedicated GC-visible function-header slot while the
+environment handle is self-backed, so callback execution and
+`GetFunctionRealm` never reinterpret a Promise context record as a function
+header. Resolving functions derive the context from the Promise record Realm;
+the other twelve closures derive it from the active Promise function with a
+canonical entry-Promise fallback instead of dynamic current-Realm authority.
+The complete focused boundary and its AggregateError/Object-result exclusions
+are recorded in
+`contracts/promise-internal-function-realm-context.md`.
+
+Async execution has a separate non-copyable Realm context. An invoked async
+function stores its defining Realm in a traced activation slot before its body
+can suspend; async generators derive the same authority from their existing
+traced function-object slot. The returned async-function Promise, the three
+direct rejected-Promise control-flow wrappers and every captured async
+continuation reaction borrow this activation-owned authority. Default Promise
+reactions retain their null-or-handler Realm policy, and neither construction
+path reads the dynamic current-Realm global. The focused boundary and its
+constructor-catalog, async-generator-request and other-async-builtin deferrals
+are recorded in `contracts/async-execution-realm.md`.
+
+The canonical `%Promise%` constructor now has its own traced Realm-intrinsic
+slot. Entry bootstrap publishes the initialized Promise constructor global;
+created bootstrap publishes the same constructor local later exposed as that
+Realm's `Promise` global. Async-generator request methods load this slot through
+an opaque current-function Realm proof and capability allocation consumes the
+proof with the fixed Function representation tag. Entry publication self-backs
+all three request-method identities so the call ABI carries that proof into the
+builtin body. A missing function, Realm, intrinsics record or constructor slot
+is an internal invariant failure. The operation has no current-Realm or
+entry-global fallback, and it does not use the generator activation Realm as
+method authority. The complete boundary is recorded in
+`contracts/async-generator-request-promise-realm.md`.
+
+Standard Promise combinators use the existing non-copyable current-function
+Array-prototype proof for their outer result/error Array. A zero builtin
+environment explicitly selects the entry intrinsic; a self-backed builtin must
+resolve a nonzero defining Realm, intrinsic record and Array slot or trap. The
+shared `all`/`allSettled`/`any` allocation therefore follows the borrowed
+method's Realm even when constructor `C` creates the returned Promise in a
+different Realm. The focused boundary is recorded in
+`contracts/promise-combinator-outer-array-realm.md`.
+
+`Promise.withResolvers` has a parallel but independent one-shot
+Object-prototype proof. `NewPromiseCapability(C)` continues to select the
+Promise and resolving-function Realms, while the later ordered result record
+uses the executing method's defining Realm. The raw unexposed shell is
+allocated before proof acquisition; a self-backed method must then resolve its
+nonzero Realm, intrinsics record and Object slot or trap. The complete boundary
+is recorded in `contracts/promise-with-resolvers-result-realm.md`.
+
+`Promise.try` consumes a separate one-shot TypeError-prototype proof only when
+its callback is not callable. Entry methods select the entry snapshot
+explicitly; self-backed methods load their published defining-Realm snapshot or
+trap. The abrupt completion then follows the ordinary capability rejection
+path, so constructor `C` still owns the returned Promise independently of the
+error's Realm. The boundary is recorded in
+`contracts/promise-try-callback-type-error-realm.md`.
+
+`Promise.prototype.then` and `Promise.prototype.finally` now consume one paired
+SpeciesConstructor context from the executing method's defining Realm. The
+context supplies both the default `%Promise%` constructor and the
+`%TypeError.prototype%` used by constructor and `@@species` validation; a
+self-backed method resolves both from the same intrinsic catalog or traps.
+Receiver identity, constructor `C` and an active Promise-job Realm cannot become
+fallback authority. The boundary is recorded in
+`contracts/promise-species-realm-context.md`.
+
+The direct receiver-validation TypeErrors in those same methods use a separate
+one-shot proof. It is acquired only inside each invalid branch, explicitly
+selects the entry TypeError prototype for a zero environment, and otherwise
+requires the executing method's self-backed TypeError snapshot. Shared ToObject
+and Call errors remain outside this boundary. The contract is
+`contracts/promise-prototype-receiver-error-realm.md`.
+
 ## Remaining work
 
 The registry currently covers the checked-in 23-intrinsic foundation, not the

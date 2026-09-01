@@ -36,6 +36,157 @@ function show(value) {
 var reject = { overflow: "reject" };
 
 // ---------------------------------------------------------------------------
+// Property-bag options precede CalendarResolveFields and the required-field
+// checks. Each option value exposes an observable toString getter and call, so
+// the log distinguishes Get(options[name]) from both coercion steps.
+// ---------------------------------------------------------------------------
+var expectedZonedDateTimeOptionEvents =
+  "get disambiguation|get disambiguation.toString|call disambiguation.toString|" +
+  "get offset|get offset.toString|call offset.toString|" +
+  "get overflow|get overflow.toString|call overflow.toString";
+
+function observedZonedDateTimeOption(events, name, spelling) {
+  var option = {};
+  Object.defineProperty(option, "toString", {
+    get: function () {
+      events.push("get " + name + ".toString");
+      return function () {
+        events.push("call " + name + ".toString");
+        return spelling;
+      };
+    },
+  });
+  return option;
+}
+
+function observedZonedDateTimeOptions(events) {
+  return {
+    get disambiguation() {
+      events.push("get disambiguation");
+      return observedZonedDateTimeOption(
+        events,
+        "disambiguation",
+        "compatible"
+      );
+    },
+    get offset() {
+      events.push("get offset");
+      return observedZonedDateTimeOption(events, "offset", "reject");
+    },
+    get overflow() {
+      events.push("get overflow");
+      return observedZonedDateTimeOption(events, "overflow", "constrain");
+    },
+  };
+}
+
+function expectZonedDateTimeOptionEvents(events, label) {
+  var actual = events.join("|");
+  if (actual !== expectedZonedDateTimeOptionEvents) {
+    throw label + " option order: " + actual;
+  }
+}
+
+var invalidEraOptionEvents = [];
+expectError(RangeError, function () {
+  Temporal.ZonedDateTime.from(
+    {
+      calendar: "gregory",
+      day: 1,
+      era: "xyz",
+      eraYear: 2025,
+      month: 1,
+      timeZone: "UTC",
+      year: 2025,
+    },
+    observedZonedDateTimeOptions(invalidEraOptionEvents)
+  );
+});
+expectZonedDateTimeOptionEvents(invalidEraOptionEvents, "invalid era");
+
+var missingYearOptionEvents = [];
+expectError(TypeError, function () {
+  Temporal.ZonedDateTime.from(
+    {
+      calendar: "gregory",
+      day: 1,
+      month: 1,
+      timeZone: "UTC",
+    },
+    observedZonedDateTimeOptions(missingYearOptionEvents)
+  );
+});
+expectZonedDateTimeOptionEvents(missingYearOptionEvents, "missing year");
+
+var missingDayOptionEvents = [];
+expectError(TypeError, function () {
+  Temporal.ZonedDateTime.from(
+    {
+      calendar: "gregory",
+      month: 1,
+      timeZone: "UTC",
+      year: 2025,
+    },
+    observedZonedDateTimeOptions(missingDayOptionEvents)
+  );
+});
+expectZonedDateTimeOptionEvents(missingDayOptionEvents, "missing day");
+
+var missingTimeZoneOptionEvents = [];
+var missingTimeZoneFieldEvents = [];
+expectError(TypeError, function () {
+  Temporal.ZonedDateTime.from(
+    {
+      calendar: "gregory",
+      day: 1,
+      month: 1,
+      get timeZone() {
+        missingTimeZoneFieldEvents.push("get timeZone");
+        return undefined;
+      },
+      get year() {
+        missingTimeZoneFieldEvents.push("get year");
+        return 2025;
+      },
+    },
+    observedZonedDateTimeOptions(missingTimeZoneOptionEvents)
+  );
+});
+if (missingTimeZoneOptionEvents.length !== 0) {
+  throw "missing timeZone observed options";
+}
+if (missingTimeZoneFieldEvents.join("|") !== "get timeZone") {
+  throw "missing timeZone field order: " + missingTimeZoneFieldEvents.join("|");
+}
+
+var invalidTimeZoneOptionEvents = [];
+var invalidTimeZoneFieldEvents = [];
+expectError(TypeError, function () {
+  Temporal.ZonedDateTime.from(
+    {
+      calendar: "gregory",
+      day: 1,
+      month: 1,
+      get timeZone() {
+        invalidTimeZoneFieldEvents.push("get timeZone");
+        return {};
+      },
+      get year() {
+        invalidTimeZoneFieldEvents.push("get year");
+        return 2025;
+      },
+    },
+    observedZonedDateTimeOptions(invalidTimeZoneOptionEvents)
+  );
+});
+if (invalidTimeZoneOptionEvents.length !== 0) {
+  throw "invalid timeZone observed options";
+}
+if (invalidTimeZoneFieldEvents.join("|") !== "get timeZone") {
+  throw "invalid timeZone field order: " + invalidTimeZoneFieldEvents.join("|");
+}
+
+// ---------------------------------------------------------------------------
 // Property shape. Mirrors built-ins/Temporal/ZonedDateTime/prototype/{era,
 // eraYear}/prop-desc.js: an accessor with a getter, no setter, not enumerable,
 // configurable.
@@ -306,6 +457,9 @@ parts.push(render(nanosPlain));
 parts.push(render(preEpochPlain));
 parts.push(render(shiftedPlain));
 
+print(
+  "temporal-zdt-option-order:invalid-era|missing-year|missing-day|missing-time-zone|invalid-time-zone"
+);
 print("temporal-zdt-era:" + parts.join("|"));
 
 262;

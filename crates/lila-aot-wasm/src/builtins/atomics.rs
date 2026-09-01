@@ -2,8 +2,9 @@ use super::super::*;
 use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 use lila_runtime::AgentHostOperation;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum AtomicsBuiltin {
+mod wait_async_result;
+
+enum AtomicsBuiltin {
     Add,
     And,
     CompareExchange,
@@ -20,7 +21,23 @@ pub(super) enum AtomicsBuiltin {
     Xor,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) const ATOMICS_PUBLICATION_ORDER: [StandardBuiltinId; 14] = [
+    StandardBuiltinId::AtomicsAdd,
+    StandardBuiltinId::AtomicsAnd,
+    StandardBuiltinId::AtomicsCompareExchange,
+    StandardBuiltinId::AtomicsExchange,
+    StandardBuiltinId::AtomicsLoad,
+    StandardBuiltinId::AtomicsNotify,
+    StandardBuiltinId::AtomicsOr,
+    StandardBuiltinId::AtomicsPause,
+    StandardBuiltinId::AtomicsStore,
+    StandardBuiltinId::AtomicsSub,
+    StandardBuiltinId::AtomicsWait,
+    StandardBuiltinId::AtomicsWaitAsync,
+    StandardBuiltinId::AtomicsXor,
+    StandardBuiltinId::AtomicsIsLockFree,
+];
+
 enum AtomicsIntegerOperation {
     Load,
     Add,
@@ -34,7 +51,7 @@ enum AtomicsIntegerOperation {
 }
 
 impl AtomicsIntegerOperation {
-    fn value_arg_count(self) -> u8 {
+    fn value_arg_count(&self) -> u8 {
         match self {
             Self::Load => 0,
             Self::CompareExchange => 2,
@@ -59,8 +76,192 @@ enum AtomicsRmwOperation {
     Xor,
 }
 
+enum AtomicsIntegerElementKindRequirement {
+    AnyInteger,
+    Waitable,
+}
+
+#[must_use = "an Atomics integer element-kind local must be validated"]
+struct PendingAtomicsIntegerElementKindLocal(u32);
+
+#[must_use = "a validated Atomics integer element-kind local must be released"]
+struct ValidatedAtomicsIntegerElementKindLocal(u32);
+
+impl ValidatedAtomicsIntegerElementKindLocal {
+    const fn local(&self) -> u32 {
+        self.0
+    }
+
+    const fn into_local(self) -> u32 {
+        self.0
+    }
+}
+
+enum AtomicsWaitOutcome {
+    Ok,
+    NotEqual,
+    TimedOut,
+}
+
+impl AtomicsWaitOutcome {
+    fn spelling(&self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::NotEqual => "not-equal",
+            Self::TimedOut => "timed-out",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AtomicsWaitAsyncTimeoutCheckpointMode {
+    Drain,
+    Poll,
+}
+
 impl<'a> FunctionBuilder<'a> {
-    pub(super) fn emit_atomics_builtin(
+    fn emit_validate_atomics_integer_element_kind(
+        &mut self,
+        typed_array_payload_local: u32,
+        pending: PendingAtomicsIntegerElementKindLocal,
+        requirement: AtomicsIntegerElementKindRequirement,
+        type_error_message: &str,
+        function: &mut Function,
+    ) -> Result<ValidatedAtomicsIntegerElementKindLocal, EmitError> {
+        let PendingAtomicsIntegerElementKindLocal(element_kind_local) = pending;
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
+            element_kind_local,
+            function,
+        );
+        match requirement {
+            AtomicsIntegerElementKindRequirement::AnyInteger => {
+                self.emit_atomics_friendly_element_kind_i32(element_kind_local, function);
+            }
+            AtomicsIntegerElementKindRequirement::Waitable => {
+                function.instruction(&Instruction::LocalGet(element_kind_local));
+                function.instruction(&Instruction::I64Const(5));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(element_kind_local));
+                function.instruction(&Instruction::I64Const(10));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32Or);
+            }
+        }
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.emit_throw_current_function_realm_type_error(
+            type_error_message,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        Ok(ValidatedAtomicsIntegerElementKindLocal(element_kind_local))
+    }
+
+    pub(super) fn emit_atomics_add_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Add, function)
+    }
+
+    pub(super) fn emit_atomics_and_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::And, function)
+    }
+
+    pub(super) fn emit_atomics_compare_exchange_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::CompareExchange, function)
+    }
+
+    pub(super) fn emit_atomics_exchange_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Exchange, function)
+    }
+
+    pub(super) fn emit_atomics_is_lock_free_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::IsLockFree, function)
+    }
+
+    pub(super) fn emit_atomics_load_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Load, function)
+    }
+
+    pub(super) fn emit_atomics_notify_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Notify, function)
+    }
+
+    pub(super) fn emit_atomics_or_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Or, function)
+    }
+
+    pub(super) fn emit_atomics_pause_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Pause, function)
+    }
+
+    pub(super) fn emit_atomics_store_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Store, function)
+    }
+
+    pub(super) fn emit_atomics_sub_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Sub, function)
+    }
+
+    pub(super) fn emit_atomics_wait_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Wait, function)
+    }
+
+    pub(super) fn emit_atomics_wait_async_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::WaitAsync, function)
+    }
+
+    pub(super) fn emit_atomics_xor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_atomics_builtin(AtomicsBuiltin::Xor, function)
+    }
+
+    fn emit_atomics_builtin(
         &mut self,
         builtin: AtomicsBuiltin,
         function: &mut Function,
@@ -183,8 +384,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(valid_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Atomics.pause iterationNumber must be a finite integral Number",
             self.result_local,
             self.result_tag_local,
@@ -265,8 +465,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Atomics.notify requires an Int32Array or BigInt64Array",
             self.result_local,
             self.result_tag_local,
@@ -314,8 +513,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Atomics.notify requires an Int32Array or BigInt64Array",
             self.result_local,
             self.result_tag_local,
@@ -328,8 +526,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(data_ptr_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "TypedArray backing buffer is detached",
             self.result_local,
             self.result_tag_local,
@@ -359,8 +556,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(element_length_local));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
+        self.emit_throw_current_function_realm_range_error(
             "Atomics.notify index out of range",
             self.result_local,
             self.result_tag_local,
@@ -487,7 +683,10 @@ impl<'a> FunctionBuilder<'a> {
                 promise_record_local,
                 function,
             );
-            function.instruction(&Instruction::I64Const(self.strings.payload("timed-out")));
+            function.instruction(&Instruction::I64Const(
+                self.strings
+                    .payload(AtomicsWaitOutcome::TimedOut.spelling()),
+            ));
             function.instruction(&Instruction::LocalSet(self.scratch_local));
             function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
             function.instruction(&Instruction::LocalSet(outcome_tag_local));
@@ -566,7 +765,9 @@ impl<'a> FunctionBuilder<'a> {
             promise_record_local,
             function,
         );
-        function.instruction(&Instruction::I64Const(self.strings.payload("ok")));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(AtomicsWaitOutcome::Ok.spelling()),
+        ));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(outcome_tag_local));
@@ -676,8 +877,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Atomics.wait cannot suspend the current agent",
             self.result_local,
             self.result_tag_local,
@@ -688,189 +888,17 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_atomics_wait_return_string(&mut self, value: &str, function: &mut Function) {
-        function.instruction(&Instruction::I64Const(self.strings.payload(value)));
+    fn emit_atomics_wait_return_string(
+        &mut self,
+        outcome: AtomicsWaitOutcome,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload(outcome.spelling()),
+        ));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-    }
-
-    fn emit_atomics_wait_async_return_object(
-        &mut self,
-        value: &str,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let result_object_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(result_object_local));
-        self.emit_object_define_bool_data(result_object_local, "async", false, function)?;
-        function.instruction(&Instruction::I64Const(self.strings.payload(value)));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_local_data(
-            result_object_local,
-            "value",
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(result_object_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(result_object_local);
-        Ok(())
-    }
-
-    fn emit_atomics_wait_async_return_promise(
-        &mut self,
-        address_local: u32,
-        deadline_nanos_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let result_object_local = self.reserve_temp_local();
-        let promise_payload_local = self.reserve_temp_local();
-        let promise_record_local = self.reserve_temp_local();
-        let promise_prototype_local = self.reserve_temp_local();
-        let waiter_local = self.reserve_temp_local();
-        let waiter_tail_local = self.reserve_temp_local();
-        let waiter_next_local = self.reserve_temp_local();
-        let waiter_host_id_local = self.reserve_temp_local();
-
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(result_object_local));
-        self.emit_object_define_bool_data(result_object_local, "async", true, function)?;
-        function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(promise_prototype_local));
-        self.emit_alloc_promise_with_prototype(
-            promise_prototype_local,
-            promise_payload_local,
-            promise_record_local,
-            function,
-        )?;
-
-        self.emit_heap_alloc_const(HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE, function)?;
-        function.instruction(&Instruction::LocalSet(waiter_local));
-        self.store_i64_const_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_STATE_OFFSET,
-            1,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_ADDRESS_OFFSET,
-            address_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_PROMISE_RECORD_OFFSET,
-            promise_record_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_DEADLINE_NANOS_OFFSET,
-            deadline_nanos_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(waiter_host_id_local));
-        if let Some(agent_call_function_index) = self.functions.agent_call_import_function_index() {
-            function.instruction(&Instruction::I64Const(
-                AgentHostOperation::RegisterAsyncWaiter.wire(),
-            ));
-            function.instruction(&Instruction::LocalGet(address_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::Call(agent_call_function_index));
-            function.instruction(&Instruction::LocalSet(waiter_host_id_local));
-        }
-        self.store_i64_local_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_HOST_ID_OFFSET,
-            waiter_host_id_local,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            waiter_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            0,
-            function,
-        );
-        function.instruction(&Instruction::GlobalGet(
-            ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(waiter_tail_local));
-        function.instruction(&Instruction::LocalGet(waiter_tail_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(waiter_local));
-        function.instruction(&Instruction::GlobalSet(
-            ATOMICS_ASYNC_WAITER_ACTIVE_LIST_HEAD_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            waiter_tail_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            waiter_next_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(waiter_next_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(waiter_next_local));
-        function.instruction(&Instruction::LocalSet(waiter_tail_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.store_i64_local_at_offset(
-            waiter_tail_local,
-            HEAP_ATOMICS_ASYNC_WAITER_NEXT_OFFSET,
-            waiter_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_object_define_local_data(
-            result_object_local,
-            "value",
-            promise_payload_local,
-            self.scratch_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(result_object_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(waiter_host_id_local);
-        self.release_temp_local(waiter_next_local);
-        self.release_temp_local(waiter_tail_local);
-        self.release_temp_local(waiter_local);
-        self.release_temp_local(promise_prototype_local);
-        self.release_temp_local(promise_record_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(result_object_local);
-        Ok(())
     }
 
     fn emit_atomics_wait_async(&mut self, function: &mut Function) -> Result<(), EmitError> {
@@ -891,7 +919,7 @@ impl<'a> FunctionBuilder<'a> {
         let stored_byte_length_local = self.reserve_temp_local();
         let bytes_per_element_local = self.reserve_temp_local();
         let element_length_local = self.reserve_temp_local();
-        let element_kind_local = self.reserve_temp_local();
+        let pending_element_kind = PendingAtomicsIntegerElementKindLocal(self.reserve_temp_local());
         let index_local = self.reserve_temp_local();
         let address_local = self.reserve_temp_local();
         let expected_raw_local = self.reserve_temp_local();
@@ -929,8 +957,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
             self.result_local,
             self.result_tag_local,
@@ -963,30 +990,13 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.load_i64_to_local_from_offset(
+        let element_kind = self.emit_validate_atomics_integer_element_kind(
             typed_array_payload_local,
-            HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
-            element_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+            pending_element_kind,
+            AtomicsIntegerElementKindRequirement::Waitable,
             "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
 
         self.load_i64_to_local_from_offset(
             buffer_payload_local,
@@ -1000,8 +1010,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Atomics.waitAsync requires a shared Int32Array or BigInt64Array",
             self.result_local,
             self.result_tag_local,
@@ -1014,8 +1023,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(data_ptr_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "TypedArray backing buffer is detached",
             self.result_local,
             self.result_tag_local,
@@ -1045,8 +1053,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(element_length_local));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
+        self.emit_throw_current_function_realm_range_error(
             "Atomics.waitAsync index out of range",
             self.result_local,
             self.result_tag_local,
@@ -1055,7 +1062,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::LocalGet(element_kind.local()));
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1073,7 +1080,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(expected_raw_local));
         self.emit_atomics_normalize_integer_element_i64(
             expected_raw_local,
-            element_kind_local,
+            &element_kind,
             function,
         );
         function.instruction(&Instruction::LocalSet(expected_raw_local));
@@ -1104,7 +1111,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_atomics_load_integer_element_to_i64(
             address_local,
-            element_kind_local,
+            &element_kind,
             current_raw_local,
             function,
         );
@@ -1112,7 +1119,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(expected_raw_local));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_async_return_object("not-equal", function)?;
+        self.emit_atomics_wait_async_return_object(AtomicsWaitOutcome::NotEqual, function)?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
@@ -1121,7 +1128,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::F64Le);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_async_return_object("timed-out", function)?;
+        self.emit_atomics_wait_async_return_object(AtomicsWaitOutcome::TimedOut, function)?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
@@ -1170,7 +1177,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(expected_raw_local);
         self.release_temp_local(address_local);
         self.release_temp_local(index_local);
-        self.release_temp_local(element_kind_local);
+        self.release_temp_local(element_kind.into_local());
         self.release_temp_local(element_length_local);
         self.release_temp_local(bytes_per_element_local);
         self.release_temp_local(stored_byte_length_local);
@@ -1196,20 +1203,26 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_atomics_wait_async_timeout_checkpoint(function, true)
+        self.emit_atomics_wait_async_timeout_checkpoint(
+            AtomicsWaitAsyncTimeoutCheckpointMode::Drain,
+            function,
+        )
     }
 
     pub(crate) fn emit_poll_atomics_wait_async_timeouts(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_atomics_wait_async_timeout_checkpoint(function, false)
+        self.emit_atomics_wait_async_timeout_checkpoint(
+            AtomicsWaitAsyncTimeoutCheckpointMode::Poll,
+            function,
+        )
     }
 
     fn emit_atomics_wait_async_timeout_checkpoint(
         &mut self,
+        mode: AtomicsWaitAsyncTimeoutCheckpointMode,
         function: &mut Function,
-        wait_for_deadline: bool,
     ) -> Result<(), EmitError> {
         let saved_result_local = self.reserve_temp_local();
         let saved_result_tag_local = self.reserve_temp_local();
@@ -1318,7 +1331,9 @@ impl<'a> FunctionBuilder<'a> {
                 promise_record_local,
                 function,
             );
-            function.instruction(&Instruction::I64Const(self.strings.payload("ok")));
+            function.instruction(&Instruction::I64Const(
+                self.strings.payload(AtomicsWaitOutcome::Ok.spelling()),
+            ));
             function.instruction(&Instruction::LocalSet(self.scratch_local));
             function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
             function.instruction(&Instruction::LocalSet(outcome_tag_local));
@@ -1381,12 +1396,20 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-            function.instruction(&Instruction::I64Const(self.strings.payload("ok")));
+            function.instruction(&Instruction::I64Const(
+                self.strings.payload(AtomicsWaitOutcome::Ok.spelling()),
+            ));
             function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(self.strings.payload("timed-out")));
+            function.instruction(&Instruction::I64Const(
+                self.strings
+                    .payload(AtomicsWaitOutcome::TimedOut.spelling()),
+            ));
             function.instruction(&Instruction::End);
         } else {
-            function.instruction(&Instruction::I64Const(self.strings.payload("timed-out")));
+            function.instruction(&Instruction::I64Const(
+                self.strings
+                    .payload(AtomicsWaitOutcome::TimedOut.spelling()),
+            ));
         }
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
@@ -1454,8 +1477,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        if !wait_for_deadline {
-            function.instruction(&Instruction::Br(1));
+        match mode {
+            AtomicsWaitAsyncTimeoutCheckpointMode::Drain => {}
+            AtomicsWaitAsyncTimeoutCheckpointMode::Poll => {
+                function.instruction(&Instruction::Br(1));
+            }
         }
         function.instruction(&Instruction::LocalGet(active_count_local));
         function.instruction(&Instruction::I64Eqz);
@@ -1550,7 +1576,7 @@ impl<'a> FunctionBuilder<'a> {
         let stored_byte_length_local = self.reserve_temp_local();
         let bytes_per_element_local = self.reserve_temp_local();
         let element_length_local = self.reserve_temp_local();
-        let element_kind_local = self.reserve_temp_local();
+        let pending_element_kind = PendingAtomicsIntegerElementKindLocal(self.reserve_temp_local());
         let index_local = self.reserve_temp_local();
         let address_local = self.reserve_temp_local();
         let expected_raw_local = self.reserve_temp_local();
@@ -1587,8 +1613,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Atomics.wait requires a shared Int32Array or BigInt64Array",
             self.result_local,
             self.result_tag_local,
@@ -1621,30 +1646,13 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.load_i64_to_local_from_offset(
+        let element_kind = self.emit_validate_atomics_integer_element_kind(
             typed_array_payload_local,
-            HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
-            element_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+            pending_element_kind,
+            AtomicsIntegerElementKindRequirement::Waitable,
             "Atomics.wait requires a shared Int32Array or BigInt64Array",
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
 
         self.load_i64_to_local_from_offset(
             buffer_payload_local,
@@ -1658,8 +1666,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Atomics.wait requires a shared Int32Array or BigInt64Array",
             self.result_local,
             self.result_tag_local,
@@ -1672,8 +1679,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(data_ptr_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "TypedArray backing buffer is detached",
             self.result_local,
             self.result_tag_local,
@@ -1703,8 +1709,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(element_length_local));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
+        self.emit_throw_current_function_realm_range_error(
             "Atomics.wait index out of range",
             self.result_local,
             self.result_tag_local,
@@ -1713,7 +1718,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::LocalGet(element_kind.local()));
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1731,7 +1736,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(expected_raw_local));
         self.emit_atomics_normalize_integer_element_i64(
             expected_raw_local,
-            element_kind_local,
+            &element_kind,
             function,
         );
         function.instruction(&Instruction::LocalSet(expected_raw_local));
@@ -1763,7 +1768,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_atomics_require_agent_can_suspend(function)?;
         self.emit_atomics_load_integer_element_to_i64(
             address_local,
-            element_kind_local,
+            &element_kind,
             current_raw_local,
             function,
         );
@@ -1771,7 +1776,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(expected_raw_local));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_return_string("not-equal", function);
+        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::NotEqual, function);
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
@@ -1780,7 +1785,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
         function.instruction(&Instruction::F64Le);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_return_string("timed-out", function);
+        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::TimedOut, function);
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
@@ -1810,7 +1815,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(element_kind_local));
+        function.instruction(&Instruction::LocalGet(element_kind.local()));
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1835,17 +1840,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(wait_result_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_return_string("ok", function);
+        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::Ok, function);
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(wait_result_local));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_atomics_wait_return_string("not-equal", function);
+        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::NotEqual, function);
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.emit_atomics_wait_return_string("timed-out", function);
+        self.emit_atomics_wait_return_string(AtomicsWaitOutcome::TimedOut, function);
 
         self.release_temp_local(wait_result_local);
         self.release_temp_local(timeout_nanoseconds_local);
@@ -1853,7 +1858,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(expected_raw_local);
         self.release_temp_local(address_local);
         self.release_temp_local(index_local);
-        self.release_temp_local(element_kind_local);
+        self.release_temp_local(element_kind.into_local());
         self.release_temp_local(element_length_local);
         self.release_temp_local(bytes_per_element_local);
         self.release_temp_local(stored_byte_length_local);
@@ -1880,7 +1885,7 @@ impl<'a> FunctionBuilder<'a> {
         operation: AtomicsIntegerOperation,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let type_error_message = match operation {
+        let type_error_message = match &operation {
             AtomicsIntegerOperation::Add => "Atomics.add requires an integer typed array",
             AtomicsIntegerOperation::And => "Atomics.and requires an integer typed array",
             AtomicsIntegerOperation::CompareExchange => {
@@ -1893,7 +1898,7 @@ impl<'a> FunctionBuilder<'a> {
             AtomicsIntegerOperation::Sub => "Atomics.sub requires an integer typed array",
             AtomicsIntegerOperation::Xor => "Atomics.xor requires an integer typed array",
         };
-        let range_error_message = match operation {
+        let range_error_message = match &operation {
             AtomicsIntegerOperation::Add => "Atomics.add index out of range",
             AtomicsIntegerOperation::And => "Atomics.and index out of range",
             AtomicsIntegerOperation::CompareExchange => {
@@ -1924,7 +1929,7 @@ impl<'a> FunctionBuilder<'a> {
         let stored_byte_length_local = self.reserve_temp_local();
         let bytes_per_element_local = self.reserve_temp_local();
         let element_length_local = self.reserve_temp_local();
-        let element_kind_local = self.reserve_temp_local();
+        let pending_element_kind = PendingAtomicsIntegerElementKindLocal(self.reserve_temp_local());
         let index_local = self.reserve_temp_local();
         let address_local = self.reserve_temp_local();
         let old_raw_local = self.reserve_temp_local();
@@ -1971,8 +1976,7 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             type_error_message,
             self.result_local,
             self.result_tag_local,
@@ -2005,31 +2009,19 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.load_i64_to_local_from_offset(
+        let element_kind = self.emit_validate_atomics_integer_element_kind(
             typed_array_payload_local,
-            HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
-            element_kind_local,
-            function,
-        );
-        self.emit_atomics_friendly_element_kind_i32(element_kind_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+            pending_element_kind,
+            AtomicsIntegerElementKindRequirement::AnyInteger,
             type_error_message,
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
 
         self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
         function.instruction(&Instruction::LocalGet(data_ptr_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "TypedArray backing buffer is detached",
             self.result_local,
             self.result_tag_local,
@@ -2059,8 +2051,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(element_length_local));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            RANGE_ERROR_NAME,
+        self.emit_throw_current_function_realm_range_error(
             range_error_message,
             self.result_local,
             self.result_tag_local,
@@ -2070,7 +2061,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         if value_arg_count > 0 {
-            self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+            self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_to_bigint_value_and_u64_word_from_value_locals(
                 value_tag_local,
@@ -2096,7 +2087,7 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         if value_arg_count > 1 {
-            self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+            self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_to_bigint_u64_word_from_value_locals(
                 replacement_tag_local,
@@ -2127,15 +2118,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(address_local));
 
-        match operation {
+        match &operation {
             AtomicsIntegerOperation::Store => {
                 self.emit_atomics_store_integer_element_from_i64(
                     address_local,
-                    element_kind_local,
+                    &element_kind,
                     value_raw_local,
                     function,
                 );
-                self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+                self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::LocalGet(value_bigint_payload_local));
                 function.instruction(&Instruction::LocalSet(self.result_local));
@@ -2151,7 +2142,7 @@ impl<'a> FunctionBuilder<'a> {
             AtomicsIntegerOperation::Load => {
                 self.emit_atomics_load_integer_element_to_i64(
                     address_local,
-                    element_kind_local,
+                    &element_kind,
                     old_raw_local,
                     function,
                 );
@@ -2159,13 +2150,13 @@ impl<'a> FunctionBuilder<'a> {
             AtomicsIntegerOperation::CompareExchange => {
                 self.emit_atomics_normalize_integer_element_i64(
                     value_raw_local,
-                    element_kind_local,
+                    &element_kind,
                     function,
                 );
                 function.instruction(&Instruction::LocalSet(value_raw_local));
                 self.emit_atomics_compare_exchange_integer_element_to_i64(
                     address_local,
-                    element_kind_local,
+                    &element_kind,
                     value_raw_local,
                     replacement_raw_local,
                     old_raw_local,
@@ -2175,7 +2166,7 @@ impl<'a> FunctionBuilder<'a> {
             AtomicsIntegerOperation::Add => {
                 self.emit_atomics_rmw_integer_element_to_i64(
                     address_local,
-                    element_kind_local,
+                    &element_kind,
                     value_raw_local,
                     AtomicsRmwOperation::Add,
                     old_raw_local,
@@ -2184,7 +2175,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             AtomicsIntegerOperation::And => self.emit_atomics_rmw_integer_element_to_i64(
                 address_local,
-                element_kind_local,
+                &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::And,
                 old_raw_local,
@@ -2192,7 +2183,7 @@ impl<'a> FunctionBuilder<'a> {
             ),
             AtomicsIntegerOperation::Exchange => self.emit_atomics_rmw_integer_element_to_i64(
                 address_local,
-                element_kind_local,
+                &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::Exchange,
                 old_raw_local,
@@ -2200,7 +2191,7 @@ impl<'a> FunctionBuilder<'a> {
             ),
             AtomicsIntegerOperation::Or => self.emit_atomics_rmw_integer_element_to_i64(
                 address_local,
-                element_kind_local,
+                &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::Or,
                 old_raw_local,
@@ -2208,7 +2199,7 @@ impl<'a> FunctionBuilder<'a> {
             ),
             AtomicsIntegerOperation::Sub => self.emit_atomics_rmw_integer_element_to_i64(
                 address_local,
-                element_kind_local,
+                &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::Sub,
                 old_raw_local,
@@ -2216,7 +2207,7 @@ impl<'a> FunctionBuilder<'a> {
             ),
             AtomicsIntegerOperation::Xor => self.emit_atomics_rmw_integer_element_to_i64(
                 address_local,
-                element_kind_local,
+                &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::Xor,
                 old_raw_local,
@@ -2224,41 +2215,51 @@ impl<'a> FunctionBuilder<'a> {
             ),
         }
 
-        if operation != AtomicsIntegerOperation::Store {
-            self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(element_kind_local));
-            function.instruction(&Instruction::I64Const(11));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(old_raw_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_alloc_one_limb_bigint(1, old_raw_local, function)?;
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(old_raw_local));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::Else);
-            self.emit_atomics_signed_number_element_kind_i32(element_kind_local, function);
-            function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
-            function.instruction(&Instruction::LocalGet(old_raw_local));
-            function.instruction(&Instruction::F64ConvertI64S);
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(old_raw_local));
-            function.instruction(&Instruction::F64ConvertI64U);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            function.instruction(&Instruction::End);
+        match &operation {
+            AtomicsIntegerOperation::Store => {}
+            AtomicsIntegerOperation::Load
+            | AtomicsIntegerOperation::Add
+            | AtomicsIntegerOperation::And
+            | AtomicsIntegerOperation::CompareExchange
+            | AtomicsIntegerOperation::Exchange
+            | AtomicsIntegerOperation::Or
+            | AtomicsIntegerOperation::Sub
+            | AtomicsIntegerOperation::Xor => {
+                self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(element_kind.local()));
+                function.instruction(&Instruction::I64Const(11));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(old_raw_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64LtS);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_alloc_one_limb_bigint(1, old_raw_local, function)?;
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(old_raw_local));
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                self.emit_atomics_signed_number_element_kind_i32(&element_kind, function);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
+                function.instruction(&Instruction::LocalGet(old_raw_local));
+                function.instruction(&Instruction::F64ConvertI64S);
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::LocalGet(old_raw_local));
+                function.instruction(&Instruction::F64ConvertI64U);
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::End);
+            }
         }
 
         self.release_temp_local(value_bigint_tag_local);
@@ -2268,7 +2269,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(old_raw_local);
         self.release_temp_local(address_local);
         self.release_temp_local(index_local);
-        self.release_temp_local(element_kind_local);
+        self.release_temp_local(element_kind.into_local());
         self.release_temp_local(element_length_local);
         self.release_temp_local(bytes_per_element_local);
         self.release_temp_local(stored_byte_length_local);
@@ -2314,9 +2315,10 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_atomics_normalize_integer_element_i64(
         &mut self,
         value_local: u32,
-        element_kind_local: u32,
+        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         function: &mut Function,
     ) {
+        let element_kind_local = element_kind.local();
         function.instruction(&Instruction::LocalGet(element_kind_local));
         function.instruction(&Instruction::I64Const(3));
         function.instruction(&Instruction::I64Eq);
@@ -2394,11 +2396,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
     }
 
-    fn emit_atomics_signed_number_element_kind_i32(
+    fn emit_validated_atomics_bigint_element_kind_i32(
         &mut self,
-        element_kind_local: u32,
+        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         function: &mut Function,
     ) {
+        self.emit_atomics_bigint_element_kind_i32(element_kind.local(), function);
+    }
+
+    fn emit_atomics_signed_number_element_kind_i32(
+        &mut self,
+        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
+        function: &mut Function,
+    ) {
+        let element_kind_local = element_kind.local();
         function.instruction(&Instruction::LocalGet(element_kind_local));
         function.instruction(&Instruction::I64Const(3));
         function.instruction(&Instruction::I64Eq);
@@ -2415,13 +2426,14 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_atomics_rmw_integer_element_to_i64(
         &mut self,
         address_local: u32,
-        element_kind_local: u32,
+        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         value_local: u32,
         operation: AtomicsRmwOperation,
         output_local: u32,
         function: &mut Function,
     ) {
-        self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+        let element_kind_local = element_kind.local();
+        self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(address_local));
         function.instruction(&Instruction::I32WrapI64);
@@ -2548,20 +2560,21 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.emit_atomics_normalize_integer_element_i64(output_local, element_kind_local, function);
+        self.emit_atomics_normalize_integer_element_i64(output_local, element_kind, function);
         function.instruction(&Instruction::LocalSet(output_local));
     }
 
     fn emit_atomics_compare_exchange_integer_element_to_i64(
         &mut self,
         address_local: u32,
-        element_kind_local: u32,
+        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         expected_local: u32,
         replacement_local: u32,
         output_local: u32,
         function: &mut Function,
     ) {
-        self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+        let element_kind_local = element_kind.local();
+        self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(address_local));
         function.instruction(&Instruction::I32WrapI64);
@@ -2621,17 +2634,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.emit_atomics_normalize_integer_element_i64(output_local, element_kind_local, function);
+        self.emit_atomics_normalize_integer_element_i64(output_local, element_kind, function);
         function.instruction(&Instruction::LocalSet(output_local));
     }
 
     fn emit_atomics_load_integer_element_to_i64(
         &mut self,
         address_local: u32,
-        element_kind_local: u32,
+        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         output_local: u32,
         function: &mut Function,
     ) {
+        let element_kind_local = element_kind.local();
         function.instruction(&Instruction::LocalGet(element_kind_local));
         function.instruction(&Instruction::I64Const(3));
         function.instruction(&Instruction::I64Eq);
@@ -2715,11 +2729,12 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_atomics_store_integer_element_from_i64(
         &mut self,
         address_local: u32,
-        element_kind_local: u32,
+        element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         value_local: u32,
         function: &mut Function,
     ) {
-        self.emit_atomics_bigint_element_kind_i32(element_kind_local, function);
+        let element_kind_local = element_kind.local();
+        self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(address_local));
         function.instruction(&Instruction::I32WrapI64);

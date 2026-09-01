@@ -22,19 +22,8 @@ impl<'a> ScriptLowerer<'a> {
                         .then(|| self.locate_identifier_reference(&name));
                     let static_to_string_regexp_object =
                         self.static_to_string_returns_regexp_object_expr(rhs);
-                    let static_generator_values = self.static_generator_call_values_owned(rhs);
-                    let static_object_iterator_values = static_generator_values
-                        .is_none()
-                        .then(|| self.static_object_iterator_literal_values(rhs))
-                        .flatten();
-                    let static_iterator_values = static_generator_values
-                        .clone()
-                        .or_else(|| static_object_iterator_values.clone());
-                    let value = if let Some(values) = &static_generator_values {
-                        self.array_iterator_from_static_generator_values(values)
-                    } else {
-                        self.lower_expression(rhs)
-                    };
+                    let static_iterator_values = self.static_object_iterator_literal_values(rhs);
+                    let value = self.lower_expression(rhs);
                     if let Some(fallback) = with_fallback {
                         let objects = self
                             .with_environment_chain
@@ -46,13 +35,13 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         return self.lower_located_identifier_assign_value(name, value, fallback);
                     }
+                    let result = self.lower_identifier_assign_value(name.clone(), value);
                     if let Some(values) = static_iterator_values {
                         self.static_iterator_binding_values
                             .insert(name.clone(), values);
                     } else {
                         self.static_iterator_binding_values.remove(&name);
                     }
-                    let result = self.lower_identifier_assign_value(name.clone(), value);
                     if static_to_string_regexp_object {
                         self.static_to_string_regexp_object_bindings.insert(name);
                     } else {
@@ -239,8 +228,11 @@ impl<'a> ScriptLowerer<'a> {
                     let applied = self.combine_arithmetic(arithmetic, lhs_read, value);
                     return self.immutable_binding_write(&storage_name, applied);
                 }
-                let binding_storage_name =
-                    binding.as_ref().map(|binding| binding.storage_name.clone());
+                let script_global_reference =
+                    self.is_script_global_var_name(&name) && !self.has_scope_binding(&name);
+                let binding_storage_name = binding.as_ref().and_then(|binding| {
+                    (!script_global_reference).then(|| binding.storage_name.clone())
+                });
                 let global_info = self.lookup_global_property_info(&name).cloned();
                 let rhs_may_string = value.possible_kinds.contains(ValueKind::String);
                 let binding_known_string = binding
@@ -311,7 +303,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: possible_kinds.as_value_kind(),
                         possible_kinds,
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     };
                     let result = TypedExpr::from_info(
                         result_info.clone(),
@@ -329,6 +321,9 @@ impl<'a> ScriptLowerer<'a> {
                                 value: Box::new(result),
                             },
                         );
+                    }
+                    if script_global_reference {
+                        self.set_binding_value_info(&name, result_info.clone());
                     }
                     self.set_global_property_value_info(name.clone(), result_info.clone());
                     let strictness = self.reference_strictness();
@@ -402,7 +397,7 @@ impl<'a> ScriptLowerer<'a> {
                         kind: ValueKind::Number,
                         possible_kinds: KindSet::from_kind(ValueKind::Number),
                         heap_shape: None,
-                        function_targets: BTreeSet::new(),
+                        function_targets: FunctionTargetKnowledge::none(),
                     }
                 };
                 if let Some(binding) = binding {
@@ -416,6 +411,9 @@ impl<'a> ScriptLowerer<'a> {
                         return self.unsupported_expr("compound assignment on non-number binding");
                     }
                     self.set_binding_value_info(&name, result_info.clone());
+                    if script_global_reference {
+                        self.set_global_property_value_info(name.clone(), result_info.clone());
+                    }
                 } else if global_info.as_ref().is_some_and(|info| {
                     info.proven_present
                         && ((string_add

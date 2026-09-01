@@ -155,9 +155,44 @@ fn helper_catalog_and_typed_request_replace_the_fixed_depth_entry() {
     ));
     assert!(request.contains("target: PreventExtensionsTraversalTargetLocals"));
     assert!(request.contains("result: PreventExtensionsResultLocal"));
-    assert!(request.contains("#[derive(Debug, PartialEq, Eq)]"));
-    assert!(!request.contains("#[derive(Debug, Clone"));
-    assert!(!request.contains("#[derive(Debug, Copy"));
+    assert!(!request.contains("#[derive"));
+
+    for lifecycle_type in [
+        "PreventExtensionsTraversalTargetLocals",
+        "PreventExtensionsResultLocal",
+        "ObjectPreventExtensionsRequest",
+        "PendingProxyPreventExtensionsTrapResultLocals",
+        "NormalProxyPreventExtensionsTrapResultLocals",
+    ] {
+        let declaration = format!("struct {lifecycle_type}");
+        let declaration_prefix = OBJECTS_SOURCE
+            .split_once(&declaration)
+            .unwrap_or_else(|| panic!("missing lifecycle type `{lifecycle_type}`"))
+            .0
+            .rsplit("\n\n")
+            .next()
+            .unwrap_or_default();
+        assert!(
+            !declaration_prefix.contains("#[derive"),
+            "{lifecycle_type} derives an incidental capability"
+        );
+        for capability in [
+            "Clone",
+            "Copy",
+            "Debug",
+            "Default",
+            "PartialEq",
+            "Eq",
+            "PartialOrd",
+            "Ord",
+            "Hash",
+        ] {
+            assert!(
+                !OBJECTS_SOURCE.contains(&format!("impl {capability} for {lifecycle_type}")),
+                "{lifecycle_type} manually implements {capability}"
+            );
+        }
+    }
 
     let transition = bounded(
         OBJECTS_SOURCE,

@@ -5,10 +5,12 @@ use crate::functions::{
 };
 use lila_ir::NativeErrorKind;
 
+mod aggregate_error_preparation;
 mod constructor;
+mod promise_any;
+mod prototype_to_string;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ErrorBuiltin {
+enum ErrorBuiltin {
     IsError,
     Constructor(NativeErrorKind),
     PrototypeToString,
@@ -22,16 +24,6 @@ fn native_error_kind(name: &str) -> Result<NativeErrorKind, EmitError> {
     })
 }
 
-#[must_use = "the prepared Error name must be consumed before reading message"]
-struct PreparedErrorNameLocal(u32);
-
-impl PreparedErrorNameLocal {
-    fn into_local(self) -> u32 {
-        self.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ErrorCauseOptionsArgument {
     MessageError,
     AggregateError,
@@ -46,13 +38,13 @@ impl ErrorCauseOptionsArgument {
     }
 }
 
-#[must_use = "the prepared AggregateError must be finalized with its errors list"]
-struct PreparedAggregateErrorLocal {
-    object: u32,
+#[must_use = "Promise.any AggregateError allocation context must be consumed"]
+pub(super) struct PromiseAnyAggregateErrorAllocationContext {
+    prototype_local: u32,
 }
 
 impl<'a> FunctionBuilder<'a> {
-    pub(super) fn emit_error_builtin(
+    fn emit_error_builtin(
         &mut self,
         builtin: ErrorBuiltin,
         function: &mut Function,
@@ -234,185 +226,105 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_error_prototype_to_string(&mut self, function: &mut Function) -> Result<(), EmitError> {
-        let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Error.prototype.toString receiver",
-            )
-        })?;
-        let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: missing Error.prototype.toString receiver",
-            )
-        })?;
-
-        self.emit_is_heap_object_like_tag_i32(receiver_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        let prepared_name = self.emit_error_to_string_prepare_name(
-            receiver_payload_local,
-            receiver_tag_local,
-            function,
-        )?;
-        self.emit_error_to_string_message_and_result(
-            receiver_payload_local,
-            receiver_tag_local,
-            prepared_name,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            "Error.prototype.toString receiver is not object",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    fn emit_error_to_string_prepare_name(
+    pub(super) fn emit_error_constructor_builtin(
         &mut self,
-        receiver_payload_local: u32,
-        receiver_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<PreparedErrorNameLocal, EmitError> {
-        // Reserve the local that crosses the phase boundary before all of this
-        // phase's transient locals so the latter can be released in LIFO order.
-        let name_string_local = self.reserve_temp_local();
-        let name_key_local = self.reserve_temp_local();
-        let name_payload_local = self.reserve_temp_local();
-        let name_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("name")));
-        function.instruction(&Instruction::LocalSet(name_key_local));
-        self.emit_object_read(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
-            name_key_local,
-            name_payload_local,
-            name_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(name_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload(ERROR_NAME)));
-        function.instruction(&Instruction::LocalSet(name_string_local));
-        function.instruction(&Instruction::Else);
-        self.emit_error_to_string_value_to_string_local(
-            name_payload_local,
-            name_tag_local,
-            name_string_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(name_tag_local);
-        self.release_temp_local(name_payload_local);
-        self.release_temp_local(name_key_local);
-        Ok(PreparedErrorNameLocal(name_string_local))
-    }
-
-    fn emit_error_to_string_message_and_result(
-        &mut self,
-        receiver_payload_local: u32,
-        receiver_tag_local: u32,
-        prepared_name: PreparedErrorNameLocal,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let name_string_local = prepared_name.into_local();
-        let message_string_local = self.reserve_temp_local();
-        let message_key_local = self.reserve_temp_local();
-        let message_payload_local = self.reserve_temp_local();
-        let message_tag_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("message")));
-        function.instruction(&Instruction::LocalSet(message_key_local));
-        self.emit_object_read(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
-            message_key_local,
-            message_payload_local,
-            message_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(message_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(message_string_local));
-        function.instruction(&Instruction::Else);
-        self.emit_error_to_string_value_to_string_local(
-            message_payload_local,
-            message_tag_local,
-            message_string_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(message_tag_local);
-        self.release_temp_local(message_payload_local);
-        self.release_temp_local(message_key_local);
-
-        let separator_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(separator_local));
-        self.emit_string_payload_equality_i32(name_string_local, separator_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(message_string_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::Else);
-        self.emit_string_payload_equality_i32(message_string_local, separator_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(name_string_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload(": ")));
-        function.instruction(&Instruction::LocalSet(separator_local));
-        self.emit_concat_string_payloads_local(name_string_local, separator_local, function)?;
-        function.instruction(&Instruction::LocalSet(name_string_local));
-        self.emit_concat_string_payloads_local(name_string_local, message_string_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(separator_local);
-        self.release_temp_local(message_string_local);
-        self.release_temp_local(name_string_local);
-        Ok(())
+        self.emit_error_builtin(ErrorBuiltin::Constructor(NativeErrorKind::Error), function)
     }
 
-    fn emit_error_to_string_value_to_string_local(
+    pub(super) fn emit_error_is_error_builtin(
         &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        string_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let primitive = self.emit_tagged_to_primitive_locals_in_current_function_realm(
-            ToPrimitiveHint::String,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_current_function_realm_primitive_to_string_local(
-            primitive,
-            string_payload_local,
+        self.emit_error_builtin(ErrorBuiltin::IsError, function)
+    }
+
+    pub(super) fn emit_eval_error_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(
+            ErrorBuiltin::Constructor(NativeErrorKind::EvalError),
             function,
         )
+    }
+
+    pub(super) fn emit_aggregate_error_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(
+            ErrorBuiltin::Constructor(NativeErrorKind::AggregateError),
+            function,
+        )
+    }
+
+    pub(super) fn emit_suppressed_error_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(
+            ErrorBuiltin::Constructor(NativeErrorKind::SuppressedError),
+            function,
+        )
+    }
+
+    pub(super) fn emit_range_error_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(
+            ErrorBuiltin::Constructor(NativeErrorKind::RangeError),
+            function,
+        )
+    }
+
+    pub(super) fn emit_syntax_error_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(
+            ErrorBuiltin::Constructor(NativeErrorKind::SyntaxError),
+            function,
+        )
+    }
+
+    pub(super) fn emit_type_error_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(
+            ErrorBuiltin::Constructor(NativeErrorKind::TypeError),
+            function,
+        )
+    }
+
+    pub(super) fn emit_uri_error_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(
+            ErrorBuiltin::Constructor(NativeErrorKind::URIError),
+            function,
+        )
+    }
+
+    pub(super) fn emit_reference_error_constructor_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(
+            ErrorBuiltin::Constructor(NativeErrorKind::ReferenceError),
+            function,
+        )
+    }
+
+    pub(super) fn emit_error_prototype_to_string_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(ErrorBuiltin::PrototypeToString, function)
     }
 
     fn emit_install_error_cause_from_arg(
@@ -481,135 +393,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(options_tag_local);
         self.release_temp_local(options_payload_local);
         Ok(())
-    }
-
-    fn emit_prepare_aggregate_error_instance(
-        &mut self,
-        prototype_payload_local: u32,
-        message_arg_payload_local: u32,
-        message_arg_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<PreparedAggregateErrorLocal, EmitError> {
-        let object_local = self.reserve_temp_local();
-        let message_payload_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_ERROR,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(message_arg_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_string_payload(
-            message_arg_payload_local,
-            message_arg_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(message_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("message")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
-            object_local,
-            key_local,
-            message_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_install_error_cause_from_arg(
-            object_local,
-            ErrorCauseOptionsArgument::AggregateError,
-            function,
-        )?;
-
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(message_payload_local);
-        Ok(PreparedAggregateErrorLocal {
-            object: object_local,
-        })
-    }
-
-    fn emit_prepare_promise_any_aggregate_error_instance(
-        &mut self,
-        prototype_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<PreparedAggregateErrorLocal, EmitError> {
-        let object_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_payload_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_ERROR,
-            function,
-        );
-        Ok(PreparedAggregateErrorLocal {
-            object: object_local,
-        })
-    }
-
-    fn emit_finish_aggregate_error_instance(
-        &mut self,
-        prepared: PreparedAggregateErrorLocal,
-        errors_payload_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let PreparedAggregateErrorLocal {
-            object: object_local,
-        } = prepared;
-        let key_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("errors")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
-            object_local,
-            key_local,
-            errors_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(object_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_promise_any_aggregate_error_from_locals(
-        &mut self,
-        errors_payload_local: u32,
-        prototype_payload_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let prepared = self
-            .emit_prepare_promise_any_aggregate_error_instance(prototype_payload_local, function)?;
-        self.emit_finish_aggregate_error_instance(
-            prepared,
-            errors_payload_local,
-            payload_local,
-            tag_local,
-            function,
-        )
     }
 
     pub(crate) fn emit_alloc_suppressed_error_instance_from_locals(
@@ -961,11 +744,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
+        self.emit_object_append_data_property_with_flags(
             object_local,
             key_local,
             value_payload_local,
             value_tag_local,
+            true,
+            false,
+            true,
             function,
         )?;
         function.instruction(&Instruction::I64Const(self.strings.payload("message")));
@@ -976,11 +762,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
+        self.emit_object_append_data_property_with_flags(
             object_local,
             key_local,
             value_payload_local,
             value_tag_local,
+            true,
+            false,
+            true,
             function,
         )?;
 
@@ -1011,12 +800,13 @@ impl<'a> FunctionBuilder<'a> {
     /// The only site that may set either global without coming through here is
     /// `emit_capture_throw_error_name`, which reads both off a user-thrown
     /// value and zeroes the message on entry for the same reason.
-    pub(crate) fn emit_set_thrown_error_text(
+    fn emit_set_thrown_error_text(
         &mut self,
-        name: &str,
+        kind: NativeErrorKind,
         message: Option<&str>,
         function: &mut Function,
     ) {
+        let name = kind.as_str();
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
         function.instruction(&Instruction::GlobalSet(throw_error_name_global_index(
             self.uses_heap,
@@ -1050,7 +840,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let name = kind.as_str();
         self.emit_runtime_error_object(kind, message, payload_local, tag_local, function)?;
-        self.emit_set_thrown_error_text(name, Some(message), function);
+        self.emit_set_thrown_error_text(kind, Some(message), function);
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -1120,6 +910,97 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )
+    }
+
+    pub(crate) fn emit_throw_runtime_type_error_without_message(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(error_prototype_global_index(
+            NativeErrorKind::TypeError,
+        )));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        self.emit_throw_type_error_without_message_with_prototype_local(
+            prototype_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(prototype_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_throw_current_function_realm_type_error_without_message(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(error_prototype_global_index(
+            NativeErrorKind::TypeError,
+        )));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            self.current_env_local,
+            error_realm_prototype_offset(NativeErrorKind::TypeError),
+            prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(prototype_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(error_prototype_global_index(
+            NativeErrorKind::TypeError,
+        )));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.emit_throw_type_error_without_message_with_prototype_local(
+            prototype_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(prototype_local);
+        Ok(())
+    }
+
+    fn emit_throw_type_error_without_message_with_prototype_local(
+        &mut self,
+        prototype_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        self.store_i64_const_at_offset(
+            payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_ERROR,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_set_thrown_error_text(NativeErrorKind::TypeError, None, function);
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.set_completion_kind_with_aux(
+            CompletionKind::Throw,
+            self.strings.payload(TYPE_ERROR_NAME) as i64,
+            function,
+        );
+        Ok(())
     }
 
     pub(crate) fn emit_throw_current_function_realm_range_error(
@@ -1206,11 +1087,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
+        self.emit_object_append_data_property_with_flags(
             object_local,
             key_local,
             value_payload_local,
             value_tag_local,
+            true,
+            false,
+            true,
             function,
         )?;
         function.instruction(&Instruction::I64Const(self.strings.payload("message")));
@@ -1219,11 +1103,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
+        self.emit_object_append_data_property_with_flags(
             object_local,
             key_local,
             value_payload_local,
             value_tag_local,
+            true,
+            false,
+            true,
             function,
         )?;
 
@@ -1231,7 +1118,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_set_thrown_error_text(name, Some(message), function);
+        self.emit_set_thrown_error_text(kind, Some(message), function);
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(tag_local));

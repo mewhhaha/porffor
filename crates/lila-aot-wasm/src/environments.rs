@@ -414,14 +414,14 @@ impl<'a> FunctionBuilder<'a> {
                 Some((*parameter_index, statements.clone()))
             })
             .collect::<Vec<_>>();
-        let arguments_protocol = self.function_arguments_protocol.present().cloned();
-        if let Some(arguments_protocol) = arguments_protocol {
+        let arguments_protocol = self.function_arguments_protocol.take_for_binding()?;
+        if let Some(arguments_protocol) = arguments_protocol.into_present() {
             let arguments_storage = self.allocate_dynamic_binding_storage(LEXICAL_ARGUMENTS_NAME);
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
                 .insert(LEXICAL_ARGUMENTS_NAME.to_string(), arguments_storage);
-            self.initialize_arguments_binding(arguments_storage, &arguments_protocol, function)?;
+            self.initialize_arguments_binding(arguments_storage, arguments_protocol, function)?;
         }
 
         for param in self.params {
@@ -473,12 +473,12 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn initialize_arguments_binding(
         &mut self,
         storage: BindingStorage,
-        protocol: &PresentArgumentsObjectProtocol,
+        protocol: PresentArgumentsObjectProtocol,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
-        self.emit_arguments_object_payload(protocol, function)?;
+        self.emit_arguments_object_payload(&protocol, function)?;
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));

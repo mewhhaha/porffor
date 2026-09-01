@@ -310,22 +310,23 @@ fn lowering_spends_the_plan_for_all_four_closed_update_forms() {
         8,
     );
     assert_eq!(
-        fallback
-            .matches("IdentifierUpdateReachability::WithEnvironmentFallback => ValueKind::Dynamic")
-            .count(),
-        2,
+        fallback.matches("NumericUpdateValueKind::Dynamic").count(),
+        7,
     );
-    assert_eq!(fallback.matches("unknown_runtime_value_info()").count(), 3);
+    assert_eq!(
+        fallback.matches("widen_for_possible_replacement()").count(),
+        3,
+    );
     assert!(!fallback.contains("self.merge_value_infos("));
     assert!(fallback
         .contains("if reachability == IdentifierUpdateReachability::WithEnvironmentFallback"));
     assert!(fallback.contains("if let Some(info) = self.global_properties.get_mut(&name)"));
-    assert!(fallback.contains("info.value_info = unknown_runtime_value_info();"));
+    assert!(fallback.contains("info.value_info.widen_for_possible_replacement();"));
     assert!(fallback.contains("if info.configurable"));
     assert!(fallback.contains("info.proven_present = false;"));
     assert_before(
         fallback,
-        "info.value_info = unknown_runtime_value_info();",
+        "info.value_info.widen_for_possible_replacement();",
         "info.proven_present = false;",
     );
     assert_eq!(fallback.matches("ExprIr::RuntimeThrow {").count(), 1);
@@ -346,9 +347,7 @@ fn lowering_spends_the_plan_for_all_four_closed_update_forms() {
         "        } else if self.global_property_is_proven_present(&name) {",
         "        } else {\n            match reachability {",
     );
-    assert!(proven_global.contains(
-        "IdentifierUpdateReachability::WithEnvironmentFallback => (None, ValueKind::Dynamic)"
-    ));
+    assert!(proven_global.contains("(None, NumericUpdateValueKind::Dynamic)"));
     assert!(!proven_global.contains("RuntimeThrow"));
 
     let guarded_global = bounded(

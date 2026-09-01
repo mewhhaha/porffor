@@ -55,6 +55,7 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.dynamically_installed_getters = self.dynamically_installed_getters.clone();
         lowerer.dynamically_installed_setters = self.dynamically_installed_setters.clone();
         lowerer.unknown_user_code_effects_observed = self.unknown_user_code_effects_observed;
+        lowerer.function_signature_shape_evidence = self.function_signature_shape_evidence;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
         lowerer.static_to_string_regexp_object_bindings =
@@ -72,6 +73,8 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.active_direct_call_propagations = self.active_direct_call_propagations.clone();
         lowerer.completed_direct_call_propagations =
             self.completed_direct_call_propagations.clone();
+        lowerer.is_prepass = self.is_prepass;
+        lowerer.script_global_call_observation_mode = self.script_global_call_observation_mode;
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function.id.clone());
         match function.protocol.execution_kind() {
@@ -111,7 +114,8 @@ impl<'a> ScriptLowerer<'a> {
                     if param.is_rest {
                         break;
                     }
-                    for callback_id in &param.function_targets {
+                    for callback_id in param.function_targets.exact_targets().into_iter().flatten()
+                    {
                         let original_callback_id = lowerer.original_exact_function_id(callback_id);
                         if self.is_prepass
                             || lowerer
@@ -144,10 +148,12 @@ impl<'a> ScriptLowerer<'a> {
                 CurrentThisBinding::Root(lowerer.root_this_binding)
             }
         } else {
+            let current_flow_signature = exact_context_signature
+                .clone()
+                .or_else(|| lowerer.function_signature_for_current_flow(&function.id));
             CurrentThisBinding::Activation(
-                exact_context_signature
+                current_flow_signature
                     .as_ref()
-                    .or_else(|| lowerer.function_signatures.get(&function.id))
                     .map(|signature| {
                         if signature.this_observed {
                             signature.this_info.clone()
@@ -223,6 +229,7 @@ impl<'a> ScriptLowerer<'a> {
                 lowerer.exact_context_callback_specializations;
             self.exact_context_function_specializations =
                 lowerer.exact_context_function_specializations;
+            self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
             self.completed_direct_call_propagations = lowerer.completed_direct_call_propagations;
             return FunctionIr {
                 id: output_id.clone(),
@@ -262,7 +269,7 @@ impl<'a> ScriptLowerer<'a> {
                 },
                 return_kind: ValueKind::Undefined,
                 return_shape: None,
-                return_targets: BTreeSet::new(),
+                return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
                 owned_env_bindings: Vec::new(),
                 captured_bindings: Vec::new(),
@@ -297,14 +304,14 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 }
             } else if name != source_name || TdzPlaceholderName::names_a_placeholder(name) {
                 ValueInfo {
                     kind: ValueKind::Dynamic,
                     possible_kinds: KindSet::all_runtime_tags(),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::unknown(),
                 }
             } else if capture.owner_id == self.current_owner_id {
                 let binding_info = self.lookup_binding(source_name).map(|binding| ValueInfo {
@@ -354,7 +361,7 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                         })
                     }
                     (Some(binding), _) => binding,
@@ -401,7 +408,7 @@ impl<'a> ScriptLowerer<'a> {
                     kind: ValueKind::Arguments,
                     possible_kinds: KindSet::from_kind(ValueKind::Arguments),
                     heap_shape: None,
-                    function_targets: BTreeSet::new(),
+                    function_targets: FunctionTargetKnowledge::none(),
                     initialization: Initialization::Initialized,
                 },
             );
@@ -437,11 +444,11 @@ impl<'a> ScriptLowerer<'a> {
         for (index, parameter) in parameters.as_ref().iter().enumerate() {
             let binding = parameter.variable().binding();
             let name = binding_parameter_storage_name(self.interner, binding, index);
-            let context_signature =
-                lowerer.exact_signature_for_function(&function.id, context_key_override.as_ref());
+            let context_signature = lowerer
+                .exact_signature_for_function(&function.id, context_key_override.as_ref())
+                .or_else(|| lowerer.function_signature_for_current_flow(&function.id));
             let param_info = context_signature
                 .as_ref()
-                .or_else(|| lowerer.function_signatures.get(&function.id))
                 .and_then(|signature| signature.params.get(params.len()).cloned())
                 .map(|signature| ValueInfo {
                     kind: signature.possible_kinds.as_value_kind(),
@@ -455,14 +462,14 @@ impl<'a> ScriptLowerer<'a> {
                             kind: ValueKind::Array,
                             possible_kinds: KindSet::from_kind(ValueKind::Array),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::none(),
                         }
                     } else {
                         ValueInfo {
                             kind: ValueKind::Dynamic,
                             possible_kinds: KindSet::all_runtime_tags(),
                             heap_shape: None,
-                            function_targets: BTreeSet::new(),
+                            function_targets: FunctionTargetKnowledge::unknown(),
                         }
                     }
                 });
@@ -551,22 +558,23 @@ impl<'a> ScriptLowerer<'a> {
             statements: body_statements,
             lexical_environment: None,
         };
+        lowerer.source_call_flow_effects = lowerer.source_call_flow_effects.merge_observation(
+            SourceCallFlowEffects::for_finalized_invocation(&params, &body),
+        );
         let mut return_info = lowerer
-            .current_return_info
-            .clone()
+            .current_return
+            .as_ref()
+            .map(|returned| returned.info.clone())
             .unwrap_or_else(ValueInfo::undefined);
         let final_statement_is_return = Self::statement_list_ends_in_return(&body.statements);
         if !final_statement_is_return {
-            return_info = lowerer.merge_return_infos(return_info, ValueInfo::undefined());
+            return_info = lowerer.merge_value_infos(return_info, ValueInfo::undefined());
         }
 
-        let context_signature =
-            lowerer.exact_signature_for_function(&function.id, context_key_override.as_ref());
-        if let Some(signature) = context_signature
-            .as_ref()
-            .or_else(|| lowerer.function_signatures.get(&function.id))
-            .cloned()
-        {
+        let context_signature = lowerer
+            .exact_signature_for_function(&function.id, context_key_override.as_ref())
+            .or_else(|| lowerer.function_signature_for_current_flow(&function.id));
+        if let Some(signature) = context_signature {
             for (param, signature_param) in params.iter_mut().zip(signature.params.iter()) {
                 param.kind = signature_param.kind;
                 lowerer.update_binding_shape_path(
@@ -580,29 +588,20 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
-            return_info = ValueInfo {
-                kind: signature.return_kind,
-                possible_kinds: signature.return_possible_kinds,
-                heap_shape: signature.return_shape,
-                function_targets: signature.return_targets,
-            };
-            if !final_statement_is_return {
-                return_info = lowerer.merge_return_infos(return_info, ValueInfo::undefined());
-            }
         }
         if function.protocol.execution_kind() == FunctionExecutionKind::Generator {
             return_info = ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: Some(Self::generator_instance_shape()),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             };
         } else if function.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator {
             return_info = ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: Some(Self::async_generator_instance_shape()),
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             };
         } else if function.protocol.execution_kind() == FunctionExecutionKind::Async {
             return_info = Self::value_info_from_shape(Some(Self::promise_instance_shape()));
@@ -610,18 +609,25 @@ impl<'a> ScriptLowerer<'a> {
         if let Some(signature) = lowerer.function_signatures.get_mut(&function.id) {
             signature.return_kind = return_info.kind;
             signature.return_possible_kinds = return_info.possible_kinds;
-            signature.return_shape = return_info.heap_shape.clone();
+            signature.return_shape =
+                if function.protocol.execution_kind() == FunctionExecutionKind::Ordinary {
+                    signature
+                        .return_shape
+                        .with_shape(return_info.heap_shape.clone())
+                } else {
+                    FunctionReturnShape::flow_sensitive(return_info.heap_shape.clone())
+                };
             signature.return_targets = return_info.function_targets.clone();
             signature.constructor_instance = lowerer
                 .current_construct_this_info
                 .clone()
                 .unwrap_or_else(ValueInfo::undefined);
+            signature.source_call_flow_effects = lowerer.source_call_flow_effects;
         }
         let resumable_plan = lowerer.current_resumable_plan.clone().or(resumable_plan);
 
-        let unknown_user_code_effects_observed = lowerer.unknown_user_code_effects_observed;
-        let intervening_effects_observed = lowerer.intervening_effect_epoch > 0;
         self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
+        self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
         self.diagnostics.extend(lowerer.diagnostics.clone());
         self.function_signatures = lowerer.function_signatures;
         self.exact_context_function_observations = lowerer.exact_context_function_observations;
@@ -635,11 +641,6 @@ impl<'a> ScriptLowerer<'a> {
             .extend(lowerer.dynamically_installed_getters);
         self.dynamically_installed_setters
             .extend(lowerer.dynamically_installed_setters);
-        if unknown_user_code_effects_observed {
-            self.invalidate_unknown_user_code_effects();
-        } else if intervening_effects_observed {
-            self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
-        }
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls += lowerer.host_builtin_calls;
         self.top_level_this_uses += lowerer.top_level_this_uses;

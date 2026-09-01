@@ -30,7 +30,6 @@ use crate::module::{
 /// is a resource failure and therefore uses the current function realm's
 /// `RangeError`. Keeping this as a closed domain makes a third route an
 /// exhaustive-match update at the sole consumer rather than a boolean policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegExpMatcherFailureRoute {
     GenericError,
     CurrentFunctionRealmRangeError,
@@ -641,12 +640,17 @@ mod tests {
             vec![0, 1, 2]
         );
         assert_eq!(
-            RegExpMatcherFailure::CorruptProgram.route(),
-            RegExpMatcherFailureRoute::GenericError
-        );
-        assert_eq!(
-            RegExpMatcherFailure::ResourceExhausted.route(),
-            RegExpMatcherFailureRoute::CurrentFunctionRealmRangeError
+            RegExpMatcherFailure::ALL
+                .iter()
+                .copied()
+                .map(|failure| match failure.route() {
+                    RegExpMatcherFailureRoute::GenericError => "generic-error",
+                    RegExpMatcherFailureRoute::CurrentFunctionRealmRangeError => {
+                        "current-function-realm-range-error"
+                    }
+                })
+                .collect::<Vec<_>>(),
+            vec!["generic-error", "current-function-realm-range-error"]
         );
         for failure in RegExpMatcherFailure::ALL {
             assert!(!failure.message().is_empty());

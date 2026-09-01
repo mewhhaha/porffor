@@ -1,5 +1,5 @@
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const LOGICAL_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/object_environment_logical.rs");
 const FIXTURE: &str =
@@ -195,7 +195,7 @@ fn pre_rhs_location_snapshot_and_closed_mapper_make_ordering_explicit() {
     let located = bounded(
         LOGICAL_SOURCE,
         "/// One identifier logical-assignment Reference located before RHS lowering.",
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+        "pub(super) enum LogicalAssignmentReachability {",
     );
     assert!(located.contains("pub(super) struct LocatedIdentifierLogicalAssignment {"));
     assert!(located.contains(
@@ -255,7 +255,7 @@ fn pre_rhs_location_snapshot_and_closed_mapper_make_ordering_explicit() {
     assert_before(
         arm,
         "let reference = self.locate_identifier_logical_assignment(&name);",
-        "let rhs_value = self.lower_expression(rhs);",
+        "let rhs_value = self.lower_conditionally_reached_expression(rhs);",
     );
     assert!(arm.contains("reference.reject_definite_tdz()"));
     assert!(arm.contains("reference.is_unproven_global()"));
@@ -277,16 +277,16 @@ fn pre_rhs_location_snapshot_and_closed_mapper_make_ordering_explicit() {
         consumer
             .matches("LogicalAssignmentReachability::WithEnvironmentFallback =>")
             .count(),
-        3,
+        4,
     );
-    assert!(consumer.contains("unknown_runtime_value_info()"));
+    assert!(consumer.contains("value.widen_for_possible_replacement();"));
 
     let global = bounded(
         LOGICAL_SOURCE,
         "    pub(super) fn lower_global_object_environment_logical_assignment(",
         "    pub(super) fn lower_located_identifier_logical_assignment(",
     );
-    assert!(global.contains("info.value_info = unknown_runtime_value_info();"));
+    assert!(global.contains("info.value_info.widen_for_possible_replacement();"));
     assert!(global.contains("info.proven_present = false;"));
     assert!(global.contains("GlobalObjectEnvironmentReferencePlan::new("));
     assert!(global.contains(".logical_assignment(op, rhs)"));

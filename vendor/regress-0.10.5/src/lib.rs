@@ -158,6 +158,10 @@ The major interpreter is the "classical backtracking" which uses an explicit bac
 extern crate alloc;
 
 pub use crate::api::*;
+pub use crate::unicodetables::{
+    UnicodeStringProperty, unicode_string_property_from_str,
+    unicode_string_property_sequences,
+};
 
 #[macro_use]
 mod util;

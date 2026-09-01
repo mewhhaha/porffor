@@ -1,9 +1,58 @@
 use super::*;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AsyncGeneratorDelegationKind {
     YieldStar,
     ForAwaitYield,
+}
+
+enum GeneratorDelegateProperty {
+    AsyncIterator,
+    Iterator,
+    Next,
+    Return,
+    Throw,
+    Done,
+    Value,
+}
+
+enum GeneratorDelegatePropertyKey {
+    WellKnownSymbol(&'static str),
+    OrdinaryString(&'static str),
+}
+
+enum GeneratorDelegateProtocolError {
+    TargetNotIterable,
+    IteratorMethodNotCallable,
+    IteratorMethodResultNotObject,
+    IteratorResultNotObject,
+    MissingThrowMethod,
+    ReturnMethodNotCallable,
+    ThrowMethodNotCallable,
+    NextMethodNotCallable,
+}
+
+impl GeneratorDelegateProperty {
+    fn key(&self) -> GeneratorDelegatePropertyKey {
+        match self {
+            GeneratorDelegateProperty::AsyncIterator => {
+                GeneratorDelegatePropertyKey::WellKnownSymbol("Symbol.asyncIterator")
+            }
+            GeneratorDelegateProperty::Iterator => {
+                GeneratorDelegatePropertyKey::WellKnownSymbol("Symbol.iterator")
+            }
+            GeneratorDelegateProperty::Next => GeneratorDelegatePropertyKey::OrdinaryString("next"),
+            GeneratorDelegateProperty::Return => {
+                GeneratorDelegatePropertyKey::OrdinaryString("return")
+            }
+            GeneratorDelegateProperty::Throw => {
+                GeneratorDelegatePropertyKey::OrdinaryString("throw")
+            }
+            GeneratorDelegateProperty::Done => GeneratorDelegatePropertyKey::OrdinaryString("done"),
+            GeneratorDelegateProperty::Value => {
+                GeneratorDelegatePropertyKey::OrdinaryString("value")
+            }
+        }
+    }
 }
 
 const ASYNC_GENERATOR_DELEGATE_PENDING_CLOSE_THROW: u64 = 5;
@@ -75,21 +124,17 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.compile_nullish_tagged_i32(value_tag_local, function)?;
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "yield* target is not iterable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_generator_delegate_protocol_error(
+            GeneratorDelegateProtocolError::TargetNotIterable,
             function,
         )?;
-        self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         self.emit_generator_delegate_property_read(
             value_payload_local,
             value_tag_local,
-            "Symbol.asyncIterator",
+            GeneratorDelegateProperty::AsyncIterator,
             method_payload_local,
             method_tag_local,
             function,
@@ -103,7 +148,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_generator_delegate_property_read(
             value_payload_local,
             value_tag_local,
-            "Symbol.iterator",
+            GeneratorDelegateProperty::Iterator,
             method_payload_local,
             method_tag_local,
             function,
@@ -118,18 +163,18 @@ impl<'a> FunctionBuilder<'a> {
             &[],
             iterator_payload_local,
             iterator_tag_local,
-            "yield* iterator method must be callable",
+            GeneratorDelegateProtocolError::IteratorMethodNotCallable,
             function,
         )?;
         self.emit_require_generator_delegate_object(
             iterator_tag_local,
-            "yield* iterator method must return object",
+            GeneratorDelegateProtocolError::IteratorMethodResultNotObject,
             function,
         )?;
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
-            "next",
+            GeneratorDelegateProperty::Next,
             next_payload_local,
             next_tag_local,
             function,
@@ -264,34 +309,37 @@ impl<'a> FunctionBuilder<'a> {
             pending_kind_local,
             function,
         );
-        if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
-                pending_kind_local,
-                AsyncGeneratorResumeKind::Throw,
-                function,
-            );
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_GENERATOR_DELEGATE_PENDING_PAYLOAD_OFFSET,
-                self.result_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET,
-                self.result_tag_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                activation_local,
-                HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
-                0,
-                function,
-            );
-            self.set_completion_kind(CompletionKind::Throw, function);
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match &delegation_kind {
+            AsyncGeneratorDelegationKind::YieldStar => {}
+            AsyncGeneratorDelegationKind::ForAwaitYield => {
+                self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                    pending_kind_local,
+                    AsyncGeneratorResumeKind::Throw,
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    record_local,
+                    HEAP_GENERATOR_DELEGATE_PENDING_PAYLOAD_OFFSET,
+                    self.result_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    record_local,
+                    HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET,
+                    self.result_tag_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    activation_local,
+                    HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
+                    0,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Throw, function);
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
         function.instruction(&Instruction::LocalGet(awaiting_sync_value_local));
         function.instruction(&Instruction::I64Const(0));
@@ -322,7 +370,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_require_generator_delegate_object(
             argument_tag_local,
-            "yield* iterator result must be object",
+            GeneratorDelegateProtocolError::IteratorResultNotObject,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(pending_kind_local));
@@ -337,49 +385,48 @@ impl<'a> FunctionBuilder<'a> {
             0,
             function,
         );
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "yield* iterator has no throw method",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_generator_delegate_protocol_error(
+            GeneratorDelegateProtocolError::MissingThrowMethod,
             function,
         )?;
-        self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
-                pending_kind_local,
-                AsyncGeneratorResumeKind::Return,
-                function,
-            );
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_GENERATOR_DELEGATE_PENDING_PAYLOAD_OFFSET,
-                self.result_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET,
-                self.result_tag_local,
-                function,
-            );
-            self.store_i64_const_at_offset(
-                activation_local,
-                HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
-                0,
-                function,
-            );
-            self.set_completion_kind(CompletionKind::Return, function);
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match &delegation_kind {
+            AsyncGeneratorDelegationKind::YieldStar => {}
+            AsyncGeneratorDelegationKind::ForAwaitYield => {
+                self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                    pending_kind_local,
+                    AsyncGeneratorResumeKind::Return,
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    record_local,
+                    HEAP_GENERATOR_DELEGATE_PENDING_PAYLOAD_OFFSET,
+                    self.result_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    record_local,
+                    HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET,
+                    self.result_tag_local,
+                    function,
+                );
+                self.store_i64_const_at_offset(
+                    activation_local,
+                    HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
+                    0,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Return, function);
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
         self.emit_generator_delegate_property_read(
             argument_payload_local,
             argument_tag_local,
-            "done",
+            GeneratorDelegateProperty::Done,
             done_payload_local,
             done_tag_local,
             function,
@@ -387,7 +434,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_generator_delegate_property_read(
             argument_payload_local,
             argument_tag_local,
-            "value",
+            GeneratorDelegateProperty::Value,
             value_payload_local,
             value_tag_local,
             function,
@@ -554,34 +601,37 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.open_frame(ControlFrameKind::If, function);
-        if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_GENERATOR_DELEGATE_PENDING_KIND_OFFSET,
-                pending_kind_local,
-                function,
-            );
-            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
-                pending_kind_local,
-                AsyncGeneratorResumeKind::Throw,
-                function,
-            );
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_GENERATOR_DELEGATE_PENDING_PAYLOAD_OFFSET,
-                self.result_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET,
-                self.result_tag_local,
-                function,
-            );
-            self.set_completion_kind(CompletionKind::Throw, function);
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+        match &delegation_kind {
+            AsyncGeneratorDelegationKind::YieldStar => {}
+            AsyncGeneratorDelegationKind::ForAwaitYield => {
+                self.load_i64_to_local_from_offset(
+                    record_local,
+                    HEAP_GENERATOR_DELEGATE_PENDING_KIND_OFFSET,
+                    pending_kind_local,
+                    function,
+                );
+                self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                    pending_kind_local,
+                    AsyncGeneratorResumeKind::Throw,
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.load_i64_to_local_from_offset(
+                    record_local,
+                    HEAP_GENERATOR_DELEGATE_PENDING_PAYLOAD_OFFSET,
+                    self.result_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    record_local,
+                    HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET,
+                    self.result_tag_local,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Throw, function);
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
         }
         function.instruction(&Instruction::LocalGet(argument_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -592,20 +642,23 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        if delegation_kind == AsyncGeneratorDelegationKind::YieldStar {
-            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
-                next_pending_kind_local,
-                AsyncGeneratorResumeKind::Throw,
-                function,
-            );
-        } else {
-            function.instruction(&Instruction::I32Const(0));
+        match &delegation_kind {
+            AsyncGeneratorDelegationKind::YieldStar => {
+                self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                    next_pending_kind_local,
+                    AsyncGeneratorResumeKind::Throw,
+                    function,
+                );
+            }
+            AsyncGeneratorDelegationKind::ForAwaitYield => {
+                function.instruction(&Instruction::I32Const(0));
+            }
         }
         self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
-            "throw",
+            GeneratorDelegateProperty::Throw,
             method_payload_local,
             method_tag_local,
             function,
@@ -615,21 +668,17 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
-            "return",
+            GeneratorDelegateProperty::Return,
             method_payload_local,
             method_tag_local,
             function,
         )?;
         self.emit_generator_delegate_method_is_missing_i32(method_tag_local, function);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "yield* iterator has no throw method",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_generator_delegate_protocol_error(
+            GeneratorDelegateProtocolError::MissingThrowMethod,
             function,
         )?;
-        self.emit_propagate_current_throw(function);
         function.instruction(&Instruction::Else);
         self.emit_generator_delegate_call(
             method_payload_local,
@@ -639,7 +688,7 @@ impl<'a> FunctionBuilder<'a> {
             &[],
             result_payload_local,
             result_tag_local,
-            "yield* return method must be callable",
+            GeneratorDelegateProtocolError::ReturnMethodNotCallable,
             function,
         )?;
         function.instruction(&Instruction::I64Const(
@@ -657,7 +706,7 @@ impl<'a> FunctionBuilder<'a> {
             &[(argument_payload_local, argument_tag_local)],
             result_payload_local,
             result_tag_local,
-            "yield* throw method must be callable",
+            GeneratorDelegateProtocolError::ThrowMethodNotCallable,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
@@ -669,19 +718,22 @@ impl<'a> FunctionBuilder<'a> {
             AsyncGeneratorResumeKind::Return,
             function,
         );
-        if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
-                next_pending_kind_local,
-                AsyncGeneratorResumeKind::Throw,
-                function,
-            );
-            function.instruction(&Instruction::I32Or);
+        match &delegation_kind {
+            AsyncGeneratorDelegationKind::YieldStar => {}
+            AsyncGeneratorDelegationKind::ForAwaitYield => {
+                self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                    next_pending_kind_local,
+                    AsyncGeneratorResumeKind::Throw,
+                    function,
+                );
+                function.instruction(&Instruction::I32Or);
+            }
         }
         self.open_frame(ControlFrameKind::If, function);
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
-            "return",
+            GeneratorDelegateProperty::Return,
             method_payload_local,
             method_tag_local,
             function,
@@ -692,26 +744,30 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
-                next_pending_kind_local,
-                AsyncGeneratorResumeKind::Throw,
-                function,
-            );
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.set_completion_kind(CompletionKind::Throw, function);
-            function.instruction(&Instruction::Else);
-            self.set_completion_kind(CompletionKind::Return, function);
-            function.instruction(&Instruction::End);
-        } else {
-            self.set_completion_kind(CompletionKind::Return, function);
+        match &delegation_kind {
+            AsyncGeneratorDelegationKind::YieldStar => {
+                self.set_completion_kind(CompletionKind::Return, function);
+            }
+            AsyncGeneratorDelegationKind::ForAwaitYield => {
+                self.emit_async_generator_delegate_pending_kind_equals_resume_kind(
+                    next_pending_kind_local,
+                    AsyncGeneratorResumeKind::Throw,
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.set_completion_kind(CompletionKind::Throw, function);
+                function.instruction(&Instruction::Else);
+                self.set_completion_kind(CompletionKind::Return, function);
+                function.instruction(&Instruction::End);
+            }
         }
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::Else);
-        let close_arguments = if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            &[][..]
-        } else {
-            &[(argument_payload_local, argument_tag_local)][..]
+        let close_arguments = match &delegation_kind {
+            AsyncGeneratorDelegationKind::YieldStar => {
+                &[(argument_payload_local, argument_tag_local)][..]
+            }
+            AsyncGeneratorDelegationKind::ForAwaitYield => &[][..],
         };
         self.emit_generator_delegate_call(
             method_payload_local,
@@ -721,17 +777,20 @@ impl<'a> FunctionBuilder<'a> {
             close_arguments,
             result_payload_local,
             result_tag_local,
-            "yield* return method must be callable",
+            GeneratorDelegateProtocolError::ReturnMethodNotCallable,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        if delegation_kind == AsyncGeneratorDelegationKind::ForAwaitYield {
-            self.emit_undefined_payload(function);
-            function.instruction(&Instruction::LocalSet(argument_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(argument_tag_local));
+        match &delegation_kind {
+            AsyncGeneratorDelegationKind::YieldStar => {}
+            AsyncGeneratorDelegationKind::ForAwaitYield => {
+                self.emit_undefined_payload(function);
+                function.instruction(&Instruction::LocalSet(argument_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(argument_tag_local));
+            }
         }
         self.emit_generator_delegate_call(
             next_payload_local,
@@ -741,7 +800,7 @@ impl<'a> FunctionBuilder<'a> {
             &[(argument_payload_local, argument_tag_local)],
             result_payload_local,
             result_tag_local,
-            "yield* next method must be callable",
+            GeneratorDelegateProtocolError::NextMethodNotCallable,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
@@ -882,21 +941,17 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.compile_nullish_tagged_i32(value_tag_local, function)?;
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "yield* target is not iterable",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_generator_delegate_protocol_error(
+            GeneratorDelegateProtocolError::TargetNotIterable,
             function,
         )?;
-        self.emit_propagate_current_throw(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
         self.emit_generator_delegate_property_read(
             value_payload_local,
             value_tag_local,
-            "Symbol.iterator",
+            GeneratorDelegateProperty::Iterator,
             method_payload_local,
             method_tag_local,
             function,
@@ -909,18 +964,18 @@ impl<'a> FunctionBuilder<'a> {
             &[],
             iterator_payload_local,
             iterator_tag_local,
-            "yield* iterator method must be callable",
+            GeneratorDelegateProtocolError::IteratorMethodNotCallable,
             function,
         )?;
         self.emit_require_generator_delegate_object(
             iterator_tag_local,
-            "yield* iterator method must return object",
+            GeneratorDelegateProtocolError::IteratorMethodResultNotObject,
             function,
         )?;
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
-            "next",
+            GeneratorDelegateProperty::Next,
             next_payload_local,
             next_tag_local,
             function,
@@ -1040,7 +1095,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
-            "throw",
+            GeneratorDelegateProperty::Throw,
             method_payload_local,
             method_tag_local,
             function,
@@ -1057,14 +1112,10 @@ impl<'a> FunctionBuilder<'a> {
             result_tag_local,
             function,
         )?;
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "yield* iterator has no throw method",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_generator_delegate_protocol_error(
+            GeneratorDelegateProtocolError::MissingThrowMethod,
             function,
         )?;
-        self.emit_propagate_current_throw(function);
         function.instruction(&Instruction::Else);
         self.emit_generator_delegate_call(
             method_payload_local,
@@ -1074,7 +1125,7 @@ impl<'a> FunctionBuilder<'a> {
             &[(argument_payload_local, argument_tag_local)],
             result_payload_local,
             result_tag_local,
-            "yield* throw method must be callable",
+            GeneratorDelegateProtocolError::ThrowMethodNotCallable,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
@@ -1090,7 +1141,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_generator_delegate_property_read(
             iterator_payload_local,
             iterator_tag_local,
-            "return",
+            GeneratorDelegateProperty::Return,
             method_payload_local,
             method_tag_local,
             function,
@@ -1112,7 +1163,7 @@ impl<'a> FunctionBuilder<'a> {
             &[(argument_payload_local, argument_tag_local)],
             result_payload_local,
             result_tag_local,
-            "yield* return method must be callable",
+            GeneratorDelegateProtocolError::ReturnMethodNotCallable,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
@@ -1127,7 +1178,7 @@ impl<'a> FunctionBuilder<'a> {
             &[(argument_payload_local, argument_tag_local)],
             result_payload_local,
             result_tag_local,
-            "yield* next method must be callable",
+            GeneratorDelegateProtocolError::NextMethodNotCallable,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
@@ -1136,13 +1187,13 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_require_generator_delegate_object(
             result_tag_local,
-            "yield* iterator result must be object",
+            GeneratorDelegateProtocolError::IteratorResultNotObject,
             function,
         )?;
         self.emit_generator_delegate_property_read(
             result_payload_local,
             result_tag_local,
-            "done",
+            GeneratorDelegateProperty::Done,
             done_payload_local,
             done_tag_local,
             function,
@@ -1152,7 +1203,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_generator_delegate_property_read(
             result_payload_local,
             result_tag_local,
-            "value",
+            GeneratorDelegateProperty::Value,
             value_payload_local,
             value_tag_local,
             function,
@@ -1272,20 +1323,13 @@ impl<'a> FunctionBuilder<'a> {
         args: &[(u32, u32)],
         result_payload_local: u32,
         result_tag_local: u32,
-        not_callable_message: &str,
+        protocol_error: GeneratorDelegateProtocolError,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_is_callable_i32(callee_tag_local, callee_payload_local, function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            not_callable_message,
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_propagate_current_throw(function);
+        self.emit_generator_delegate_protocol_error(protocol_error, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -1328,62 +1372,65 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         target_payload_local: u32,
         target_tag_local: u32,
-        key: &str,
+        property: GeneratorDelegateProperty,
         value_payload_local: u32,
         value_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if key.starts_with("Symbol.") {
-            let target = TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags()
-                        .without(ValueKind::Undefined)
-                        .without(ValueKind::Null),
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                },
-                ExprIr::Undefined,
-            );
-            let symbol_key = TypedExpr::from_info(
-                ValueInfo::new(ValueKind::Symbol),
-                ExprIr::String(key.to_string()),
-            );
-            self.compile_property_read_from_locals(
-                &target,
-                &PropertyKeyIr::StringExpr(Box::new(symbol_key)),
-                target_payload_local,
-                target_tag_local,
-                value_payload_local,
-                value_tag_local,
-                function,
-            )?;
-            return self.emit_propagate_throw_from_locals_if_needed(
-                value_payload_local,
-                value_tag_local,
-                function,
-            );
+        match property.key() {
+            GeneratorDelegatePropertyKey::WellKnownSymbol(key) => {
+                let target = TypedExpr::from_info(
+                    ValueInfo {
+                        kind: ValueKind::Dynamic,
+                        possible_kinds: KindSet::all_runtime_tags()
+                            .without(ValueKind::Undefined)
+                            .without(ValueKind::Null),
+                        heap_shape: None,
+                        function_targets: FunctionTargetKnowledge::unknown(),
+                    },
+                    ExprIr::Undefined,
+                );
+                let symbol_key = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Symbol),
+                    ExprIr::String(key.to_string()),
+                );
+                self.compile_property_read_from_locals(
+                    &target,
+                    &PropertyKeyIr::StringExpr(Box::new(symbol_key)),
+                    target_payload_local,
+                    target_tag_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )
+            }
+            GeneratorDelegatePropertyKey::OrdinaryString(key) => {
+                let key_local = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(self.strings.payload(key)));
+                function.instruction(&Instruction::LocalSet(key_local));
+                self.emit_object_read_without_throw_propagation(
+                    target_payload_local,
+                    target_tag_local,
+                    target_payload_local,
+                    target_tag_local,
+                    key_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.release_temp_local(key_local);
+                self.emit_propagate_throw_from_locals_if_needed(
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )
+            }
         }
-
-        let key_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_object_read_without_throw_propagation(
-            target_payload_local,
-            target_tag_local,
-            target_payload_local,
-            target_tag_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.release_temp_local(key_local);
-        self.emit_propagate_throw_from_locals_if_needed(
-            value_payload_local,
-            value_tag_local,
-            function,
-        )
     }
 
     fn emit_generator_delegate_method_is_missing_i32(
@@ -1403,12 +1450,47 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_require_generator_delegate_object(
         &mut self,
         value_tag_local: u32,
-        message: &str,
+        protocol_error: GeneratorDelegateProtocolError,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
+        self.emit_generator_delegate_protocol_error(protocol_error, function)?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn emit_generator_delegate_protocol_error(
+        &mut self,
+        protocol_error: GeneratorDelegateProtocolError,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let message = match protocol_error {
+            GeneratorDelegateProtocolError::TargetNotIterable => "yield* target is not iterable",
+            GeneratorDelegateProtocolError::IteratorMethodNotCallable => {
+                "yield* iterator method must be callable"
+            }
+            GeneratorDelegateProtocolError::IteratorMethodResultNotObject => {
+                "yield* iterator method must return object"
+            }
+            GeneratorDelegateProtocolError::IteratorResultNotObject => {
+                "yield* iterator result must be object"
+            }
+            GeneratorDelegateProtocolError::MissingThrowMethod => {
+                "yield* iterator has no throw method"
+            }
+            GeneratorDelegateProtocolError::ReturnMethodNotCallable => {
+                "yield* return method must be callable"
+            }
+            GeneratorDelegateProtocolError::ThrowMethodNotCallable => {
+                "yield* throw method must be callable"
+            }
+            GeneratorDelegateProtocolError::NextMethodNotCallable => {
+                "yield* next method must be callable"
+            }
+        };
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
             message,
@@ -1417,8 +1499,6 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_propagate_current_throw(function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
         Ok(())
     }
 }

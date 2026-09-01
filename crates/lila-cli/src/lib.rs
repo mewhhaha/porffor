@@ -9,48 +9,59 @@ thread_local! {
     static CLI_STDERR: RefCell<Option<OutputBuffer>> = const { RefCell::new(None) };
 }
 
-fn write_cli_stdout(arguments: std::fmt::Arguments<'_>, newline: bool) {
+enum CliOutputEnding {
+    None,
+    Newline,
+}
+
+fn write_cli_stdout(arguments: std::fmt::Arguments<'_>, ending: CliOutputEnding) {
     CLI_STDOUT.with(|slot| {
         let output = slot.borrow();
         let output = output.as_ref().expect("CLI stdout is installed");
         let mut output = output
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if newline {
-            writeln!(output, "{arguments}").expect("writing CLI stdout should succeed");
-        } else {
-            write!(output, "{arguments}").expect("writing CLI stdout should succeed");
+        match ending {
+            CliOutputEnding::None => {
+                write!(output, "{arguments}").expect("writing CLI stdout should succeed");
+            }
+            CliOutputEnding::Newline => {
+                writeln!(output, "{arguments}").expect("writing CLI stdout should succeed");
+            }
         }
     });
 }
 
-fn write_cli_stderr(arguments: std::fmt::Arguments<'_>, newline: bool) {
+fn write_cli_stderr(arguments: std::fmt::Arguments<'_>, ending: CliOutputEnding) {
     CLI_STDERR.with(|slot| {
         let output = slot.borrow();
         let output = output.as_ref().expect("CLI stderr is installed");
         let mut output = output
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if newline {
-            writeln!(output, "{arguments}").expect("writing CLI stderr should succeed");
-        } else {
-            write!(output, "{arguments}").expect("writing CLI stderr should succeed");
+        match ending {
+            CliOutputEnding::None => {
+                write!(output, "{arguments}").expect("writing CLI stderr should succeed");
+            }
+            CliOutputEnding::Newline => {
+                writeln!(output, "{arguments}").expect("writing CLI stderr should succeed");
+            }
         }
     });
 }
 
 macro_rules! print {
-    ($($arg:tt)*) => {{ $crate::write_cli_stdout(format_args!($($arg)*), false) }};
+    ($($arg:tt)*) => {{ $crate::write_cli_stdout(format_args!($($arg)*), $crate::CliOutputEnding::None) }};
 }
 
 macro_rules! println {
-    () => {{ $crate::write_cli_stdout(format_args!(""), true) }};
-    ($($arg:tt)*) => {{ $crate::write_cli_stdout(format_args!($($arg)*), true) }};
+    () => {{ $crate::write_cli_stdout(format_args!(""), $crate::CliOutputEnding::Newline) }};
+    ($($arg:tt)*) => {{ $crate::write_cli_stdout(format_args!($($arg)*), $crate::CliOutputEnding::Newline) }};
 }
 
 macro_rules! eprintln {
-    () => {{ $crate::write_cli_stderr(format_args!(""), true) }};
-    ($($arg:tt)*) => {{ $crate::write_cli_stderr(format_args!($($arg)*), true) }};
+    () => {{ $crate::write_cli_stderr(format_args!(""), $crate::CliOutputEnding::Newline) }};
+    ($($arg:tt)*) => {{ $crate::write_cli_stderr(format_args!($($arg)*), $crate::CliOutputEnding::Newline) }};
 }
 
 include!("main.rs");

@@ -23,8 +23,8 @@ use boa_engine::{
     Script, Source,
 };
 use lila_runtime::{
-    HostHooks, HostOutputEvent, ModuleLoadingPolicy, ObservedCompletion, ObservedJsValue,
-    ObservedNumber,
+    HostHooks, HostOutputEvent, ModuleLoadingPolicy, ObservedBigInt, ObservedCompletion,
+    ObservedJsValue, ObservedNumber,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -487,7 +487,10 @@ fn observe_js_value(value: &JsValue) -> ObservedJsValue {
         }
         JsVariant::Float64(value) => ObservedJsValue::Number(ObservedNumber::from_f64(value)),
         JsVariant::String(value) => ObservedJsValue::String(value.to_vec().into_boxed_slice()),
-        JsVariant::BigInt(value) => ObservedJsValue::BigInt(value.to_string().into_boxed_str()),
+        JsVariant::BigInt(value) => ObservedJsValue::BigInt(
+            ObservedBigInt::parse_canonical_decimal(value.to_string().into_boxed_str())
+                .expect("Boa BigInt formatting must be canonical"),
+        ),
         JsVariant::Symbol(_) => ObservedJsValue::Symbol,
         JsVariant::Object(_) => ObservedJsValue::Object,
     }
@@ -2944,7 +2947,10 @@ mod tests {
 
         assert_eq!(
             outcome.completion,
-            ObservedCompletion::Throw(ObservedJsValue::BigInt("3".into()))
+            ObservedCompletion::Throw(ObservedJsValue::BigInt(
+                ObservedBigInt::parse_canonical_decimal("3".into())
+                    .expect("expected BigInt should be canonical")
+            ))
         );
         assert_eq!(
             outcome.output_events,

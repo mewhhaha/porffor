@@ -196,108 +196,72 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
         }
-        let is_integer_meta = self
-            .functions
-            .get(&StandardBuiltinId::NumberIsInteger.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Number.isInteger`",
-                )
+        for builtin in [
+            StandardBuiltinId::NumberIsInteger,
+            StandardBuiltinId::NumberIsSafeInteger,
+            StandardBuiltinId::NumberIsFinite,
+            StandardBuiltinId::NumberIsNaN,
+        ] {
+            let name = builtin.native_function_name().ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot first slice: missing native name for `{}`",
+                    builtin.debug_name()
+                ))
             })?;
-        self.emit_object_define_function_data(
-            object_local,
-            "isInteger",
-            is_integer_meta,
-            function,
-        )?;
-        let is_safe_integer_meta = self
-            .functions
-            .get(&StandardBuiltinId::NumberIsSafeInteger.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Number.isSafeInteger`",
-                )
-            })?;
-        self.emit_object_define_function_data(
-            object_local,
-            "isSafeInteger",
-            is_safe_integer_meta,
-            function,
-        )?;
-        let is_finite_meta = self
-            .functions
-            .get(&StandardBuiltinId::NumberIsFinite.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Number.isFinite`",
-                )
-            })?;
-        self.emit_object_define_function_data(object_local, "isFinite", is_finite_meta, function)?;
-        let is_nan_meta = self
-            .functions
-            .get(&StandardBuiltinId::NumberIsNaN.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Number.isNaN`",
-                )
-            })?;
-        self.emit_object_define_function_data(object_local, "isNaN", is_nan_meta, function)?;
-        let parse_int_meta = self
-            .functions
-            .get(&HostBuiltinId::ParseInt.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Number.parseInt`",
-                )
-            })?;
-        self.emit_ensure_canonical_host_function(
-            &parse_int_meta,
-            PARSE_INT_FUNCTION_GLOBAL_INDEX,
-            function,
-        )?;
-        self.emit_object_define_function_global_data(
-            object_local,
-            "parseInt",
-            PARSE_INT_FUNCTION_GLOBAL_INDEX,
-            function,
-        )?;
-        let parse_float_meta = self
-            .functions
-            .get(&HostBuiltinId::ParseFloat.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Number.parseFloat`",
-                )
-            })?;
-        self.emit_ensure_canonical_host_function(
-            &parse_float_meta,
-            PARSE_FLOAT_FUNCTION_GLOBAL_INDEX,
-            function,
-        )?;
-        self.emit_object_define_function_global_data(
-            object_local,
-            "parseFloat",
-            PARSE_FLOAT_FUNCTION_GLOBAL_INDEX,
-            function,
-        )?;
+            let method_meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            self.emit_object_define_function_data(object_local, name, &method_meta, function)?;
+        }
+        for (builtin, function_global_index) in [
+            (HostBuiltinId::ParseInt, PARSE_INT_FUNCTION_GLOBAL_INDEX),
+            (HostBuiltinId::ParseFloat, PARSE_FLOAT_FUNCTION_GLOBAL_INDEX),
+        ] {
+            let method_meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `Number.{}`",
+                        builtin.as_str()
+                    ))
+                })?;
+            self.emit_ensure_canonical_host_function(
+                &method_meta,
+                function_global_index,
+                function,
+            )?;
+            self.emit_object_define_function_global_data(
+                object_local,
+                builtin.as_str(),
+                function_global_index,
+                function,
+            )?;
+        }
         function.instruction(&Instruction::GlobalGet(NUMBER_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(prototype_object_local));
-        for (name, builtin) in [
-            ("toFixed", StandardBuiltinId::NumberPrototypeToFixed),
-            (
-                "toExponential",
-                StandardBuiltinId::NumberPrototypeToExponential,
-            ),
-            ("toPrecision", StandardBuiltinId::NumberPrototypeToPrecision),
-            ("toString", StandardBuiltinId::NumberPrototypeToString),
-            (
-                "toLocaleString",
-                StandardBuiltinId::NumberPrototypeToLocaleString,
-            ),
-            ("valueOf", StandardBuiltinId::NumberPrototypeValueOf),
+        for builtin in [
+            StandardBuiltinId::NumberPrototypeToFixed,
+            StandardBuiltinId::NumberPrototypeToExponential,
+            StandardBuiltinId::NumberPrototypeToPrecision,
+            StandardBuiltinId::NumberPrototypeToString,
+            StandardBuiltinId::NumberPrototypeToLocaleString,
+            StandardBuiltinId::NumberPrototypeValueOf,
         ] {
+            let name = builtin.native_function_name().ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot first slice: missing native name for `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
             let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(
                     "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",

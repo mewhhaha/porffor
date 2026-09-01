@@ -7,6 +7,25 @@
 use super::super::*;
 use super::IntrinsicInstall;
 
+pub(crate) const PROMISE_PROTOTYPE_METHOD_PUBLICATIONS: [StandardBuiltinId; 3] = [
+    StandardBuiltinId::PromisePrototypeThen,
+    StandardBuiltinId::PromisePrototypeCatch,
+    StandardBuiltinId::PromisePrototypeFinally,
+];
+
+pub(crate) const PROMISE_STATIC_METHOD_PUBLICATIONS: [StandardBuiltinId; 10] = [
+    StandardBuiltinId::PromiseResolve,
+    StandardBuiltinId::PromiseReject,
+    StandardBuiltinId::PromiseAll,
+    StandardBuiltinId::PromiseAllSettled,
+    StandardBuiltinId::PromiseAllKeyed,
+    StandardBuiltinId::PromiseAllSettledKeyed,
+    StandardBuiltinId::PromiseAny,
+    StandardBuiltinId::PromiseRace,
+    StandardBuiltinId::PromiseWithResolvers,
+    StandardBuiltinId::PromiseTry,
+];
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn install_promise_constructor_intrinsics(
         &mut self,
@@ -32,11 +51,13 @@ impl<'a> FunctionBuilder<'a> {
         let promise_object_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(PROMISE_PROTOTYPE_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(promise_object_local));
-        for (name, builtin) in [
-            ("then", StandardBuiltinId::PromisePrototypeThen),
-            ("catch", StandardBuiltinId::PromisePrototypeCatch),
-            ("finally", StandardBuiltinId::PromisePrototypeFinally),
-        ] {
+        for builtin in PROMISE_PROTOTYPE_METHOD_PUBLICATIONS {
+            let name = builtin.native_function_name().ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot first slice: missing native name for `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
             let meta = self
                 .functions
                 .get(&builtin.function_id())
@@ -76,18 +97,13 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(to_string_tag_key_local);
         function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(promise_object_local));
-        for (name, builtin) in [
-            ("resolve", StandardBuiltinId::PromiseResolve),
-            ("reject", StandardBuiltinId::PromiseReject),
-            ("all", StandardBuiltinId::PromiseAll),
-            ("allSettled", StandardBuiltinId::PromiseAllSettled),
-            ("allKeyed", StandardBuiltinId::PromiseAllKeyed),
-            ("allSettledKeyed", StandardBuiltinId::PromiseAllSettledKeyed),
-            ("any", StandardBuiltinId::PromiseAny),
-            ("race", StandardBuiltinId::PromiseRace),
-            ("withResolvers", StandardBuiltinId::PromiseWithResolvers),
-            ("try", StandardBuiltinId::PromiseTry),
-        ] {
+        for builtin in PROMISE_STATIC_METHOD_PUBLICATIONS {
+            let name = builtin.native_function_name().ok_or_else(|| {
+                EmitError::unsupported(format!(
+                    "unsupported in lila wasm-aot first slice: missing native name for `{}`",
+                    builtin.debug_name()
+                ))
+            })?;
             let meta = self
                 .functions
                 .get(&builtin.function_id())

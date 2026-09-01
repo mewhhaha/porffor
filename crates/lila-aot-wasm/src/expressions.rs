@@ -1,6 +1,7 @@
 use super::*;
-use crate::operations::NumericBinaryOperator;
 use lila_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr, RegExpProgram};
+
+mod super_property_mutation;
 
 #[derive(Debug)]
 #[must_use = "a raw ordinary Property Reference must enter its operation-specific transition"]
@@ -143,28 +144,6 @@ impl OrdinaryPropertyReferenceSource for OrdinaryPropertyNumericUpdateIr {
     fn referenced_name(&self) -> &PropertyKeyIr {
         self.referenced_name()
     }
-}
-
-#[derive(Debug)]
-#[must_use = "a raw Super Property Reference must be consumed by GetValue"]
-struct EvaluatedRawSuperPropertyReferenceLocals {
-    base_payload: u32,
-    base_tag: u32,
-    receiver_payload: u32,
-    receiver_tag: u32,
-    referenced_name_payload: u32,
-    referenced_name_tag: u32,
-}
-
-#[derive(Debug)]
-#[must_use = "a coerced Super Property Reference must be consumed by PutValue"]
-struct CoercedSuperPropertyReferenceLocals {
-    base_payload: u32,
-    base_tag: u32,
-    receiver_payload: u32,
-    receiver_tag: u32,
-    property_key_payload: u32,
-    property_key_tag: u32,
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -1045,7 +1024,7 @@ impl<'a> FunctionBuilder<'a> {
         reference: EvaluatedRawOrdinaryPropertyReferenceLocals,
         old_value_payload: u32,
         old_value_tag: u32,
-        value_kind: ValueKind,
+        value_kind: NumericUpdateValueKind,
         function: &mut Function,
     ) -> Result<ReadOrdinaryPropertyNumericUpdateLocals, EmitError> {
         let reference = self.emit_get_value_from_raw_ordinary_property_reference(
@@ -1065,28 +1044,17 @@ impl<'a> FunctionBuilder<'a> {
             old_value_tag,
         } = reference;
         match value_kind {
-            ValueKind::Dynamic => {
+            NumericUpdateValueKind::Dynamic => {
                 self.emit_value_to_numeric_locals(old_value_payload, old_value_tag, function)?
             }
-            ValueKind::Number => {
+            NumericUpdateValueKind::Number => {
                 self.emit_value_to_number_payload(old_value_tag, old_value_payload, function)?;
                 function.instruction(&Instruction::LocalSet(old_value_payload));
                 function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                 function.instruction(&Instruction::LocalSet(old_value_tag));
                 self.emit_return_current_completion_if_throw(function);
             }
-            ValueKind::BigInt => {}
-            ValueKind::Undefined
-            | ValueKind::Null
-            | ValueKind::Boolean
-            | ValueKind::String
-            | ValueKind::Symbol
-            | ValueKind::Object
-            | ValueKind::Array
-            | ValueKind::Function
-            | ValueKind::Arguments => {
-                unreachable!("ordinary property numeric update requires Number, BigInt, or Dynamic")
-            }
+            NumericUpdateValueKind::BigInt => {}
         }
 
         Ok(ReadOrdinaryPropertyNumericUpdateLocals {
@@ -1258,263 +1226,6 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    fn evaluate_raw_super_property_reference(
-        &mut self,
-        receiver: &TypedExpr,
-        referenced_name: &PropertyKeyIr,
-        function: &mut Function,
-    ) -> Result<EvaluatedRawSuperPropertyReferenceLocals, EmitError> {
-        let base_payload = self.reserve_temp_local();
-        let base_tag = self.reserve_temp_local();
-        let receiver_payload = self.reserve_temp_local();
-        let receiver_tag = self.reserve_temp_local();
-        let referenced_name_payload = self.reserve_temp_local();
-        let referenced_name_tag = self.reserve_temp_local();
-
-        self.compile_expr_to_locals(receiver, receiver_payload, receiver_tag, function)?;
-        self.compile_raw_property_key_expression_to_locals(
-            referenced_name,
-            referenced_name_payload,
-            referenced_name_tag,
-            function,
-        )?;
-        self.emit_load_super_base(base_payload, base_tag, function)?;
-        self.emit_throw_if_null_super_base(base_payload, base_tag, function)?;
-
-        Ok(EvaluatedRawSuperPropertyReferenceLocals {
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            referenced_name_payload,
-            referenced_name_tag,
-        })
-    }
-
-    fn emit_get_value_from_raw_super_property_reference(
-        &mut self,
-        reference: EvaluatedRawSuperPropertyReferenceLocals,
-        value_payload: u32,
-        value_tag: u32,
-        function: &mut Function,
-    ) -> Result<CoercedSuperPropertyReferenceLocals, EmitError> {
-        let EvaluatedRawSuperPropertyReferenceLocals {
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            referenced_name_payload: property_key_payload,
-            referenced_name_tag: property_key_tag,
-        } = reference;
-
-        self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;
-        self.emit_object_read_with_key_tag(
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            property_key_payload,
-            Some(property_key_tag),
-            value_payload,
-            value_tag,
-            function,
-        )?;
-
-        Ok(CoercedSuperPropertyReferenceLocals {
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            property_key_payload,
-            property_key_tag,
-        })
-    }
-
-    fn emit_put_value_from_coerced_super_property_reference(
-        &mut self,
-        reference: CoercedSuperPropertyReferenceLocals,
-        value_payload: u32,
-        value_tag: u32,
-        set_result: u32,
-        strictness: Strictness,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let CoercedSuperPropertyReferenceLocals {
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            property_key_payload,
-            property_key_tag,
-        } = reference;
-
-        self.emit_ordinary_set_result_via_helper(
-            base_payload,
-            base_tag,
-            receiver_payload,
-            receiver_tag,
-            property_key_payload,
-            property_key_tag,
-            value_payload,
-            value_tag,
-            set_result,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(set_result));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.with_reference_strictness(strictness, function, |emitter, function| {
-            emitter.emit_object_write_set_failure_else("Cannot assign to super property", function)
-        })?;
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(property_key_tag);
-        self.release_temp_local(property_key_payload);
-        self.release_temp_local(receiver_tag);
-        self.release_temp_local(receiver_payload);
-        self.release_temp_local(base_tag);
-        self.release_temp_local(base_payload);
-        Ok(())
-    }
-
-    fn compile_super_property_mutation_to_locals(
-        &mut self,
-        mutation: &SuperPropertyMutationIr,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        // These result locals sit below the reference carrier so PutValue can
-        // consume and release the carrier while retaining both numeric values
-        // until a successful Set selects the prefix/postfix result.
-        let old_value_payload = self.reserve_temp_local();
-        let old_value_tag = self.reserve_temp_local();
-        let new_value_payload = self.reserve_temp_local();
-        let new_value_tag = self.reserve_temp_local();
-        let set_result = self.reserve_temp_local();
-
-        let raw_reference = self.evaluate_raw_super_property_reference(
-            mutation.receiver(),
-            mutation.referenced_name(),
-            function,
-        )?;
-        let coerced_reference = self.emit_get_value_from_raw_super_property_reference(
-            raw_reference,
-            old_value_payload,
-            old_value_tag,
-            function,
-        )?;
-
-        match mutation.operation() {
-            SuperPropertyMutationOperationIr::NumericUpdate {
-                op,
-                return_mode,
-                value_kind,
-            } => {
-                match value_kind {
-                    ValueKind::Dynamic => self.emit_value_to_numeric_locals(
-                        old_value_payload,
-                        old_value_tag,
-                        function,
-                    )?,
-                    ValueKind::Number => {
-                        self.emit_value_to_number_payload(
-                            old_value_tag,
-                            old_value_payload,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalSet(old_value_payload));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(old_value_tag));
-                        self.emit_return_current_completion_if_throw(function);
-                    }
-                    ValueKind::BigInt => {}
-                    ValueKind::Undefined
-                    | ValueKind::Null
-                    | ValueKind::Boolean
-                    | ValueKind::String
-                    | ValueKind::Symbol
-                    | ValueKind::Object
-                    | ValueKind::Array
-                    | ValueKind::Function
-                    | ValueKind::Arguments => {
-                        unreachable!("numeric Super update requires Number, BigInt, or Dynamic")
-                    }
-                }
-                self.emit_update_delta_from_locals(
-                    *op,
-                    *value_kind,
-                    old_value_payload,
-                    old_value_tag,
-                    function,
-                );
-                function.instruction(&Instruction::LocalSet(new_value_payload));
-                function.instruction(&Instruction::LocalGet(old_value_tag));
-                function.instruction(&Instruction::LocalSet(new_value_tag));
-
-                self.emit_put_value_from_coerced_super_property_reference(
-                    coerced_reference,
-                    new_value_payload,
-                    new_value_tag,
-                    set_result,
-                    mutation.strictness(),
-                    function,
-                )?;
-
-                let (result_payload, result_tag) = match return_mode {
-                    UpdateReturnMode::Prefix => (new_value_payload, new_value_tag),
-                    UpdateReturnMode::Postfix => (old_value_payload, old_value_tag),
-                };
-                function.instruction(&Instruction::LocalGet(result_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(result_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
-            }
-            SuperPropertyMutationOperationIr::EagerCompound {
-                old_value_binding,
-                result,
-            } => {
-                self.push_scope();
-                self.binding_scopes
-                    .last_mut()
-                    .expect("binding scope stack must exist")
-                    .insert(
-                        old_value_binding.clone(),
-                        BindingStorage::Dynamic {
-                            tag_local: old_value_tag,
-                            payload_local: old_value_payload,
-                        },
-                    );
-                let compile_result =
-                    self.compile_expr_to_locals(result, new_value_payload, new_value_tag, function);
-                self.pop_scope();
-                compile_result?;
-
-                self.emit_put_value_from_coerced_super_property_reference(
-                    coerced_reference,
-                    new_value_payload,
-                    new_value_tag,
-                    set_result,
-                    mutation.strictness(),
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(new_value_payload));
-                function.instruction(&Instruction::LocalSet(payload_local));
-                function.instruction(&Instruction::LocalGet(new_value_tag));
-                function.instruction(&Instruction::LocalSet(tag_local));
-            }
-        }
-
-        self.release_temp_local(set_result);
-        self.release_temp_local(new_value_tag);
-        self.release_temp_local(new_value_payload);
-        self.release_temp_local(old_value_tag);
-        self.release_temp_local(old_value_payload);
-        Ok(())
-    }
-
     pub(crate) fn compile_expr_payload(
         &mut self,
         expr: &TypedExpr,
@@ -1523,10 +1234,10 @@ impl<'a> FunctionBuilder<'a> {
         let emits_own_dynamic_result = matches!(
             expr.expr,
             ExprIr::UpdateIdentifier {
-                value_kind: ValueKind::Dynamic,
+                value_kind: NumericUpdateValueKind::Dynamic,
                 ..
             } | ExprIr::GlobalPropertyUpdate {
-                value_kind: ValueKind::Dynamic,
+                value_kind: NumericUpdateValueKind::Dynamic,
                 ..
             }
         );
@@ -1636,8 +1347,15 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::FunctionValue(function_id) => {
                 self.emit_function_identity_payload(function_id, function)?;
             }
-            ExprIr::JsonParseStaticReviver { value, reviver } => {
+            ExprIr::JsonParseStaticReviver {
+                callee,
+                input,
+                value,
+                reviver,
+            } => {
                 self.compile_json_static_reviver_to_locals(
+                    callee,
+                    input,
                     value,
                     reviver,
                     self.scratch_local,
@@ -1870,14 +1588,19 @@ impl<'a> FunctionBuilder<'a> {
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 self.read_binding_to_locals(storage, value_local, tag_local, function)?;
-                if *value_kind == ValueKind::Dynamic {
-                    self.emit_value_to_numeric_locals(value_local, tag_local, function)?;
-                } else if *value_kind == ValueKind::Number {
-                    self.emit_value_to_number_payload(tag_local, value_local, function)?;
-                    function.instruction(&Instruction::LocalSet(value_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                    self.emit_return_current_completion_if_throw(function);
+                match value_kind {
+                    NumericUpdateValueKind::Dynamic => {
+                        self.emit_value_to_numeric_locals(value_local, tag_local, function)?
+                    }
+                    NumericUpdateValueKind::Number => {
+                        self.emit_value_to_number_payload(tag_local, value_local, function)?;
+                        function.instruction(&Instruction::LocalSet(value_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(tag_local));
+                        self.emit_return_current_completion_if_throw(function);
+                    }
+                    NumericUpdateValueKind::BigInt => {}
                 }
                 match return_mode {
                     UpdateReturnMode::Prefix => {
@@ -1889,10 +1612,12 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         );
                         function.instruction(&Instruction::LocalSet(self.scratch_local));
-                        if *value_kind == ValueKind::Dynamic {
+                        if *value_kind == NumericUpdateValueKind::Dynamic {
                             function.instruction(&Instruction::LocalGet(tag_local));
                         } else {
-                            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                            function.instruction(&Instruction::I64Const(
+                                value_kind.value_kind().tag() as i64,
+                            ));
                         }
                         function.instruction(&Instruction::LocalSet(self.result_tag_local));
                         self.write_binding_from_locals(
@@ -1916,8 +1641,10 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         );
                         function.instruction(&Instruction::LocalSet(value_local));
-                        if *value_kind != ValueKind::Dynamic {
-                            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                        if *value_kind != NumericUpdateValueKind::Dynamic {
+                            function.instruction(&Instruction::I64Const(
+                                value_kind.value_kind().tag() as i64,
+                            ));
                             function.instruction(&Instruction::LocalSet(tag_local));
                         }
                         self.write_binding_from_locals(storage, value_local, tag_local, function);
@@ -2048,14 +1775,19 @@ impl<'a> FunctionBuilder<'a> {
                 let value_local = self.reserve_temp_local();
                 let tag_local = self.reserve_temp_local();
                 self.emit_global_property_read(name, value_local, tag_local, function)?;
-                if *value_kind == ValueKind::Dynamic {
-                    self.emit_value_to_numeric_locals(value_local, tag_local, function)?;
-                } else if *value_kind == ValueKind::Number {
-                    self.emit_value_to_number_payload(tag_local, value_local, function)?;
-                    function.instruction(&Instruction::LocalSet(value_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(tag_local));
-                    self.emit_return_current_completion_if_throw(function);
+                match value_kind {
+                    NumericUpdateValueKind::Dynamic => {
+                        self.emit_value_to_numeric_locals(value_local, tag_local, function)?
+                    }
+                    NumericUpdateValueKind::Number => {
+                        self.emit_value_to_number_payload(tag_local, value_local, function)?;
+                        function.instruction(&Instruction::LocalSet(value_local));
+                        function
+                            .instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                        function.instruction(&Instruction::LocalSet(tag_local));
+                        self.emit_return_current_completion_if_throw(function);
+                    }
+                    NumericUpdateValueKind::BigInt => {}
                 }
                 match return_mode {
                     UpdateReturnMode::Prefix => {
@@ -2067,8 +1799,10 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         );
                         function.instruction(&Instruction::LocalSet(value_local));
-                        if *value_kind != ValueKind::Dynamic {
-                            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                        if *value_kind != NumericUpdateValueKind::Dynamic {
+                            function.instruction(&Instruction::I64Const(
+                                value_kind.value_kind().tag() as i64,
+                            ));
                             function.instruction(&Instruction::LocalSet(tag_local));
                         }
                         self.emit_reference_global_property_write(
@@ -2094,8 +1828,10 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         );
                         function.instruction(&Instruction::LocalSet(value_local));
-                        if *value_kind != ValueKind::Dynamic {
-                            function.instruction(&Instruction::I64Const(value_kind.tag() as i64));
+                        if *value_kind != NumericUpdateValueKind::Dynamic {
+                            function.instruction(&Instruction::I64Const(
+                                value_kind.value_kind().tag() as i64,
+                            ));
                             function.instruction(&Instruction::LocalSet(tag_local));
                         }
                         self.emit_reference_global_property_write(
@@ -2227,16 +1963,17 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(tag_local);
                 self.release_temp_local(temp_local);
             }
-            ExprIr::UnaryNumber { op, expr } => {
+            ExprIr::UnaryPlus { expr } => {
                 self.compile_expr_to_number_payload(expr, function)?;
-                match op {
-                    UnaryNumericOp::Plus => {}
-                    UnaryNumericOp::Minus => {
-                        function.instruction(&Instruction::F64ReinterpretI64);
-                        function.instruction(&Instruction::F64Neg);
-                        function.instruction(&Instruction::I64ReinterpretF64);
-                    }
-                }
+            }
+            ExprIr::UnaryMinusNumeric { expr } => {
+                self.compile_unary_minus_numeric_to_locals(
+                    expr,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::UnaryBitwiseNumeric { op, expr } => {
                 self.compile_unary_bitwise_numeric_to_locals(
@@ -2452,12 +2189,7 @@ impl<'a> FunctionBuilder<'a> {
                     let output_local = self.reserve_temp_local();
 
                     self.compile_operand_pair_to_number_locals(
-                        NumericBinaryOperator::Arithmetic(*op),
-                        lhs,
-                        rhs,
-                        lhs_local,
-                        rhs_local,
-                        function,
+                        *op, lhs, rhs, lhs_local, rhs_local, function,
                     )?;
                     self.emit_number_pow_payload(lhs_local, rhs_local, output_local, function)?;
                     function.instruction(&Instruction::LocalGet(output_local));
@@ -2476,12 +2208,7 @@ impl<'a> FunctionBuilder<'a> {
                     let lhs_local = self.reserve_temp_local();
                     let rhs_local = self.reserve_temp_local();
                     self.compile_operand_pair_to_number_locals(
-                        NumericBinaryOperator::Arithmetic(*op),
-                        lhs,
-                        rhs,
-                        lhs_local,
-                        rhs_local,
-                        function,
+                        *op, lhs, rhs, lhs_local, rhs_local, function,
                     )?;
                     function.instruction(&Instruction::LocalGet(lhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
@@ -2502,12 +2229,7 @@ impl<'a> FunctionBuilder<'a> {
                     let lhs_local = self.reserve_temp_local();
                     let rhs_local = self.reserve_temp_local();
                     self.compile_operand_pair_to_number_locals(
-                        NumericBinaryOperator::Arithmetic(*op),
-                        lhs,
-                        rhs,
-                        lhs_local,
-                        rhs_local,
-                        function,
+                        *op, lhs, rhs, lhs_local, rhs_local, function,
                     )?;
                     function.instruction(&Instruction::LocalGet(lhs_local));
                     function.instruction(&Instruction::F64ReinterpretI64);
@@ -3332,7 +3054,7 @@ impl<'a> FunctionBuilder<'a> {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::Undefined,
         );
@@ -3860,7 +3582,6 @@ impl<'a> FunctionBuilder<'a> {
         // same four instructions it always did.
         let throwing_kind_words = RuntimeRegExpEntryKind::ALL
             .iter()
-            .copied()
             .filter(|kind| kind.throws_syntax_error())
             .map(RuntimeRegExpEntryKind::word)
             .collect::<Vec<_>>();
@@ -4126,6 +3847,14 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_spec_operation_to_locals(
                     *operation,
                     operands,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            ExprIr::UnaryMinusNumeric { expr } => {
+                self.compile_unary_minus_numeric_to_locals(
+                    expr,
                     payload_local,
                     tag_local,
                     function,
@@ -4528,8 +4257,15 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            ExprIr::JsonParseStaticReviver { value, reviver } => {
+            ExprIr::JsonParseStaticReviver {
+                callee,
+                input,
+                value,
+                reviver,
+            } => {
                 self.compile_json_static_reviver_to_locals(
+                    callee,
+                    input,
                     value,
                     reviver,
                     payload_local,

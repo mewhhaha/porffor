@@ -3,6 +3,7 @@ use std::{
     sync::LazyLock,
 };
 
+use lila_ir::FunctionTargetKnowledge;
 use lila_ir::{
     private_brand_key, private_data_key, AnnexBFunctionCopyTargetIr, ArithmeticBinaryOp,
     ArrayDestructuringElementIr, ArrayDestructuringPatternIr, BigIntBitwiseOp, BindingMode,
@@ -16,26 +17,24 @@ use lila_ir::{
     FunctionProtocolIr, GeneratorResumeModeIr, GeneratorTryPlanIr, GlobalBindingPlan,
     GlobalPropertyInitializerIr, HeapShape, HostBuiltinId, IdentifierWriteDisposition,
     JsonStaticValueIr, KindSet, LexicalEnvironmentIr, LogicalBinaryOp, NumericUpdateOp,
-    ObjectPropertyIr, ObjectShapeProperty, OrdinaryPropertyAssignmentIr,
+    NumericUpdateValueKind, ObjectPropertyIr, ObjectShapeProperty, OrdinaryPropertyAssignmentIr,
     OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyLogicalAssignmentIr,
     OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr, PrivateNameId, PropertyKeyIr,
     RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr, StandardBuiltinId,
     StatementIr, Strictness, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
     SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint, TypedExpr, UnaryBitwiseOp,
-    UnaryNumericOp, UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm,
-    AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BIGINT64_ARRAY_NAME,
-    BIGUINT64_ARRAY_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME,
-    EVAL_ERROR_NAME, FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
+    UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm, AGGREGATE_ERROR_NAME,
+    ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME,
+    BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME,
+    FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
     HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
     INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
     LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
-    LILA_GENERATOR_THROW_SLOT, LILA_STATIC_GENERATOR_ITERATOR_SLOT,
-    LILA_STATIC_GENERATOR_VALUES_METHOD, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
-    PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME, SET_NAME,
-    SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME, SYNTAX_ERROR_NAME,
-    TEMPORAL_DURATION_NAME, TEMPORAL_NOW_NAME, TEMPORAL_PLAIN_DATE_NAME,
-    TEMPORAL_PLAIN_DATE_TIME_NAME, TEMPORAL_PLAIN_MONTH_DAY_NAME, TEMPORAL_PLAIN_TIME_NAME,
-    TEMPORAL_PLAIN_YEAR_MONTH_NAME, TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME,
+    LILA_GENERATOR_THROW_SLOT, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
+    PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME,
+    SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
+    SYNTAX_ERROR_NAME, TEMPORAL_NAMESPACE_CONSTRUCTORS, TEMPORAL_NOW_NAME,
+    TEMPORAL_NOW_NAMESPACE_MEMBERS, TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME,
     UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
     URI_ERROR_NAME,
 };
@@ -51,6 +50,7 @@ use wasm_encoder::{BlockType, Ieee64, Instruction, MemArg, ValType};
 
 mod abi;
 mod arguments_protocol;
+mod backend_operation_evidence;
 mod bigint;
 mod builtins;
 mod code_sink;
@@ -62,11 +62,59 @@ mod emitted_function;
 mod environments;
 mod expressions;
 mod functions;
-pub(crate) use functions::RealmRecordLocal;
 mod gc_types;
 mod generator_delegation;
 mod generator_reference;
 mod heap;
+mod heap_async_disposable_stack_entry_layout;
+mod heap_async_disposable_stack_record_layout;
+mod heap_async_generator_object_layout;
+mod heap_atomics_async_waiter_layout;
+mod heap_bigint_layout;
+mod heap_bound_function_layout;
+mod heap_class_function_context_layout;
+mod heap_collector_phases;
+mod heap_collector_policy;
+mod heap_disposable_stack_entry_layout;
+mod heap_disposable_stack_record_layout;
+mod heap_environment_layout;
+mod heap_finalization_registry_cell_layout;
+mod heap_finalization_registry_record_layout;
+mod heap_host_boundary;
+mod heap_intl_date_time_format_layout;
+mod heap_intl_locale_layout;
+mod heap_map_entry_layout;
+mod heap_map_iterator_layout;
+mod heap_map_record_layout;
+mod heap_object_entry_layout;
+mod heap_pending_completion_layout;
+mod heap_pending_job_layout;
+mod heap_private_element_entry_layout;
+mod heap_private_environment_layout;
+mod heap_promise_capability_layout;
+mod heap_promise_reaction_layout;
+mod heap_realm_record_layout;
+mod heap_root_sources;
+mod heap_set_entry_layout;
+mod heap_set_iterator_layout;
+mod heap_set_record_layout;
+mod heap_side_storage;
+mod heap_string_layout;
+mod heap_symbol_layout;
+mod heap_temporal_duration_layout;
+mod heap_temporal_instant_layout;
+mod heap_temporal_plain_date_layout;
+mod heap_temporal_plain_date_time_layout;
+mod heap_temporal_plain_time_layout;
+mod heap_temporal_zoned_date_time_layout;
+mod heap_typed_array_iterator_layout;
+mod heap_value_encodings;
+mod heap_weak_edges;
+mod heap_weak_map_entry_layout;
+mod heap_weak_map_record_layout;
+mod heap_weak_ref_layout;
+mod heap_weak_set_entry_layout;
+mod heap_weak_set_record_layout;
 mod intrinsics;
 mod module;
 mod modules;
@@ -175,7 +223,7 @@ mod tests {
             .split_once("enum DisposableStackReturnDisposition {")
             .expect("DisposableStack value-return disposition should exist")
             .1
-            .split_once("}\n\nimpl<'a> FunctionBuilder<'a> {")
+            .split_once("}\n\nenum DisposableStackTypeError {")
             .expect("DisposableStack value-return disposition should be bounded")
             .0;
         assert_eq!(
@@ -379,7 +427,7 @@ mod tests {
             .split_once("fn emit_finalize_disposable_stack_instance(")
             .expect("DisposableStack consuming finalizer")
             .1
-            .split_once("fn emit_take_disposable_stack_capability(")
+            .split_once("fn emit_begin_disposable_stack_disposal(")
             .expect("DisposableStack finalizer must be bounded")
             .0;
         assert_eq!(
@@ -505,9 +553,11 @@ mod tests {
     #[test]
     fn typed_array_accessors_use_the_closed_buffer_witness() {
         let binary_data = include_str!("builtins/binary_data.rs");
+        let builtins = include_str!("builtins/mod.rs");
+        let objects = include_str!("objects.rs");
         let standard = include_str!("builtins/standard.rs");
         let accessor_domain = binary_data
-            .split_once("pub(super) enum TypedArrayAccessorKind {")
+            .split_once("pub(crate) enum TypedArrayAccessorKind {")
             .expect("typed-array accessor domain should exist")
             .1
             .split_once("}\n\n/// The closed set of observation points")
@@ -534,6 +584,69 @@ mod tests {
             .split_once("StandardBuiltinId::TypedArrayPrototypeSubarray => {")
             .expect("typed-array accessor delegates should be bounded")
             .0;
+        let fnv1a = |source: &str| {
+            source.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+            })
+        };
+
+        assert_eq!(
+            (accessor_domain.len(), fnv1a(accessor_domain)),
+            (45, 0x2e21_90c4_be83_8fac)
+        );
+        assert_eq!(
+            (accessor_projection.len(), fnv1a(accessor_projection)),
+            (1363, 0x531e_2ab2_51f1_5463)
+        );
+        assert_eq!(
+            (accessor_compiler.len(), fnv1a(accessor_compiler)),
+            (2860, 0x41e8_be40_7d97_cb12)
+        );
+        assert_eq!(
+            (delegates.len(), fnv1a(delegates)),
+            (686, 0x1a23_073b_921c_7c0b)
+        );
+
+        let declaration_offset = binary_data
+            .find("pub(crate) enum TypedArrayAccessorKind {")
+            .expect("typed-array accessor declaration should exist");
+        assert_eq!(
+            binary_data[..declaration_offset]
+                .lines()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .map(str::trim),
+            Some("/// The complete result domain of the `%TypedArray%.prototype` view accessors.")
+        );
+        for capability in [
+            "Clone",
+            "Copy",
+            "Debug",
+            "Default",
+            "PartialEq",
+            "Eq",
+            "PartialOrd",
+            "Ord",
+            "Hash",
+        ] {
+            assert!(!binary_data.contains(&format!("impl {capability} for TypedArrayAccessorKind")));
+        }
+        assert_eq!(
+            [binary_data, builtins, objects, standard]
+                .iter()
+                .map(|source| source.matches("TypedArrayAccessorKind").count())
+                .sum::<usize>(),
+            12,
+            "the declaration, carrier, compiler, projection, exports and four producers own every mention"
+        );
+        assert_eq!(
+            [objects, standard]
+                .iter()
+                .map(|source| source.matches("TypedArrayAccessorKind::").count())
+                .sum::<usize>(),
+            4,
+            "three standard accessors and one generic length read are the complete producer set"
+        );
 
         for variant in ["ByteLength", "ByteOffset", "Length"] {
             assert_eq!(
@@ -578,6 +691,30 @@ mod tests {
             1,
             "the accessor compiler must make exactly one live buffer witness"
         );
+        assert_eq!(
+            accessor_compiler
+                .matches("kind: TypedArrayAccessorKind,")
+                .count(),
+            1,
+            "the accessor compiler must own one closed selection"
+        );
+        assert_eq!(
+            accessor_compiler
+                .matches("TypedArrayWitnessUse::Accessor {\n                kind,")
+                .count(),
+            1,
+            "the accessor compiler must hand its selection to the witness exactly once"
+        );
+        for forbidden in [
+            "_ =>",
+            "matches!(kind",
+            "kind ==",
+            "kind !=",
+            "kind.clone()",
+        ] {
+            assert!(!accessor_projection.contains(forbidden));
+            assert!(!accessor_compiler.contains(forbidden));
+        }
         for forbidden in [
             "emit_load_array_buffer_data(",
             "emit_load_array_buffer_byte_length(",
@@ -602,14 +739,16 @@ mod tests {
     #[test]
     fn construct_fallback_requires_resolved_realm_intrinsics() {
         let source = include_str!("functions.rs");
-        let domain = source
+        let ordinary_prototypes =
+            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
+        let domain = ordinary_prototypes
             .split_once("enum OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype domain should exist")
             .1
             .split_once("}\n\nimpl OrdinaryDefaultPrototype")
             .expect("ordinary default-prototype domain should be bounded")
             .0;
-        let offsets = source
+        let offsets = ordinary_prototypes
             .split_once("impl OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype offset map should exist")
             .1
@@ -623,18 +762,18 @@ mod tests {
             .split_once("pub(crate) fn copy_function_realm_typed_array_prototypes(")
             .expect("shared construct path should be bounded")
             .0;
-        let required_load = source
+        let required_load = ordinary_prototypes
             .split_once("fn emit_load_required_resolved_realm_ordinary_prototype(")
             .expect("required resolved-realm ordinary-prototype loader should exist")
             .1
             .split_once("fn emit_install_resolved_realm_ordinary_prototype(")
             .expect("required resolved-realm ordinary-prototype loader should be bounded")
             .0;
-        let install = source
+        let install = ordinary_prototypes
             .split_once("fn emit_install_resolved_realm_ordinary_prototype(")
             .expect("resolved-realm ordinary-prototype consumer should exist")
             .1
-            .split_once("pub(crate) fn emit_load_required_resolved_realm_array_prototype(")
+            .rsplit_once("\n}")
             .expect("resolved-realm ordinary-prototype consumer should be bounded")
             .0;
 
@@ -668,8 +807,8 @@ mod tests {
             !domain.contains("Array"),
             "Array must retain its separate exotic-prototype typestate"
         );
-        assert!(source.contains(
-            "#[must_use = \"the resolved-realm prototype must be installed with its representation tag\"]\nstruct ResolvedRealmOrdinaryPrototypeLocal"
+        assert!(ordinary_prototypes.contains(
+            "#[must_use = \"the resolved-realm prototype must be installed with its representation tag\"]\npub(super) struct ResolvedRealmOrdinaryPrototypeLocal"
         ));
         assert_eq!(
             construct
@@ -717,7 +856,7 @@ mod tests {
 
     #[test]
     fn ordinary_default_prototype_structural_count_tracks_message_error_and_regexp() {
-        let source = include_str!("functions.rs");
+        let source = include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
         let domain = source
             .split_once("enum OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype domain should exist")
@@ -759,7 +898,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            8,
+            9,
             "the closed domain count must move with MessageError and RegExp"
         );
     }
@@ -767,20 +906,22 @@ mod tests {
     #[test]
     fn iterator_constructor_realm_prototype_is_required_tagged_and_published() {
         let functions = include_str!("functions.rs");
+        let ordinary_prototypes =
+            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
         let standard = include_str!("builtins/standard.rs");
         let errors = include_str!("builtins/errors.rs");
         let function_constructor = include_str!("builtins/function/constructor.rs");
         let bootstrap = include_str!("builtins/bootstrap.rs");
         let host = include_str!("builtins/host.rs");
 
-        let domain = functions
+        let domain = ordinary_prototypes
             .split_once("enum OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype domain should exist")
             .1
             .split_once("}\n\nimpl OrdinaryDefaultPrototype")
             .expect("ordinary default-prototype domain should be bounded")
             .0;
-        let offsets = functions
+        let offsets = ordinary_prototypes
             .split_once("impl OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype offset map should exist")
             .1
@@ -1179,20 +1320,136 @@ mod tests {
     }
 
     #[test]
+    fn iterator_to_array_allocation_uses_the_active_function_realm() {
+        let functions = include_str!("functions.rs");
+        let prototype_owner = include_str!("functions/current_function_realm_array_prototype.rs");
+        let array = include_str!("builtins/array.rs");
+        let standard = include_str!("builtins/standard.rs");
+
+        assert_eq!(
+            functions
+                .matches("\nmod current_function_realm_array_prototype;\n")
+                .count(),
+            1
+        );
+        assert!(!functions.contains("current_function_realm_array_prototype::"));
+        assert!(!functions.contains("struct CurrentFunctionRealmArrayPrototypeLocal"));
+
+        let prototype_state = prototype_owner
+            .split_once("pub(crate) struct CurrentFunctionRealmArrayPrototypeLocal(")
+            .expect("current-function Realm Array prototype state should exist")
+            .1
+            .split_once(");")
+            .expect("current-function Realm Array prototype state should be bounded")
+            .0;
+        assert_eq!(prototype_state, "u32");
+        assert!(!prototype_owner.contains(
+            "#[derive(Clone, Copy)]\npub(crate) struct CurrentFunctionRealmArrayPrototypeLocal"
+        ));
+        assert_eq!(
+            prototype_owner
+                .matches("CurrentFunctionRealmArrayPrototypeLocal(prototype_local)")
+                .count(),
+            1
+        );
+        assert_eq!(prototype_owner.matches("prototype.0").count(), 2);
+
+        let factory = prototype_owner
+            .split_once("pub(crate) fn emit_load_current_function_realm_array_prototype(")
+            .expect("current-function Realm Array prototype factory should exist")
+            .1
+            .split_once("pub(crate) fn emit_install_current_function_realm_array_prototype(")
+            .expect("current-function Realm Array prototype factory should be bounded")
+            .0;
+        for marker in [
+            "self.current_env_local",
+            "ARRAY_PROTOTYPE_GLOBAL_INDEX",
+            "HEAP_FUNCTION_DEFINING_REALM_OFFSET",
+            "HEAP_REALM_INTRINSICS_OFFSET",
+            "HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET",
+        ] {
+            assert!(factory.contains(marker), "missing factory marker: {marker}");
+        }
+        assert_eq!(factory.matches("Instruction::Unreachable").count(), 3);
+        assert!(!factory.contains("CURRENT_REALM_GLOBAL_INDEX"));
+        assert!(!factory.contains("emit_load_realm_intrinsic_prototype_or_global("));
+        assert!(
+            factory.find("let prototype_local").unwrap() < factory.find("let realm_local").unwrap()
+        );
+        assert!(
+            factory.find("let realm_local").unwrap()
+                < factory.find("let intrinsics_local").unwrap()
+        );
+        assert!(
+            factory
+                .find("release_temp_local(intrinsics_local)")
+                .unwrap()
+                < factory.find("release_temp_local(realm_local)").unwrap()
+        );
+
+        let allocator = array
+            .split_once(
+                "pub(crate) fn emit_alloc_array_payload_with_length_in_current_function_realm(",
+            )
+            .expect("current-function Realm Array allocator should exist")
+            .1
+            .split_once("pub(crate) fn emit_array_like_snapshot_payload(")
+            .expect("current-function Realm Array allocator should be bounded")
+            .0;
+        assert_eq!(
+            allocator
+                .matches("emit_load_current_function_realm_array_prototype(function)")
+                .count(),
+            1
+        );
+        assert_eq!(
+            allocator
+                .matches("emit_install_current_function_realm_array_prototype(")
+                .count(),
+            1
+        );
+        assert!(
+            allocator
+                .find("emit_alloc_array_payload_with_length(len_local")
+                .unwrap()
+                < allocator
+                    .find("emit_load_current_function_realm_array_prototype(function)")
+                    .unwrap()
+        );
+
+        let to_array = standard
+            .split_once("StandardBuiltinId::IteratorPrototypeToArray => {")
+            .expect("Iterator.prototype.toArray builtin should exist")
+            .1
+            .split_once("StandardBuiltinId::IteratorPrototypeSymbolDispose => {")
+            .expect("Iterator.prototype.toArray builtin should be bounded")
+            .0;
+        assert_eq!(
+            to_array
+                .matches("emit_alloc_array_payload_with_length_in_current_function_realm(")
+                .count(),
+            1
+        );
+        assert!(!to_array.contains("emit_alloc_array_payload_with_length("));
+    }
+
+    #[test]
     fn regexp_constructor_realm_prototype_is_active_required_tagged_direct_and_published() {
         let functions = include_str!("functions.rs");
+        let ordinary_prototypes =
+            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
         let standard = include_str!("builtins/standard.rs");
         let bootstrap = include_str!("builtins/bootstrap.rs");
         let host = include_str!("builtins/host.rs");
 
-        let ordinary_domain = functions
+        let ordinary_domain = ordinary_prototypes
             .split_once("enum OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype domain should exist")
             .1
             .split_once("}\n\nimpl OrdinaryDefaultPrototype")
             .expect("ordinary default-prototype domain should be bounded")
             .0;
-        let ordinary_offsets = functions
+        let ordinary_offsets = ordinary_prototypes
             .split_once("impl OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype offset map should exist")
             .1
@@ -1372,21 +1629,22 @@ mod tests {
     #[test]
     fn date_constructor_realm_prototype_is_required_and_published() {
         let heap = include_str!("heap.rs");
-        let functions = include_str!("functions.rs");
+        let ordinary_prototypes =
+            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
         let errors = include_str!("builtins/errors.rs");
         let date = include_str!("builtins/date.rs");
         let standard = include_str!("builtins/standard.rs");
         let bootstrap = include_str!("builtins/bootstrap.rs");
         let host = include_str!("builtins/host.rs");
 
-        let domain = functions
+        let domain = ordinary_prototypes
             .split_once("enum OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype domain should exist")
             .1
             .split_once("}\n\nimpl OrdinaryDefaultPrototype")
             .expect("ordinary default-prototype domain should be bounded")
             .0;
-        let offsets = functions
+        let offsets = ordinary_prototypes
             .split_once("impl OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype offset map should exist")
             .1
@@ -1402,7 +1660,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 400;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 424;",
             "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
             "name: \"%Date.prototype%\"",
             "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
@@ -1455,7 +1713,7 @@ mod tests {
         assert!(!required_arm.contains("GlobalGet"));
         assert!(!required_arm.contains("GLOBAL_INDEX"));
 
-        let required_helper = functions
+        let required_helper = ordinary_prototypes
             .split_once("pub(crate) fn emit_required_new_target_realm_ordinary_prototype(")
             .expect("required new-target realm helper should exist")
             .1
@@ -1482,7 +1740,7 @@ mod tests {
             .split_once("pub(crate) fn emit_date_constructor_prototype_to_locals(")
             .expect("Date constructor prototype wrapper should exist")
             .1
-            .split_once("fn emit_date_time_value_from_source(")
+            .split_once("pub(crate) fn emit_date_now(")
             .expect("Date constructor prototype wrapper should be bounded")
             .0;
         assert_eq!(
@@ -1557,6 +1815,8 @@ mod tests {
     fn error_message_constructors_are_realm_typed_direct_and_tagged() {
         let heap = include_str!("heap.rs");
         let functions = include_str!("functions.rs");
+        let ordinary_prototypes =
+            include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
         let errors = include_str!("builtins/errors.rs");
         let error_constructor = include_str!("builtins/errors/constructor.rs");
         let bootstrap = include_str!("builtins/bootstrap.rs");
@@ -1636,14 +1896,14 @@ mod tests {
         assert!(functions.contains("#[repr(usize)]"));
         assert!(functions.contains("pub(crate) const fn index(self) -> usize"));
 
-        let domain = functions
+        let domain = ordinary_prototypes
             .split_once("enum OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype domain should exist")
             .1
             .split_once("}\n\nimpl OrdinaryDefaultPrototype")
             .expect("ordinary default-prototype domain should be bounded")
             .0;
-        let offsets = functions
+        let offsets = ordinary_prototypes
             .split_once("impl OrdinaryDefaultPrototype {")
             .expect("ordinary default-prototype offset map should exist")
             .1
@@ -1664,7 +1924,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 400;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 424;",
             "pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;",
             "pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;",
             "pub(crate) const HEAP_REALM_INTRINSICS_EVAL_ERROR_PROTOTYPE_OFFSET: u64 = 360;",
@@ -1673,7 +1933,7 @@ mod tests {
             "pub(crate) const HEAP_REALM_INTRINSICS_SYNTAX_ERROR_PROTOTYPE_OFFSET: u64 = 384;",
             "pub(crate) const HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET: u64 = 392;",
             "name: \"%Error.prototype%\"",
-            "name: \"%TypeError.prototype%\"",
+            "name: \"TypeError.prototype\"",
             "name: \"%EvalError.prototype%\"",
             "name: \"%RangeError.prototype%\"",
             "name: \"%ReferenceError.prototype%\"",
@@ -1907,6 +2167,106 @@ mod tests {
     }
 
     #[test]
+    fn created_realm_error_constructor_inheritance_is_exhaustive() {
+        let functions = include_str!("functions.rs");
+        let host = include_str!("builtins/host.rs");
+
+        let kind_declaration = functions
+            .split_once("macro_rules! error_message_constructor_kinds {")
+            .expect("shared-message Error constructor macro should exist")
+            .1
+            .split_once("impl ErrorMessageConstructorKind {")
+            .expect("shared-message Error constructor domain should be bounded")
+            .0;
+        assert_eq!(kind_declaration.matches("#[derive(").count(), 1);
+        assert!(kind_declaration.contains("#[derive(Clone, Copy, Debug)]"));
+        assert!(!kind_declaration.contains("PartialEq"));
+        assert!(!kind_declaration.contains("Eq"));
+        assert!(!functions.contains("impl PartialEq for ErrorMessageConstructorKind"));
+        assert!(!functions.contains("impl Eq for ErrorMessageConstructorKind"));
+
+        let kind_rows = functions
+            .split_once("error_message_constructor_kinds! {")
+            .expect("shared-message Error constructor rows should exist")
+            .1
+            .split_once("/// The fallback selected after")
+            .expect("shared-message Error constructor rows should be bounded")
+            .0;
+        assert_eq!(kind_rows.matches("    };").count(), 7);
+        let mut previous_row = None;
+        for kind in [
+            "Error",
+            "EvalError",
+            "RangeError",
+            "ReferenceError",
+            "SyntaxError",
+            "TypeError",
+            "URIError",
+        ] {
+            let row = format!("    {kind} => {{");
+            assert_eq!(kind_rows.matches(row.as_str()).count(), 1);
+            let row_position = kind_rows
+                .find(row.as_str())
+                .unwrap_or_else(|| panic!("{kind} row should exist"));
+            if let Some(previous_position) = previous_row {
+                assert!(previous_position < row_position);
+            }
+            previous_row = Some(row_position);
+        }
+
+        let created_constructors = host
+            .split_once("for index in 0..error_constructor_metas.len() {")
+            .expect("created-realm Error-family constructor loop should exist")
+            .1
+            .split_once("let error_is_error_payload_local")
+            .expect("created-realm Error constructor loop should be bounded")
+            .0;
+        let inheritance = created_constructors
+            .split_once("            match kind {")
+            .expect("created-realm Error constructor inheritance match should exist")
+            .1
+            .split_once(
+                "            self.store_i64_local_at_offset(\n                constructor_local,\n                HEAP_FUNCTION_REALM_ERROR_PROTOTYPE_OFFSET,",
+            )
+            .expect("created-realm Error constructor inheritance match should be bounded")
+            .0
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(
+            inheritance,
+            "ErrorMessageConstructorKind::Error => {} ErrorMessageConstructorKind::EvalError | ErrorMessageConstructorKind::RangeError | ErrorMessageConstructorKind::ReferenceError | ErrorMessageConstructorKind::SyntaxError | ErrorMessageConstructorKind::TypeError | ErrorMessageConstructorKind::URIError => { self.store_i64_local_at_offset( constructor_local, HEAP_PROTOTYPE_OFFSET, error_constructor_locals[ErrorMessageConstructorKind::Error.index()], function, ); self.store_i64_const_at_offset( constructor_local, HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET, ValueKind::Function.tag() as u64, function, ); } }"
+        );
+        assert!(!inheritance.contains("=="));
+        assert!(!inheritance.contains("!="));
+        let materialization = created_constructors
+            .find("emit_function_value_payload_in_realm(")
+            .expect("created-realm Error constructor should be materialized");
+        let self_backing = created_constructors
+            .find("HEAP_FUNCTION_ENV_HANDLE_OFFSET")
+            .expect("created-realm Error constructor should be self-backed");
+        let inheritance_projection = created_constructors
+            .find("match kind {")
+            .expect("created-realm Error constructor inheritance should be projected");
+        let realm_slots = created_constructors
+            .find("HEAP_FUNCTION_REALM_ERROR_PROTOTYPE_OFFSET")
+            .expect("created-realm Error constructor realm slots should be stored");
+        let public_prototype = created_constructors
+            .find("let prototype_local = match kind {")
+            .expect("created-realm Error constructor public prototype should be selected");
+        let public_prototype_store = created_constructors
+            .find("emit_set_function_prototype_data(")
+            .expect("created-realm Error constructor public prototype should be stored");
+        assert!(
+            materialization < self_backing
+                && self_backing < inheritance_projection
+                && inheritance_projection < realm_slots
+                && realm_slots < public_prototype
+                && public_prototype < public_prototype_store
+        );
+    }
+
+    #[test]
     fn string_empty_split_structurally_walks_utf16_code_units() {
         let source = include_str!("builtins/string.rs");
         let helper = source
@@ -1937,11 +2297,11 @@ mod tests {
             );
         }
         assert!(
-            helper.contains("index: UnitIndexLocal,"),
+            helper.contains("index: &UnitIndexLocal,"),
             "the one-unit materializer must require a UTF-16 unit index"
         );
         assert!(
-            helper.contains("one: OneUnitLocal,"),
+            helper.contains("one: &OneUnitLocal,"),
             "the one-unit materializer must require the one-code-unit width"
         );
         assert_eq!(
@@ -1998,7 +2358,7 @@ mod tests {
             .split_once("pub(crate) fn emit_array_direct_builtin_method_call(")
             .expect("shared direct builtin caller should exist")
             .1
-            .split_once("pub(crate) fn emit_array_push_method_call(")
+            .split_once("pub(crate) fn compile_array_prototype_join_builtin(")
             .expect("shared direct builtin caller should have a bounded body")
             .0;
         let standard_char_at = standard
@@ -2118,7 +2478,10 @@ mod tests {
 
     #[test]
     fn error_prototype_to_string_has_typed_ordered_observable_phases() {
-        let source = include_str!("builtins/errors.rs");
+        let source = concat!(
+            include_str!("builtins/errors/prototype_to_string.rs"),
+            include_str!("builtins/errors.rs")
+        );
         let operations = include_str!("operations.rs");
         let body = source
             .split_once("fn emit_error_prototype_to_string(")
@@ -2257,12 +2620,26 @@ mod tests {
             .split_once("fn emit_tagged_to_primitive_locals_pending(")
             .expect("the current-realm primitive ToString wrapper should have a bounded body")
             .0;
-        assert!(current_primitive
-            .contains("let error_realm = ConversionErrorRealm::CurrentFunctionRealm;"));
-        assert!(current_primitive.contains("ConversionErrorRealmSource::Fixed(error_realm)"));
-        assert!(current_primitive.contains("error_realm,"));
-        assert!(current_string.contains("error_realm,"));
-        assert!(current_string.contains("ConversionErrorRealmSource::Fixed(error_realm)"));
+        assert_eq!(
+            current_primitive
+                .matches(
+                    "ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm)",
+                )
+                .count(),
+            1,
+            "ToPrimitive must fix the Realm at its private boundary"
+        );
+        assert_eq!(
+            current_string
+                .matches(
+                    "ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm)",
+                )
+                .count(),
+            1,
+            "primitive ToString must recover the Realm proof from the token type"
+        );
+        assert!(!current_primitive.contains("error_realm,"));
+        assert!(!current_string.contains("error_realm,"));
         assert!(current_string.contains("emit_primitive_to_string_payload_with_error_realm("));
 
         let helper_call = operations
@@ -2307,8 +2684,8 @@ mod tests {
             "(async function(){ let n = 0; while (n < 3) { n++; await Promise.resolve(n); } print(n); })();",
             "(async function(){ const out = []; for (const x of [1,2,3]) { out.push(await Promise.resolve(x)); } print(out); })();",
         ] {
-            let artifact = emit_script(source)
-                .unwrap_or_else(|err| panic!("{source} should emit: {err:?}"));
+            let artifact =
+                emit_script(source).unwrap_or_else(|err| panic!("{source} should emit: {err:?}"));
             expect_valid_module(&artifact, 0);
         }
     }
@@ -2982,8 +3359,7 @@ result.visible + result[symbol] + result[0] + result[1] + calls.length;
             "let thenable = { then: function (resolve, reject) { resolve(1); reject(2); } }; async function* stream() { yield thenable; } stream().next();",
             "let thenable = { then: function (resolve, reject) { reject(1); resolve(2); } }; async function* stream() { yield thenable; } stream().next();",
         ] {
-            let artifact =
-                emit_script(source).expect("async-generator thenable yield should emit");
+            let artifact = emit_script(source).expect("async-generator thenable yield should emit");
             expect_valid_module(&artifact, 1);
         }
     }
@@ -3028,8 +3404,8 @@ result.visible + result[symbol] + result[0] + result[1] + calls.length;
             "async function* source(reason) { yield Promise.reject(reason); } async function* stream(reason) { for await (let value of source(reason)) { yield value; } } stream({}).next();",
             "async function* stream(reason) { for await (let value of [Promise.reject(reason)]) { yield value; } } stream({}).next();",
         ] {
-            let artifact = emit_script(source)
-                .expect("async-generator rejected yield routing should emit");
+            let artifact =
+                emit_script(source).expect("async-generator rejected yield routing should emit");
             expect_valid_module(&artifact, 1);
         }
     }
@@ -3042,8 +3418,7 @@ result.visible + result[symbol] + result[0] + result[1] + calls.length;
             "async function* stream() { yield [...yield yield]; } stream().next();",
             "async function* stream() { yield { ...yield, y: 1, ...yield yield }; } stream().next();",
         ] {
-            let artifact =
-                emit_script(source).expect("async-generator yield spread should emit");
+            let artifact = emit_script(source).expect("async-generator yield spread should emit");
             expect_valid_module(&artifact, 1);
         }
     }
@@ -3166,8 +3541,7 @@ result.first === 1 && result.second === 2;
             "async function* stream() { for (let i = 0; i < 2; i++) { let observed; try { observed = value; } catch (error) { observed = 'tdz'; } yield observed; let value = i; } } stream().next();",
             "let observed; async function* stream() { for (let i = 0; i < 1; i++) { let value = 7; yield value; observed = value; } } stream().next();",
         ] {
-            let artifact =
-                emit_script(source).expect("async-generator resumable loop should emit");
+            let artifact = emit_script(source).expect("async-generator resumable loop should emit");
             expect_valid_module(&artifact, 1);
         }
     }
@@ -3731,18 +4105,17 @@ pick(true);"#,
     }
 
     #[test]
-    fn temporal_now_namespace_exists_from_a_bare_temporal_reference() {
-        // `Temporal.Now` has to be observable even when no member is named, so
-        // the namespace must not be gated on a member reference.
-        let source =
-            parse("typeof Temporal.Now;", ParseOptions::script()).expect("script should parse");
+    fn temporal_namespace_shape_exists_from_a_bare_temporal_reference() {
+        // A bare namespace reference roots the complete shape, including all
+        // `Temporal.Now` clock readers.
+        let source = parse("var namespace = Temporal;", ParseOptions::script())
+            .expect("script should parse");
         let program = lower(&source);
-        let artifact = emit(&program).expect("Temporal.Now namespace should emit");
+        let artifact = emit(&program).expect("complete Temporal namespace should emit");
 
         assert!(!artifact.bytes.is_empty());
-        // The clock readers are not named, so the host import must stay out.
         assert!(
-            !artifact
+            artifact
                 .debug_dump
                 .contains("import func: lila_host.wall_clock_millis"),
             "{}",
@@ -4744,7 +5117,10 @@ pick(true);"#,
 
     #[test]
     fn date_clock_import_access_is_centralized_in_date_builtins() {
-        let date_source = include_str!("builtins/date.rs");
+        let date_source = concat!(
+            include_str!("builtins/date.rs"),
+            include_str!("builtins/date/local_string.rs")
+        );
         let standard_source = include_str!("builtins/standard.rs");
         let date_now_dispatch = standard_source
             .split_once("StandardBuiltinId::DateNow => {")
@@ -5914,21 +6290,10 @@ delete proxy[0];"#,
             let mut atomic_memory_indexes = Vec::new();
             for payload in Parser::new(0).parse_all(&artifact.bytes) {
                 match payload.expect("wasm parse should succeed") {
-                Payload::ImportSection(reader) => {
-                    for imports in reader {
-                        match imports.expect("import should decode") {
-                            wasmparser::Imports::Single(_, import) => {
-                                if let wasmparser::TypeRef::Memory(memory) = import.ty {
-                                    memory_imports.push((
-                                        import.name.to_string(),
-                                        memory.shared,
-                                        memory.maximum,
-                                    ));
-                                }
-                            }
-                            wasmparser::Imports::Compact1 { items, .. } => {
-                                for import in items {
-                                    let import = import.expect("compact import should decode");
+                    Payload::ImportSection(reader) => {
+                        for imports in reader {
+                            match imports.expect("import should decode") {
+                                wasmparser::Imports::Single(_, import) => {
                                     if let wasmparser::TypeRef::Memory(memory) = import.ty {
                                         memory_imports.push((
                                             import.name.to_string(),
@@ -5937,40 +6302,51 @@ delete proxy[0];"#,
                                         ));
                                     }
                                 }
-                            }
-                            wasmparser::Imports::Compact2 { ty, names, .. } => {
-                                if let wasmparser::TypeRef::Memory(memory) = ty {
-                                    for name in names {
-                                        memory_imports.push((
-                                            name.expect("compact import name should decode")
-                                                .to_string(),
-                                            memory.shared,
-                                            memory.maximum,
-                                        ));
+                                wasmparser::Imports::Compact1 { items, .. } => {
+                                    for import in items {
+                                        let import = import.expect("compact import should decode");
+                                        if let wasmparser::TypeRef::Memory(memory) = import.ty {
+                                            memory_imports.push((
+                                                import.name.to_string(),
+                                                memory.shared,
+                                                memory.maximum,
+                                            ));
+                                        }
+                                    }
+                                }
+                                wasmparser::Imports::Compact2 { ty, names, .. } => {
+                                    if let wasmparser::TypeRef::Memory(memory) = ty {
+                                        for name in names {
+                                            memory_imports.push((
+                                                name.expect("compact import name should decode")
+                                                    .to_string(),
+                                                memory.shared,
+                                                memory.maximum,
+                                            ));
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                Payload::CodeSectionEntry(body) => {
-                    let mut reader = body
-                        .get_operators_reader()
-                        .expect("operators should decode");
-                    while !reader.eof() {
-                        match reader.read().expect("operator should decode") {
-                            Operator::I32AtomicRmwAdd { memarg }
-                            | Operator::I32AtomicRmwCmpxchg { memarg }
-                            | Operator::I32AtomicLoad { memarg }
-                            | Operator::I32AtomicStore { memarg } => {
-                                atomic_memory_indexes.push(memarg.memory);
+                    Payload::CodeSectionEntry(body) => {
+                        let mut reader = body
+                            .get_operators_reader()
+                            .expect("operators should decode");
+                        while !reader.eof() {
+                            match reader.read().expect("operator should decode") {
+                                Operator::I32AtomicRmwAdd { memarg }
+                                | Operator::I32AtomicRmwCmpxchg { memarg }
+                                | Operator::I32AtomicLoad { memarg }
+                                | Operator::I32AtomicStore { memarg } => {
+                                    atomic_memory_indexes.push(memarg.memory);
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
             }
 
             assert_eq!(

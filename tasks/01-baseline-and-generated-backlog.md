@@ -29,6 +29,20 @@ without sharing or losing resumable evidence. Generated text backlogs include
 the same task, feature-tag, failure-hash and slow-subtree groupings as the JSON
 artifact.
 
+Physical-file discovery expands through the private, non-derived
+`TestExecutionPlan::{One, SloppyAndStrict}` domain. Its flag parser owns the six
+valid frontmatter combinations, and its consuming exhaustive projection emits
+the exact one-mode plan or the ordered sloppy-then-strict pair. The execution
+identity structure guard pins the private capability-free declaration, complete
+ownership census, flag-to-plan table and ordered mode projection. This is a
+source-equivalent discovery invariant and does not refresh the missing
+current-pin backlog. The strengthened structure target passes `4/4`, and the
+exact flag-plan unit witness passes `1/1`. Independent review confirmed the
+capability closure, flag binding/tuple order, six rows and ordered expansion.
+The coordinated workspace checkpoint passes `cargo fmt --all -- --check`,
+`cargo xc`, `git diff --check`, the module boundary check and the task-plan
+check; the compile retains the repository's existing warnings.
+
 Failure kind, outcome and origin also remain closed types at the snapshot and
 backlog boundaries. Unknown classification labels or count-map keys reject the
 artifact rather than being coerced to a catch-all or dropped. Read-only version
@@ -43,6 +57,16 @@ only the established `filter-leaf` and `chunk-leaf` spellings; an unknown label
 is rejected before it can be compared with the current matrix. This leaves the
 version-6 snapshot bytes unchanged and deliberately does not change the run
 matrix cache's existing `FilterLeaf` and `ChunkLeaf` serde spellings.
+
+Generated backlog backend identity is also closed. The
+`BacklogArtifact.execution_backend` field stores `ExecutionBackend` rather than
+a raw string, and its field codec exhaustively preserves the established
+`spec-exec` and `wasm-aot` spellings. Unknown labels such as `future-backend`
+are rejected with the offending value attached; file names and summaries only
+project the typed authority with `as_str()`. The focused structure target
+passes `4/4`, the exact deterministic-backlog witness passes `1/1`,
+`cargo check -p lila-test262 --quiet` passes with existing warnings, and the
+scoped rustfmt and diff checks are clean.
 
 One provenance field remains deliberately outside the current snapshot schema:
 snapshots record the Lila producer/schema, backend, pins, matrix strategy and

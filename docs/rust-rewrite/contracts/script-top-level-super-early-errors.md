@@ -97,21 +97,17 @@ The fixed `Position::new(1, 1)` is part of the current pin's classification
 boundary. It distinguishes this producer from the other reachable producers
 that reuse the raw literal `invalid super usage`.
 
-After the separately typed class-super-call, class-field-initializer, ordinary-
-function expression/declaration, async-function-expression and generator-
-expression repairs, across every Rust source in pinned `boa_parser-0.21.1` that
-raw literal occurs exactly three times:
+After the separately typed class-super-call, class-field-initializer and eight
+function expression/declaration repairs, across every Rust source in pinned
+`boa_parser-0.21.1` that raw literal occurs exactly once:
 
 | Parser owner | Raw occurrences | Position source | New code owns it |
 | --- | ---: | --- | --- |
 | `parser/mod.rs` ScriptBody check | 1 | fixed `Position::new(1, 1)` | yes |
-| shared hoistable-declaration default for generator/async forms | 1 | common branch retains `params_start_position` | no |
-| async-generator expression parser | 1 | parameter-start position | no |
 
-The other two positions occur only after a function head and cannot render
-line 1, column 1. They cover distinct callable conditions and must remain
-unclassified by this lane. A broad row for `invalid super usage at line` would
-falsely merge all three raw-message owners. The base-constructor and static-block
+The shared callable-declaration hook is now required and has no generic
+default. A broad row for `invalid super usage at line` would still be looser
+than the one reviewed fixed message. The base-constructor and static-block
 conditions have unique messages and codes under
 `class-super-call-early-errors.md`; the four field-initializer producers are
 owned by `class-field-initializer-super-call-early-errors.md`; and the ordinary
@@ -122,7 +118,11 @@ function-declaration producer is separately owned by
 expression producer is owned by
 `async-function-expression-contains-super-early-errors.md`; the generator-
 expression producer is owned by
-`generator-expression-contains-super-early-errors.md`.
+`generator-expression-contains-super-early-errors.md`; the async-generator-
+expression producer is owned by
+`async-generator-expression-contains-super-early-errors.md`; the async-
+generator-declaration producer is owned by
+`async-generator-declaration-contains-super-early-errors.md`.
 
 No vendor repair is required for the Script producer. Its existing
 fixed-position message remains sufficient for an exact-message classifier row.
@@ -293,7 +293,7 @@ inventing an unreachable Module producer.
 A durable source guard must recursively inventory the pinned Boa parser and
 prove all of the following:
 
-- the raw literal `invalid super usage` occurs exactly three times across
+- the raw literal `invalid super usage` occurs exactly once across
   Rust sources;
 - exactly one occurrence is the ScriptBody call with the complete
   `Error::general(..., Position::new(1, 1))` shape;
@@ -301,9 +301,11 @@ prove all of the following:
   `contains(&body, ContainsSymbol::Super)` condition;
 - the Script super check remains before the adjacent NewTarget, private-name,
   label and cover-initialized-name checks;
-- the shared declaration branch and async-generator-expression producer retain
-  their reviewed parameter-start positions rather than acquiring the fixed 1:1
-  coordinate;
+- the shared declaration branch and separately typed expression producers
+  retain their reviewed parameter-start positions rather than acquiring the
+  fixed 1:1 coordinate;
+- the declaration message hook remains required and all four declaration
+  implementations retain their production-owned overrides;
 - pinned `boa_ast` keeps ordinary callable bodies as stopping boundaries,
   traverses ordinary and async arrows, class heritage and computed public
   method/field names, traverses computed object-method names, and reaches a
@@ -399,8 +401,8 @@ tests, `50/50` relevant IR early tests and `51/51` graph tests.
 The lane classifies a rejection pinned Boa already produces. It does not:
 
 - add or broaden `super` syntax;
-- classify the remaining generic generator/async declarations or async-
-  generator expression;
+- classify the function expression/declaration conditions; later T07 lanes,
+  including AsyncGeneratorDeclaration, own those separately;
 - classify the eleven `invalid super call usage` producers;
 - repair token-level source location;
 - support direct eval or Function-family dynamic source;

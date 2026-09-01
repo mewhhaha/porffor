@@ -35,6 +35,23 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
+        #[derive(Clone, Copy)]
+        enum ClassConstructorInvocationRole {
+            Base,
+            ExplicitDerived,
+            SyntheticDerived,
+        }
+
+        let constructor_invocation_role = match (heritage_kind, constructor.is_some()) {
+            (ClassHeritageKind::None, _) => ClassConstructorInvocationRole::Base,
+            (ClassHeritageKind::Constructable | ClassHeritageKind::Null, true) => {
+                ClassConstructorInvocationRole::ExplicitDerived
+            }
+            (ClassHeritageKind::Constructable | ClassHeritageKind::Null, false) => {
+                ClassConstructorInvocationRole::SyntheticDerived
+            }
+        };
+
         let constructor_id = self
             .analysis
             .class_execution_ids
@@ -422,6 +439,53 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
+        let mut class_callable_ids = BTreeSet::from([constructor_id.clone()]);
+        class_callable_ids.extend(
+            public_methods
+                .iter()
+                .map(|method| method.function_id.clone()),
+        );
+        class_callable_ids.extend(
+            private_methods
+                .iter()
+                .map(|method| method.function_id.clone()),
+        );
+        class_callable_ids.extend(
+            fields
+                .iter()
+                .filter_map(|field| field.init_function_id.clone()),
+        );
+        class_callable_ids.extend(
+            private_fields
+                .iter()
+                .filter_map(|field| field.init_function_id.clone()),
+        );
+        class_callable_ids.extend(
+            static_blocks
+                .iter()
+                .map(|(function_id, _)| function_id.clone()),
+        );
+        for accessor in &auto_accessors {
+            class_callable_ids.insert(accessor.functions.getter().clone());
+            class_callable_ids.insert(accessor.functions.setter().clone());
+            if let Some(init_function_id) = &accessor.init_function_id {
+                class_callable_ids.insert(init_function_id.clone());
+            }
+        }
+        let prior_class_callable_flow_effects = class_callable_ids
+            .iter()
+            .filter_map(|function_id| {
+                self.function_signatures
+                    .get(function_id)
+                    .map(|signature| (function_id.clone(), signature.source_call_flow_effects))
+            })
+            .collect::<BTreeMap<_, _>>();
+        for function_id in &class_callable_ids {
+            if let Some(signature) = self.function_signatures.get_mut(function_id) {
+                signature.source_call_flow_effects = SourceCallFlowEffects::unobserved();
+            }
+        }
+
         let heritage_prototype = if heritage_kind == ClassHeritageKind::Constructable {
             heritage
                 .as_ref()
@@ -496,7 +560,7 @@ impl<'a> ScriptLowerer<'a> {
                 heritage_function_id
                     .as_ref()
                     .and_then(|id| self.function_signatures.get(id))
-                    .map(|signature| signature.constructor_instance.clone())
+                    .map(|signature| self.function_construct_instance_info(signature))
                     .filter(|info| info.possible_kinds != KindSet::EMPTY)
             } else {
                 None
@@ -585,7 +649,7 @@ impl<'a> ScriptLowerer<'a> {
                 private_brands: static_private_method_brands,
                 boxed_primitive: None,
             }))),
-            function_targets: BTreeSet::from([constructor_id.clone()]),
+            function_targets: FunctionTargetKnowledge::exact(constructor_id.clone()),
         };
         if let Some(class_name) = &class_name {
             self.set_binding_value_info(class_name, class_info.clone())
@@ -613,7 +677,7 @@ impl<'a> ScriptLowerer<'a> {
                         continue;
                     }
                     let field_info = if let Some(init_function_id) = &field.init_function_id {
-                        self.lower_generated_expr_function(
+                        let output = self.lower_generated_expr_function(
                             init_function_id.clone(),
                             format!(
                                 "{}.field.{}",
@@ -632,8 +696,11 @@ impl<'a> ScriptLowerer<'a> {
                                 is_static: true,
                                 is_derived_constructor: false,
                             },
-                        )
-                        .return_info
+                        );
+                        if let Some(next_class_info) = output.construct_this_info {
+                            class_info = next_class_info;
+                        }
+                        output.return_info
                     } else {
                         ValueInfo::undefined()
                     };
@@ -653,7 +720,7 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     let hidden_key = private_data_key(field.private_name_id);
                     let field_info = if let Some(init_function_id) = &field.init_function_id {
-                        self.lower_generated_expr_function(
+                        let output = self.lower_generated_expr_function(
                             init_function_id.clone(),
                             format!(
                                 "{}.field.{}",
@@ -672,8 +739,11 @@ impl<'a> ScriptLowerer<'a> {
                                 is_static: true,
                                 is_derived_constructor: false,
                             },
-                        )
-                        .return_info
+                        );
+                        if let Some(next_class_info) = output.construct_this_info {
+                            class_info = next_class_info;
+                        }
+                        output.return_info
                     } else {
                         ValueInfo::undefined()
                     };
@@ -694,7 +764,7 @@ impl<'a> ScriptLowerer<'a> {
                     let backing_name_id = accessor.backing_name.private_name_id();
                     let hidden_key = private_data_key(backing_name_id);
                     let field_info = if let Some(init_function_id) = &accessor.init_function_id {
-                        self.lower_generated_expr_function(
+                        let output = self.lower_generated_expr_function(
                             init_function_id.clone(),
                             format!(
                                 "{}.auto-accessor.{hidden_key}",
@@ -714,8 +784,11 @@ impl<'a> ScriptLowerer<'a> {
                                 is_static: true,
                                 is_derived_constructor: false,
                             },
-                        )
-                        .return_info
+                        );
+                        if let Some(next_class_info) = output.construct_this_info {
+                            class_info = next_class_info;
+                        }
+                        output.return_info
                     } else {
                         ValueInfo::undefined()
                     };
@@ -1195,6 +1268,64 @@ impl<'a> ScriptLowerer<'a> {
             }
             constructor_output
         };
+
+        for (function_id, prior_flow_effects) in prior_class_callable_flow_effects {
+            let signature = self
+                .function_signatures
+                .get_mut(&function_id)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "class callable signature `{function_id}` must exist after body lowering"
+                    )
+                });
+            signature.source_call_flow_effects = signature
+                .source_call_flow_effects
+                .merge_observation(prior_flow_effects);
+        }
+
+        let mut constructor_flow_effects = self
+            .function_signatures
+            .get(&constructor_id)
+            .unwrap_or_else(|| {
+                panic!("class constructor signature `{constructor_id}` must be lowered")
+            })
+            .source_call_flow_effects;
+        match constructor_invocation_role {
+            ClassConstructorInvocationRole::Base => {
+                if let Some(instance_element_plan) = &class_instance_element_plan {
+                    for element in &instance_element_plan.elements {
+                        let init_function_id = match element {
+                            ClassInstanceElementIr::Field(field) => &field.init_function_id,
+                            ClassInstanceElementIr::AutoAccessorBacking(accessor) => {
+                                &accessor.init_function_id
+                            }
+                        };
+                        let Some(init_function_id) = init_function_id else {
+                            continue;
+                        };
+                        let initializer_flow_effects = self
+                            .function_signatures
+                            .get(init_function_id)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "class instance initializer signature `{init_function_id}` must exist before constructor finalization"
+                                )
+                            })
+                            .source_call_flow_effects;
+                        constructor_flow_effects =
+                            constructor_flow_effects.combine_caller_flow(initializer_flow_effects);
+                    }
+                }
+            }
+            ClassConstructorInvocationRole::ExplicitDerived => {}
+            ClassConstructorInvocationRole::SyntheticDerived => {
+                constructor_flow_effects = SourceCallFlowEffects::may_invalidate_caller_flow();
+            }
+        }
+        self.function_signatures
+            .get_mut(&constructor_id)
+            .expect("class constructor signature must remain present during finalization")
+            .source_call_flow_effects = constructor_flow_effects;
 
         if let Some(function_ir) = self
             .generated_functions

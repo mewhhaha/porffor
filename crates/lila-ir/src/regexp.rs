@@ -6,6 +6,9 @@ use std::sync::OnceLock;
 use icu_properties::props::{GeneralCategory, GeneralCategoryGroup, IdContinue, IdStart, Script};
 use icu_properties::script::ScriptWithExtensions;
 use icu_properties::{CodePointMapData, CodePointSetData, PropertyParser};
+use regress::{
+    unicode_string_property_from_str, unicode_string_property_sequences, UnicodeStringProperty,
+};
 
 /// The encoded width of every [`RegExpInstruction`] in bytes.
 pub const REGEXP_INSTRUCTION_WIDTH: usize = 24;
@@ -220,7 +223,7 @@ impl RegExpInstruction {
     pub const fn dot() -> Self {
         Self {
             opcode: REGEXP_OPCODE_DOT,
-            operand0: 0,
+            operand0: RegExpModifierOverride::Inherit.operand_code(),
             operand1: 0,
         }
     }
@@ -268,7 +271,7 @@ impl RegExpInstruction {
     pub const fn assert_start() -> Self {
         Self {
             opcode: REGEXP_OPCODE_ASSERT_START,
-            operand0: 0,
+            operand0: RegExpModifierOverride::Inherit.operand_code(),
             operand1: 0,
         }
     }
@@ -276,7 +279,7 @@ impl RegExpInstruction {
     pub const fn assert_end() -> Self {
         Self {
             opcode: REGEXP_OPCODE_ASSERT_END,
-            operand0: 0,
+            operand0: RegExpModifierOverride::Inherit.operand_code(),
             operand1: 0,
         }
     }
@@ -289,19 +292,23 @@ impl RegExpInstruction {
         }
     }
 
-    pub const fn lookbehind_end(failure_pc: usize, after_pc: usize, negative: bool) -> Self {
+    const fn lookbehind_end(
+        failure_pc: usize,
+        after_pc: usize,
+        polarity: &LookbehindPolarity,
+    ) -> Self {
         Self {
             opcode: REGEXP_OPCODE_LOOKBEHIND_END,
             operand0: failure_pc as u64,
-            operand1: (after_pc as u64) | ((negative as u64) << 63),
+            operand1: (after_pc as u64) | (polarity.operand_bit() << 63),
         }
     }
 
-    pub const fn lookbehind_failure(after_pc: usize, negative: bool) -> Self {
+    const fn lookbehind_failure(after_pc: usize, polarity: &LookbehindPolarity) -> Self {
         Self {
             opcode: REGEXP_OPCODE_LOOKBEHIND_FAILURE,
             operand0: after_pc as u64,
-            operand1: negative as u64,
+            operand1: polarity.operand_bit(),
         }
     }
 
@@ -955,39 +962,36 @@ enum ParsedTerm {
     },
 }
 
-mod legacy_utf16_pair {
-    use super::RegExpInstruction;
-
-    #[derive(Clone, Copy)]
-    pub(super) struct LegacyUtf16Pair {
-        lead: u32,
-        trail: u32,
-    }
-
-    impl LegacyUtf16Pair {
-        pub(super) fn from_scalar(scalar: char) -> Option<Self> {
-            let supplementary = u32::from(scalar).checked_sub(0x1_0000)?;
-            Some(Self {
-                lead: 0xD800 + (supplementary >> 10),
-                trail: 0xDC00 + (supplementary & 0x3ff),
-            })
-        }
-
-        pub(super) fn lead_instruction(self) -> RegExpInstruction {
-            RegExpInstruction::literal_code_point(self.lead)
-        }
-
-        pub(super) fn trail_instruction(self) -> RegExpInstruction {
-            RegExpInstruction::literal_code_point(self.trail)
-        }
-    }
-}
+mod legacy_utf16_pair;
 
 use legacy_utf16_pair::LegacyUtf16Pair;
 
 enum ParsedTermAtom {
     Ordinary(ParsedAtom),
     LegacyUtf16Pair(LegacyUtf16Pair),
+}
+
+/// Whether a lookbehind succeeds when its body matches or fails.
+enum LookbehindPolarity {
+    Positive,
+    Negative,
+}
+
+impl LookbehindPolarity {
+    fn from_syntax_marker(marker: u8) -> Option<Self> {
+        match marker {
+            b'=' => Some(Self::Positive),
+            b'!' => Some(Self::Negative),
+            _ => None,
+        }
+    }
+
+    const fn operand_bit(&self) -> u64 {
+        match self {
+            Self::Positive => 0,
+            Self::Negative => 1,
+        }
+    }
 }
 
 enum ParsedAtom {
@@ -1012,7 +1016,7 @@ enum ParsedAtom {
         nullable: bool,
     },
     Lookbehind {
-        negative: bool,
+        polarity: LookbehindPolarity,
         body: Vec<Vec<ParsedTerm>>,
     },
     RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
@@ -1048,8 +1052,8 @@ fn parse_pattern(
         unicode_mode,
         modifiers: Modifiers {
             ignore_case,
-            multiline: None,
-            dot_all: None,
+            multiline: RegExpModifierOverride::Inherit,
+            dot_all: RegExpModifierOverride::Inherit,
         },
         ranges: RegExpRangePool::default(),
         choice_count: 0,
@@ -1077,13 +1081,27 @@ fn parse_pattern(
 
 /// Matching state that RegExp modifier groups (`(?i-s:…)`) can override for the
 /// enclosed pattern only.
-#[derive(Debug, Clone, Copy)]
 struct Modifiers {
     ignore_case: bool,
-    /// `None` defers to the runtime `m` flag; `Some` forces the local value.
-    multiline: Option<bool>,
-    /// `None` defers to the runtime `s` flag; `Some` forces the local value.
-    dot_all: Option<bool>,
+    multiline: RegExpModifierOverride,
+    dot_all: RegExpModifierOverride,
+}
+
+/// The local `m` or `s` behavior selected by a RegExp modifier group.
+pub enum RegExpModifierOverride {
+    Inherit,
+    ForceOn,
+    ForceOff,
+}
+
+impl RegExpModifierOverride {
+    pub const fn operand_code(&self) -> u64 {
+        match self {
+            Self::Inherit => 0,
+            Self::ForceOn => 1,
+            Self::ForceOff => 2,
+        }
+    }
 }
 
 struct PatternParser<'a> {
@@ -1182,8 +1200,12 @@ impl PatternParser<'_> {
                         })
                     }
                     Some(b'<') => {
-                        if matches!(self.bytes.get(self.offset + 3), Some(b'=') | Some(b'!')) {
-                            let negative = self.bytes[self.offset + 3] == b'!';
+                        let polarity = self
+                            .bytes
+                            .get(self.offset + 3)
+                            .copied()
+                            .and_then(LookbehindPolarity::from_syntax_marker);
+                        if let Some(polarity) = polarity {
                             self.offset += 4;
                             let body = self.alternatives(Some(atom_offset))?;
                             if first_required_unicode_set_semantics(&body).is_none()
@@ -1194,7 +1216,7 @@ impl PatternParser<'_> {
                                     "lookbehind body uses an unsupported matcher atom",
                                 ));
                             }
-                            ParsedTermAtom::Ordinary(ParsedAtom::Lookbehind { negative, body })
+                            ParsedTermAtom::Ordinary(ParsedAtom::Lookbehind { polarity, body })
                         } else {
                             let name = self.parse_group_name()?;
                             self.capture_count =
@@ -1226,8 +1248,7 @@ impl PatternParser<'_> {
                     }
                     Some(b'i' | b'm' | b's' | b'-') => {
                         let modifiers = self.parse_modifier_group_prefix(atom_offset)?;
-                        let outer = self.modifiers;
-                        self.modifiers = modifiers;
+                        let outer = std::mem::replace(&mut self.modifiers, modifiers);
                         let subtree_start = self.capture_count + 1;
                         let body = self.alternatives(Some(atom_offset));
                         self.modifiers = outer;
@@ -1270,7 +1291,7 @@ impl PatternParser<'_> {
                 self.bytes,
                 &mut self.offset,
                 self.unicode_mode,
-                self.modifiers,
+                &self.modifiers,
                 &mut self.ranges,
                 self.total_capture_count,
                 self.has_named_capture_syntax,
@@ -1288,7 +1309,7 @@ impl PatternParser<'_> {
                         .unwrap_or(true),
                 }),
                 ParsedTermAtom::Ordinary(ParsedAtom::Instruction(mut instruction)) => {
-                    apply_modifiers(&mut instruction, self.modifiers);
+                    apply_modifiers(&mut instruction, &self.modifiers);
                     ParsedTermAtom::Ordinary(ParsedAtom::Instruction(instruction))
                 }
                 atom => atom,
@@ -1423,7 +1444,19 @@ impl PatternParser<'_> {
             ));
         }
         self.offset = cursor;
-        let mut modifiers = self.modifiers;
+        let mut modifiers = Modifiers {
+            ignore_case: self.modifiers.ignore_case,
+            multiline: match &self.modifiers.multiline {
+                RegExpModifierOverride::Inherit => RegExpModifierOverride::Inherit,
+                RegExpModifierOverride::ForceOn => RegExpModifierOverride::ForceOn,
+                RegExpModifierOverride::ForceOff => RegExpModifierOverride::ForceOff,
+            },
+            dot_all: match &self.modifiers.dot_all {
+                RegExpModifierOverride::Inherit => RegExpModifierOverride::Inherit,
+                RegExpModifierOverride::ForceOn => RegExpModifierOverride::ForceOn,
+                RegExpModifierOverride::ForceOff => RegExpModifierOverride::ForceOff,
+            },
+        };
         if added & 1 != 0 {
             modifiers.ignore_case = true;
         }
@@ -1431,16 +1464,16 @@ impl PatternParser<'_> {
             modifiers.ignore_case = false;
         }
         if added & 2 != 0 {
-            modifiers.multiline = Some(true);
+            modifiers.multiline = RegExpModifierOverride::ForceOn;
         }
         if removed & 2 != 0 {
-            modifiers.multiline = Some(false);
+            modifiers.multiline = RegExpModifierOverride::ForceOff;
         }
         if added & 4 != 0 {
-            modifiers.dot_all = Some(true);
+            modifiers.dot_all = RegExpModifierOverride::ForceOn;
         }
         if removed & 4 != 0 {
-            modifiers.dot_all = Some(false);
+            modifiers.dot_all = RegExpModifierOverride::ForceOff;
         }
         Ok(modifiers)
     }
@@ -1458,7 +1491,7 @@ fn parse_instruction_atom(
     bytes: &[u8],
     offset: &mut usize,
     unicode_mode: RegExpUnicodeMode,
-    modifiers: Modifiers,
+    modifiers: &Modifiers,
     pool: &mut RegExpRangePool,
     total_capture_count: u32,
     has_named_capture_syntax: bool,
@@ -2198,22 +2231,14 @@ fn parse_flags(flags: &str) -> Result<RegExpFlags, RegExpCompileError> {
 /// dotAll cannot be folded into an instruction, so they are recorded in
 /// `operand0`: `0` defers to the runtime flag, `1` forces the mode on and `2`
 /// forces it off.
-fn apply_modifiers(instruction: &mut RegExpInstruction, modifiers: Modifiers) {
+fn apply_modifiers(instruction: &mut RegExpInstruction, modifiers: &Modifiers) {
     match instruction.opcode {
         REGEXP_OPCODE_DOT => {
-            instruction.operand0 = match modifiers.dot_all {
-                None => 0,
-                Some(true) => 1,
-                Some(false) => 2,
-            };
+            instruction.operand0 = modifiers.dot_all.operand_code();
             return;
         }
         REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END => {
-            instruction.operand0 = match modifiers.multiline {
-                None => 0,
-                Some(true) => 1,
-                Some(false) => 2,
-            };
+            instruction.operand0 = modifiers.multiline.operand_code();
             return;
         }
         _ => {}
@@ -2266,7 +2291,7 @@ fn parse_escaped_atom(
     bytes: &[u8],
     offset: &mut usize,
     unicode_mode: RegExpUnicodeMode,
-    modifiers: Modifiers,
+    modifiers: &Modifiers,
     pool: &mut RegExpRangePool,
 ) -> Result<RegExpInstruction, RegExpCompileError> {
     let escape_offset = *offset;
@@ -2505,7 +2530,7 @@ fn parse_unicode_property_ranges(
 fn parse_unicode_property_escape(
     bytes: &[u8],
     offset: &mut usize,
-    modifiers: Modifiers,
+    modifiers: &Modifiers,
     pool: &mut RegExpRangePool,
 ) -> Result<RegExpInstruction, RegExpCompileError> {
     let escape_offset = *offset;
@@ -2740,7 +2765,7 @@ fn parse_class(
     bytes: &[u8],
     offset: &mut usize,
     mode: OrdinaryClassMode,
-    modifiers: Modifiers,
+    modifiers: &Modifiers,
     pool: &mut RegExpRangePool,
 ) -> Result<RegExpInstruction, RegExpCompileError> {
     let unicode = mode.is_unicode();
@@ -3061,7 +3086,7 @@ impl FiniteClassSetAtom {
 fn parse_unicode_sets_class(
     bytes: &[u8],
     offset: &mut usize,
-    modifiers: Modifiers,
+    modifiers: &Modifiers,
     pool: &mut RegExpRangePool,
 ) -> Result<UnicodeSetsClassAtom, RegExpCompileError> {
     let class_offset = *offset;
@@ -3557,26 +3582,47 @@ fn parse_unicode_property_of_strings(
     let value_end = value_start + relative_end;
     let value = std::str::from_utf8(&bytes[value_start..value_end])
         .map_err(|_| RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE))?;
-    let value = match value {
-        "Emoji_Keycap_Sequence" => {
-            // Unicode 17's property is exactly `[#*0-9] FE0F 20E3`.
-            let strings = b"#*0123456789"
+    let Some(property) = unicode_string_property_from_str(value) else {
+        return Ok(None);
+    };
+    let value = match property {
+        UnicodeStringProperty::EmojiKeycapSequence => {
+            let strings = unicode_string_property_sequences(property)
                 .iter()
-                .map(|base| vec![u32::from(*base), 0xFE0F, 0x20E3])
+                .map(|sequence| sequence.to_vec())
                 .collect();
             ClassSetValue::finite_case_invariant_property_of_strings(strings)
         }
-        "Basic_Emoji"
-        | "RGI_Emoji_Modifier_Sequence"
-        | "RGI_Emoji_Flag_Sequence"
-        | "RGI_Emoji_Tag_Sequence"
-        | "RGI_Emoji_ZWJ_Sequence"
-        | "RGI_Emoji" => {
+        UnicodeStringProperty::BasicEmoji => {
             ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
                 first_offset: offset,
             })
         }
-        _ => return Ok(None),
+        UnicodeStringProperty::RGIEmojiFlagSequence => {
+            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
+                first_offset: offset,
+            })
+        }
+        UnicodeStringProperty::RGIEmojiModifierSequence => {
+            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
+                first_offset: offset,
+            })
+        }
+        UnicodeStringProperty::RGIEmojiTagSequence => {
+            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
+                first_offset: offset,
+            })
+        }
+        UnicodeStringProperty::RGIEmojiZWJSequence => {
+            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
+                first_offset: offset,
+            })
+        }
+        UnicodeStringProperty::RGIEmoji => {
+            ClassSetValue::unsupported_property_of_strings(RequiresUnicodePropertyOfStrings {
+                first_offset: offset,
+            })
+        }
     };
     *cursor = value_end + 1;
     Ok(Some(value))
@@ -4401,7 +4447,6 @@ fn parse_decimal_checked(bytes: &[u8], offset: &mut usize) -> (usize, bool) {
     (value, overflow || *offset == first)
 }
 
-#[derive(Clone, Copy)]
 enum OptionalAtomProgress {
     MustAdvance,
     MayRemainAtSameIndex,
@@ -4721,22 +4766,21 @@ impl<'a> ProgramLowerer<'a> {
             } else {
                 RegExpInstruction::nonempty_numbered_backreference(*capture_id)
             }),
-            ParsedAtom::Lookbehind { negative, body } => {
+            ParsedAtom::Lookbehind { polarity, body } => {
                 self.push(RegExpInstruction::lookbehind_start())?;
                 let sentinel = self.instructions.len();
                 self.push(RegExpInstruction::split(0, 0))?;
                 let body_start = self.instructions.len();
                 self.reverse_alternatives(body)?;
                 let end = self.instructions.len();
-                self.push(RegExpInstruction::lookbehind_end(0, 0, *negative))?;
+                self.push(RegExpInstruction::lookbehind_end(0, 0, polarity))?;
                 let failure = self.instructions.len();
-                self.push(RegExpInstruction::lookbehind_failure(0, *negative))?;
+                self.push(RegExpInstruction::lookbehind_failure(0, polarity))?;
                 let after = self.instructions.len();
                 self.instructions[sentinel] = RegExpInstruction::split(body_start, failure);
                 self.instructions[end] =
-                    RegExpInstruction::lookbehind_end(failure, after, *negative);
-                self.instructions[failure] =
-                    RegExpInstruction::lookbehind_failure(after, *negative);
+                    RegExpInstruction::lookbehind_end(failure, after, polarity);
+                self.instructions[failure] = RegExpInstruction::lookbehind_failure(after, polarity);
                 Ok(())
             }
             // Syntax-only placeholder. `ParsedPatternCapability` prevents the
@@ -6316,15 +6360,72 @@ mod tests {
             Some(SyntaxRule::NegatedClassMayContainStrings)
         );
 
-        let property = RegExpProgram::compile(r"[\p{Basic_Emoji}\q{a}]", "v")
-            .expect_err("other properties of strings retain their distinct capability");
-        assert_eq!(property.kind, RegExpCompileErrorKind::UnsupportedFeature);
-        assert_eq!(property.rule, None);
+        for property_name in [
+            "Basic_Emoji",
+            "RGI_Emoji_Flag_Sequence",
+            "RGI_Emoji_Modifier_Sequence",
+            "RGI_Emoji_Tag_Sequence",
+            "RGI_Emoji_ZWJ_Sequence",
+            "RGI_Emoji",
+        ] {
+            let pattern = format!(r"[\p{{{property_name}}}\q{{a}}]");
+            let property = RegExpProgram::compile(&pattern, "v")
+                .expect_err("other properties of strings retain their distinct capability");
+            assert_eq!(property.kind, RegExpCompileErrorKind::UnsupportedFeature);
+            assert_eq!(property.rule, None);
+        }
 
         let oversized = format!(r"[\q{{{}}}]", "a".repeat(REGEXP_MAX_INSTRUCTIONS + 1));
         let error = RegExpProgram::compile(&oversized, "v")
             .expect_err("finite class strings remain under the matcher-program cap");
         assert_eq!(error.kind, RegExpCompileErrorKind::UnsupportedFeature);
+    }
+
+    #[test]
+    fn unicode_string_property_names_are_strict_and_closed() {
+        for property_name in [
+            "Basic_Emoji",
+            "RGI_Emoji_Flag_Sequence",
+            "RGI_Emoji_Modifier_Sequence",
+            "RGI_Emoji_Tag_Sequence",
+            "RGI_Emoji_ZWJ_Sequence",
+            "RGI_Emoji",
+        ] {
+            let source = format!(r"\p{{{property_name}}}");
+            let mut cursor = 0;
+            let value = parse_unicode_property_of_strings(source.as_bytes(), &mut cursor)
+                .unwrap()
+                .expect("recognized property of strings");
+            assert_eq!(cursor, source.len(), "{property_name}");
+            assert!(matches!(
+                value.semantics,
+                ClassSetSemantics::RequiresUnicodeSetSemantics(
+                    RequiresUnicodeSetSemantics::PropertyOfStrings(_)
+                )
+            ));
+        }
+
+        let mut cursor = 0;
+        let keycaps = parse_unicode_property_of_strings(br"\p{Emoji_Keycap_Sequence}", &mut cursor)
+            .unwrap()
+            .expect("recognized finite property of strings");
+        assert_eq!(cursor, br"\p{Emoji_Keycap_Sequence}".len());
+        let ClassSetSemantics::Finite(keycaps) = keycaps.semantics else {
+            panic!("keycap property must use finite string semantics");
+        };
+        assert_eq!(keycaps.strings.len(), 12);
+
+        for source in [
+            br"\p{emoji_keycap_sequence}".as_slice(),
+            br"\p{Emoji_Keycap_Sequence_}".as_slice(),
+            br"\p{RGIEmoji}".as_slice(),
+        ] {
+            let mut cursor = 0;
+            assert!(parse_unicode_property_of_strings(source, &mut cursor)
+                .unwrap()
+                .is_none());
+            assert_eq!(cursor, 0);
+        }
     }
 
     #[test]
@@ -6391,6 +6492,61 @@ mod tests {
             RegExpInstruction::literal_ascii(b'a')
         );
         assert!(disabled.instructions[1].positive_ascii_class_contains(b'B'));
+    }
+
+    #[test]
+    fn modifier_groups_encode_dot_all_and_multiline_overrides() {
+        let dot_all_on = RegExpProgram::compile("(?s:.)", "").unwrap();
+        assert_eq!(
+            dot_all_on.instructions[0].operand0,
+            RegExpModifierOverride::ForceOn.operand_code()
+        );
+
+        let dot_all_off = RegExpProgram::compile("(?-s:.)", "s").unwrap();
+        assert_eq!(
+            dot_all_off.instructions[0].operand0,
+            RegExpModifierOverride::ForceOff.operand_code()
+        );
+
+        let multiline_on = RegExpProgram::compile("(?m:^$)", "").unwrap();
+        assert_eq!(
+            multiline_on.instructions[0].operand0,
+            RegExpModifierOverride::ForceOn.operand_code()
+        );
+        assert_eq!(
+            multiline_on.instructions[1].operand0,
+            RegExpModifierOverride::ForceOn.operand_code()
+        );
+
+        let multiline_off = RegExpProgram::compile("(?-m:^$)", "m").unwrap();
+        assert_eq!(
+            multiline_off.instructions[0].operand0,
+            RegExpModifierOverride::ForceOff.operand_code()
+        );
+        assert_eq!(
+            multiline_off.instructions[1].operand0,
+            RegExpModifierOverride::ForceOff.operand_code()
+        );
+    }
+
+    #[test]
+    fn nested_modifier_groups_restore_outer_dot_all_override() {
+        let program = RegExpProgram::compile("(?s:(?-s:.).).", "").unwrap();
+        let dot_operands = program
+            .instructions
+            .iter()
+            .filter(|instruction| instruction.opcode == REGEXP_OPCODE_DOT)
+            .map(|instruction| instruction.operand0)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            dot_operands,
+            [
+                RegExpModifierOverride::ForceOff.operand_code(),
+                RegExpModifierOverride::ForceOn.operand_code(),
+                RegExpModifierOverride::Inherit.operand_code(),
+            ]
+        );
     }
 
     #[test]
@@ -6636,11 +6792,11 @@ mod tests {
         assert_eq!(program.instructions[5], RegExpInstruction::jump(3));
         assert_eq!(
             program.instructions[6],
-            RegExpInstruction::lookbehind_end(7, 8, false)
+            RegExpInstruction::lookbehind_end(7, 8, &LookbehindPolarity::Positive)
         );
         assert_eq!(
             program.instructions[7],
-            RegExpInstruction::lookbehind_failure(8, false)
+            RegExpInstruction::lookbehind_failure(8, &LookbehindPolarity::Positive)
         );
         assert_eq!(
             program.instructions[8],

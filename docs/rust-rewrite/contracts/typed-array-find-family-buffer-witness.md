@@ -52,9 +52,10 @@ outside the live buffer-witness invariant used by migrated TypedArray consumers.
 
 ## Closed projection
 
-`FindViaPredicateKind` remains the sole four-way compiler domain. Its exhaustive
-direction and projection mappings continue to own all four method surfaces; the
-buffer migration adds no boolean or parallel method dispatcher.
+`builtins/array/find_via_predicate.rs` remains the sole owner of the compiler
+family. `FindViaPredicateKind` is its four-way domain. Its exhaustive direction
+and projection mappings continue to own all four method surfaces; the buffer
+migration adds no boolean or parallel method dispatcher.
 
 The shared TypedArray compiler completes its receiver-brand check before reading
 private view state. It then loads exactly one immutable private view through

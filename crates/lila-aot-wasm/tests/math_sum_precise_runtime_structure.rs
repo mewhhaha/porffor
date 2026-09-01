@@ -4,6 +4,9 @@ const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const CONTRACT: &str =
+    include_str!("../../../docs/rust-rewrite/contracts/math-sum-precise-runtime.md");
+const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -41,8 +44,45 @@ fn sum_precise_proof_state_and_phase_witness_are_closed() {
     let state = bounded(
         MATH_SOURCE,
         "enum MathSumPreciseState {",
-        "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\nenum MathSumPreciseLimbOperation",
+        "enum MathSumPreciseLimbOperation",
     );
+    assert_eq!(
+        bounded(MATH_SOURCE, "enum MathSumPreciseState {", "\n}")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>(),
+        [
+            "MinusZero,",
+            "Finite,",
+            "PlusInfinity,",
+            "MinusInfinity,",
+            "NotANumber,",
+        ]
+    );
+    let state_declaration_prefix = MATH_SOURCE
+        .split_once("enum MathSumPreciseState {")
+        .expect("Math.sumPrecise state declaration")
+        .0
+        .rsplit_once("\n\n")
+        .expect("Math.sumPrecise state attribute boundary")
+        .1;
+    assert!(state_declaration_prefix.trim().is_empty());
+    for capability in [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Default",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+    ] {
+        assert!(!MATH_SOURCE.contains(&format!("impl {capability} for MathSumPreciseState")));
+    }
+    assert_eq!(state.matches("const fn abi_word(self) -> i64").count(), 1);
+    assert_eq!(state.matches("match self {").count(), 1);
     for variant in [
         "MinusZero",
         "Finite",
@@ -57,6 +97,13 @@ fn sum_precise_proof_state_and_phase_witness_are_closed() {
         );
     }
     assert!(!state.contains("_ =>"));
+    assert!(!state.contains(".clone()"));
+
+    for evidence in [CONTRACT, TASK] {
+        let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(words.contains("capability-free `MathSumPreciseState`"));
+        assert!(words.contains("Batch AL"));
+    }
 
     let declaration = MATH_SOURCE
         .split_once("struct CompletedMathSumPreciseReduction {")
@@ -88,7 +135,7 @@ fn sum_precise_runtime_walk_orders_count_type_fold_and_close() {
     for operation in [
         "emit_builtin_arg_to_locals(",
         "emit_get_iterator_from_value_locals(",
-        "SyncIteratorErrorPolicy::MathSumPrecise",
+        "let consumer = SyncIteratorConsumer::MathSumPrecise;",
         "emit_math_sum_precise_initialize_accumulator(&accumulator, function)",
         "emit_sync_iterator_step_value(",
         "MATH_SUM_PRECISE_MAX_COUNT",
@@ -272,15 +319,25 @@ fn sum_precise_finite_fold_is_fixed_width_and_rounds_once() {
 }
 
 #[test]
-fn sum_precise_iterator_protocol_policy_is_exhaustive_and_does_not_close_steps() {
-    let policy = bounded(
+fn sum_precise_iterator_consumer_is_exhaustive_and_does_not_close_steps() {
+    let consumer = bounded(
         CONTROL_FLOW_SOURCE,
-        "pub(crate) enum SyncIteratorErrorPolicy {",
-        "#[derive(Clone, Copy)]\nstruct DestructuringIteratorLocals",
+        "pub(crate) enum SyncIteratorConsumer {",
+        "/// Whether `Iterator.prototype.flatMap`",
     );
-    for variant in ["LegacyMainRealm", "MathSumPrecise"] {
-        assert!(policy.contains(variant));
-    }
+    assert_eq!(
+        consumer
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && *line != "}")
+            .collect::<Vec<_>>(),
+        [
+            "ArrayDestructuring,",
+            "ArrayAccumulation,",
+            "ForOf,",
+            "MathSumPrecise,",
+        ]
+    );
 
     let route = bounded(
         CONTROL_FLOW_SOURCE,
@@ -295,17 +352,23 @@ fn sum_precise_iterator_protocol_policy_is_exhaustive_and_does_not_close_steps()
     ] {
         assert_eq!(
             route.matches(error).count(),
-            2,
-            "both policies route {error}"
+            4,
+            "all four consumers route {error}"
         );
     }
     assert!(!route.contains("_ =>"));
     assert!(route.contains("emit_throw_current_function_realm_type_error("));
+    assert!(route.contains("emit_throw_runtime_error("));
+    assert!(route.contains("match self.numeric_error_realm_source()"));
+    assert!(route.contains("NumericErrorRealmSource::StandardBuiltinEnvironment"));
+    assert!(route.contains("NumericErrorRealmSource::GlobalFallback"));
+    assert!(route.contains("NumericErrorRealmSource::NumericConversionHelperArgument"));
+    assert!(!route.contains("_ =>"));
 
     let step = bounded(
         CONTROL_FLOW_SOURCE,
         "    pub(crate) fn emit_sync_iterator_step_value(",
-        "    fn prepare_destructuring_target(",
+        "    fn prepare_destructuring_target<'b>(",
     );
     assert!(step.contains("SyncIteratorProtocolError::NextNotCallable"));
     assert!(step.contains("SyncIteratorProtocolError::NextResultNotObject"));
@@ -328,11 +391,32 @@ fn sum_precise_iterator_protocol_policy_is_exhaustive_and_does_not_close_steps()
         .expect("dynamic Arguments guard")
         .1;
     assert!(after_runtime_arguments_guard.contains("self.finish_get_iterator_from_method("));
-    assert!(get_iterator
-        .contains("SyncIteratorErrorPolicy::LegacyMainRealm => self.emit_value_to_object_locals("));
-    assert!(get_iterator.contains(
-        "SyncIteratorErrorPolicy::MathSumPrecise => self\n                .emit_value_to_current_function_realm_object_locals("
-    ));
+    assert_eq!(
+        get_iterator
+            .matches("self.emit_value_to_current_function_realm_object_locals(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        get_iterator
+            .matches("self.emit_value_to_object_locals(")
+            .count(),
+        0
+    );
+    assert!(!get_iterator.contains("match consumer"));
+
+    let reduction = bounded(
+        MATH_SOURCE,
+        "    fn emit_math_sum_precise_reduction(",
+        "    fn emit_math_sum_precise_make_magnitude(",
+    );
+    assert_eq!(
+        reduction
+            .matches("let consumer = SyncIteratorConsumer::MathSumPrecise;")
+            .count(),
+        1
+    );
+    assert_eq!(reduction.matches("&consumer").count(), 2);
 }
 
 #[test]

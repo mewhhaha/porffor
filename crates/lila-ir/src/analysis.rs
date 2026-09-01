@@ -34,6 +34,11 @@ pub(crate) struct AnnexBFunctionPlan {
     pub(crate) copy_to_variable_environment: bool,
 }
 
+enum AnnexBDirectFunctionCollection {
+    Skip,
+    Record,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct EnvironmentId(usize);
 
@@ -73,41 +78,8 @@ pub(crate) struct PrivateEnvironmentPlan {
     pub(crate) slot_count: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EnvironmentKind {
-    Activation,
-    Block,
-    WithObject,
-    ClassName,
-    SwitchCaseBlock,
-    CatchParameter,
-    ForLexicalHead,
-    ForInOfTdzHead,
-    ForInOfIteration,
-}
-
-impl EnvironmentKind {
-    pub(crate) const fn is_materialized_in_stage_a(self) -> bool {
-        matches!(
-            self,
-            Self::Block | Self::SwitchCaseBlock | Self::CatchParameter
-        )
-    }
-
-    pub(crate) const fn is_materialized(self) -> bool {
-        matches!(
-            self,
-            Self::Block
-                | Self::ClassName
-                | Self::WithObject
-                | Self::SwitchCaseBlock
-                | Self::CatchParameter
-                | Self::ForLexicalHead
-                | Self::ForInOfTdzHead
-                | Self::ForInOfIteration
-        )
-    }
-}
+mod environment_kind;
+pub(crate) use environment_kind::EnvironmentKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EnvironmentCursor {
@@ -129,6 +101,7 @@ pub(crate) struct EnvironmentPlan {
 #[derive(Debug, Clone)]
 pub(crate) struct OwnerPlan {
     pub(crate) flavor: FunctionFlavor,
+    pub(crate) execution_kind: FunctionExecutionKind,
     pub(crate) lexical_super_owner_role: LexicalSuperOwnerRole,
     pub(crate) strict: bool,
     pub(crate) parent_owner_id: Option<String>,
@@ -289,6 +262,7 @@ pub(crate) struct AnalysisBuilder<'a> {
     for_lexical_environment_ids: BTreeMap<usize, EnvironmentId>,
     for_in_of_tdz_environment_ids: BTreeMap<usize, EnvironmentId>,
     for_in_of_iteration_environment_ids: BTreeMap<usize, EnvironmentId>,
+    complete_resumable_for_of_iteration_environment_ids: BTreeSet<EnvironmentId>,
     function_plans: BTreeMap<FunctionId, FunctionPlan<'a>>,
     function_declaration_ids: BTreeMap<String, FunctionId>,
     annex_b_function_plans: BTreeMap<String, AnnexBFunctionPlan>,
@@ -384,6 +358,7 @@ impl<'a> AnalysisBuilder<'a> {
             SCRIPT_OWNER_ID.to_string(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role: LexicalSuperOwnerRole::None,
                 strict: script.strict(),
                 parent_owner_id: None,
@@ -420,8 +395,13 @@ impl<'a> AnalysisBuilder<'a> {
             );
         }
         self.finalize_capture_plans();
-        let planned_source_function_ids =
-            Arc::new(self.function_plans.keys().cloned().collect::<BTreeSet<_>>());
+        let planned_source_function_ids = Arc::new(
+            self.function_plans
+                .keys()
+                .chain(self.class_execution_ids.values())
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+        );
         Analysis {
             owner_plans: self.owner_plans,
             environment_plans: self.environment_plans,
@@ -792,7 +772,13 @@ impl<'a> AnalysisBuilder<'a> {
             .map(function_declaration_key)
             .collect::<BTreeSet<_>>();
 
-        self.collect_annex_b_nested_items(owner_id, items, &eligible_keys, interner, false);
+        self.collect_annex_b_nested_items(
+            owner_id,
+            items,
+            &eligible_keys,
+            interner,
+            AnnexBDirectFunctionCollection::Skip,
+        );
     }
 
     fn collect_annex_b_nested_items(
@@ -801,25 +787,28 @@ impl<'a> AnalysisBuilder<'a> {
         items: &'a [StatementListItem],
         eligible_keys: &BTreeSet<String>,
         interner: &Interner,
-        record_direct_declarations: bool,
+        direct_function_collection: AnnexBDirectFunctionCollection,
     ) {
-        if record_direct_declarations {
-            let direct_functions = items
-                .iter()
-                .filter_map(|item| match item {
-                    StatementListItem::Declaration(declaration) => match declaration.as_ref() {
-                        Declaration::FunctionDeclaration(function) => Some(function),
-                        _ => None,
-                    },
-                    StatementListItem::Statement(_) => None,
-                })
-                .collect::<Vec<_>>();
-            self.record_annex_b_direct_functions(
-                owner_id,
-                &direct_functions,
-                eligible_keys,
-                interner,
-            );
+        match direct_function_collection {
+            AnnexBDirectFunctionCollection::Skip => {}
+            AnnexBDirectFunctionCollection::Record => {
+                let direct_functions = items
+                    .iter()
+                    .filter_map(|item| match item {
+                        StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+                            Declaration::FunctionDeclaration(function) => Some(function),
+                            _ => None,
+                        },
+                        StatementListItem::Statement(_) => None,
+                    })
+                    .collect::<Vec<_>>();
+                self.record_annex_b_direct_functions(
+                    owner_id,
+                    &direct_functions,
+                    eligible_keys,
+                    interner,
+                );
+            }
         }
 
         for item in items {
@@ -1091,7 +1080,7 @@ impl<'a> AnalysisBuilder<'a> {
                 block.statement_list().statements(),
                 eligible_keys,
                 interner,
-                true,
+                AnnexBDirectFunctionCollection::Record,
             ),
             Statement::If(statement) => {
                 self.collect_annex_b_nested_statement(
@@ -1164,7 +1153,7 @@ impl<'a> AnalysisBuilder<'a> {
                         case.body().statements(),
                         eligible_keys,
                         interner,
-                        false,
+                        AnnexBDirectFunctionCollection::Skip,
                     );
                 }
             }
@@ -1184,7 +1173,7 @@ impl<'a> AnalysisBuilder<'a> {
                     statement.block().statement_list().statements(),
                     eligible_keys,
                     interner,
-                    true,
+                    AnnexBDirectFunctionCollection::Record,
                 );
                 if let Some(catch) = statement.catch() {
                     self.collect_annex_b_nested_items(
@@ -1192,7 +1181,7 @@ impl<'a> AnalysisBuilder<'a> {
                         catch.block().statement_list().statements(),
                         eligible_keys,
                         interner,
-                        true,
+                        AnnexBDirectFunctionCollection::Record,
                     );
                 }
                 if let Some(finally) = statement.finally() {
@@ -1201,7 +1190,7 @@ impl<'a> AnalysisBuilder<'a> {
                         finally.block().statement_list().statements(),
                         eligible_keys,
                         interner,
-                        true,
+                        AnnexBDirectFunctionCollection::Record,
                     );
                 }
             }
@@ -1469,6 +1458,7 @@ impl<'a> AnalysisBuilder<'a> {
             owner_id.clone(),
             OwnerPlan {
                 flavor: function.protocol.flavor(),
+                execution_kind: function.protocol.execution_kind(),
                 lexical_super_owner_role,
                 strict: function.strict,
                 parent_owner_id: Some(parent_owner_id.clone()),
@@ -3273,6 +3263,9 @@ impl<'a> AnalysisBuilder<'a> {
                         id.clone(),
                         OwnerPlan {
                             flavor: FunctionFlavor::Ordinary,
+                            execution_kind: object_method_protocol(method.kind())
+                                .function_protocol()
+                                .execution_kind(),
                             lexical_super_owner_role: LexicalSuperOwnerRole::HomeObject,
                             strict,
                             parent_owner_id: Some(parent_owner_id.to_string()),
@@ -3384,6 +3377,7 @@ impl<'a> AnalysisBuilder<'a> {
             id.clone(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role: LexicalSuperOwnerRole::HomeObject,
                 strict: true,
                 parent_owner_id: Some(class_parent_owner_id.to_string()),
@@ -3450,6 +3444,7 @@ impl<'a> AnalysisBuilder<'a> {
             id.clone(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role: LexicalSuperOwnerRole::HomeObject,
                 strict,
                 parent_owner_id: Some(parent_owner_id.to_string()),
@@ -3562,6 +3557,7 @@ impl<'a> AnalysisBuilder<'a> {
             id.clone(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role,
                 strict: self
                     .owner_plans
@@ -3644,6 +3640,7 @@ impl<'a> AnalysisBuilder<'a> {
             id.clone(),
             OwnerPlan {
                 flavor: FunctionFlavor::Ordinary,
+                execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role: if is_derived_constructor {
                     LexicalSuperOwnerRole::DerivedConstructorActivation
                 } else {
@@ -4386,6 +4383,14 @@ impl<'a> AnalysisBuilder<'a> {
                         .expect("for-of TDZ head must restore its environment cursor");
                     debug_assert_eq!(&cursor, expected_cursor);
                 }
+                if let IterableLoopInitializer::Identifier(identifier) = for_of.initializer() {
+                    self.record_ref(
+                        owner_id,
+                        interner.resolve_expect(identifier.sym()).to_string(),
+                        capture_aliases,
+                        refs,
+                    );
+                }
                 let mut body_aliases = capture_aliases.clone();
                 match for_of.initializer() {
                     IterableLoopInitializer::Let(binding)
@@ -4421,9 +4426,24 @@ impl<'a> AnalysisBuilder<'a> {
                         self.for_of_iteration_binding_modes(interner, for_of),
                     )
                 });
+                let complete_resumable_iteration_environment = self
+                    .owner_plans
+                    .get(owner_id)
+                    .is_some_and(|owner| owner.execution_kind == FunctionExecutionKind::Async)
+                    && !for_of.r#await()
+                    && matches!(
+                        for_of.initializer(),
+                        IterableLoopInitializer::Let(Binding::Pattern(_))
+                            | IterableLoopInitializer::Const(Binding::Pattern(_))
+                    )
+                    && contains(for_of.body(), ContainsSymbol::AwaitExpression);
                 if let Some(cursor) = &iteration_cursor {
                     self.for_in_of_iteration_environment_ids
                         .insert(for_of as *const ForOfLoop as usize, cursor.environment_id);
+                    if complete_resumable_iteration_environment {
+                        self.complete_resumable_for_of_iteration_environment_ids
+                            .insert(cursor.environment_id);
+                    }
                 }
                 if let Some(cursor) = &iteration_cursor {
                     self.environment_cursor_stack.push(cursor.clone());
@@ -4464,6 +4484,17 @@ impl<'a> AnalysisBuilder<'a> {
                                 refs,
                             );
                         }
+                    }
+                    IterableLoopInitializer::Access(access) => {
+                        self.scan_property_access(
+                            owner_id,
+                            access,
+                            interner,
+                            source_text,
+                            self_name,
+                            &body_aliases,
+                            refs,
+                        );
                     }
                     _ => {}
                 }
@@ -5009,8 +5040,8 @@ impl<'a> AnalysisBuilder<'a> {
                             refs,
                         );
                     }
-                    if let Pattern::Array(pattern) = pattern {
-                        self.scan_array_assignment_pattern_expressions(
+                    match pattern {
+                        Pattern::Array(pattern) => self.scan_array_assignment_pattern_expressions(
                             owner_id,
                             pattern,
                             interner,
@@ -5018,7 +5049,17 @@ impl<'a> AnalysisBuilder<'a> {
                             self_name,
                             capture_aliases,
                             refs,
-                        );
+                        ),
+                        Pattern::Object(pattern) => self
+                            .scan_object_assignment_pattern_expressions(
+                                owner_id,
+                                pattern,
+                                interner,
+                                source_text,
+                                self_name,
+                                capture_aliases,
+                                refs,
+                            ),
                     }
                 }
                 ArrayPatternElement::PropertyAccessRest { access } => {
@@ -5032,11 +5073,67 @@ impl<'a> AnalysisBuilder<'a> {
                         refs,
                     );
                 }
-                ArrayPatternElement::PatternRest { pattern } => {
-                    if let Pattern::Array(pattern) = pattern {
-                        self.scan_array_assignment_pattern_expressions(
+                ArrayPatternElement::PatternRest { pattern } => match pattern {
+                    Pattern::Array(pattern) => self.scan_array_assignment_pattern_expressions(
+                        owner_id,
+                        pattern,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    ),
+                    Pattern::Object(pattern) => self.scan_object_assignment_pattern_expressions(
+                        owner_id,
+                        pattern,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    ),
+                },
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn scan_object_assignment_pattern_expressions(
+        &mut self,
+        owner_id: &str,
+        pattern: &'a ObjectPattern,
+        interner: &'a Interner,
+        source_text: &'a str,
+        self_name: Option<&str>,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
+        for element in pattern.bindings() {
+            match element {
+                ObjectPatternElement::SingleName {
+                    name,
+                    ident,
+                    default_init,
+                } => {
+                    self.scan_property_name(
+                        owner_id,
+                        name,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    self.record_ref(
+                        owner_id,
+                        interner.resolve_expect(ident.sym()).to_string(),
+                        capture_aliases,
+                        refs,
+                    );
+                    if let Some(default) = default_init {
+                        self.scan_expression(
                             owner_id,
-                            pattern,
+                            default,
                             interner,
                             source_text,
                             self_name,
@@ -5044,6 +5141,107 @@ impl<'a> AnalysisBuilder<'a> {
                             refs,
                         );
                     }
+                }
+                ObjectPatternElement::Pattern {
+                    name,
+                    pattern,
+                    default_init,
+                } => {
+                    self.scan_property_name(
+                        owner_id,
+                        name,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    if let Some(default) = default_init {
+                        self.scan_expression(
+                            owner_id,
+                            default,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
+                    }
+                    match pattern {
+                        Pattern::Array(pattern) => self.scan_array_assignment_pattern_expressions(
+                            owner_id,
+                            pattern,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        ),
+                        Pattern::Object(pattern) => self
+                            .scan_object_assignment_pattern_expressions(
+                                owner_id,
+                                pattern,
+                                interner,
+                                source_text,
+                                self_name,
+                                capture_aliases,
+                                refs,
+                            ),
+                    }
+                }
+                ObjectPatternElement::AssignmentPropertyAccess {
+                    name,
+                    access,
+                    default_init,
+                } => {
+                    self.scan_property_name(
+                        owner_id,
+                        name,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    self.scan_property_access(
+                        owner_id,
+                        access,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    if let Some(default) = default_init {
+                        self.scan_expression(
+                            owner_id,
+                            default,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
+                    }
+                }
+                ObjectPatternElement::RestProperty { ident } => {
+                    self.record_ref(
+                        owner_id,
+                        interner.resolve_expect(ident.sym()).to_string(),
+                        capture_aliases,
+                        refs,
+                    );
+                }
+                ObjectPatternElement::AssignmentRestPropertyAccess { access } => {
+                    self.scan_property_access(
+                        owner_id,
+                        access,
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
                 }
             }
         }
@@ -5059,8 +5257,8 @@ impl<'a> AnalysisBuilder<'a> {
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
     ) {
-        if let Pattern::Array(pattern) = pattern {
-            self.scan_array_assignment_pattern_expressions(
+        match pattern {
+            Pattern::Array(pattern) => self.scan_array_assignment_pattern_expressions(
                 owner_id,
                 pattern,
                 interner,
@@ -5068,7 +5266,16 @@ impl<'a> AnalysisBuilder<'a> {
                 self_name,
                 capture_aliases,
                 refs,
-            );
+            ),
+            Pattern::Object(pattern) => self.scan_object_assignment_pattern_expressions(
+                owner_id,
+                pattern,
+                interner,
+                source_text,
+                self_name,
+                capture_aliases,
+                refs,
+            ),
         }
     }
 
@@ -6023,6 +6230,16 @@ impl<'a> AnalysisBuilder<'a> {
 
     fn finalize_capture_plans(&mut self) {
         let mut owned_names = BTreeMap::<EnvironmentId, BTreeSet<String>>::new();
+        for environment_id in &self.complete_resumable_for_of_iteration_environment_ids {
+            let environment = self
+                .environment_plans
+                .get(environment_id)
+                .expect("a complete resumable for-of environment must be planned");
+            owned_names
+                .entry(*environment_id)
+                .or_default()
+                .extend(environment.binding_storage_names.iter().cloned());
+        }
         // Every derived constructor has a canonical per-invocation activation,
         // even when no nested arrow currently captures it. Direct `super()`,
         // derived `this`, and completion normalization all share these slots.

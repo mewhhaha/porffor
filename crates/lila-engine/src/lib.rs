@@ -473,14 +473,9 @@ fn module_entry_graph(
     options: &CompileOptions,
 ) -> Option<lila_ir::ModuleGraphSources> {
     let loader = configured_module_loader(options)?;
-    let entry = ModuleEntry {
-        key: options
-            .filename
-            .clone()
-            .unwrap_or_else(|| "<entry>".to_string()),
-        source_override: Some(source.source_text.clone()),
-    };
-    module_loader::load_module_graph_from_parsed(&entry, source.clone(), loader.as_ref()).ok()
+    let entry_locator = options.filename.as_deref().unwrap_or("<entry>");
+    module_loader::load_module_graph_from_parsed(entry_locator, source.clone(), loader.as_ref())
+        .ok()
 }
 
 /// The module graph a Script's `import()` calls reach, or `None` when the Script
@@ -505,15 +500,9 @@ fn script_entry_graph(
         return None;
     }
     let loader = configured_module_loader(options)?;
-    let entry = ModuleEntry {
-        key: options
-            .filename
-            .clone()
-            .unwrap_or_else(|| "<entry>".to_string()),
-        source_override: Some(source.source_text.clone()),
-    };
+    let entry_locator = options.filename.as_deref().unwrap_or("<entry>");
     let graph = module_loader::load_module_graph_from_parsed_script(
-        &entry,
+        entry_locator,
         source.clone(),
         loader.as_ref(),
     )
@@ -1117,11 +1106,11 @@ pub use lila_runtime::{
     AgentId, GlobalEnvironmentId, HostClock, HostHooks, HostOutputEvent, HostRandom,
     HostRandomError, IntrinsicDescriptor, IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind,
     IntrinsicLink, IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor, IntrinsicPropertyKey,
-    IntrinsicPropertyValue, IntrinsicRole, ModuleLoadingPolicy, MonotonicClockDuration,
-    MonotonicClockInstant, NullHostHooks, ObservedCompletion, ObservedJsValue, ObservedNumber,
-    RandomUnitInterval, Realm, RealmBuilder, RealmGlobal, RealmId, RealmIntrinsics, RealmObjectId,
-    RealmObjectKind, SystemHostClock, SystemHostRandom, UtcEpochMilliseconds,
-    INTRINSIC_DESCRIPTORS, INTRINSIC_PROPERTY_DESCRIPTORS,
+    IntrinsicPropertyValue, IntrinsicRole, InvalidObservedBigInt, ModuleLoadingPolicy,
+    MonotonicClockDuration, MonotonicClockInstant, NullHostHooks, ObservedBigInt,
+    ObservedCompletion, ObservedJsValue, ObservedNumber, RandomUnitInterval, Realm, RealmBuilder,
+    RealmGlobal, RealmId, RealmIntrinsics, RealmObjectId, RealmObjectKind, SystemHostClock,
+    SystemHostRandom, UtcEpochMilliseconds, INTRINSIC_DESCRIPTORS, INTRINSIC_PROPERTY_DESCRIPTORS,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1281,8 +1270,7 @@ pub struct EngineError {
     parse_diagnostic: Option<ParseDiagnostic>,
     ir_diagnostic: Option<IrDiagnostic>,
     intl_artifact_identity_error: Option<IntlArtifactIdentityError>,
-    wasm_gc_capability: Option<WasmGcCapability>,
-    wasm_weak_reachability_capability: Option<WasmWeakReachabilityCapability>,
+    wasmtime_policy: Option<WasmtimeRuntimePolicy>,
 }
 
 /// Closed pre-instantiation failures for the Wasm Intl artifact/provider
@@ -1327,8 +1315,7 @@ impl EngineError {
             parse_diagnostic: None,
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
-            wasm_gc_capability: None,
-            wasm_weak_reachability_capability: None,
+            wasmtime_policy: None,
         }
     }
 
@@ -1338,8 +1325,7 @@ impl EngineError {
             parse_diagnostic: Some(err.diagnostic().clone()),
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
-            wasm_gc_capability: None,
-            wasm_weak_reachability_capability: None,
+            wasmtime_policy: None,
         }
     }
 
@@ -1349,8 +1335,7 @@ impl EngineError {
             parse_diagnostic: None,
             ir_diagnostic: Some(diagnostic),
             intl_artifact_identity_error: None,
-            wasm_gc_capability: None,
-            wasm_weak_reachability_capability: None,
+            wasmtime_policy: None,
         }
     }
 
@@ -1370,8 +1355,7 @@ impl EngineError {
             parse_diagnostic: None,
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
-            wasm_gc_capability: Some(err.policy.gc_capability()),
-            wasm_weak_reachability_capability: Some(err.policy.weak_reachability_capability()),
+            wasmtime_policy: Some(err.policy),
         }
     }
 
@@ -1381,8 +1365,7 @@ impl EngineError {
             parse_diagnostic: None,
             ir_diagnostic: None,
             intl_artifact_identity_error: Some(error),
-            wasm_gc_capability: None,
-            wasm_weak_reachability_capability: None,
+            wasmtime_policy: None,
         }
     }
 
@@ -1407,7 +1390,10 @@ impl EngineError {
     /// Required GC capability attached to a Wasmtime engine-construction
     /// failure. Other engine errors have no runtime-policy classification.
     pub const fn wasm_gc_capability(&self) -> Option<WasmGcCapability> {
-        self.wasm_gc_capability
+        match self.wasmtime_policy {
+            Some(policy) => Some(policy.gc_capability()),
+            None => None,
+        }
     }
 
     /// Required weak-reachability capability attached to a Wasmtime
@@ -1417,7 +1403,10 @@ impl EngineError {
     pub const fn wasm_weak_reachability_capability(
         &self,
     ) -> Option<WasmWeakReachabilityCapability> {
-        self.wasm_weak_reachability_capability
+        match self.wasmtime_policy {
+            Some(policy) => Some(policy.weak_reachability_capability()),
+            None => None,
+        }
     }
 }
 
@@ -1433,7 +1422,6 @@ pub struct Engine {
     realm: Realm,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WasmExecutionMode {
     Legacy,
     Structured,
@@ -1471,7 +1459,7 @@ enum WasmOutputEvents {
 }
 
 impl WasmOutputEvents {
-    fn for_mode(mode: WasmExecutionMode) -> Self {
+    fn for_mode(mode: &WasmExecutionMode) -> Self {
         match mode {
             WasmExecutionMode::Legacy => Self::DelegateOnly,
             WasmExecutionMode::Structured => Self::Capture(Arc::new(Mutex::new(Vec::new()))),
@@ -2049,7 +2037,7 @@ impl Engine {
     }
 
     pub fn shell_name(&self) -> &str {
-        &self.realm.shell_name
+        self.realm.shell_name()
     }
 
     pub fn compile_script(
@@ -2298,7 +2286,7 @@ impl Engine {
                 timeout_ms,
                 can_block,
                 WasmModuleMemoryCachePolicy::Retain,
-                WasmExecutionMode::Legacy,
+                &WasmExecutionMode::Legacy,
             )
             .and_then(WasmExecutionOutcome::into_legacy)
         })
@@ -2320,7 +2308,7 @@ impl Engine {
                 timeout_ms,
                 can_block,
                 WasmModuleMemoryCachePolicy::Retain,
-                WasmExecutionMode::Structured,
+                &WasmExecutionMode::Structured,
             )
             .and_then(WasmExecutionOutcome::into_structured)
         })
@@ -2342,7 +2330,7 @@ impl Engine {
             timeout_ms,
             can_block,
             memory_cache_policy,
-            WasmExecutionMode::Legacy,
+            &WasmExecutionMode::Legacy,
         )
         .and_then(WasmExecutionOutcome::into_legacy)
     }
@@ -2355,7 +2343,7 @@ impl Engine {
         timeout_ms: Option<u64>,
         can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
-        mode: WasmExecutionMode,
+        mode: &WasmExecutionMode,
     ) -> Result<WasmExecutionOutcome, EngineError> {
         let cache = program_wasm_cache();
         let artifact = self.load_or_compile_program_wasm_on_current_thread(
@@ -2867,7 +2855,7 @@ impl Engine {
             timeout_ms,
             can_block,
             memory_cache_policy,
-            WasmExecutionMode::Legacy,
+            &WasmExecutionMode::Legacy,
         )
         .and_then(WasmExecutionOutcome::into_legacy)
     }
@@ -2878,7 +2866,7 @@ impl Engine {
         timeout_ms: Option<u64>,
         can_block: bool,
         memory_cache_policy: WasmModuleMemoryCachePolicy,
-        mode: WasmExecutionMode,
+        mode: &WasmExecutionMode,
     ) -> Result<WasmExecutionOutcome, EngineError> {
         self.execute_with_wasm_bytes_inner_with_agents(
             bytes,
@@ -2907,7 +2895,7 @@ impl Engine {
             memory_cache_policy,
             agent_harness,
             agent_execution,
-            WasmExecutionMode::Legacy,
+            &WasmExecutionMode::Legacy,
         )
         .and_then(WasmExecutionOutcome::into_legacy)
     }
@@ -2920,7 +2908,7 @@ impl Engine {
         memory_cache_policy: WasmModuleMemoryCachePolicy,
         agent_harness: Option<WasmAgentHarness>,
         agent_execution: Option<WasmAgentExecution>,
-        mode: WasmExecutionMode,
+        mode: &WasmExecutionMode,
     ) -> Result<WasmExecutionOutcome, EngineError> {
         let trace_wasm = std::env::var_os("LILA_WASM_TRACE").is_some();
         let trace_start = std::time::Instant::now();
@@ -3655,10 +3643,11 @@ impl Engine {
                 "wasm completion_kind export had unexpected type",
             ));
         };
-        let completion_kind = i64::from(completion_kind);
-        let is_throw = match completion_kind {
-            kind if kind == CompletionKindIr::Normal.abi_code() => false,
-            kind if kind == CompletionKindIr::Throw.abi_code() => true,
+        let completion_kind = match i64::from(completion_kind) {
+            kind if kind == CompletionKindIr::Normal.abi_code() => {
+                WasmTopLevelCompletionKind::Normal
+            }
+            kind if kind == CompletionKindIr::Throw.abi_code() => WasmTopLevelCompletionKind::Throw,
             other => {
                 return Err(EngineError::new(format!(
                     "wasm top-level completion used invalid kind {other}; expected normal or throw"
@@ -3671,10 +3660,11 @@ impl Engine {
                 // all Error-property/global reads and heap-handle formatting
                 // in this mode so structured Object/Symbol observation remains
                 // type-only by construction.
-                let thrown_error = if is_throw {
-                    ThrownErrorText::read(&instance, &mut store, result_kind)?
-                } else {
-                    ThrownErrorText::NONE
+                let thrown_error = match &completion_kind {
+                    WasmTopLevelCompletionKind::Normal => ThrownErrorText::NONE,
+                    WasmTopLevelCompletionKind::Throw => {
+                        ThrownErrorText::read(&instance, &mut store, result_kind)?
+                    }
                 };
                 let note = render_wasmtime_completion(
                     result_tag,
@@ -3683,14 +3673,18 @@ impl Engine {
                     &mut store,
                     thrown_error.message(),
                 )?;
-                if is_throw {
-                    let prefix = thrown_error.name_prefix();
-                    return Err(EngineError::new(format!("uncaught throw: {prefix}{note}")));
+                match &completion_kind {
+                    WasmTopLevelCompletionKind::Normal => {
+                        Ok(WasmExecutionOutcome::Legacy(RunOutcome {
+                            backend_used: ExecutionBackend::WasmAot,
+                            note,
+                        }))
+                    }
+                    WasmTopLevelCompletionKind::Throw => {
+                        let prefix = thrown_error.name_prefix();
+                        Err(EngineError::new(format!("uncaught throw: {prefix}{note}")))
+                    }
                 }
-                Ok(WasmExecutionOutcome::Legacy(RunOutcome {
-                    backend_used: ExecutionBackend::WasmAot,
-                    note,
-                }))
             }
             WasmExecutionMode::Structured => {
                 let value = observe_wasmtime_value(
@@ -3699,10 +3693,9 @@ impl Engine {
                     wasmtime_exported_memory(&instance, &mut store),
                     &mut store,
                 )?;
-                let completion = if is_throw {
-                    ObservedCompletion::Throw(value)
-                } else {
-                    ObservedCompletion::Normal(value)
+                let completion = match completion_kind {
+                    WasmTopLevelCompletionKind::Normal => ObservedCompletion::Normal(value),
+                    WasmTopLevelCompletionKind::Throw => ObservedCompletion::Throw(value),
                 };
                 let note = match &completion {
                     ObservedCompletion::Normal(value) => {
@@ -3723,6 +3716,11 @@ impl Engine {
     }
 }
 
+enum WasmTopLevelCompletionKind {
+    Normal,
+    Throw,
+}
+
 enum WasmtimeExportedMemory {
     Unshared(wasmtime::Memory),
     Shared(wasmtime::SharedMemory),
@@ -3737,7 +3735,9 @@ fn observe_wasmtime_value(
     match tag {
         WasmRuntimeValueTag::HeapBigInt => {
             let decimal = decode_wasmtime_heap_bigint(payload, memory, store)?;
-            Ok(ObservedJsValue::BigInt(decimal.into_boxed_str()))
+            let bigint = ObservedBigInt::parse_canonical_decimal(decimal.into_boxed_str())
+                .map_err(|error| EngineError::new(error.to_string()))?;
+            Ok(ObservedJsValue::BigInt(bigint))
         }
         WasmRuntimeValueTag::ValueKind(kind) => match kind {
             ValueKind::Undefined => Ok(ObservedJsValue::Undefined),
@@ -3756,9 +3756,12 @@ fn observe_wasmtime_value(
                 let value = decode_wasmtime_string_units(payload, memory, store)?;
                 Ok(ObservedJsValue::String(value))
             }
-            ValueKind::BigInt => Ok(ObservedJsValue::BigInt(
-                payload.to_string().into_boxed_str(),
-            )),
+            ValueKind::BigInt => {
+                let bigint =
+                    ObservedBigInt::parse_canonical_decimal(payload.to_string().into_boxed_str())
+                        .map_err(|error| EngineError::new(error.to_string()))?;
+                Ok(ObservedJsValue::BigInt(bigint))
+            }
             ValueKind::Symbol => Ok(ObservedJsValue::Symbol),
             ValueKind::Object | ValueKind::Array | ValueKind::Function | ValueKind::Arguments => {
                 Ok(ObservedJsValue::Object)
@@ -4198,6 +4201,26 @@ var $262 = {
             host_surface_policy: HostSurfacePolicy::Test262,
             ..CompileOptions::default()
         }
+    }
+
+    #[test]
+    fn engine_error_wasmtime_capabilities_share_policy_authority() {
+        let setup_error = EngineError::from_wasmtime_setup(WasmtimeEngineSetupError::new(
+            WasmNativeCompilationMode::Fast,
+            "test setup failure",
+        ));
+        assert_eq!(
+            setup_error.wasm_gc_capability(),
+            Some(PRODUCT_WASMTIME_POLICY.gc_capability())
+        );
+        assert_eq!(
+            setup_error.wasm_weak_reachability_capability(),
+            Some(PRODUCT_WASMTIME_POLICY.weak_reachability_capability())
+        );
+
+        let ordinary_error = EngineError::new("ordinary failure");
+        assert_eq!(ordinary_error.wasm_gc_capability(), None);
+        assert_eq!(ordinary_error.wasm_weak_reachability_capability(), None);
     }
 
     #[test]
@@ -5079,6 +5102,26 @@ report;
         TestEngine(Engine::new(RealmBuilder::new().build()))
     }
 
+    #[derive(Debug)]
+    struct NamedHostHooks;
+
+    impl HostHooks for NamedHostHooks {
+        fn shell_name(&self) -> &'static str {
+            "named-engine-shell"
+        }
+    }
+
+    #[test]
+    fn engine_projects_the_realm_host_hook_shell_name() {
+        let engine = Engine::new(
+            RealmBuilder::new()
+                .with_host_hooks(Box::new(NamedHostHooks))
+                .build(),
+        );
+
+        assert_eq!(engine.shell_name(), "named-engine-shell");
+    }
+
     fn engine_with_captured_prints(lines: Arc<Mutex<Vec<String>>>) -> TestEngine {
         TestEngine(Engine::new(
             RealmBuilder::new()
@@ -5179,7 +5222,8 @@ report;
         assert_eq!(
             bigint.completion,
             ObservedCompletion::Normal(ObservedJsValue::BigInt(
-                "123456789012345678901234567890".into()
+                ObservedBigInt::parse_canonical_decimal("123456789012345678901234567890".into())
+                    .expect("expected BigInt should be canonical")
             ))
         );
 
@@ -5200,11 +5244,11 @@ report;
 
     #[test]
     fn wasm_output_capture_is_enabled_only_for_structured_execution() {
-        let legacy = WasmOutputEvents::for_mode(WasmExecutionMode::Legacy);
+        let legacy = WasmOutputEvents::for_mode(&WasmExecutionMode::Legacy);
         legacy.record("discarded");
         assert!(legacy.take().is_empty());
 
-        let structured = WasmOutputEvents::for_mode(WasmExecutionMode::Structured);
+        let structured = WasmOutputEvents::for_mode(&WasmExecutionMode::Structured);
         structured.record("captured");
         assert_eq!(
             structured.take(),
@@ -11098,25 +11142,43 @@ same(errors, 7, "errors");
     }
 
     #[test]
-    fn wasm_backend_exposes_the_temporal_now_namespace_object() {
+    fn wasm_backend_exposes_complete_temporal_namespace_from_a_bare_reference() {
         let outcome = engine()
             .run_script(
                 r#"
-if (typeof Temporal.Now !== "object") throw "typeof";
-if (Object.getPrototypeOf(Temporal.Now) !== Object.prototype) throw "prototype";
-if (Temporal.Now.prototype !== undefined) throw "prototype property";
-if (!Object.isExtensible(Temporal.Now)) throw "extensible";
-if (Object.prototype.toString.call(Temporal.Now) !== "[object Temporal.Now]") {
-  throw "toStringTag";
+var namespace = Temporal;
+for (var constructorName of [
+  "Instant",
+  "PlainDate",
+  "ZonedDateTime",
+  "PlainTime",
+  "PlainDateTime",
+  "PlainYearMonth",
+  "PlainMonthDay",
+  "Duration"
+]) {
+  var constructorDescriptor = Object.getOwnPropertyDescriptor(namespace, constructorName);
+  if (typeof constructorDescriptor.value !== "function") throw constructorName;
+  if (!constructorDescriptor.writable || constructorDescriptor.enumerable) throw constructorName + " flags";
+  if (!constructorDescriptor.configurable) throw constructorName + " configurable";
 }
 
-var namespaceDescriptor = Object.getOwnPropertyDescriptor(Temporal, "Now");
+var namespaceDescriptor = Object.getOwnPropertyDescriptor(namespace, "Now");
 if (!namespaceDescriptor.writable) throw "Now writable";
 if (namespaceDescriptor.enumerable) throw "Now enumerable";
 if (!namespaceDescriptor.configurable) throw "Now configurable";
+var now = namespaceDescriptor.value;
+
+if (typeof now !== "object") throw "typeof";
+if (Object.getPrototypeOf(now) !== Object.prototype) throw "prototype";
+if (now.prototype !== undefined) throw "prototype property";
+if (!Object.isExtensible(now)) throw "extensible";
+if (Object.prototype.toString.call(now) !== "[object Temporal.Now]") {
+  throw "toStringTag";
+}
 
 var tagDescriptor = Object.getOwnPropertyDescriptor(
-  Temporal.Now,
+  now,
   Symbol.toStringTag
 );
 if (tagDescriptor.value !== "Temporal.Now") throw "tag value";
@@ -11124,7 +11186,7 @@ if (tagDescriptor.writable || tagDescriptor.enumerable) throw "tag flags";
 if (!tagDescriptor.configurable) throw "tag configurable";
 
 for (var name of ["timeZoneId", "instant", "zonedDateTimeISO"]) {
-  var descriptor = Object.getOwnPropertyDescriptor(Temporal.Now, name);
+  var descriptor = Object.getOwnPropertyDescriptor(now, name);
   if (typeof descriptor.value !== "function") throw "member " + name;
   if (!descriptor.writable || descriptor.enumerable) throw "flags " + name;
   if (!descriptor.configurable) throw "configurable " + name;
@@ -11134,9 +11196,9 @@ for (var name of ["timeZoneId", "instant", "zonedDateTimeISO"]) {
 
 var constructErrors = 0;
 for (var member of [
-  Temporal.Now.timeZoneId,
-  Temporal.Now.instant,
-  Temporal.Now.zonedDateTimeISO,
+  now.timeZoneId,
+  now.instant,
+  now.zonedDateTimeISO,
 ]) {
   try { new member(); } catch (error) {
     if (error instanceof TypeError) constructErrors += 1;
@@ -11151,7 +11213,7 @@ if (constructErrors !== 3) throw "constructability";
                     ..RunOptions::default()
                 },
             )
-            .expect("wasm backend should expose the Temporal.Now namespace object");
+            .expect("wasm backend should expose the complete Temporal namespace");
         assert!(outcome.note.contains("number(262"));
     }
 
@@ -18603,6 +18665,7 @@ let decomposedHangul = "\u1100\u1161\u11A8";
 [
   "\u1E9B\u0323".normalize("NFD") === "\u017F\u0323\u0307",
   "\uFB01".normalize("NFKC"),
+  "\u00E9".normalize("NFKD") === "e\u0301",
   decomposedHangul.normalize("NFC"),
   "\uAC01".normalize("NFD") === decomposedHangul,
   "\uD800".normalize() === "\uD800",
@@ -18620,7 +18683,7 @@ let decomposedHangul = "\u1100\u1161\u11A8";
             )
             .expect("String.prototype.normalize should implement all Unicode normalization forms");
         assert!(
-            outcome.note.contains("string(true|fi|각|true|true|é)"),
+            outcome.note.contains("string(true|fi|true|각|true|true|é)"),
             "note: {}",
             outcome.note
         );
@@ -20779,14 +20842,8 @@ var reflected = Reflect.ownKeys(proxy);
                 "class C { static x = 1; static { this.y = this.x + 1; } } C.y;",
                 "number(2)",
             ),
-            (
-                "class C { m() { return 1; } } new C().m();",
-                "number(1)",
-            ),
-            (
-                "class C { get x() { return 3; } } new C().x;",
-                "number(3)",
-            ),
+            ("class C { m() { return 1; } } new C().m();", "number(1)"),
+            ("class C { get x() { return 3; } } new C().x;", "number(3)"),
         ] {
             let outcome = engine()
                 .run_script(
@@ -20797,8 +20854,14 @@ var reflected = Reflect.ownKeys(proxy);
                         ..RunOptions::default()
                     },
                 )
-                .unwrap_or_else(|err| panic!("constructor core should run for `{source}`: {err:?}"));
-            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+                .unwrap_or_else(|err| {
+                    panic!("constructor core should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
     }
 
@@ -20896,8 +20959,14 @@ var reflected = Reflect.ownKeys(proxy);
                         ..RunOptions::default()
                     },
                 )
-                .unwrap_or_else(|err| panic!("phase 22B class case should run for `{source}`: {err:?}"));
-            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+                .unwrap_or_else(|err| {
+                    panic!("phase 22B class case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
     }
 
@@ -21038,7 +21107,11 @@ let sized = new Sub(7);
                     },
                 )
                 .unwrap_or_else(|err| panic!("phase 23 case should run for `{source}`: {err:?}"));
-            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
     }
 
@@ -21046,7 +21119,10 @@ let sized = new Sub(7);
     fn wasm_backend_supports_phase_twenty_four_abrupt_core() {
         for (source, expected) in [
             ("try { 1; } finally {}", "number(1)"),
-            ("function f() { try { return 1; } finally {} } f();", "number(1)"),
+            (
+                "function f() { try { return 1; } finally {} } f();",
+                "number(1)",
+            ),
             (
                 "var x = 0; try { throw 1; } catch (e) { x = 1; } finally { x = x + 1; } x;",
                 "number(2)",
@@ -21063,12 +21139,18 @@ let sized = new Sub(7);
                 "function f() { let x = 0; while (true) { try { break; } finally { x = 1; } } return x; } f();",
                 "number(1)",
             ),
-            ("let o = { x: 1 }; delete o.x; \"x\" in o;", "boolean(false)"),
+            (
+                "let o = { x: 1 }; delete o.x; \"x\" in o;",
+                "boolean(false)",
+            ),
             ("let a = [1, 2]; delete a[0]; (0 in a);", "boolean(false)"),
             ("let a = [1, 2]; delete a[0]; a.length;", "number(2)"),
             ("\"x\" in { x: 1 }", "boolean(true)"),
             ("function F() {} \"prototype\" in F;", "boolean(true)"),
-            ("function f() { return new.target; } f();", "undefined(undefined)"),
+            (
+                "function f() { return new.target; } f();",
+                "undefined(undefined)",
+            ),
             (
                 "function F() { this.kind = typeof new.target; this.arrowKind = (() => typeof new.target)(); } let x = new F(); x.kind === \"function\" && x.arrowKind === \"function\";",
                 "boolean(true)",
@@ -21112,7 +21194,11 @@ let sized = new Sub(7);
                     },
                 )
                 .unwrap_or_else(|err| panic!("phase 24 case should run for `{source}`: {err:?}"));
-            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
     }
 
@@ -21200,7 +21286,11 @@ continued;
                     },
                 )
                 .unwrap_or_else(|err| panic!("phase 30 case should run for `{source}`: {err:?}"));
-            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
     }
 
@@ -23717,8 +23807,14 @@ resultIsArray();
                         ..RunOptions::default()
                     },
                 )
-                .unwrap_or_else(|err| panic!("phase 28 bind/error-string case should run for `{source}`: {err:?}"));
-            assert!(outcome.note.contains(expected), "source: {source}, note: {}", outcome.note);
+                .unwrap_or_else(|err| {
+                    panic!("phase 28 bind/error-string case should run for `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
         }
         let outcome = engine()
             .run_script(
@@ -23744,10 +23840,7 @@ resultIsArray();
                 "function f(x) { return x; } f.toString();",
                 "string(function f(x) { return x; })",
             ),
-            (
-                "let f = x => x + 1; f.toString();",
-                "string(x => x + 1)",
-            ),
+            ("let f = x => x + 1; f.toString();", "string(x => x + 1)"),
             (
                 "let o = { m(x) { return x; } }; o.m.toString();",
                 "string(m(x) { return x; })",

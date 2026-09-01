@@ -81,6 +81,28 @@ pub(crate) enum TemporalCalendarId {
     Gregory,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum TemporalCalendarCanonicalizationContext {
+    PlainDateFamily,
+    ZonedDateTime,
+}
+
+impl TemporalCalendarCanonicalizationContext {
+    const fn type_error_message(self) -> &'static str {
+        match self {
+            Self::PlainDateFamily => "Temporal.PlainDate calendar must be a string",
+            Self::ZonedDateTime => "Temporal.ZonedDateTime calendar must be a string",
+        }
+    }
+
+    const fn range_error_message(self) -> &'static str {
+        match self {
+            Self::PlainDateFamily => "Invalid Temporal.PlainDate calendar",
+            Self::ZonedDateTime => "Invalid Temporal.ZonedDateTime calendar",
+        }
+    }
+}
+
 impl TemporalCalendarId {
     /// Every calendar, in the order `CanonicalizeCalendar` tests them. Order is
     /// not observable — the spellings are disjoint — but keeping the default
@@ -552,7 +574,7 @@ impl TemporalResolvedYear {
 /// after `gregory` landed. Reading the real slot needs a per-brand offset, and
 /// a brand with no offset now fails to build.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum TemporalCalendarCarrier {
+enum TemporalCalendarCarrier {
     PlainDate,
     PlainDateTime,
     PlainMonthDay,
@@ -564,7 +586,7 @@ impl TemporalCalendarCarrier {
     /// `Temporal.Instant`, `Temporal.Duration` and `Temporal.PlainTime` are
     /// deliberately absent: they carry no `[[Calendar]]`, so a value of those
     /// brands must fall through to the caller's TypeError.
-    pub(crate) const ALL: [Self; 5] = [
+    const ALL: [Self; 5] = [
         Self::PlainDate,
         Self::PlainDateTime,
         Self::PlainMonthDay,
@@ -572,7 +594,7 @@ impl TemporalCalendarCarrier {
         Self::ZonedDateTime,
     ];
 
-    pub(crate) const fn brand(self) -> u64 {
+    const fn brand(self) -> u64 {
         match self {
             Self::PlainDate => OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE,
             Self::PlainDateTime => OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME,
@@ -583,7 +605,7 @@ impl TemporalCalendarCarrier {
     }
 
     /// Byte offset of the interned calendar payload inside the boxed record.
-    pub(crate) const fn calendar_payload_offset(self) -> u64 {
+    const fn calendar_payload_offset(self) -> u64 {
         match self {
             // `PlainMonthDay` and `PlainYearMonth` are stored in the
             // `PlainDate` record shape under a different brand, so all three
@@ -793,7 +815,7 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Rewrites `calendar_*_local` in place to the `String`-tagged slot when
     /// the fast path applies, and leaves them untouched otherwise.
-    pub(crate) fn emit_temporal_calendar_slot_fast_path(
+    fn emit_temporal_calendar_slot_fast_path(
         &mut self,
         calendar_payload_local: u32,
         calendar_tag_local: u32,
@@ -865,12 +887,11 @@ impl<'a> FunctionBuilder<'a> {
     /// Exactly one place canonicalises, so every `[[Calendar]]` slot in the
     /// heap holds a pooled [`TemporalCalendarId::canonical`] payload and no
     /// reader downstream has to case-fold or resolve an alias again.
-    pub(crate) fn emit_temporal_canonicalize_calendar(
+    pub(super) fn emit_temporal_canonicalize_calendar(
         &mut self,
         calendar_payload_local: u32,
         calendar_tag_local: u32,
-        type_error_message: &str,
-        range_error_message: &str,
+        context: TemporalCalendarCanonicalizationContext,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let expected_payload_local = self.reserve_temp_local();
@@ -900,7 +921,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
-            type_error_message,
+            context.type_error_message(),
             self.result_local,
             self.result_tag_local,
             function,
@@ -934,7 +955,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
-            range_error_message,
+            context.range_error_message(),
             self.result_local,
             self.result_tag_local,
             function,
@@ -964,8 +985,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_canonicalize_calendar(
             calendar_payload_local,
             calendar_tag_local,
-            "Temporal.PlainDate calendar must be a string",
-            "Invalid Temporal.PlainDate calendar",
+            TemporalCalendarCanonicalizationContext::PlainDateFamily,
             function,
         )
     }

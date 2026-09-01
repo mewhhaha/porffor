@@ -2,10 +2,9 @@
 //
 // # What it is for
 //
-// `for (const v of [..]) { …; await …; }` inside a plain async function is
-// specialized by `lower_async_for_of_array_with_body_await` into a
-// `StatementIr::GeneratorLoop` index walk. When the loop binding is captured by
-// a closure, ECMA-262 14.7.5.7 requires that loop to allocate and preserve a
+// `for (const v of [..]) { …; await …; }` inside a plain async function lowers
+// to a resumable synchronous iterator record. When the loop binding is captured
+// by a closure, ECMA-262 14.7.5.7 requires the loop to allocate and preserve a
 // fresh environment record for every entered iteration.
 //
 // # Why the two test262 cases are NOT a sufficient gate
@@ -24,12 +23,11 @@
 //
 // # The sync half is the control, and it passes today
 //
-// The same shape without the `await` lowers to `StatementIr::ForOfArray`, whose
-// emitter calls `emit_enter_lexical_environment` inside the loop and so really
-// does allocate one environment record per iteration. It is here so that a
-// failure of the async half cannot be blamed on per-iteration semantics being
-// unimplemented generally: if the sync half ever goes red, the defect is
-// somewhere else entirely and this fixture is not the right report.
+// The same shape without the `await` lowers through `StatementIr::ForOfIterator`.
+// It is here so that a failure of the async half cannot be blamed on
+// per-iteration semantics being unimplemented generally. If the sync half ever
+// goes red, the defect is somewhere else and this fixture is not the right
+// report.
 
 let log = "";
 
@@ -58,8 +56,8 @@ async function collect() {
   const closures = [];
   for (const v of [1, 2, 3, 4, 5, 6]) {
     closures.push(() => v);
-    // One direct await in the body: this is what routes the loop through
-    // `lower_async_for_of_array_with_body_await` rather than `ForOfArray`.
+    // One direct await in the body selects the resumable synchronous-iterator
+    // plan rather than the uninterrupted `ForOfIterator` statement.
     await 0;
   }
   // Every closure is called AFTER the loop has finished, so a shared cell can

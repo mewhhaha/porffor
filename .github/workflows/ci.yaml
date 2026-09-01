@@ -22,6 +22,7 @@ jobs:
         run: |
           ./scripts/check-task-plan.sh
           ./scripts/tests/check-readme-status-artifacts.sh
+          ./scripts/tests/audit-test262-shortcut-scanner.sh
           ./scripts/check-module-boundaries.sh
           ./scripts/audit-test262-shortcuts.sh --check
           ./scripts/check-test262-host-abi.sh

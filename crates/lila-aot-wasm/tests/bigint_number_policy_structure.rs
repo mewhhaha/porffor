@@ -78,6 +78,10 @@ fn bigint_number_policy_is_closed_and_projects_only_at_the_number_branch() {
         "RejectNumber,NumberToBigInt,",
         "the Number-admission domain must remain exactly two-state"
     );
+    assert!(!OPERATIONS_SOURCE.contains(")]\npub(crate) enum BigIntNumberPolicy"));
+    for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq"] {
+        assert!(!OPERATIONS_SOURCE.contains(&format!("impl {capability} for BigIntNumberPolicy")));
+    }
 
     let value_signature = bounded(
         OPERATIONS_SOURCE,
@@ -289,7 +293,7 @@ fn bigint_number_policy_has_exactly_six_rejections_and_one_admission() {
     );
     let bigint_builtin = bounded(
         BIGINT_SOURCE,
-        "pub(super) fn emit_bigint_builtin(",
+        "fn emit_bigint_builtin(",
         "\n    fn emit_bigint_exact_value_result(",
     );
     let zoned_date_time_constructor = bounded(

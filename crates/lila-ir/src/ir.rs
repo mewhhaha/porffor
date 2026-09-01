@@ -9,8 +9,8 @@ use crate::{
     CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
     FunctionProtocolIr, GeneratorDelegationProtocol, HostBuiltinId, IrDiagnostic, IrDiagnosticKind,
     IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage, NativeErrorKind,
-    NumericUpdateOp, RegExpProgram, RelationalBinaryOp, SpecOperationIr, SpreadArgumentProtocol,
-    StandardBuiltinId, ToPrimitiveHint, UnaryBitwiseOp, UnaryNumericOp, UpdateReturnMode,
+    NumericUpdateOp, NumericUpdateValueKind, RegExpProgram, RelationalBinaryOp, SpecOperationIr,
+    SpreadArgumentProtocol, StandardBuiltinId, ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode,
     GLOBAL_THIS_NAME,
 };
 use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
@@ -371,6 +371,10 @@ impl KindSet {
         Self(self.0 | other.0)
     }
 
+    pub const fn intersection(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
     pub const fn contains(self, kind: ValueKind) -> bool {
         self.0 & Self::from_kind(kind).0 != 0
     }
@@ -381,6 +385,10 @@ impl KindSet {
 
     pub const fn is_subset_of(self, other: Self) -> bool {
         self.0 & !other.0 == 0
+    }
+
+    pub const fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
     }
 
     pub const fn without(self, kind: ValueKind) -> Self {
@@ -425,7 +433,88 @@ pub struct ValueInfo {
     pub kind: ValueKind,
     pub possible_kinds: KindSet,
     pub heap_shape: Option<Box<HeapShape>>,
-    pub function_targets: BTreeSet<FunctionId>,
+    pub function_targets: FunctionTargetKnowledge,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FunctionTargetKnowledge {
+    Exact(BTreeSet<FunctionId>),
+    Open(BTreeSet<FunctionId>),
+}
+
+impl FunctionTargetKnowledge {
+    pub const fn none() -> Self {
+        Self::Exact(BTreeSet::new())
+    }
+
+    pub const fn unknown() -> Self {
+        Self::Open(BTreeSet::new())
+    }
+
+    pub fn exact(function_id: FunctionId) -> Self {
+        Self::Exact(BTreeSet::from([function_id]))
+    }
+
+    pub fn exact_many(function_ids: BTreeSet<FunctionId>) -> Self {
+        Self::Exact(function_ids)
+    }
+
+    pub fn exact_targets(&self) -> Option<&BTreeSet<FunctionId>> {
+        match self {
+            Self::Exact(targets) => Some(targets),
+            Self::Open(_) => None,
+        }
+    }
+
+    pub fn exact_single_target(&self) -> Option<&FunctionId> {
+        let targets = self.exact_targets()?;
+        if targets.len() != 1 {
+            return None;
+        }
+        targets.iter().next()
+    }
+
+    pub fn known_targets(&self) -> &BTreeSet<FunctionId> {
+        match self {
+            Self::Exact(targets) | Self::Open(targets) => targets,
+        }
+    }
+
+    pub fn join(self, other: Self) -> Self {
+        let exact = matches!(self, Self::Exact(_)) && matches!(other, Self::Exact(_));
+        let mut targets = match self {
+            Self::Exact(targets) | Self::Open(targets) => targets,
+        };
+        targets.extend(match other {
+            Self::Exact(targets) | Self::Open(targets) => targets,
+        });
+        if exact {
+            Self::Exact(targets)
+        } else {
+            Self::Open(targets)
+        }
+    }
+
+    pub fn widen_for_possible_replacement(&mut self) {
+        *self = match std::mem::replace(self, Self::unknown()) {
+            Self::Exact(targets) | Self::Open(targets) => Self::Open(targets),
+        };
+    }
+
+    pub fn replace_with_unknown(&mut self) {
+        *self = Self::unknown();
+    }
+
+    pub fn replace_with_no_function(&mut self) {
+        *self = Self::none();
+    }
+
+    pub fn map_known_targets(self, map: impl FnMut(FunctionId) -> FunctionId) -> Self {
+        match self {
+            Self::Exact(targets) => Self::Exact(targets.into_iter().map(map).collect()),
+            Self::Open(targets) => Self::Open(targets.into_iter().map(map).collect()),
+        }
+    }
 }
 
 impl ValueInfo {
@@ -434,7 +523,7 @@ impl ValueInfo {
             kind: ValueKind::Undefined,
             possible_kinds: KindSet::from_kind(ValueKind::Undefined),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
         }
     }
 
@@ -443,8 +532,20 @@ impl ValueInfo {
             kind,
             possible_kinds: KindSet::from_kind(kind),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: match kind {
+                ValueKind::Dynamic | ValueKind::Function | ValueKind::Object => {
+                    FunctionTargetKnowledge::unknown()
+                }
+                _ => FunctionTargetKnowledge::none(),
+            },
         }
+    }
+
+    pub fn widen_for_possible_replacement(&mut self) {
+        self.kind = ValueKind::Dynamic;
+        self.possible_kinds = KindSet::all_runtime_tags();
+        self.heap_shape = None;
+        self.function_targets.widen_for_possible_replacement();
     }
 }
 
@@ -1061,13 +1162,12 @@ pub struct ArrayDestructuringPatternIr {
     /// byte-neutral everywhere else.
     ///
     /// The type is [`ArrayPatternProtocol`], **not** `IteratorProtocolWitness`.
-    /// The bare witness type is the whole witness domain, so
-    /// `protocol: IteratorProtocolWitness::NO_ITERATION` — or
-    /// `::ARRAY_INDEX_WALK`, which assumes away all of 23.1.3.x — compiled at
-    /// both construction sites and every const assertion still passed. The
-    /// newtype has one inhabitant and a private constructor, so any other
-    /// witness here is `E0308`: the guarantee is now "the right constant", not
-    /// "a constant".
+    /// The bare witness type is the whole witness domain, so both
+    /// `IteratorProtocolWitness::NO_ITERATION` and `::SYNC_ITERATOR_PROTOCOL`
+    /// compiled at both construction sites and every const assertion still
+    /// passed. The newtype has one inhabitant and a private constructor, so any
+    /// other witness here is `E0308`: the guarantee is now "the right constant",
+    /// not "a constant".
     ///
     /// **The emitter must not read this**, and cannot: every reader of a
     /// witness's contents — including [`ArrayPatternProtocol::witness`] — is
@@ -1194,7 +1294,7 @@ pub struct TypedExpr {
     pub kind: ValueKind,
     pub possible_kinds: KindSet,
     pub heap_shape: Option<Box<HeapShape>>,
-    pub function_targets: BTreeSet<FunctionId>,
+    pub function_targets: FunctionTargetKnowledge,
     pub expr: ExprIr,
 }
 
@@ -1204,7 +1304,7 @@ impl TypedExpr {
             kind: ValueKind::Undefined,
             possible_kinds: KindSet::from_kind(ValueKind::Undefined),
             heap_shape: None,
-            function_targets: BTreeSet::new(),
+            function_targets: FunctionTargetKnowledge::none(),
             expr: ExprIr::Undefined,
         }
     }
@@ -1274,7 +1374,7 @@ impl TypedExpr {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::PRIMITIVE_ONLY,
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::SpecOperation {
                 operation: SpecOperationIr::ToPrimitive(hint),
@@ -1290,7 +1390,7 @@ impl TypedExpr {
                 possible_kinds: KindSet::from_kind(ValueKind::Number)
                     .union(KindSet::from_kind(ValueKind::BigInt)),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::SpecOperation {
                 operation: SpecOperationIr::ToNumeric,
@@ -1339,7 +1439,7 @@ impl TypedExpr {
                 kind: possible_kinds.as_value_kind(),
                 possible_kinds,
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::SpecOperation {
                 operation: SpecOperationIr::ToObject,
@@ -1355,7 +1455,7 @@ impl TypedExpr {
                 possible_kinds: KindSet::from_kind(ValueKind::String)
                     .union(KindSet::from_kind(ValueKind::Symbol)),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::SpecOperation {
                 operation: SpecOperationIr::ToPropertyKey,
@@ -1466,7 +1566,7 @@ impl TypedExpr {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             target,
             property_key,
@@ -1479,7 +1579,7 @@ impl TypedExpr {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             target,
             property_key,
@@ -1557,7 +1657,7 @@ impl TypedExpr {
                 possible_kinds: KindSet::from_kind(ValueKind::Undefined)
                     .union(KindSet::from_kind(ValueKind::Function)),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::SpecOperation {
                 operation: SpecOperationIr::GetMethod,
@@ -1576,7 +1676,7 @@ impl TypedExpr {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::SpecOperation {
                 operation: SpecOperationIr::Call,
@@ -1597,7 +1697,7 @@ impl TypedExpr {
                     .union(KindSet::from_kind(ValueKind::Function))
                     .union(KindSet::from_kind(ValueKind::Arguments)),
                 heap_shape: None,
-                function_targets: BTreeSet::new(),
+                function_targets: FunctionTargetKnowledge::unknown(),
             },
             ExprIr::SpecOperation {
                 operation: SpecOperationIr::Construct,
@@ -1879,13 +1979,13 @@ pub enum ExprIr {
         name: String,
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
-        value_kind: ValueKind,
+        value_kind: NumericUpdateValueKind,
     },
     GlobalPropertyUpdate {
         name: String,
         op: NumericUpdateOp,
         return_mode: UpdateReturnMode,
-        value_kind: ValueKind,
+        value_kind: NumericUpdateValueKind,
         /// PutValue steps 2.a and 3.d, for the write-back half of `++`/`--`
         /// on a global Reference.
         strictness: Strictness,
@@ -1903,8 +2003,10 @@ pub enum ExprIr {
         /// global Reference.
         strictness: Strictness,
     },
-    UnaryNumber {
-        op: UnaryNumericOp,
+    UnaryPlus {
+        expr: Box<TypedExpr>,
+    },
+    UnaryMinusNumeric {
         expr: Box<TypedExpr>,
     },
     UnaryBitwiseNumeric {
@@ -2058,6 +2160,8 @@ pub enum ExprIr {
         static_regexp_compilation: Option<StaticRegExpCompilation>,
     },
     JsonParseStaticReviver {
+        callee: Box<TypedExpr>,
+        input: Box<TypedExpr>,
         value: JsonStaticValueIr,
         reviver: Box<TypedExpr>,
     },
@@ -2258,9 +2362,8 @@ pub struct ForInOfEnvironmentIr {
 
 /// The assignment performed by an ordinary `for-of` head.
 ///
-/// Array and String index-walk specializations accept only this type. Resource
-/// heads are instead [`ForOfIteratorHeadIr`] variants and cannot accidentally
-/// enter either specialization.
+/// The generic iterator assignment head uses this type. Resource heads are
+/// separate [`ForOfIteratorHeadIr`] variants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForOfAssignmentIr {
     pub mode: BindingMode,
@@ -2359,8 +2462,7 @@ impl AsyncDisposableForOfHeadIr {
 /// The exhaustive head domain of the generic iterator protocol path.
 ///
 /// Both resource variants structurally select synchronous generic iteration:
-/// only `Assignment` owns an optional async plan and explicit protocol witness,
-/// and Array/String specializations cannot accept this type.
+/// only `Assignment` owns an optional async plan and explicit protocol witness.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForOfIteratorHeadIr {
     Assignment {
@@ -2374,9 +2476,10 @@ pub enum ForOfIteratorHeadIr {
 
 /// The runtime Environment Record lifecycle owned by a resumable loop.
 ///
-/// This is required on every [`StatementIr::GeneratorLoop`] so neither a new
-/// lowerer nor a backend consumer can silently forget whether the loop needs a
-/// fresh record for each iteration. See
+/// This is required on every [`StatementIr::GeneratorLoop`] and derived by
+/// [`AsyncFunctionForOfIteratorPlanIr`] so neither a new lowerer nor a backend
+/// consumer can silently forget whether the loop needs a fresh record for each
+/// iteration. See
 /// `docs/rust-rewrite/contracts/resumable-loop-per-iteration-environment.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResumableLoopIterationEnvironmentIr {
@@ -2385,6 +2488,844 @@ pub enum ResumableLoopIterationEnvironmentIr {
     /// Allocate this environment once for every entered iteration and preserve
     /// the active record across the loop body's suspension.
     FreshPerIteration(LexicalEnvironmentIr),
+}
+
+/// The lowering-only description of the assignment performed for each value of
+/// a resumable synchronous `for-of`.
+///
+/// [`AsyncFunctionForOfIteratorPlanIr::new`] consumes this input and derives
+/// the public storage domain. No backend can select storage independently of
+/// the source head shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AsyncFunctionForOfIteratorHeadIr {
+    /// The iterator value is the source binding's value.
+    Binding(ForOfAssignmentIr),
+    /// The iterator value is consumed by an assignment prefix before the body
+    /// can suspend.
+    PreparedAssignment { value_name: String },
+    /// The iterator value feeds one lexical BindingInitialization before the
+    /// body can suspend.
+    LexicalPattern {
+        mode: BindingMode,
+        value_name: String,
+        iteration_storage_names: Vec<String>,
+        tdz_placeholder_names: Vec<String>,
+        initialization: Vec<StatementIr>,
+    },
+}
+
+/// Where one resumable synchronous `for-of` stores IteratorValue.
+///
+/// The plan constructor derives this enum from
+/// [`AsyncFunctionForOfIteratorHeadIr`]. `EntryLocal` is deliberately missing
+/// a `BindingMode`: it is an unspellable compiler sink with fixed mutable,
+/// dynamic local storage, not a source binding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AsyncFunctionForOfIteratorValueStorageIr {
+    Activation(ForOfAssignmentIr),
+    IterationEnvironment(ForOfAssignmentIr),
+    EntryLocal { name: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AsyncFunctionForOfIteratorEnvironmentError {
+    BindingCountOverflow {
+        role: &'static str,
+        binding_count: usize,
+    },
+    DuplicateBindingName {
+        role: &'static str,
+        name: String,
+    },
+    DuplicateSlot {
+        role: &'static str,
+        slot: u32,
+        first_name: String,
+        second_name: String,
+    },
+    SlotOutOfRange {
+        role: &'static str,
+        name: String,
+        slot: u32,
+        binding_count: u32,
+    },
+    BindingOutsideExpectedNames {
+        role: &'static str,
+        name: String,
+        expected_names: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AsyncFunctionForOfIteratorInitializationError {
+    Missing,
+    UnsupportedStatement {
+        index: usize,
+    },
+    MixedForms {
+        first_form: &'static str,
+        index: usize,
+        form: &'static str,
+    },
+    MultipleDestructuringStatements {
+        form: &'static str,
+        second_index: usize,
+    },
+    ArrayAssignmentEvaluation {
+        index: usize,
+    },
+    AssignmentTarget {
+        index: usize,
+    },
+    ModeMismatch {
+        name: String,
+        expected_mode: BindingMode,
+        actual_mode: BindingMode,
+    },
+    DuplicateBinding {
+        name: String,
+    },
+    BindingNamesMismatch {
+        expected_names: Vec<String>,
+        actual_names: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AsyncFunctionForOfIteratorPlanError {
+    AwaitStatementRequired,
+    AdditionalDirectSuspension,
+    AwaitStateMismatch {
+        entry_state: u32,
+        suspend_state: u32,
+        resume_state: u32,
+    },
+    ExitStateOverflow {
+        resume_state: u32,
+    },
+    BindingHeadEnvironmentRequired {
+        mode: BindingMode,
+        name: String,
+    },
+    VarBindingHasHeadEnvironment {
+        name: String,
+        tdz_placeholder_names: Vec<String>,
+        iteration_storage_names: Vec<String>,
+    },
+    SingleBindingTdzNameCount {
+        name: String,
+        tdz_placeholder_names: Vec<String>,
+    },
+    SingleBindingIterationNamesMismatch {
+        name: String,
+        iteration_storage_names: Vec<String>,
+    },
+    PreparedAssignmentHasHeadEnvironment {
+        value_name: String,
+        tdz_placeholder_names: Vec<String>,
+        iteration_storage_names: Vec<String>,
+    },
+    LexicalPatternMode {
+        mode: BindingMode,
+    },
+    LexicalPatternHeadEnvironmentRequired {
+        iteration_storage_names: Vec<String>,
+        tdz_placeholder_names: Vec<String>,
+    },
+    LexicalPatternNameCountMismatch {
+        iteration_storage_names: Vec<String>,
+        tdz_placeholder_names: Vec<String>,
+    },
+    DuplicateTdzPlaceholderName {
+        origin: &'static str,
+        name: String,
+    },
+    DuplicateLexicalPatternIterationStorageName {
+        name: String,
+    },
+    LexicalPatternTdzNamesMismatch {
+        expected_names: Vec<String>,
+        actual_names: Vec<String>,
+    },
+    LexicalPatternIterationNamesMismatch {
+        expected_names: Vec<String>,
+        actual_names: Vec<String>,
+    },
+    EmptyLexicalPatternHasIterationEnvironment {
+        actual_names: Vec<String>,
+    },
+    LexicalPatternValueNameCollision {
+        value_name: String,
+        iteration_storage_names: Vec<String>,
+    },
+    InvalidEnvironmentLayout(AsyncFunctionForOfIteratorEnvironmentError),
+    InvalidLexicalPatternInitialization(AsyncFunctionForOfIteratorInitializationError),
+    CapturedTdzEnvironment {
+        tdz_placeholder_names: Vec<String>,
+    },
+}
+
+fn duplicate_async_function_for_of_name(names: &[String]) -> Option<String> {
+    let mut seen = BTreeSet::new();
+    names
+        .iter()
+        .find(|name| !seen.insert(name.as_str()))
+        .cloned()
+}
+
+fn async_function_for_of_names_match(left: &[String], right: &[String]) -> bool {
+    left.len() == right.len()
+        && left.iter().map(String::as_str).collect::<BTreeSet<_>>()
+            == right.iter().map(String::as_str).collect::<BTreeSet<_>>()
+}
+
+fn async_function_for_of_environment_names(environment: &LexicalEnvironmentIr) -> Vec<String> {
+    environment
+        .bindings
+        .iter()
+        .map(|binding| binding.name.clone())
+        .collect()
+}
+
+fn validate_async_function_for_of_environment(
+    role: &'static str,
+    environment: &LexicalEnvironmentIr,
+    expected_names: &[String],
+) -> Result<Vec<String>, AsyncFunctionForOfIteratorEnvironmentError> {
+    let binding_count = u32::try_from(environment.bindings.len()).map_err(|_| {
+        AsyncFunctionForOfIteratorEnvironmentError::BindingCountOverflow {
+            role,
+            binding_count: environment.bindings.len(),
+        }
+    })?;
+    let expected_names = expected_names
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut binding_names = BTreeSet::new();
+    let mut slots = BTreeMap::new();
+
+    for binding in &environment.bindings {
+        if !binding_names.insert(binding.name.as_str()) {
+            return Err(
+                AsyncFunctionForOfIteratorEnvironmentError::DuplicateBindingName {
+                    role,
+                    name: binding.name.clone(),
+                },
+            );
+        }
+        if binding.slot >= binding_count {
+            return Err(AsyncFunctionForOfIteratorEnvironmentError::SlotOutOfRange {
+                role,
+                name: binding.name.clone(),
+                slot: binding.slot,
+                binding_count,
+            });
+        }
+        if let Some(first_name) = slots.insert(binding.slot, binding.name.as_str()) {
+            return Err(AsyncFunctionForOfIteratorEnvironmentError::DuplicateSlot {
+                role,
+                slot: binding.slot,
+                first_name: first_name.to_string(),
+                second_name: binding.name.clone(),
+            });
+        }
+        if !expected_names.contains(binding.name.as_str()) {
+            return Err(
+                AsyncFunctionForOfIteratorEnvironmentError::BindingOutsideExpectedNames {
+                    role,
+                    name: binding.name.clone(),
+                    expected_names: expected_names
+                        .iter()
+                        .map(|name| (*name).to_string())
+                        .collect(),
+                },
+            );
+        }
+    }
+
+    Ok(async_function_for_of_environment_names(environment))
+}
+
+fn collect_async_function_for_of_destructuring_target_bindings(
+    target: &DestructuringTargetIr,
+    bindings: &mut Vec<(BindingMode, String)>,
+) -> Result<(), ()> {
+    match target {
+        DestructuringTargetIr::Binding { mode, name } => {
+            bindings.push((*mode, name.clone()));
+            Ok(())
+        }
+        DestructuringTargetIr::NestedArray(pattern) => {
+            collect_async_function_for_of_array_bindings(pattern, bindings)
+        }
+        DestructuringTargetIr::NestedObject(pattern) => {
+            collect_async_function_for_of_object_bindings(pattern, bindings)
+        }
+        DestructuringTargetIr::AssignmentIdentifier(..)
+        | DestructuringTargetIr::AssignmentProperty { .. }
+        | DestructuringTargetIr::AssignmentPrivate { .. } => Err(()),
+    }
+}
+
+fn collect_async_function_for_of_array_bindings(
+    pattern: &ArrayDestructuringPatternIr,
+    bindings: &mut Vec<(BindingMode, String)>,
+) -> Result<(), ()> {
+    for element in &pattern.elements {
+        let target = match element {
+            ArrayDestructuringElementIr::Elision => continue,
+            ArrayDestructuringElementIr::Target { target, .. }
+            | ArrayDestructuringElementIr::Rest { target } => target,
+        };
+        collect_async_function_for_of_destructuring_target_bindings(target, bindings)?;
+    }
+    Ok(())
+}
+
+fn collect_async_function_for_of_object_bindings(
+    pattern: &ObjectDestructuringPatternIr,
+    bindings: &mut Vec<(BindingMode, String)>,
+) -> Result<(), ()> {
+    for property in &pattern.properties {
+        collect_async_function_for_of_destructuring_target_bindings(&property.target, bindings)?;
+    }
+    if let Some(rest) = &pattern.rest {
+        collect_async_function_for_of_destructuring_target_bindings(rest, bindings)?;
+    }
+    Ok(())
+}
+
+fn validate_async_function_for_of_initialization(
+    expected_mode: BindingMode,
+    expected_names: &[String],
+    initialization: &[StatementIr],
+) -> Result<(), AsyncFunctionForOfIteratorInitializationError> {
+    if initialization.is_empty() {
+        return Err(AsyncFunctionForOfIteratorInitializationError::Missing);
+    }
+
+    let mut first_form = None;
+    let mut bindings = Vec::new();
+    for (index, statement) in initialization.iter().enumerate() {
+        let form = match statement {
+            StatementIr::Lexical { mode, name, .. } => {
+                bindings.push((*mode, name.clone()));
+                "StatementIr::Lexical"
+            }
+            StatementIr::Expression(TypedExpr {
+                expr:
+                    ExprIr::ArrayDestructure {
+                        pattern,
+                        evaluation,
+                        ..
+                    },
+                ..
+            }) => {
+                match *evaluation {
+                    ArrayDestructuringEvaluationIr::BindingInitialization => {}
+                    ArrayDestructuringEvaluationIr::AssignmentEvaluation => {
+                        return Err(
+                            AsyncFunctionForOfIteratorInitializationError::ArrayAssignmentEvaluation {
+                                index,
+                            },
+                        );
+                    }
+                }
+                collect_async_function_for_of_array_bindings(pattern, &mut bindings).map_err(
+                    |()| AsyncFunctionForOfIteratorInitializationError::AssignmentTarget { index },
+                )?;
+                "Array BindingInitialization"
+            }
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::ObjectDestructure { pattern, .. },
+                ..
+            }) => {
+                collect_async_function_for_of_object_bindings(pattern, &mut bindings).map_err(
+                    |()| AsyncFunctionForOfIteratorInitializationError::AssignmentTarget { index },
+                )?;
+                "ExprIr::ObjectDestructure"
+            }
+            _ => {
+                return Err(
+                    AsyncFunctionForOfIteratorInitializationError::UnsupportedStatement { index },
+                );
+            }
+        };
+
+        match first_form {
+            None => first_form = Some(form),
+            Some(first_form) if first_form != form => {
+                return Err(AsyncFunctionForOfIteratorInitializationError::MixedForms {
+                    first_form,
+                    index,
+                    form,
+                });
+            }
+            Some(_) if form != "StatementIr::Lexical" => {
+                return Err(
+                    AsyncFunctionForOfIteratorInitializationError::MultipleDestructuringStatements {
+                        form,
+                        second_index: index,
+                    },
+                );
+            }
+            Some(_) => {}
+        }
+    }
+
+    let mut actual_names = Vec::with_capacity(bindings.len());
+    let mut unique_names = BTreeSet::new();
+    for (actual_mode, name) in bindings {
+        if actual_mode != expected_mode {
+            return Err(
+                AsyncFunctionForOfIteratorInitializationError::ModeMismatch {
+                    name,
+                    expected_mode,
+                    actual_mode,
+                },
+            );
+        }
+        if !unique_names.insert(name.clone()) {
+            return Err(AsyncFunctionForOfIteratorInitializationError::DuplicateBinding { name });
+        }
+        actual_names.push(name);
+    }
+    if !async_function_for_of_names_match(expected_names, &actual_names) {
+        return Err(
+            AsyncFunctionForOfIteratorInitializationError::BindingNamesMismatch {
+                expected_names: expected_names.to_vec(),
+                actual_names,
+            },
+        );
+    }
+
+    Ok(())
+}
+
+/// One activation-backed synchronous Iterator Record walk in a plain async
+/// function whose loop body directly awaits.
+///
+/// The private fields keep the body split, state order, Iterator Record, and
+/// environment lifecycle as one compiler-owned plan. In particular, this is
+/// not the optional async-protocol plan on [`ForOfIteratorHeadIr`]: it performs
+/// the ordinary synchronous iterator protocol, then suspends only at the
+/// source body's `await`.
+#[must_use = "a resumable synchronous for-of plan must be attached to its statement"]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncFunctionForOfIteratorPlanIr {
+    value_storage: AsyncFunctionForOfIteratorValueStorageIr,
+    value_mode: BindingMode,
+    record: IteratorRecordIr,
+    head_environment: Option<ForInOfEnvironmentIr>,
+    iteration_environment: ResumableLoopIterationEnvironmentIr,
+    before_await: Vec<StatementIr>,
+    await_statement: Box<StatementIr>,
+    after_await: Vec<StatementIr>,
+    entry_state: u32,
+    resume_state: u32,
+    exit_state: u32,
+}
+
+impl AsyncFunctionForOfIteratorPlanIr {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        head: AsyncFunctionForOfIteratorHeadIr,
+        record: IteratorRecordIr,
+        head_environment: Option<ForInOfEnvironmentIr>,
+        mut before_await: Vec<StatementIr>,
+        await_statement: StatementIr,
+        after_await: Vec<StatementIr>,
+        entry_state: u32,
+    ) -> Result<Self, AsyncFunctionForOfIteratorPlanError> {
+        if before_await.iter().chain(&after_await).any(|statement| {
+            matches!(
+                statement,
+                StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. }
+            )
+        }) {
+            return Err(AsyncFunctionForOfIteratorPlanError::AdditionalDirectSuspension);
+        }
+        let StatementIr::AsyncAwait {
+            suspend_state,
+            resume_state,
+            ..
+        } = &await_statement
+        else {
+            return Err(AsyncFunctionForOfIteratorPlanError::AwaitStatementRequired);
+        };
+        let expected_resume_state = entry_state.checked_add(1).ok_or(
+            AsyncFunctionForOfIteratorPlanError::AwaitStateMismatch {
+                entry_state,
+                suspend_state: *suspend_state,
+                resume_state: *resume_state,
+            },
+        )?;
+        if *suspend_state != entry_state || *resume_state != expected_resume_state {
+            return Err(AsyncFunctionForOfIteratorPlanError::AwaitStateMismatch {
+                entry_state,
+                suspend_state: *suspend_state,
+                resume_state: *resume_state,
+            });
+        }
+        let resume_state = *resume_state;
+        let exit_state = resume_state
+            .checked_add(1)
+            .ok_or(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { resume_state })?;
+
+        let (value_storage, value_mode, iteration_environment, mut initialization) = match head {
+            AsyncFunctionForOfIteratorHeadIr::Binding(binding) => {
+                let value_mode = binding.mode;
+                let binding_name = binding.name.clone();
+                match value_mode {
+                    BindingMode::Var => {
+                        if let Some(environment) = &head_environment {
+                            return Err(
+                                AsyncFunctionForOfIteratorPlanError::VarBindingHasHeadEnvironment {
+                                    name: binding_name,
+                                    tdz_placeholder_names: environment.tdz_binding_names.clone(),
+                                    iteration_storage_names: environment
+                                        .iteration_environment
+                                        .as_ref()
+                                        .map(async_function_for_of_environment_names)
+                                        .unwrap_or_default(),
+                                },
+                            );
+                        }
+                        (
+                            AsyncFunctionForOfIteratorValueStorageIr::Activation(binding),
+                            value_mode,
+                            ResumableLoopIterationEnvironmentIr::StorageOnly,
+                            Vec::new(),
+                        )
+                    }
+                    BindingMode::Let | BindingMode::Const => {
+                        let environment = head_environment.as_ref().ok_or_else(|| {
+                            AsyncFunctionForOfIteratorPlanError::BindingHeadEnvironmentRequired {
+                                mode: value_mode,
+                                name: binding_name.clone(),
+                            }
+                        })?;
+                        if let Some(name) =
+                            duplicate_async_function_for_of_name(&environment.tdz_binding_names)
+                        {
+                            return Err(
+                                AsyncFunctionForOfIteratorPlanError::DuplicateTdzPlaceholderName {
+                                    origin: "single-binding head environment",
+                                    name,
+                                },
+                            );
+                        }
+                        if environment.tdz_binding_names.len() != 1 {
+                            return Err(
+                                AsyncFunctionForOfIteratorPlanError::SingleBindingTdzNameCount {
+                                    name: binding_name.clone(),
+                                    tdz_placeholder_names: environment.tdz_binding_names.clone(),
+                                },
+                            );
+                        }
+                        if let Some(tdz_environment) = &environment.tdz_environment {
+                            validate_async_function_for_of_environment(
+                                "single-binding TDZ environment",
+                                tdz_environment,
+                                &environment.tdz_binding_names,
+                            )
+                            .map_err(
+                                AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout,
+                            )?;
+                        }
+
+                        let expected_iteration_names = vec![binding_name.clone()];
+                        if let Some(iteration_environment) = &environment.iteration_environment {
+                            let actual_names = validate_async_function_for_of_environment(
+                                "single-binding iteration environment",
+                                iteration_environment,
+                                &expected_iteration_names,
+                            )
+                            .map_err(
+                                AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout,
+                            )?;
+                            if !async_function_for_of_names_match(
+                                &expected_iteration_names,
+                                &actual_names,
+                            ) {
+                                return Err(
+                                    AsyncFunctionForOfIteratorPlanError::SingleBindingIterationNamesMismatch {
+                                        name: binding_name,
+                                        iteration_storage_names: actual_names,
+                                    },
+                                );
+                            }
+                            (
+                                AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(
+                                    binding,
+                                ),
+                                value_mode,
+                                ResumableLoopIterationEnvironmentIr::FreshPerIteration(
+                                    iteration_environment.clone(),
+                                ),
+                                Vec::new(),
+                            )
+                        } else {
+                            (
+                                AsyncFunctionForOfIteratorValueStorageIr::Activation(binding),
+                                value_mode,
+                                ResumableLoopIterationEnvironmentIr::StorageOnly,
+                                Vec::new(),
+                            )
+                        }
+                    }
+                }
+            }
+            AsyncFunctionForOfIteratorHeadIr::PreparedAssignment { value_name } => {
+                if let Some(environment) = &head_environment {
+                    return Err(
+                        AsyncFunctionForOfIteratorPlanError::PreparedAssignmentHasHeadEnvironment {
+                            value_name,
+                            tdz_placeholder_names: environment.tdz_binding_names.clone(),
+                            iteration_storage_names: environment
+                                .iteration_environment
+                                .as_ref()
+                                .map(async_function_for_of_environment_names)
+                                .unwrap_or_default(),
+                        },
+                    );
+                }
+                (
+                    AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name: value_name },
+                    BindingMode::Let,
+                    ResumableLoopIterationEnvironmentIr::StorageOnly,
+                    Vec::new(),
+                )
+            }
+            AsyncFunctionForOfIteratorHeadIr::LexicalPattern {
+                mode,
+                value_name,
+                iteration_storage_names,
+                tdz_placeholder_names,
+                initialization,
+            } => {
+                match mode {
+                    BindingMode::Let | BindingMode::Const => {}
+                    BindingMode::Var => {
+                        return Err(AsyncFunctionForOfIteratorPlanError::LexicalPatternMode {
+                            mode,
+                        });
+                    }
+                }
+                if let Some(name) = duplicate_async_function_for_of_name(&iteration_storage_names) {
+                    return Err(
+                        AsyncFunctionForOfIteratorPlanError::DuplicateLexicalPatternIterationStorageName {
+                            name,
+                        },
+                    );
+                }
+                if let Some(name) = duplicate_async_function_for_of_name(&tdz_placeholder_names) {
+                    return Err(
+                        AsyncFunctionForOfIteratorPlanError::DuplicateTdzPlaceholderName {
+                            origin: "lexical-pattern input",
+                            name,
+                        },
+                    );
+                }
+                if iteration_storage_names.len() != tdz_placeholder_names.len() {
+                    return Err(
+                        AsyncFunctionForOfIteratorPlanError::LexicalPatternNameCountMismatch {
+                            iteration_storage_names,
+                            tdz_placeholder_names,
+                        },
+                    );
+                }
+                if iteration_storage_names
+                    .iter()
+                    .any(|name| name == &value_name)
+                {
+                    return Err(
+                        AsyncFunctionForOfIteratorPlanError::LexicalPatternValueNameCollision {
+                            value_name,
+                            iteration_storage_names,
+                        },
+                    );
+                }
+                let environment = head_environment.as_ref().ok_or_else(|| {
+                    AsyncFunctionForOfIteratorPlanError::LexicalPatternHeadEnvironmentRequired {
+                        iteration_storage_names: iteration_storage_names.clone(),
+                        tdz_placeholder_names: tdz_placeholder_names.clone(),
+                    }
+                })?;
+                if let Some(name) =
+                    duplicate_async_function_for_of_name(&environment.tdz_binding_names)
+                {
+                    return Err(
+                        AsyncFunctionForOfIteratorPlanError::DuplicateTdzPlaceholderName {
+                            origin: "lexical-pattern head environment",
+                            name,
+                        },
+                    );
+                }
+                if !async_function_for_of_names_match(
+                    &tdz_placeholder_names,
+                    &environment.tdz_binding_names,
+                ) {
+                    return Err(
+                        AsyncFunctionForOfIteratorPlanError::LexicalPatternTdzNamesMismatch {
+                            expected_names: tdz_placeholder_names,
+                            actual_names: environment.tdz_binding_names.clone(),
+                        },
+                    );
+                }
+                if let Some(tdz_environment) = &environment.tdz_environment {
+                    validate_async_function_for_of_environment(
+                        "lexical-pattern TDZ environment",
+                        tdz_environment,
+                        &environment.tdz_binding_names,
+                    )
+                    .map_err(AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout)?;
+                }
+
+                let iteration_environment = if iteration_storage_names.is_empty() {
+                    if let Some(iteration_environment) = &environment.iteration_environment {
+                        let actual_names = validate_async_function_for_of_environment(
+                            "empty lexical-pattern iteration environment",
+                            iteration_environment,
+                            &iteration_storage_names,
+                        )
+                        .map_err(AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout)?;
+                        return Err(
+                            AsyncFunctionForOfIteratorPlanError::EmptyLexicalPatternHasIterationEnvironment {
+                                actual_names,
+                            },
+                        );
+                    }
+                    ResumableLoopIterationEnvironmentIr::StorageOnly
+                } else {
+                    let Some(iteration_environment) = &environment.iteration_environment else {
+                        return Err(
+                            AsyncFunctionForOfIteratorPlanError::LexicalPatternIterationNamesMismatch {
+                                expected_names: iteration_storage_names,
+                                actual_names: Vec::new(),
+                            },
+                        );
+                    };
+                    let actual_names = validate_async_function_for_of_environment(
+                        "lexical-pattern iteration environment",
+                        iteration_environment,
+                        &iteration_storage_names,
+                    )
+                    .map_err(AsyncFunctionForOfIteratorPlanError::InvalidEnvironmentLayout)?;
+                    if !async_function_for_of_names_match(&iteration_storage_names, &actual_names) {
+                        return Err(
+                            AsyncFunctionForOfIteratorPlanError::LexicalPatternIterationNamesMismatch {
+                                expected_names: iteration_storage_names,
+                                actual_names,
+                            },
+                        );
+                    }
+                    ResumableLoopIterationEnvironmentIr::FreshPerIteration(
+                        iteration_environment.clone(),
+                    )
+                };
+                validate_async_function_for_of_initialization(
+                    mode,
+                    &iteration_storage_names,
+                    &initialization,
+                )
+                .map_err(
+                    AsyncFunctionForOfIteratorPlanError::InvalidLexicalPatternInitialization,
+                )?;
+                (
+                    AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name: value_name },
+                    mode,
+                    iteration_environment,
+                    initialization,
+                )
+            }
+        };
+
+        if matches!(
+            &iteration_environment,
+            ResumableLoopIterationEnvironmentIr::StorageOnly
+        ) {
+            if let Some(environment) = &head_environment {
+                if environment.tdz_environment.is_some() {
+                    return Err(
+                        AsyncFunctionForOfIteratorPlanError::CapturedTdzEnvironment {
+                            tdz_placeholder_names: environment.tdz_binding_names.clone(),
+                        },
+                    );
+                }
+            }
+        }
+        initialization.append(&mut before_await);
+
+        Ok(Self {
+            value_storage,
+            value_mode,
+            record,
+            head_environment,
+            iteration_environment,
+            before_await: initialization,
+            await_statement: Box::new(await_statement),
+            after_await,
+            entry_state,
+            resume_state,
+            exit_state,
+        })
+    }
+
+    pub fn value_storage(&self) -> &AsyncFunctionForOfIteratorValueStorageIr {
+        &self.value_storage
+    }
+
+    pub fn value_name(&self) -> &str {
+        match &self.value_storage {
+            AsyncFunctionForOfIteratorValueStorageIr::Activation(binding)
+            | AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(binding) => {
+                &binding.name
+            }
+            AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name } => name,
+        }
+    }
+
+    pub fn value_mode(&self) -> BindingMode {
+        self.value_mode
+    }
+
+    pub fn record(&self) -> &IteratorRecordIr {
+        &self.record
+    }
+
+    pub fn head_environment(&self) -> Option<&ForInOfEnvironmentIr> {
+        self.head_environment.as_ref()
+    }
+
+    pub fn iteration_environment(&self) -> &ResumableLoopIterationEnvironmentIr {
+        &self.iteration_environment
+    }
+
+    pub fn before_await(&self) -> &[StatementIr] {
+        &self.before_await
+    }
+
+    pub fn await_statement(&self) -> &StatementIr {
+        &self.await_statement
+    }
+
+    pub fn after_await(&self) -> &[StatementIr] {
+        &self.after_await
+    }
+
+    pub fn entry_state(&self) -> u32 {
+        self.entry_state
+    }
+
+    pub fn resume_state(&self) -> u32 {
+        self.resume_state
+    }
+
+    pub fn exit_state(&self) -> u32 {
+        self.exit_state
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2455,7 +3396,7 @@ pub struct FunctionIr {
     pub body: BlockIr,
     pub return_kind: ValueKind,
     pub return_shape: Option<Box<HeapShape>>,
-    pub return_targets: BTreeSet<FunctionId>,
+    pub return_targets: FunctionTargetKnowledge,
     pub constructor_instance: ValueInfo,
     pub owned_env_bindings: Vec<OwnedEnvBindingIr>,
     pub captured_bindings: Vec<CapturedBindingIr>,
@@ -2569,35 +3510,15 @@ pub enum StatementIr {
         body: Box<StatementIr>,
         lexical_environment: Option<ForLexicalEnvironmentIr>,
     },
-    ForOfArray {
-        head: ForOfAssignmentIr,
-        iterable: TypedExpr,
-        body: Box<StatementIr>,
-        lexical_environment: Option<ForInOfEnvironmentIr>,
-        /// How this specialization discharged the four 7.4 obligations.
-        ///
-        /// **The emitter must not read this**, and cannot: every reader of a
-        /// witness's contents is `pub(crate)` to `lila-ir`, so a
-        /// `lila-aot-wasm` arm that binds `protocol` and branches on it is
-        /// `E0624`. It exists so that a for-of specialization cannot be
-        /// constructed without stating, for every obligation, whether it is
-        /// emitted or assumed away and on which premise. Non-optional and
-        /// without a `Default` on purpose.
-        protocol: IteratorProtocolWitness,
-    },
-    ForOfString {
-        head: ForOfAssignmentIr,
-        iterable: TypedExpr,
-        body: Box<StatementIr>,
-        lexical_environment: Option<ForInOfEnvironmentIr>,
-        /// See `ForOfArray::protocol`.
-        protocol: IteratorProtocolWitness,
-    },
     ForOfIterator {
         head: ForOfIteratorHeadIr,
         iterable: TypedExpr,
         body: Box<StatementIr>,
         lexical_environment: Option<ForInOfEnvironmentIr>,
+    },
+    AsyncFunctionForOfIterator {
+        iterable: TypedExpr,
+        plan: AsyncFunctionForOfIteratorPlanIr,
     },
     ForInArray {
         mode: BindingMode,
@@ -3038,9 +3959,8 @@ impl StatementIr {
             | Self::While { .. }
             | Self::DoWhile { .. }
             | Self::For { .. }
-            | Self::ForOfArray { .. }
-            | Self::ForOfString { .. }
             | Self::ForOfIterator { .. }
+            | Self::AsyncFunctionForOfIterator { .. }
             | Self::ForInArray { .. }
             | Self::ForInString { .. }
             | Self::ForInObject { .. }
@@ -3355,7 +4275,7 @@ impl ProgramIr {
     pub fn wasm_blocking_diagnostic(&self) -> Option<&IrDiagnostic> {
         self.diagnostics.iter().find(|diagnostic| {
             matches!(
-                diagnostic.kind,
+                diagnostic.kind(),
                 IrDiagnosticKind::Unsupported
                     | IrDiagnosticKind::EarlyError
                     | IrDiagnosticKind::LinkError
@@ -3818,9 +4738,19 @@ impl IrSummaryCounts {
                     self.visit_statement(statement);
                 }
             }
-            StatementIr::ForOfArray { iterable, body, .. }
-            | StatementIr::ForOfString { iterable, body, .. }
-            | StatementIr::ForOfIterator { iterable, body, .. }
+            StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+                self.fors += 1;
+                self.visit_expr(iterable);
+                for statement in plan
+                    .before_await()
+                    .iter()
+                    .chain(std::iter::once(plan.await_statement()))
+                    .chain(plan.after_await())
+                {
+                    self.visit_statement(statement);
+                }
+            }
+            StatementIr::ForOfIterator { iterable, body, .. }
             | StatementIr::ForInArray {
                 target: iterable,
                 body,
@@ -4189,7 +5119,8 @@ impl IrSummaryCounts {
                 self.global_property_writes += 1;
                 self.visit_expr(value);
             }
-            ExprIr::UnaryNumber { expr, .. }
+            ExprIr::UnaryPlus { expr }
+            | ExprIr::UnaryMinusNumeric { expr }
             | ExprIr::UnaryBitwiseNumeric { expr, .. }
             | ExprIr::StringFromCharCode { code: expr } => {
                 self.visit_expr(expr);
@@ -4393,9 +5324,16 @@ impl IrSummaryCounts {
                     self.visit_expr(arg);
                 }
             }
-            ExprIr::JsonParseStaticReviver { reviver, .. } => {
+            ExprIr::JsonParseStaticReviver {
+                callee,
+                input,
+                reviver,
+                ..
+            } => {
                 self.calls += 1;
                 self.indirect_calls += 1;
+                self.visit_expr(callee);
+                self.visit_expr(input);
                 self.visit_expr(reviver);
             }
             ExprIr::Construct { callee, args, .. } => {
@@ -4625,6 +5563,39 @@ pub(crate) fn read_heap_shape_property(
 mod tests {
     use super::*;
     use crate::CompletionKindIr;
+
+    #[test]
+    fn exact_function_target_joins_remain_exhaustive() {
+        let targets = FunctionTargetKnowledge::exact("first".to_string())
+            .join(FunctionTargetKnowledge::none())
+            .join(FunctionTargetKnowledge::exact("second".to_string()));
+
+        assert_eq!(
+            targets.exact_targets(),
+            Some(&BTreeSet::from(["first".to_string(), "second".to_string()]))
+        );
+    }
+
+    #[test]
+    fn open_function_target_joins_retain_candidates_without_granting_authority() {
+        let mut open = FunctionTargetKnowledge::exact("known".to_string());
+        open.widen_for_possible_replacement();
+        let targets = open.join(FunctionTargetKnowledge::exact("other".to_string()));
+
+        assert!(targets.exact_targets().is_none());
+        assert_eq!(
+            targets.known_targets(),
+            &BTreeSet::from(["known".to_string(), "other".to_string()])
+        );
+    }
+
+    #[test]
+    fn generic_object_target_knowledge_remains_open_for_callable_proxies() {
+        let targets = ValueInfo::new(ValueKind::Object).function_targets;
+
+        assert!(targets.exact_targets().is_none());
+        assert!(targets.known_targets().is_empty());
+    }
 
     #[test]
     fn bigint_literal_reports_one_limb_signed_magnitude() {

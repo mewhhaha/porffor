@@ -1,6 +1,8 @@
 let $262 = { createRealm: __lilaCreateRealm };
-let first = $262.createRealm().global;
-let second = $262.createRealm().global;
+let firstRealm = $262.createRealm();
+let secondRealm = $262.createRealm();
+let first = firstRealm.global;
+let second = secondRealm.global;
 
 function assertSame(actual, expected, label) {
   if (actual !== expected) throw label;
@@ -89,6 +91,8 @@ for (let row of firstBuiltins) {
 }
 assertRealmFunction(second, second.String.prototype.charAt, "second realm method");
 assertRealmFunction(second, second.parseFloat, "second realm canonical host function");
+assertRealmFunction(first, firstRealm.evalScript, "first realm evalScript");
+assertRealmFunction(second, secondRealm.evalScript, "second realm evalScript");
 assertSame(first.parseInt, first.Number.parseInt, "first realm canonical identity");
 assertSame(second.parseFloat, second.Number.parseFloat, "second realm canonical identity");
 

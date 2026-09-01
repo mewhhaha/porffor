@@ -1155,6 +1155,171 @@ mod tests {
     }
 
     #[test]
+    fn async_function_declaration_super_rejections_cover_parameters_bodies_arrows_and_goals() {
+        for source in [
+            "async function invalid() { super(); }",
+            "async function invalid() { void super.value; }",
+            "async function invalid(value = super()) {}",
+            "async function invalid(value = super.value) {}",
+            "async function invalid() { (() => super())(); }",
+            "async function invalid(value = (() => super.value)()) {}",
+            "async function invalid() { (async () => super())(); }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err(
+                    "AsyncFunctionDeclaration parameters and body may not contain super",
+                );
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::AsyncFunctionDeclarationContainsSuper),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the async-function-declaration rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn anonymous_default_async_function_declaration_super_rejects_under_module_goal() {
+        let source = "export default async function(value = super()) {}";
+        let err = parse(source, ParseOptions::module())
+            .expect_err("an anonymous default AsyncFunctionDeclaration may not contain super");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::AsyncFunctionDeclarationContainsSuper),
+            "{err:?}"
+        );
+        let span = err
+            .diagnostic()
+            .span
+            .expect("the default AsyncFunctionDeclaration rejection must retain a source span");
+        assert!(span.start < span.end, "{source:?}: {err:?}");
+    }
+
+    #[test]
+    fn async_function_declaration_super_positive_boundaries_remain_valid_under_both_goals() {
+        for source in [
+            "async function valid() {}",
+            "async function valid(value) { return await value; }",
+            "async function valid() { function nested() {} }",
+            "async function valid() { class D extends Object { constructor() { super(); } } }",
+            "async function valid() { return \"super() and super.value\"; }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("nested ownership and ordinary text must remain parse-valid");
+            }
+        }
+    }
+
+    #[test]
+    fn async_function_declaration_super_stops_at_nested_callable_and_class_owners() {
+        for (source, code) in [
+            (
+                "async function outer() { function inner() { super(); } }",
+                EarlyErrorCode::FunctionDeclarationContainsSuper,
+            ),
+            (
+                "async function outer(value = function() { return super.value; }) {}",
+                EarlyErrorCode::FunctionExpressionContainsSuper,
+            ),
+            (
+                "async function outer() { class Inner { constructor() { super(); } } }",
+                EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the nested production must retain its own super restriction");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_function_declaration_super_precedence_preserves_shared_callable_check_order() {
+        for (source, code) in [
+            (
+                "async function invalid(value = super(), value) {}",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
+                "async function invalid(value = super()) { \"use strict\"; }",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+            (
+                "async function invalid(value = super()) { let value; }",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
+            ),
+            (
+                "async function invalid(value = (await 0, super())) {}",
+                EarlyErrorCode::AsyncFunctionDeclarationContainsSuper,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the shared AsyncFunctionDeclaration check order must be retained");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_function_declaration_super_classifier_is_anchored_and_injection_safe() {
+        for (message, expected) in [
+            (
+                "async function declaration cannot contain super at line 1, col 18",
+                Some(EarlyErrorCode::AsyncFunctionDeclarationContainsSuper),
+            ),
+            (
+                "function declaration cannot contain super at line 1, col 12",
+                Some(EarlyErrorCode::FunctionDeclarationContainsSuper),
+            ),
+            (
+                "async function expression cannot contain super at line 1, col 17",
+                Some(EarlyErrorCode::AsyncFunctionExpressionContainsSuper),
+            ),
+            ("invalid super usage at line 1, col 18", None),
+            ("invalid super call usage at line 1, col 18", None),
+        ] {
+            assert_eq!(
+                classify_parse_failure(message).map(ParseClassified::code),
+                expected
+            );
+        }
+
+        let exported_name = "async function declaration cannot contain super at line";
+        let source = format!(
+            "const value = 0; export {{ value as \"{exported_name}\" }}; export {{ value as \"{exported_name}\" }};"
+        );
+        let err = parse(&source, ParseOptions::module())
+            .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err:?}"
+        );
+    }
+
+    #[test]
     fn async_function_expression_super_rejections_cover_parameters_bodies_arrows_and_goals() {
         for source in [
             "(async function() { super(); });",
@@ -1397,6 +1562,470 @@ mod tests {
     }
 
     #[test]
+    fn generator_declaration_super_rejections_cover_parameters_bodies_arrows_and_goals() {
+        for source in [
+            "function* invalid() { super(); }",
+            "function* invalid() { void super.value; }",
+            "function* invalid(value = super()) {}",
+            "function* invalid(value = super.value) {}",
+            "function* invalid() { (() => super())(); }",
+            "function* invalid(value = (() => super.value)()) {}",
+            "function* invalid() { (async () => super())(); }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("GeneratorDeclaration parameters and body may not contain super");
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::GeneratorDeclarationContainsSuper),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the generator-declaration rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn anonymous_default_generator_declaration_super_rejects_under_module_goal() {
+        let source = "export default function*(value = super()) {}";
+        let err = parse(source, ParseOptions::module())
+            .expect_err("an anonymous default GeneratorDeclaration may not contain super");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::GeneratorDeclarationContainsSuper),
+            "{err:?}"
+        );
+        let span = err
+            .diagnostic()
+            .span
+            .expect("the default GeneratorDeclaration rejection must retain a source span");
+        assert!(span.start < span.end, "{source:?}: {err:?}");
+    }
+
+    #[test]
+    fn generator_declaration_super_positive_boundaries_remain_valid_under_both_goals() {
+        for source in [
+            "function* valid() {}",
+            "function* valid(value) { yield value; }",
+            "function* valid() { function nested() {} }",
+            "function* valid() { class D extends Object { constructor() { super(); } } }",
+            "function* valid() { return \"super() and super.value\"; }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("nested ownership and ordinary text must remain parse-valid");
+            }
+        }
+    }
+
+    #[test]
+    fn generator_declaration_super_stops_at_nested_callable_and_class_owners() {
+        for (source, code) in [
+            (
+                "function* outer() { function inner() { super(); } }",
+                EarlyErrorCode::FunctionDeclarationContainsSuper,
+            ),
+            (
+                "function* outer(value = function() { return super.value; }) {}",
+                EarlyErrorCode::FunctionExpressionContainsSuper,
+            ),
+            (
+                "function* outer() { class Inner { constructor() { super(); } } }",
+                EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the nested production must retain its own super restriction");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn generator_declaration_super_precedence_preserves_shared_callable_check_order() {
+        for (source, code) in [
+            (
+                "function* invalid(value = super(), value) {}",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
+                "function* invalid(value = super()) { \"use strict\"; }",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+            (
+                "function* invalid(value = super()) { let value; }",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
+            ),
+            (
+                "function* invalid(value = (yield, super())) {}",
+                EarlyErrorCode::GeneratorDeclarationContainsSuper,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the shared GeneratorDeclaration check order must be retained");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn generator_declaration_super_classifier_is_anchored_and_injection_safe() {
+        for (message, expected) in [
+            (
+                "generator declaration cannot contain super at line 1, col 13",
+                Some(EarlyErrorCode::GeneratorDeclarationContainsSuper),
+            ),
+            (
+                "generator expression cannot contain super at line 1, col 12",
+                Some(EarlyErrorCode::GeneratorExpressionContainsSuper),
+            ),
+            (
+                "function declaration cannot contain super at line 1, col 12",
+                Some(EarlyErrorCode::FunctionDeclarationContainsSuper),
+            ),
+            ("invalid super usage at line 1, col 13", None),
+            ("invalid super call usage at line 1, col 13", None),
+        ] {
+            assert_eq!(
+                classify_parse_failure(message).map(ParseClassified::code),
+                expected
+            );
+        }
+
+        let exported_name = "generator declaration cannot contain super at line";
+        let source = format!(
+            "const value = 0; export {{ value as \"{exported_name}\" }}; export {{ value as \"{exported_name}\" }};"
+        );
+        let err = parse(&source, ParseOptions::module())
+            .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn async_generator_declaration_super_rejections_cover_parameters_bodies_arrows_and_goals() {
+        for source in [
+            "async function* invalid() { super(); }",
+            "async function* invalid() { void super.value; }",
+            "async function* invalid(value = super()) {}",
+            "async function* invalid(value = super.value) {}",
+            "async function* invalid() { (() => super())(); }",
+            "async function* invalid(value = (() => super.value)()) {}",
+            "async function* invalid() { (async () => super())(); }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err(
+                    "AsyncGeneratorDeclaration parameters and body may not contain super",
+                );
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the async-generator-declaration rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn anonymous_default_async_generator_declaration_super_rejects_under_module_goal() {
+        let source = "export default async function*(value = super()) {}";
+        let err = parse(source, ParseOptions::module())
+            .expect_err("an anonymous default AsyncGeneratorDeclaration may not contain super");
+        assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper),
+            "{err:?}"
+        );
+        let span = err
+            .diagnostic()
+            .span
+            .expect("the default AsyncGeneratorDeclaration rejection must retain a source span");
+        assert!(span.start < span.end, "{source:?}: {err:?}");
+    }
+
+    #[test]
+    fn async_generator_declaration_super_positive_boundaries_remain_valid_under_both_goals() {
+        for source in [
+            "async function* valid() {}",
+            "async function* valid(value) { await value; yield value; }",
+            "async function* valid() { function nested() {} }",
+            "async function* valid() { class D extends Object { constructor() { super(); } } }",
+            "async function* valid() { return \"super() and super.value\"; }",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("nested ownership and ordinary text must remain parse-valid");
+            }
+        }
+    }
+
+    #[test]
+    fn async_generator_declaration_super_stops_at_nested_callable_and_class_owners() {
+        for (source, code) in [
+            (
+                "async function* outer() { function inner() { super(); } }",
+                EarlyErrorCode::FunctionDeclarationContainsSuper,
+            ),
+            (
+                "async function* outer(value = function() { return super.value; }) {}",
+                EarlyErrorCode::FunctionExpressionContainsSuper,
+            ),
+            (
+                "async function* outer() { class Inner { constructor() { super(); } } }",
+                EarlyErrorCode::ClassBaseConstructorHasDirectSuper,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("the nested production must retain its own super restriction");
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_generator_declaration_super_precedence_preserves_shared_callable_check_order() {
+        for (source, code) in [
+            (
+                "async function* invalid(value = super(), value) {}",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
+                "async function* invalid(value = super()) { \"use strict\"; }",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+            (
+                "async function* invalid(value = super()) { let value; }",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
+            ),
+            (
+                "async function* invalid(value = yield) { super(); }",
+                EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper,
+            ),
+            (
+                "async function* invalid(value = await 0) { super(); }",
+                EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err(
+                    "the shared AsyncGeneratorDeclaration check order must be retained",
+                );
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_generator_declaration_super_classifier_is_anchored_and_injection_safe() {
+        for (message, expected) in [
+            (
+                "async generator declaration cannot contain super at line 1, col 19",
+                Some(EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper),
+            ),
+            (
+                "async generator expression cannot contain super at line 1, col 18",
+                Some(EarlyErrorCode::AsyncGeneratorExpressionContainsSuper),
+            ),
+            (
+                "generator declaration cannot contain super at line 1, col 13",
+                Some(EarlyErrorCode::GeneratorDeclarationContainsSuper),
+            ),
+            (
+                "async function declaration cannot contain super at line 1, col 18",
+                Some(EarlyErrorCode::AsyncFunctionDeclarationContainsSuper),
+            ),
+            ("invalid super usage at line 1, col 19", None),
+            ("invalid super call usage at line 1, col 19", None),
+        ] {
+            assert_eq!(
+                classify_parse_failure(message).map(ParseClassified::code),
+                expected
+            );
+        }
+
+        let exported_name = "async generator declaration cannot contain super at line";
+        let source = format!(
+            "const value = 0; export {{ value as \"{exported_name}\" }}; export {{ value as \"{exported_name}\" }};"
+        );
+        let err = parse(&source, ParseOptions::module())
+            .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn async_generator_expression_super_rejections_cover_parameters_bodies_arrows_and_goals() {
+        for source in [
+            "(async function*() { super(); });",
+            "(async function*() { void super.value; });",
+            "(async function*(value = super()) {});",
+            "(async function*(value = super.value) {});",
+            "(async function* named() { super(); });",
+            "(async function* named(value = super.value) {});",
+            "(async function*() { (() => super())(); });",
+            "(async function*(value = (() => super.value)()) {});",
+            "(async function*() { (async () => super())(); });",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err(
+                    "AsyncGeneratorExpression parameters and body may not contain super",
+                );
+                assert_eq!(
+                    err.diagnostic().phase(),
+                    ParseDiagnosticPhase::Early,
+                    "{source:?}: {err:?}"
+                );
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(
+                    err.diagnostic().code,
+                    early(EarlyErrorCode::AsyncGeneratorExpressionContainsSuper),
+                    "{source:?}: {err:?}"
+                );
+                let span = err
+                    .diagnostic()
+                    .span
+                    .expect("the async-generator-expression rejection must retain a source span");
+                assert!(span.start < span.end, "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_generator_expression_super_positive_boundaries_remain_valid_under_both_goals() {
+        for source in [
+            "(async function*() {});",
+            "(async function* named(value) { await value; yield value; });",
+            "(async function*() { function nested() {} });",
+            "(async function*() { class D extends Object { constructor() { super(); } } });",
+            "(async function*() { return \"super() and super.value\"; });",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options)
+                    .expect("nested ownership and ordinary text must remain parse-valid");
+            }
+        }
+    }
+
+    #[test]
+    fn async_generator_expression_super_precedence_preserves_prior_callable_checks() {
+        for (source, code) in [
+            (
+                "(async function*(value = yield) { super(); });",
+                EarlyErrorCode::AsyncGeneratorExpressionParametersContainYield,
+            ),
+            (
+                "(async function*(value = await 0) { super(); });",
+                EarlyErrorCode::AsyncGeneratorExpressionParametersContainAwait,
+            ),
+            (
+                "(async function*(value = super(), value) {});",
+                EarlyErrorCode::DuplicateFormalParameter,
+            ),
+            (
+                "(async function*(value = super()) { \"use strict\"; });",
+                EarlyErrorCode::CallableNonSimpleParametersContainUseStrict,
+            ),
+            (
+                "(async function*(value = super()) { let value; });",
+                EarlyErrorCode::DuplicateLexicalDeclaration,
+            ),
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options).expect_err(
+                    "an earlier AsyncGeneratorExpression check should own the rejection",
+                );
+                assert_eq!(err.diagnostic().phase(), ParseDiagnosticPhase::Early);
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+                assert_eq!(err.diagnostic().code, early(code), "{source:?}: {err:?}");
+                assert!(err.diagnostic().span.is_some(), "{source:?}: {err:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn async_generator_expression_super_classifier_is_anchored_and_injection_safe() {
+        for (message, expected) in [
+            (
+                "async generator expression cannot contain super at line 1, col 18",
+                Some(EarlyErrorCode::AsyncGeneratorExpressionContainsSuper),
+            ),
+            (
+                "generator expression cannot contain super at line 1, col 12",
+                Some(EarlyErrorCode::GeneratorExpressionContainsSuper),
+            ),
+            (
+                "async function expression cannot contain super at line 1, col 17",
+                Some(EarlyErrorCode::AsyncFunctionExpressionContainsSuper),
+            ),
+            ("invalid super usage at line 1, col 18", None),
+            ("invalid super call usage at line 1, col 18", None),
+        ] {
+            assert_eq!(
+                classify_parse_failure(message).map(ParseClassified::code),
+                expected
+            );
+        }
+
+        let exported_name = "async generator expression cannot contain super at line";
+        let source = format!(
+            "const value = 0; export {{ value as \"{exported_name}\" }}; export {{ value as \"{exported_name}\" }};"
+        );
+        let err = parse(&source, ParseOptions::module())
+            .expect_err("the user-chosen exported name is duplicated");
+        assert_eq!(
+            err.diagnostic().code,
+            early(EarlyErrorCode::ModuleDuplicateExport),
+            "{err:?}"
+        );
+    }
+
+    #[test]
     fn class_super_call_positive_boundaries_remain_valid_under_both_goals() {
         for source in [
             "class C {}",
@@ -1510,35 +2139,28 @@ mod tests {
     }
 
     #[test]
-    fn adjacent_invalid_super_producers_remain_unclassified_by_this_lane() {
-        for source in [
-            "function* f() { super.value; }",
-            "async function f() { super.value; }",
-            "async function* f() { super.value; }",
-            "(async function*() { super.value; });",
-            "class C { method() { super(); } }",
-        ] {
-            for options in [ParseOptions::script(), ParseOptions::module()] {
-                let err = parse(source, options)
-                    .expect_err("the adjacent callable or class condition should fail");
-                assert_eq!(
-                    err.diagnostic().phase(),
-                    ParseDiagnosticPhase::Parse,
-                    "{source:?}: {err:?}"
-                );
-                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
-                assert_eq!(err.diagnostic().code, ParseCode::Malformed);
-                assert_ne!(
-                    err.diagnostic().code,
-                    early(EarlyErrorCode::ScriptTopLevelSuper),
-                    "{source:?}: {err:?}"
-                );
-                assert_ne!(
-                    err.diagnostic().code,
-                    early(EarlyErrorCode::ModuleTopLevelSuper),
-                    "{source:?}: {err:?}"
-                );
-            }
+    fn method_owned_invalid_super_call_remains_unclassified_by_typed_contains_super_lanes() {
+        let source = "class C { method() { super(); } }";
+        for options in [ParseOptions::script(), ParseOptions::module()] {
+            let err =
+                parse(source, options).expect_err("the class-method-owned condition should fail");
+            assert_eq!(
+                err.diagnostic().phase(),
+                ParseDiagnosticPhase::Parse,
+                "{source:?}: {err:?}"
+            );
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            assert_eq!(err.diagnostic().code, ParseCode::Malformed);
+            assert_ne!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ScriptTopLevelSuper),
+                "{source:?}: {err:?}"
+            );
+            assert_ne!(
+                err.diagnostic().code,
+                early(EarlyErrorCode::ModuleTopLevelSuper),
+                "{source:?}: {err:?}"
+            );
         }
     }
 
@@ -1643,9 +2265,16 @@ mod tests {
         const FIELD_INITIALIZER_MESSAGE: &str = "class field initializer cannot contain super call";
         const FUNCTION_EXPRESSION_MESSAGE: &str = "function expression cannot contain super";
         const FUNCTION_DECLARATION_MESSAGE: &str = "function declaration cannot contain super";
+        const ASYNC_FUNCTION_DECLARATION_MESSAGE: &str =
+            "async function declaration cannot contain super";
         const ASYNC_FUNCTION_EXPRESSION_MESSAGE: &str =
             "async function expression cannot contain super";
         const GENERATOR_EXPRESSION_MESSAGE: &str = "generator expression cannot contain super";
+        const GENERATOR_DECLARATION_MESSAGE: &str = "generator declaration cannot contain super";
+        const ASYNC_GENERATOR_EXPRESSION_MESSAGE: &str =
+            "async generator expression cannot contain super";
+        const ASYNC_GENERATOR_DECLARATION_MESSAGE: &str =
+            "async generator declaration cannot contain super";
         const MODULE_MESSAGE: &str = "module cannot contain `super` on the top-level";
         const SCRIPT_BRANCH: &str = r#"if contains(&body, ContainsSymbol::Super) {
                 return Err(Error::general("invalid super usage", Position::new(1, 1)));
@@ -1656,8 +2285,6 @@ mod tests {
                 Position::new(1, 1),
             ));
         }"#;
-        const PARAMETER_POSITION: &str = r#""invalid super usage".into(),
-                params_start_position,"#;
         const FUNCTION_EXPRESSION_SUPER_BRANCH: &str = r#"if contains(&function, ContainsSymbol::Super) {
             return Err(Error::lex(LexError::Syntax(
                 "function expression cannot contain super".into(),
@@ -1676,9 +2303,14 @@ mod tests {
                 params_start_position,
             )));
         }"#;
-        const CALLABLE_DECLARATION_DEFAULT_SUPER_MESSAGE: &str = r#"fn contains_super_error_message(&self) -> &'static str {
-        "invalid super usage"
-    }"#;
+        const ASYNC_GENERATOR_EXPRESSION_SUPER_BRANCH: &str = r#"if contains(&function, ContainsSymbol::Super) {
+            return Err(Error::lex(LexError::Syntax(
+                "async generator expression cannot contain super".into(),
+                params_start_position,
+            )));
+        }"#;
+        const CALLABLE_DECLARATION_REQUIRED_SUPER_MESSAGE: &str =
+            "fn contains_super_error_message(&self) -> &'static str;";
         const CALLABLE_DECLARATION_SUPER_BRANCH: &str = r#"if contains(&body, ContainsSymbol::Super) || contains(&params, ContainsSymbol::Super) {
         return Err(Error::lex(LexError::Syntax(
             c.contains_super_error_message().into(),
@@ -1687,6 +2319,15 @@ mod tests {
     }"#;
         const FUNCTION_DECLARATION_SUPER_MESSAGE_METHOD: &str = r#"fn contains_super_error_message(&self) -> &'static str {
         "function declaration cannot contain super"
+    }"#;
+        const ASYNC_FUNCTION_DECLARATION_SUPER_MESSAGE_METHOD: &str = r#"fn contains_super_error_message(&self) -> &'static str {
+        "async function declaration cannot contain super"
+    }"#;
+        const GENERATOR_DECLARATION_SUPER_MESSAGE_METHOD: &str = r#"fn contains_super_error_message(&self) -> &'static str {
+        "generator declaration cannot contain super"
+    }"#;
+        const ASYNC_GENERATOR_DECLARATION_SUPER_MESSAGE_METHOD: &str = r#"fn contains_super_error_message(&self) -> &'static str {
+        "async generator declaration cannot contain super"
     }"#;
         const BASE_CONSTRUCTOR_BRANCH: &str = r#"if super_ref.is_none()
                 && let Some(constructor) = &constructor
@@ -1796,7 +2437,7 @@ mod tests {
 
         let boa_package_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/boa_parser-0.21.1");
-        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 3);
+        assert_eq!(count_in_rust_sources(&boa_package_root, RAW_MESSAGE), 1);
         assert_eq!(
             count_in_rust_sources(
                 &boa_package_root,
@@ -1805,7 +2446,17 @@ mod tests {
             1
         );
         assert_eq!(
-            count_in_rust_sources(&boa_package_root, FUNCTION_DECLARATION_MESSAGE),
+            count_in_rust_sources(
+                &boa_package_root,
+                r#""function declaration cannot contain super""#,
+            ),
+            1
+        );
+        assert_eq!(
+            count_in_rust_sources(
+                &boa_package_root,
+                r#""async function declaration cannot contain super""#,
+            ),
             1
         );
         assert_eq!(
@@ -1813,7 +2464,31 @@ mod tests {
             1
         );
         assert_eq!(
-            count_in_rust_sources(&boa_package_root, GENERATOR_EXPRESSION_MESSAGE),
+            count_in_rust_sources(
+                &boa_package_root,
+                r#""generator expression cannot contain super""#,
+            ),
+            1
+        );
+        assert_eq!(
+            count_in_rust_sources(
+                &boa_package_root,
+                r#""generator declaration cannot contain super""#,
+            ),
+            1
+        );
+        assert_eq!(
+            count_in_rust_sources(
+                &boa_package_root,
+                r#""async generator expression cannot contain super""#,
+            ),
+            1
+        );
+        assert_eq!(
+            count_in_rust_sources(
+                &boa_package_root,
+                r#""async generator declaration cannot contain super""#,
+            ),
             1
         );
         assert_eq!(count_in_rust_sources(&boa_package_root, METHOD_MESSAGE), 11);
@@ -1897,21 +2572,44 @@ mod tests {
             ASYNC_GENERATOR_EXPRESSION_SOURCE
                 .matches(RAW_MESSAGE)
                 .count(),
+            0
+        );
+        assert_eq!(
+            ASYNC_GENERATOR_EXPRESSION_SOURCE
+                .matches(ASYNC_GENERATOR_EXPRESSION_MESSAGE)
+                .count(),
             1
         );
-        let compact_async_generator_expression = compact(ASYNC_GENERATOR_EXPRESSION_SOURCE);
         assert_eq!(
-            compact_async_generator_expression
-                .matches(compact(PARAMETER_POSITION).as_str())
+            compact(ASYNC_GENERATOR_EXPRESSION_SOURCE)
+                .matches(compact(ASYNC_GENERATOR_EXPRESSION_SUPER_BRANCH).as_str())
                 .count(),
             1,
-            "the remaining generic expression owner must retain its parameter-start position"
+            "the unique AsyncGeneratorExpression message must remain on the completed-node Contains Super branch"
         );
         assert_eq!(
             ASYNC_GENERATOR_EXPRESSION_SOURCE
                 .matches(r#"Error::general("invalid super usage", Position::new(1, 1))"#,)
                 .count(),
             0
+        );
+        let async_generator_parameter_yield_check = ASYNC_GENERATOR_EXPRESSION_SOURCE
+            .find("if contains(&params, ContainsSymbol::YieldExpression)")
+            .expect("the AsyncGeneratorExpression parameter Yield check remains present");
+        let async_generator_parameter_await_check = ASYNC_GENERATOR_EXPRESSION_SOURCE
+            .find("if contains(&params, ContainsSymbol::AwaitExpression)")
+            .expect("the AsyncGeneratorExpression parameter Await check remains present");
+        let async_generator_node_construction = ASYNC_GENERATOR_EXPRESSION_SOURCE
+            .find("let function = AsyncGeneratorExpressionNode::new(")
+            .expect("the complete AsyncGeneratorExpression node remains present");
+        let async_generator_super_check = ASYNC_GENERATOR_EXPRESSION_SOURCE
+            .find(ASYNC_GENERATOR_EXPRESSION_SUPER_BRANCH)
+            .expect("the AsyncGeneratorExpression Contains Super branch remains present");
+        assert!(
+            async_generator_parameter_yield_check < async_generator_parameter_await_check
+                && async_generator_parameter_await_check < async_generator_node_construction
+                && async_generator_node_construction < async_generator_super_check,
+            "the AsyncGeneratorExpression parameter checks / completed-node-super order changed"
         );
         assert_eq!(GENERATOR_EXPRESSION_SOURCE.matches(RAW_MESSAGE).count(), 0);
         assert_eq!(
@@ -1974,7 +2672,7 @@ mod tests {
                 && async_node_construction < async_super_check,
             "the AsyncFunctionExpression parameter-Await / completed-node-super order changed"
         );
-        assert_eq!(HOISTABLE_SOURCE.matches(RAW_MESSAGE).count(), 1);
+        assert_eq!(HOISTABLE_SOURCE.matches(RAW_MESSAGE).count(), 0);
         assert_eq!(
             HOISTABLE_SOURCE
                 .matches(FUNCTION_DECLARATION_MESSAGE)
@@ -1982,10 +2680,29 @@ mod tests {
             0
         );
         assert_eq!(
-            compact(HOISTABLE_SOURCE)
-                .matches(compact(CALLABLE_DECLARATION_DEFAULT_SUPER_MESSAGE).as_str())
+            HOISTABLE_SOURCE
+                .matches(ASYNC_FUNCTION_DECLARATION_MESSAGE)
                 .count(),
-            1
+            0
+        );
+        assert_eq!(
+            HOISTABLE_SOURCE
+                .matches(GENERATOR_DECLARATION_MESSAGE)
+                .count(),
+            0
+        );
+        assert_eq!(
+            HOISTABLE_SOURCE
+                .matches(ASYNC_GENERATOR_DECLARATION_MESSAGE)
+                .count(),
+            0
+        );
+        assert_eq!(
+            compact(HOISTABLE_SOURCE)
+                .matches(compact(CALLABLE_DECLARATION_REQUIRED_SUPER_MESSAGE).as_str())
+                .count(),
+            1,
+            "every CallableDeclaration implementation must select its production-owned Contains Super diagnostic"
         );
         assert_eq!(
             compact(HOISTABLE_SOURCE)
@@ -2003,9 +2720,13 @@ mod tests {
         let declaration_yield_check = HOISTABLE_SOURCE
             .find("if c.parameters_yield_is_early_error()")
             .expect("the adjacent generator parameter check remains present");
+        let declaration_await_check = HOISTABLE_SOURCE
+            .find("if c.parameters_await_is_early_error()")
+            .expect("the adjacent async parameter check remains present");
         assert!(
             declaration_lexical_name_check < declaration_super_check
-                && declaration_super_check < declaration_yield_check,
+                && declaration_super_check < declaration_yield_check
+                && declaration_yield_check < declaration_await_check,
             "the shared callable-declaration early-error order changed"
         );
 
@@ -2021,7 +2742,7 @@ mod tests {
                 .matches(compact(FUNCTION_DECLARATION_SUPER_MESSAGE_METHOD).as_str())
                 .count(),
             1,
-            "only ordinary FunctionDeclaration may override the shared Contains Super diagnostic"
+            "ordinary FunctionDeclaration must retain its production-owned Contains Super diagnostic"
         );
         assert_eq!(
             FUNCTION_DECLARATION_SOURCE
@@ -2029,19 +2750,103 @@ mod tests {
                 .count(),
             1
         );
-        for source in [
-            GENERATOR_DECLARATION_SOURCE,
-            ASYNC_FUNCTION_DECLARATION_SOURCE,
-            ASYNC_GENERATOR_DECLARATION_SOURCE,
-        ] {
-            assert_eq!(source.matches(RAW_MESSAGE).count(), 0);
-            assert_eq!(source.matches(FUNCTION_DECLARATION_MESSAGE).count(), 0);
-            assert_eq!(source.matches("contains_super_error_message").count(), 0);
-            assert_eq!(
-                source.matches("parse_callable_declaration(&self").count(),
-                1
-            );
-        }
+
+        assert_eq!(
+            ASYNC_FUNCTION_DECLARATION_SOURCE
+                .matches(RAW_MESSAGE)
+                .count(),
+            0
+        );
+        assert_eq!(
+            ASYNC_FUNCTION_DECLARATION_SOURCE
+                .matches(ASYNC_FUNCTION_DECLARATION_MESSAGE)
+                .count(),
+            1
+        );
+        assert_eq!(
+            compact(ASYNC_FUNCTION_DECLARATION_SOURCE)
+                .matches(compact(ASYNC_FUNCTION_DECLARATION_SUPER_MESSAGE_METHOD).as_str())
+                .count(),
+            1,
+            "AsyncFunctionDeclaration must select its production-owned Contains Super diagnostic"
+        );
+        assert_eq!(
+            ASYNC_FUNCTION_DECLARATION_SOURCE
+                .matches("parameters_await_is_early_error")
+                .count(),
+            1
+        );
+        assert_eq!(
+            ASYNC_FUNCTION_DECLARATION_SOURCE
+                .matches("parse_callable_declaration(&self")
+                .count(),
+            1
+        );
+
+        assert_eq!(GENERATOR_DECLARATION_SOURCE.matches(RAW_MESSAGE).count(), 0);
+        assert_eq!(
+            GENERATOR_DECLARATION_SOURCE
+                .matches(GENERATOR_DECLARATION_MESSAGE)
+                .count(),
+            1
+        );
+        assert_eq!(
+            compact(GENERATOR_DECLARATION_SOURCE)
+                .matches(compact(GENERATOR_DECLARATION_SUPER_MESSAGE_METHOD).as_str())
+                .count(),
+            1,
+            "GeneratorDeclaration must select its production-owned Contains Super diagnostic"
+        );
+        assert_eq!(
+            GENERATOR_DECLARATION_SOURCE
+                .matches("parameters_yield_is_early_error")
+                .count(),
+            1
+        );
+        assert_eq!(
+            GENERATOR_DECLARATION_SOURCE
+                .matches("parse_callable_declaration(&self")
+                .count(),
+            1
+        );
+
+        assert_eq!(
+            ASYNC_GENERATOR_DECLARATION_SOURCE
+                .matches(RAW_MESSAGE)
+                .count(),
+            0
+        );
+        assert_eq!(
+            ASYNC_GENERATOR_DECLARATION_SOURCE
+                .matches(ASYNC_GENERATOR_DECLARATION_MESSAGE)
+                .count(),
+            1
+        );
+        assert_eq!(
+            compact(ASYNC_GENERATOR_DECLARATION_SOURCE)
+                .matches(compact(ASYNC_GENERATOR_DECLARATION_SUPER_MESSAGE_METHOD).as_str())
+                .count(),
+            1,
+            "AsyncGeneratorDeclaration must select its production-owned Contains Super diagnostic"
+        );
+        assert_eq!(
+            ASYNC_GENERATOR_DECLARATION_SOURCE
+                .matches("parameters_yield_is_early_error")
+                .count(),
+            1
+        );
+        assert_eq!(
+            ASYNC_GENERATOR_DECLARATION_SOURCE
+                .matches("parameters_await_is_early_error")
+                .count(),
+            1
+        );
+        assert_eq!(
+            ASYNC_GENERATOR_DECLARATION_SOURCE
+                .matches("parse_callable_declaration(&self")
+                .count(),
+            1
+        );
         assert_eq!(FUNCTION_EXPRESSION_SOURCE.matches(RAW_MESSAGE).count(), 0);
         assert_eq!(
             FUNCTION_EXPRESSION_SOURCE
@@ -2398,9 +3203,9 @@ mod tests {
             vec![
                 (
                     "crates/lila-front/src/early_error_code.rs".to_string(),
-                    40,
+                    66,
                 ),
-                ("crates/lila-front/src/lib.rs".to_string(), 15),
+                ("crates/lila-front/src/lib.rs".to_string(), 19),
                 ("crates/lila-ir/src/modules/early.rs".to_string(), 2),
             ],
             "every classifier identifier, including imports, re-exports and aliases, requires review"
@@ -2413,7 +3218,7 @@ mod tests {
         assert_eq!(
             product_classifier_calls,
             vec![
-                ("crates/lila-front/src/early_error_code.rs".to_string(), 35,),
+                ("crates/lila-front/src/early_error_code.rs".to_string(), 61,),
                 ("crates/lila-front/src/lib.rs".to_string(), 1),
             ],
             "only classifier self-proofs and the product parse boundary may call the classifier"
@@ -3524,12 +4329,6 @@ mod tests {
     Statement,
     ForHead,
 }"#;
-        const EXHAUSTIVE_CONTEXT_PROJECTION: &str = r#"const fn is_for_head(self) -> bool {
-        match self {
-            Self::Statement => false,
-            Self::ForHead => true,
-        }
-    }"#;
         const BINDING_IDENTIFIER_CONTEXT: &str = r#"enum BindingIdentifierContext {
     General,
     LexicalDeclaration,
@@ -3623,19 +4422,40 @@ mod tests {
         }
         Ok(())
     }"#;
-        const STATEMENT_TERMINATOR: &str = r#"if !self.context.is_for_head() {
-            cursor.expect_semicolon("lexical declaration", interner)?;
+        const STATEMENT_CONTEXT_DECISION: &str = r#"match &self.context {
+            LexicalDeclarationContext::Statement => {
+                cursor.expect_semicolon("lexical declaration", interner)?;
+                Self::validate_bound_name_let(&lexical_declaration, tok.span().start())?;
+                Self::validate_duplicate_bound_names(&lexical_declaration, tok.span().start())?;
+            }
+            LexicalDeclarationContext::ForHead => {}
         }"#;
-        const ORDINARY_VALIDATION: &str = r#"if !self.context.is_for_head() {
-            Self::validate_bound_name_let(&lexical_declaration, tok.span().start())?;
-            Self::validate_duplicate_bound_names(&lexical_declaration, tok.span().start())?;
-        }"#;
-        const FOR_HEAD_MISSING_INITIALIZER: &str = r#"if init_is_some || self.context.is_for_head() {
-                    decls.push(decl);
-                } else {"#;
-        const FOR_HEAD_BINDING_TERMINATOR: &str = r#"SemicolonResult::NotFound(_) if self.context.is_for_head() => {
-                    break;
+        const INITIALIZER_REQUIREMENT: &str = r#"match self.context {
+                    LexicalDeclarationContext::Statement if init_is_some => decls.push(decl),
+                    LexicalDeclarationContext::Statement => {
+                        let next = cursor.next(interner).or_abrupt()?;
+                        return Err(Error::general(
+                            format!(
+                                "Expected initializer for {} declaration",
+                                self.declaration_kind.description()
+                            ),
+                            next.span().start(),
+                        ));
+                    }
+                    LexicalDeclarationContext::ForHead => decls.push(decl),
                 }"#;
+        const MISSING_TERMINATOR_DECISION: &str = r#"SemicolonResult::NotFound(_) => match self.context {
+                    LexicalDeclarationContext::Statement => {
+                        let next = cursor.next(interner).or_abrupt()?;
+                        return Err(Error::expected(
+                            [";".to_owned(), "line terminator".to_owned()],
+                            next.to_string(interner),
+                            next.span(),
+                            "lexical declaration binding list",
+                        ));
+                    }
+                    LexicalDeclarationContext::ForHead => break,
+                },"#;
         const DEFERRED_CLASSIC_ROUTE: &str = r#"(
                 Some(ParsedForInitializer::DeferredLexical {
                     declaration,
@@ -3805,12 +4625,6 @@ mod tests {
             1
         );
         assert_eq!(
-            LEXICAL_DECLARATION_SOURCE
-                .matches(EXHAUSTIVE_CONTEXT_PROJECTION)
-                .count(),
-            1
-        );
-        assert_eq!(
             BINDING_IDENTIFIER_SOURCE
                 .matches(BINDING_IDENTIFIER_CONTEXT)
                 .count(),
@@ -3863,7 +4677,13 @@ mod tests {
             LEXICAL_DECLARATION_SOURCE
                 .matches("match self.context")
                 .count(),
-            0
+            2
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("match &self.context")
+                .count(),
+            1
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE
@@ -3881,35 +4701,41 @@ mod tests {
             LEXICAL_DECLARATION_SOURCE
                 .matches("self.context.is_for_head()")
                 .count(),
-            4
+            0
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE
                 .matches("context: LexicalDeclarationContext,")
                 .count(),
-            3
+            1
+        );
+        assert_eq!(
+            LEXICAL_DECLARATION_SOURCE
+                .matches("context: &'a LexicalDeclarationContext,")
+                .count(),
+            2
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE
                 .matches("LexicalDeclarationContext::Statement")
                 .count(),
-            1
+            5
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE
                 .matches("LexicalDeclarationContext::ForHead")
                 .count(),
-            1
+            4
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE
                 .matches("Self::Statement")
                 .count(),
-            1
+            0
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE.matches("Self::ForHead").count(),
-            1
+            0
         );
         assert_eq!(
             LEXICAL_DECLARATION_SOURCE
@@ -3978,30 +4804,13 @@ mod tests {
                 .count(),
             3
         );
-        assert_eq!(
-            LEXICAL_DECLARATION_SOURCE
-                .matches(STATEMENT_TERMINATOR)
-                .count(),
-            1
-        );
-        assert_eq!(
-            LEXICAL_DECLARATION_SOURCE
-                .matches(ORDINARY_VALIDATION)
-                .count(),
-            1
-        );
-        assert_eq!(
-            LEXICAL_DECLARATION_SOURCE
-                .matches(FOR_HEAD_MISSING_INITIALIZER)
-                .count(),
-            1
-        );
-        assert_eq!(
-            LEXICAL_DECLARATION_SOURCE
-                .matches(FOR_HEAD_BINDING_TERMINATOR)
-                .count(),
-            1
-        );
+        for decision in [
+            STATEMENT_CONTEXT_DECISION,
+            INITIALIZER_REQUIREMENT,
+            MISSING_TERMINATOR_DECISION,
+        ] {
+            assert_eq!(LEXICAL_DECLARATION_SOURCE.matches(decision).count(), 1);
+        }
         assert_eq!(
             FOR_STATEMENT_SOURCE.matches(DEFERRED_CLASSIC_ROUTE).count(),
             1
@@ -5616,7 +6425,7 @@ mod tests {
     }
 
     #[test]
-    fn known_duplicate_import_attribute_message_producers_stay_reviewed() {
+    fn duplicate_import_attribute_message_has_one_shared_attribute_parser_owner() {
         const MESSAGE: &str = "duplicate import attribute key";
         const IMPORT_SOURCE: &str = include_str!(
             "../../../vendor/boa_parser-0.21.1/src/parser/statement/declaration/import.rs"
@@ -5626,7 +6435,10 @@ mod tests {
         );
 
         assert_eq!(IMPORT_SOURCE.matches(MESSAGE).count(), 1);
-        assert_eq!(EXPORT_SOURCE.matches(MESSAGE).count(), 1);
+        assert_eq!(EXPORT_SOURCE.matches(MESSAGE).count(), 0);
+        assert!(IMPORT_SOURCE.contains("fn parse_module_request_attributes<R: ReadChar>("));
+        assert!(IMPORT_SOURCE.contains("pub(super) fn parse_re_export_request<R: ReadChar>("));
+        assert_eq!(EXPORT_SOURCE.matches("parse_re_export_request(").count(), 2);
         assert!(classify_parse_failure("duplicate import attribute key: type").is_none());
     }
 

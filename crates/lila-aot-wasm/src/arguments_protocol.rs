@@ -6,27 +6,31 @@ use crate::{EmitError, MappedSlot};
 /// construction protocol when it does.
 ///
 /// See `docs/rust-rewrite/contracts/arguments-object-construction-protocol.md`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FunctionArgumentsProtocol(FunctionArgumentsKind);
+pub(crate) struct FunctionArgumentsProtocol(FunctionArgumentsState);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+enum FunctionArgumentsState {
+    Pending(FunctionArgumentsKind),
+    BoundAbsent,
+    BoundPresent,
+}
+
 enum FunctionArgumentsKind {
     Absent,
     Present(PresentArgumentsObjectProtocol),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PresentArgumentsObjectProtocol {
     Unmapped(UnmappedArgumentsPlan),
     Mapped(MappedArgumentsPlan),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "the function arguments binding protocol must be consumed"]
+pub(crate) struct ArgumentsBindingProtocol(Option<PresentArgumentsObjectProtocol>);
+
 pub(crate) struct UnmappedArgumentsPlan {
     _private: (),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MappedArgumentsPlan {
     entries: Box<[MappedArgumentEntry]>,
 }
@@ -45,38 +49,73 @@ struct ParameterEnvironmentSlot(u32);
 
 impl FunctionArgumentsProtocol {
     pub(crate) const fn script_main() -> Self {
-        Self(FunctionArgumentsKind::Absent)
+        Self(FunctionArgumentsState::Pending(
+            FunctionArgumentsKind::Absent,
+        ))
     }
 
     pub(crate) const fn strict_internal_callable() -> Self {
-        Self(FunctionArgumentsKind::Present(
-            PresentArgumentsObjectProtocol::Unmapped(UnmappedArgumentsPlan { _private: () }),
+        Self(FunctionArgumentsState::Pending(
+            FunctionArgumentsKind::Present(PresentArgumentsObjectProtocol::Unmapped(
+                UnmappedArgumentsPlan { _private: () },
+            )),
         ))
     }
 
     pub(crate) fn for_user_function(function: &FunctionIr) -> Result<Self, EmitError> {
         match function.protocol.flavor() {
-            FunctionFlavor::Arrow => Ok(Self(FunctionArgumentsKind::Absent)),
+            FunctionFlavor::Arrow => Ok(Self(FunctionArgumentsState::Pending(
+                FunctionArgumentsKind::Absent,
+            ))),
             FunctionFlavor::Ordinary if function.strict || !has_simple_parameter_list(function) => {
-                Ok(Self(FunctionArgumentsKind::Present(
-                    PresentArgumentsObjectProtocol::Unmapped(UnmappedArgumentsPlan {
-                        _private: (),
-                    }),
+                Ok(Self(FunctionArgumentsState::Pending(
+                    FunctionArgumentsKind::Present(PresentArgumentsObjectProtocol::Unmapped(
+                        UnmappedArgumentsPlan { _private: () },
+                    )),
                 )))
             }
-            FunctionFlavor::Ordinary => Ok(Self(FunctionArgumentsKind::Present(
-                PresentArgumentsObjectProtocol::Mapped(MappedArgumentsPlan::for_function(
-                    function,
-                )?),
+            FunctionFlavor::Ordinary => Ok(Self(FunctionArgumentsState::Pending(
+                FunctionArgumentsKind::Present(PresentArgumentsObjectProtocol::Mapped(
+                    MappedArgumentsPlan::for_function(function)?,
+                )),
             ))),
         }
     }
 
-    pub(crate) fn present(&self) -> Option<&PresentArgumentsObjectProtocol> {
-        match &self.0 {
-            FunctionArgumentsKind::Absent => None,
-            FunctionArgumentsKind::Present(protocol) => Some(protocol),
+    pub(crate) fn take_for_binding(&mut self) -> Result<ArgumentsBindingProtocol, EmitError> {
+        match core::mem::replace(&mut self.0, FunctionArgumentsState::BoundAbsent) {
+            FunctionArgumentsState::Pending(FunctionArgumentsKind::Absent) => {
+                Ok(ArgumentsBindingProtocol(None))
+            }
+            FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(protocol)) => {
+                self.0 = FunctionArgumentsState::BoundPresent;
+                Ok(ArgumentsBindingProtocol(Some(protocol)))
+            }
+            FunctionArgumentsState::BoundAbsent => Err(EmitError::unsupported(
+                "compiler invariant violated: function arguments protocol was bound more than once",
+            )),
+            FunctionArgumentsState::BoundPresent => {
+                self.0 = FunctionArgumentsState::BoundPresent;
+                Err(EmitError::unsupported(
+                    "compiler invariant violated: function arguments protocol was bound more than once",
+                ))
+            }
         }
+    }
+
+    pub(crate) const fn present(&self) -> Option<()> {
+        match &self.0 {
+            FunctionArgumentsState::Pending(FunctionArgumentsKind::Absent)
+            | FunctionArgumentsState::BoundAbsent => None,
+            FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(_))
+            | FunctionArgumentsState::BoundPresent => Some(()),
+        }
+    }
+}
+
+impl ArgumentsBindingProtocol {
+    pub(crate) fn into_present(self) -> Option<PresentArgumentsObjectProtocol> {
+        self.0
     }
 }
 
@@ -206,8 +245,17 @@ mod tests {
             .expect("valid lowered function should have an arguments protocol")
     }
 
-    fn mapped_entries(protocol: &FunctionArgumentsProtocol) -> Vec<(u32, u32)> {
-        let Some(PresentArgumentsObjectProtocol::Mapped(plan)) = protocol.present() else {
+    fn take_present(
+        protocol: &mut FunctionArgumentsProtocol,
+    ) -> Option<PresentArgumentsObjectProtocol> {
+        protocol
+            .take_for_binding()
+            .expect("fresh protocol should be bindable")
+            .into_present()
+    }
+
+    fn mapped_entries(protocol: &mut FunctionArgumentsProtocol) -> Vec<(u32, u32)> {
+        let Some(PresentArgumentsObjectProtocol::Mapped(plan)) = take_present(protocol) else {
             panic!("expected a mapped arguments protocol");
         };
         plan.entries
@@ -218,9 +266,7 @@ mod tests {
 
     #[test]
     fn function_arguments_protocol_distinguishes_absent_unmapped_and_mapped_empty() {
-        assert!(protocol_for("const f = (value) => value;")
-            .present()
-            .is_none());
+        assert!(take_present(&mut protocol_for("const f = (value) => value;")).is_none());
 
         for source in [
             "function f(value) { 'use strict'; }",
@@ -229,29 +275,41 @@ mod tests {
             "function f({ value }) {}",
         ] {
             assert!(matches!(
-                protocol_for(source).present(),
+                take_present(&mut protocol_for(source)),
                 Some(PresentArgumentsObjectProtocol::Unmapped(_))
             ));
         }
 
-        let empty = protocol_for("function f() {}");
+        let mut empty = protocol_for("function f() {}");
         assert!(matches!(
-            empty.present(),
+            take_present(&mut empty),
             Some(PresentArgumentsObjectProtocol::Mapped(_))
         ));
-        assert!(mapped_entries(&empty).is_empty());
+        let mut empty = protocol_for("function f() {}");
+        assert!(mapped_entries(&mut empty).is_empty());
     }
 
     #[test]
     fn function_arguments_mapped_plan_uses_validated_slots_and_last_duplicate() {
         assert_eq!(
-            mapped_entries(&protocol_for("function f(first, second) {}")),
+            mapped_entries(&mut protocol_for("function f(first, second) {}")),
             vec![(0, 0), (1, 1)]
         );
         assert_eq!(
-            mapped_entries(&protocol_for("function f(value, other, value) {}")),
+            mapped_entries(&mut protocol_for("function f(value, other, value) {}")),
             vec![(1, 1), (2, 0)]
         );
+    }
+
+    #[test]
+    fn function_arguments_protocol_can_bind_only_once() {
+        let mut protocol = protocol_for("function f(value) {}");
+        assert!(take_present(&mut protocol).is_some());
+
+        let Err(error) = protocol.take_for_binding() else {
+            panic!("a consumed arguments protocol must reject a second binding");
+        };
+        assert!(error.to_string().contains("was bound more than once"));
     }
 
     #[test]

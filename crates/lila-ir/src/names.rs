@@ -107,12 +107,14 @@ pub const DYNAMIC_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID: &str =
     "$dynamic.AsyncGeneratorFunction";
 pub const DYNAMIC_REALM_EVAL_SCRIPT_FUNCTION_ID: &str = "$host.realmEvalScript";
 pub const REALM_EVAL_SCRIPT_NAME: &str = "__lilaRealmEvalScript";
+pub const REALM_EVAL_SCRIPT_METHOD_NAME: &str = "evalScript";
 pub const FUNCTION_NAME: &str = "Function";
 pub const OBJECT_NAME: &str = "Object";
 pub const ARRAY_NAME: &str = "Array";
 pub const ARRAY_BUFFER_NAME: &str = "ArrayBuffer";
 pub const SHARED_ARRAY_BUFFER_NAME: &str = "SharedArrayBuffer";
 pub const DATA_VIEW_NAME: &str = "DataView";
+pub const TYPED_ARRAY_NAME: &str = "TypedArray";
 pub const DATE_NAME: &str = "Date";
 pub const TEMPORAL_NAME: &str = "Temporal";
 pub const TEMPORAL_NOW_NAME: &str = "Now";
@@ -150,6 +152,57 @@ pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
         StandardBuiltinId::IntlDateTimeFormatConstructor,
     ),
     (INTL_LOCALE_NAME, StandardBuiltinId::IntlLocaleConstructor),
+];
+
+/// The constructor-valued members of the `Temporal` namespace, in emitted
+/// property order. The IR namespace shape and Wasm bootstrap both walk this
+/// slice, so neither can advertise a constructor the other omits.
+pub const TEMPORAL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
+    (
+        TEMPORAL_INSTANT_NAME,
+        StandardBuiltinId::TemporalInstantConstructor,
+    ),
+    (
+        TEMPORAL_PLAIN_DATE_NAME,
+        StandardBuiltinId::TemporalPlainDateConstructor,
+    ),
+    (
+        TEMPORAL_ZONED_DATE_TIME_NAME,
+        StandardBuiltinId::TemporalZonedDateTimeConstructor,
+    ),
+    (
+        TEMPORAL_PLAIN_TIME_NAME,
+        StandardBuiltinId::TemporalPlainTimeConstructor,
+    ),
+    (
+        TEMPORAL_PLAIN_DATE_TIME_NAME,
+        StandardBuiltinId::TemporalPlainDateTimeConstructor,
+    ),
+    (
+        TEMPORAL_PLAIN_YEAR_MONTH_NAME,
+        StandardBuiltinId::TemporalPlainYearMonthConstructor,
+    ),
+    (
+        TEMPORAL_PLAIN_MONTH_DAY_NAME,
+        StandardBuiltinId::TemporalPlainMonthDayConstructor,
+    ),
+    (
+        TEMPORAL_DURATION_NAME,
+        StandardBuiltinId::TemporalDurationConstructor,
+    ),
+];
+
+/// The function-valued members of `Temporal.Now`, in emitted property order.
+/// These are separate from [`TEMPORAL_NAMESPACE_CONSTRUCTORS`] because the
+/// namespace members are non-constructable functions with no constructor
+/// global to load.
+pub const TEMPORAL_NOW_NAMESPACE_MEMBERS: &[(&str, StandardBuiltinId)] = &[
+    ("timeZoneId", StandardBuiltinId::TemporalNowTimeZoneId),
+    ("instant", StandardBuiltinId::TemporalNowInstant),
+    (
+        "zonedDateTimeISO",
+        StandardBuiltinId::TemporalNowZonedDateTimeIso,
+    ),
 ];
 
 /// The `Temporal.ZonedDateTime.prototype` DATA-PROPERTY METHODS, as ONE table.
@@ -525,6 +578,7 @@ pub const BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.byteLength.get";
 pub const BUILTIN_DATA_VIEW_PROTOTYPE_BYTE_OFFSET_GETTER_FUNCTION_ID: &str =
     "$builtin.DataView.prototype.byteOffset.get";
+pub const BUILTIN_TYPED_ARRAY_CONSTRUCTOR_FUNCTION_ID: &str = "$builtin.TypedArray";
 pub const BUILTIN_TYPED_ARRAY_SPECIES_GETTER_FUNCTION_ID: &str =
     "$builtin.TypedArray[Symbol.species].get";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_BYTE_LENGTH_GETTER_FUNCTION_ID: &str =
@@ -1450,6 +1504,4 @@ pub const LILA_ITERATOR_FROM_WRAPPER_SLOT: &str = "$LilaIteratorFromWrapper";
 pub const LILA_YIELD_STAR_GENERATOR_SLOT: &str = "$LilaYieldStarGenerator";
 pub const LILA_YIELD_STAR_RETURN_NON_OBJECT_SLOT: &str = "$LilaYieldStarReturnNonObject";
 pub const LILA_YIELD_STAR_THROW_NON_OBJECT_SLOT: &str = "$LilaYieldStarThrowNonObject";
-pub const LILA_STATIC_GENERATOR_VALUES_METHOD: &str = "$LilaStaticGenerator.values";
-pub const LILA_STATIC_GENERATOR_ITERATOR_SLOT: &str = "$LilaStaticGeneratorIterator";
 pub const DATE_VALUE_SLOT: &str = "$DateValue";

@@ -16,6 +16,21 @@ fn primitive_to_number_throw_routing_is_one_private_closed_domain() {
     assert!(!OPERATIONS_SOURCE.contains("pub(crate) enum PrimitiveToNumberThrowRouting"));
     assert!(!OPERATIONS_SOURCE.contains("pub(super) enum PrimitiveToNumberThrowRouting"));
 
+    let preceding_declaration_line = OPERATIONS_SOURCE
+        .split_once("enum PrimitiveToNumberThrowRouting {")
+        .expect("missing PrimitiveToNumberThrowRouting declaration")
+        .0
+        .rsplit_once('\n')
+        .map_or("", |(_, line)| line);
+    assert!(!preceding_declaration_line
+        .trim_start()
+        .starts_with("#[derive("));
+    for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq"] {
+        assert!(!OPERATIONS_SOURCE.contains(&format!(
+            "impl {capability} for PrimitiveToNumberThrowRouting"
+        )));
+    }
+
     let declaration = between(
         OPERATIONS_SOURCE,
         "enum PrimitiveToNumberThrowRouting {",
@@ -37,6 +52,8 @@ fn primitive_to_number_throw_routing_is_one_private_closed_domain() {
         "impl PrimitiveToNumberThrowRouting {",
         "\n}\n\n/// The realm that owns",
     );
+    assert!(implementation
+        .contains("fn emit(&self, builder: &mut FunctionBuilder<'_>, function: &mut Function)"));
     assert!(implementation.contains("match self {"));
     assert!(implementation.contains(
         "Self::ReturnCurrentFunction => builder.emit_return_current_completion(function),"

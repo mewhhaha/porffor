@@ -387,4 +387,43 @@ if (Object.prototype.hasOwnProperty.call(forwardedTarget, "forwarded")) {
   handlerDispatchFailures++;
 }
 
+var deepDeleteOrder = 0;
+function nullishDeleteHandler(marker, trap) {
+  var handler = {};
+  Object.defineProperty(handler, "deleteProperty", {
+    get: function() {
+      deepDeleteOrder = deepDeleteOrder * 10 + marker;
+      return trap;
+    },
+  });
+  return handler;
+}
+
+var deepDeleteCalls = 0;
+var deepDeleteTarget = { forwardedAcrossSixProxies: 1 };
+var deepDeleteProxy = new Proxy(deepDeleteTarget, {
+  deleteProperty: function(target, key) {
+    deepDeleteOrder = deepDeleteOrder * 10 + 7;
+    deepDeleteCalls++;
+    return Reflect.deleteProperty(target, key);
+  },
+});
+deepDeleteProxy = new Proxy(deepDeleteProxy, nullishDeleteHandler(1, undefined));
+deepDeleteProxy = new Proxy(deepDeleteProxy, nullishDeleteHandler(2, null));
+deepDeleteProxy = new Proxy(deepDeleteProxy, nullishDeleteHandler(3, undefined));
+deepDeleteProxy = new Proxy(deepDeleteProxy, nullishDeleteHandler(4, null));
+deepDeleteProxy = new Proxy(deepDeleteProxy, nullishDeleteHandler(5, undefined));
+deepDeleteProxy = new Proxy(deepDeleteProxy, nullishDeleteHandler(6, null));
+if (!Reflect.deleteProperty(deepDeleteProxy, "forwardedAcrossSixProxies")) {
+  handlerDispatchFailures++;
+}
+if (deepDeleteOrder !== 6543217) handlerDispatchFailures++;
+if (deepDeleteCalls !== 1) handlerDispatchFailures++;
+if (Object.prototype.hasOwnProperty.call(
+  deepDeleteTarget,
+  "forwardedAcrossSixProxies"
+)) {
+  handlerDispatchFailures++;
+}
+
 failures === 0 && handlerDispatchFailures === 0;

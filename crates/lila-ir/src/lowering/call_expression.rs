@@ -1,20 +1,21 @@
+mod non_property_call;
+
+use super::call_candidate_analysis::DynamicSourceCallAdmission;
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
+    fn record_builtin_receiver_mutation(&mut self, builtin: StandardBuiltinId) {
+        if builtin.mutates_indexed_receiver() {
+            self.record_caller_flow_invalidation();
+        }
+    }
+
     pub(super) fn lower_call(&mut self, callee: &Expression, args: &[Expression]) -> TypedExpr {
         // A call nested in a computed property key can mutate the already
         // captured base even when its result is a primitive key. The epoch is
         // only an ordering signal; the call's normal effect analysis still
         // decides which flow facts must actually be discarded.
         self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
-        let unsupported_call = |this: &mut Self, class_kind: ClassFunctionKind| {
-            if class_kind != ClassFunctionKind::Constructor {
-                this.unsupported_expr("indirect call")
-            } else {
-                TypedExpr::undefined()
-            }
-        };
-
         // Resolve a direct identifier through any preceding Object
         // Environment Records before the name-specific builtin folds below.
         // A selected with binding can shadow even `Number`/`Boolean`/`Symbol`,
@@ -38,21 +39,16 @@ impl<'a> ScriptLowerer<'a> {
 
         if let Expression::Identifier(identifier) = callee {
             let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            let callee_is_intrinsic_global = self.identifier_resolves_to_intrinsic_global(&name);
             if args.is_empty() {
                 if let Some(result) = self.static_generator_call_overrides.get(&name).cloned() {
                     return result;
                 }
-                if let Some(elements) = self.static_generator_element_values.get(&name).cloned() {
-                    return self.array_iterator_from_lowered_elements(elements);
-                }
-                if let Some(values) = self.static_generator_sum_values.get(&name).cloned() {
-                    return self.array_iterator_from_static_generator_values(&values);
-                }
             }
-            if name == IS_CONSTRUCTOR_NAME && args.len() == 1 && !self.has_scope_binding(&name) {
+            if name == IS_CONSTRUCTOR_NAME && args.len() == 1 && callee_is_intrinsic_global {
                 return TypedExpr::spec_is_constructor(self.lower_expression(&args[0]));
             }
-            if name == NUMBER_NAME {
+            if name == NUMBER_NAME && callee_is_intrinsic_global {
                 if let Some(value) = self.static_to_number_arg(args.first()) {
                     for arg in args {
                         self.lower_expression(arg);
@@ -63,14 +59,21 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
                 if args.len() == 1 && self.expression_cannot_be_kind(&args[0], ValueKind::BigInt) {
-                    return TypedExpr::spec_to_number(self.lower_expression(&args[0]));
+                    let value = self.lower_expression(&args[0]);
+                    self.record_possible_to_primitive_effects(&value.value_info());
+                    return TypedExpr::spec_to_number(value);
                 }
             }
-            if name == STRING_NAME && args.len() == 1 && self.expression_cannot_be_symbol(&args[0])
+            if name == STRING_NAME
+                && callee_is_intrinsic_global
+                && args.len() == 1
+                && self.expression_cannot_be_symbol(&args[0])
             {
-                return TypedExpr::spec_to_string(self.lower_expression(&args[0]));
+                let value = self.lower_expression(&args[0]);
+                self.record_possible_to_primitive_effects(&value.value_info());
+                return TypedExpr::spec_to_string(value);
             }
-            if name == BOOLEAN_NAME {
+            if name == BOOLEAN_NAME && callee_is_intrinsic_global {
                 if let Some(value) = self.static_to_boolean_arg(args.first()) {
                     for arg in args {
                         self.lower_expression(arg);
@@ -84,7 +87,7 @@ impl<'a> ScriptLowerer<'a> {
                     return TypedExpr::spec_to_boolean(self.lower_expression(&args[0]));
                 }
             }
-            if name == PARSE_FLOAT_NAME {
+            if name == PARSE_FLOAT_NAME && callee_is_intrinsic_global {
                 if let Some(value) = self.static_parse_float_arg(args.first()) {
                     for arg in args {
                         self.lower_expression(arg);
@@ -95,7 +98,7 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
             }
-            if name == "Symbol" {
+            if name == SYMBOL_NAME && callee_is_intrinsic_global {
                 // `Symbol(description)`: if description is undefined, the
                 // `[[Description]]` is undefined; otherwise it is
                 // `? ToString(description)` (spec 20.4.1.1). Only the first
@@ -108,6 +111,7 @@ impl<'a> ScriptLowerer<'a> {
                         if lowered.kind == ValueKind::Undefined {
                             None
                         } else {
+                            self.record_possible_to_primitive_effects(&lowered.value_info());
                             Some(Box::new(TypedExpr::spec_to_string(lowered)))
                         }
                     }
@@ -147,12 +151,14 @@ impl<'a> ScriptLowerer<'a> {
                     };
                     if let Some(builtin) = static_builtin {
                         let function_id = builtin.function_id();
-                        let (effective_function_id, args, info) = self.lower_call_args_with_target(
-                            &function_id,
-                            args,
-                            BuiltinCallContext::Call,
-                        );
-                        return TypedExpr::from_info(
+                        let (effective_function_id, args, info, invocation_effects) = self
+                            .lower_call_args_with_target(
+                                &function_id,
+                                args,
+                                BuiltinCallContext::Call,
+                                InvocationThisObservation::NotObserved,
+                            );
+                        let call = TypedExpr::from_info(
                             info,
                             ExprIr::CallIndirect {
                                 callee: Box::new(self.function_value_expr(effective_function_id)),
@@ -173,6 +179,7 @@ impl<'a> ScriptLowerer<'a> {
                                 static_regexp_compilation: None,
                             },
                         );
+                        return invocation_effects.attach_to_emitted_call(call);
                     }
                     if target_name == "ASCII_IDENTIFIER" && field_name == "test" && args.len() == 1
                     {
@@ -189,7 +196,15 @@ impl<'a> ScriptLowerer<'a> {
                             return Self::static_string_typed_expr(value);
                         }
                     }
-                    if let Some(value) = self.static_boolean_receiver_value(access.target()) {
+                    if let Some(value) = self
+                        .boolean_receiver_uses_intrinsic_method(
+                            access.target(),
+                            "toString",
+                            StandardBuiltinId::BooleanPrototypeToString,
+                        )
+                        .then(|| self.static_boolean_receiver_value(access.target()))
+                        .flatten()
+                    {
                         match self.boolean_prototype_to_string_state {
                             PrototypeToStringState::ObjectPrototype => {
                                 for arg in args {
@@ -292,7 +307,15 @@ impl<'a> ScriptLowerer<'a> {
                             return Self::static_string_typed_expr(value);
                         }
                     }
-                    if let Some(value) = self.static_boolean_receiver_value(access.target()) {
+                    if let Some(value) = self
+                        .boolean_receiver_uses_intrinsic_method(
+                            access.target(),
+                            "valueOf",
+                            StandardBuiltinId::BooleanPrototypeValueOf,
+                        )
+                        .then(|| self.static_boolean_receiver_value(access.target()))
+                        .flatten()
+                    {
                         for arg in args {
                             self.lower_expression(arg);
                         }
@@ -482,7 +505,8 @@ impl<'a> ScriptLowerer<'a> {
                             );
                         }
                     }
-                    let receiver = self.lower_property_target(access.target());
+                    let mut receiver = self.lower_property_target(access.target());
+                    let receiver_capture_epoch = self.intervening_effect_epoch;
                     let string_from_code_point_apply_call = if let PropertyAccessField::Const(
                         field,
                     ) = access.field()
@@ -525,9 +549,13 @@ impl<'a> ScriptLowerer<'a> {
                         let receiver_is_iterator = self
                             .read_object_shape_property(&receiver, "forEach")
                             .is_some_and(|property| match property {
-                                ObjectShapeProperty::Data(info) => info.function_targets.contains(
-                                    &StandardBuiltinId::IteratorPrototypeForEach.function_id(),
-                                ),
+                                ObjectShapeProperty::Data(info) => {
+                                    info.function_targets.exact_single_target()
+                                        == Some(
+                                            &StandardBuiltinId::IteratorPrototypeForEach
+                                                .function_id(),
+                                        )
+                                }
                                 ObjectShapeProperty::Accessor { .. } => false,
                             });
                         let receiver_has_custom_array_prototype =
@@ -549,9 +577,9 @@ impl<'a> ScriptLowerer<'a> {
                                     | "drop"
                             ) && !receiver_is_array)
                         {
-                            let Some(args) = self.lower_call_args_expanding_spread(args) else {
-                                return TypedExpr::undefined();
-                            };
+                            let args = self
+                                .lower_call_args_expanding_spread(args)
+                                .into_arguments_after_expression(&mut receiver);
                             if field_name != "take" && field_name != "drop" {
                                 if let Some(callback) = args.first() {
                                     if let Some(callback_id) =
@@ -561,7 +589,7 @@ impl<'a> ScriptLowerer<'a> {
                                             kind: ValueKind::Dynamic,
                                             possible_kinds: KindSet::all_runtime_tags(),
                                             heap_shape: None,
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         };
                                         if field_name == "reduce" || field_name == "reduceRight" {
                                             self.merge_function_param_infos(
@@ -592,7 +620,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                                 "map" | "filter" | "flatMap" | "take" | "drop" => ValueInfo {
                                     kind: ValueKind::Object,
@@ -604,11 +632,15 @@ impl<'a> ScriptLowerer<'a> {
                                         "take" => Self::iterator_take_helper_shape(),
                                         _ => Self::iterator_drop_helper_shape(),
                                     }),
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::none(),
                                 },
                                 _ => ValueInfo::undefined(),
                             };
-                            return TypedExpr::from_info(
+                            let callback_runs_synchronously = matches!(
+                                field_name.as_str(),
+                                "forEach" | "every" | "some" | "find" | "reduce" | "reduceRight"
+                            );
+                            let result = TypedExpr::from_info(
                                 result_info,
                                 ExprIr::CallMethod {
                                     receiver: Box::new(receiver),
@@ -616,6 +648,10 @@ impl<'a> ScriptLowerer<'a> {
                                     args,
                                 },
                             );
+                            if callback_runs_synchronously {
+                                self.invalidate_unknown_user_code_effects();
+                            }
+                            return result;
                         }
                     }
                     if let Some(result) =
@@ -641,10 +677,10 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 }
                             };
-                            return TypedExpr::from_info(
+                            let result = TypedExpr::from_info(
                                 info,
                                 ExprIr::CallMethod {
                                     receiver: Box::new(receiver),
@@ -655,6 +691,8 @@ impl<'a> ScriptLowerer<'a> {
                                         .collect(),
                                 },
                             );
+                            self.invalidate_unknown_user_code_effects();
+                            return result;
                         }
                         if !self.array_prototype_mutated
                             && matches!(
@@ -663,9 +701,9 @@ impl<'a> ScriptLowerer<'a> {
                             )
                         {
                             if field_name == "join" && args.len() <= 1 {
-                                let Some(args) = self.lower_call_args_expanding_spread(args) else {
-                                    return TypedExpr::undefined();
-                                };
+                                let args = self
+                                    .lower_call_args_expanding_spread(args)
+                                    .into_arguments_after_expression(&mut receiver);
                                 return TypedExpr::from_info(
                                     ValueInfo::new(ValueKind::String),
                                     ExprIr::CallMethod {
@@ -686,6 +724,9 @@ impl<'a> ScriptLowerer<'a> {
                                 );
                             }
                             if field_name == "reverse" && args.is_empty() {
+                                self.record_builtin_receiver_mutation(
+                                    StandardBuiltinId::ArrayPrototypeReverse,
+                                );
                                 return TypedExpr::from_info(
                                     receiver.value_info(),
                                     ExprIr::CallMethod {
@@ -749,22 +790,29 @@ impl<'a> ScriptLowerer<'a> {
                                 _ => None,
                             };
                             if let Some(builtin) = builtin {
-                                let Some(args) = self.lower_call_args_expanding_spread(args) else {
-                                    return TypedExpr::undefined();
-                                };
-                                let info = self
+                                let args = self
+                                    .lower_call_args_expanding_spread(args)
+                                    .into_arguments_after_expression(&mut receiver);
+                                let (info, invocation_effects) = self
                                     .standard_builtin_call_info(
                                         builtin,
                                         &args,
                                         BuiltinCallContext::Call,
                                     )
-                                    .unwrap_or(ValueInfo {
-                                        kind: ValueKind::Dynamic,
-                                        possible_kinds: KindSet::all_runtime_tags(),
-                                        heap_shape: None,
-                                        function_targets: BTreeSet::new(),
+                                    .map(|analysis| analysis.into_parts())
+                                    .unwrap_or_else(|| {
+                                        (
+                                            ValueInfo {
+                                                kind: ValueKind::Dynamic,
+                                                possible_kinds: KindSet::all_runtime_tags(),
+                                                heap_shape: None,
+                                                function_targets: FunctionTargetKnowledge::unknown(
+                                                ),
+                                            },
+                                            AnalyzedInvocationEffects::already_applied(),
+                                        )
                                     });
-                                return TypedExpr::from_info(
+                                let call = TypedExpr::from_info(
                                     info,
                                     ExprIr::CallMethod {
                                         receiver: Box::new(receiver),
@@ -772,6 +820,7 @@ impl<'a> ScriptLowerer<'a> {
                                         args,
                                     },
                                 );
+                                return invocation_effects.attach_to_emitted_call(call);
                             }
                         }
                     }
@@ -783,7 +832,7 @@ impl<'a> ScriptLowerer<'a> {
                         }
                         PropertyAccessField::Expr(_) => false,
                     };
-                    let callee = match receiver.kind {
+                    let mut callee = match receiver.kind {
                         ValueKind::Object | ValueKind::Function => {
                             self.lower_object_property_key(receiver.clone(), access.field())
                         }
@@ -810,10 +859,9 @@ impl<'a> ScriptLowerer<'a> {
                                     );
                                 }
                                 if field_name == "split" && args.len() <= 2 {
-                                    let Some(args) = self.lower_call_args_expanding_spread(args)
-                                    else {
-                                        return TypedExpr::undefined();
-                                    };
+                                    let args = self
+                                        .lower_call_args_expanding_spread(args)
+                                        .into_arguments_after_expression(&mut receiver);
                                     return TypedExpr::from_info(
                                         ValueInfo {
                                             kind: ValueKind::Array,
@@ -821,7 +869,7 @@ impl<'a> ScriptLowerer<'a> {
                                             heap_shape: Some(Box::new(HeapShape::Array(
                                                 ArrayShape::default(),
                                             ))),
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                         ExprIr::CallMethod {
                                             receiver: Box::new(receiver),
@@ -929,7 +977,7 @@ impl<'a> ScriptLowerer<'a> {
                                             kind: ValueKind::Dynamic,
                                             possible_kinds: KindSet::all_runtime_tags(),
                                             heap_shape: None,
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                         ExprIr::PropertyRead {
                                             target: Box::new(receiver.clone()),
@@ -964,10 +1012,9 @@ impl<'a> ScriptLowerer<'a> {
                                             },
                                         );
                                     }
-                                    let Some(args) = self.lower_call_args_expanding_spread(args)
-                                    else {
-                                        return TypedExpr::undefined();
-                                    };
+                                    let args = self
+                                        .lower_call_args_expanding_spread(args)
+                                        .into_arguments_after_expression(&mut receiver);
                                     return TypedExpr::from_info(
                                         ValueInfo {
                                             kind: ValueKind::Array,
@@ -975,7 +1022,7 @@ impl<'a> ScriptLowerer<'a> {
                                             heap_shape: Some(Box::new(HeapShape::Array(
                                                 ArrayShape::default(),
                                             ))),
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                         ExprIr::CallMethod {
                                             receiver: Box::new(receiver),
@@ -988,16 +1035,15 @@ impl<'a> ScriptLowerer<'a> {
                                     && self.number_prototype_match_is_string_match
                                     && args.len() <= 1
                                 {
-                                    let Some(args) = self.lower_call_args_expanding_spread(args)
-                                    else {
-                                        return TypedExpr::undefined();
-                                    };
+                                    let args = self
+                                        .lower_call_args_expanding_spread(args)
+                                        .into_arguments_after_expression(&mut receiver);
                                     return TypedExpr::from_info(
                                         ValueInfo {
                                             kind: ValueKind::Dynamic,
                                             possible_kinds: KindSet::all_runtime_tags(),
                                             heap_shape: None,
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                         ExprIr::CallMethod {
                                             receiver: Box::new(receiver),
@@ -1040,7 +1086,7 @@ impl<'a> ScriptLowerer<'a> {
                                             kind: ValueKind::Dynamic,
                                             possible_kinds: KindSet::all_runtime_tags(),
                                             heap_shape: None,
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                         ExprIr::PropertyRead {
                                             target: Box::new(receiver.clone()),
@@ -1081,7 +1127,7 @@ impl<'a> ScriptLowerer<'a> {
                                             kind: ValueKind::Dynamic,
                                             possible_kinds: KindSet::all_runtime_tags(),
                                             heap_shape: None,
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                         ExprIr::PropertyRead {
                                             target: Box::new(receiver.clone()),
@@ -1198,6 +1244,9 @@ impl<'a> ScriptLowerer<'a> {
                                     else {
                                         return self.unsupported_expr("call spread");
                                     };
+                                    self.record_builtin_receiver_mutation(
+                                        StandardBuiltinId::ArrayPrototypeSplice,
+                                    );
                                     return TypedExpr::from_info(
                                         Self::array_value_info_from_elements(Vec::new()),
                                         ExprIr::CallMethod {
@@ -1208,10 +1257,9 @@ impl<'a> ScriptLowerer<'a> {
                                     );
                                 }
                                 if field_name == "join" && args.len() <= 1 {
-                                    let Some(args) = self.lower_call_args_expanding_spread(args)
-                                    else {
-                                        return TypedExpr::undefined();
-                                    };
+                                    let args = self
+                                        .lower_call_args_expanding_spread(args)
+                                        .into_arguments_after_expression(&mut receiver);
                                     return TypedExpr::from_info(
                                         ValueInfo::new(ValueKind::String),
                                         ExprIr::CallMethod {
@@ -1222,6 +1270,9 @@ impl<'a> ScriptLowerer<'a> {
                                     );
                                 }
                                 if field_name == "reverse" && args.is_empty() {
+                                    self.record_builtin_receiver_mutation(
+                                        StandardBuiltinId::ArrayPrototypeReverse,
+                                    );
                                     return TypedExpr::from_info(
                                         receiver.value_info(),
                                         ExprIr::CallMethod {
@@ -1287,10 +1338,9 @@ impl<'a> ScriptLowerer<'a> {
                                     _ => None,
                                 };
                                 if field_name == "forEach" {
-                                    let Some(args) = self.lower_call_args_expanding_spread(args)
-                                    else {
-                                        return TypedExpr::undefined();
-                                    };
+                                    let args = self
+                                        .lower_call_args_expanding_spread(args)
+                                        .into_arguments_after_expression(&mut receiver);
                                     if let Some(callback) = args.first() {
                                         if let Some(function_id) =
                                             self.resolve_single_function_target(callback)
@@ -1300,7 +1350,8 @@ impl<'a> ScriptLowerer<'a> {
                                                     kind: ValueKind::Dynamic,
                                                     possible_kinds: KindSet::all_runtime_tags(),
                                                     heap_shape: None,
-                                                    function_targets: BTreeSet::new(),
+                                                    function_targets:
+                                                        FunctionTargetKnowledge::unknown(),
                                                 },
                                                 ValueInfo::new(ValueKind::Number),
                                                 receiver.value_info(),
@@ -1337,7 +1388,7 @@ impl<'a> ScriptLowerer<'a> {
                                             }
                                         }
                                     }
-                                    return TypedExpr::from_info(
+                                    let result = TypedExpr::from_info(
                                         ValueInfo::undefined(),
                                         ExprIr::CallMethod {
                                             receiver: Box::new(receiver),
@@ -1345,6 +1396,8 @@ impl<'a> ScriptLowerer<'a> {
                                             args,
                                         },
                                     );
+                                    self.invalidate_unknown_user_code_effects();
+                                    return result;
                                 }
                                 if let Some(builtin) = builtin {
                                     TypedExpr::from_info(
@@ -1377,7 +1430,11 @@ impl<'a> ScriptLowerer<'a> {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
                                 let builtin = match field_name.as_str() {
-                                    "call" => Some(StandardBuiltinId::FunctionPrototypeCall),
+                                    "call"
+                                        if self.function_prototype_call_is_intrinsic(&receiver) =>
+                                    {
+                                        Some(StandardBuiltinId::FunctionPrototypeCall)
+                                    }
                                     "apply" => Some(StandardBuiltinId::FunctionPrototypeApply),
                                     "bind" => Some(StandardBuiltinId::FunctionPrototypeBind),
                                     "toString" => {
@@ -1690,10 +1747,9 @@ impl<'a> ScriptLowerer<'a> {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
                                 if field_name == "forEach" {
-                                    let Some(args) = self.lower_call_args_expanding_spread(args)
-                                    else {
-                                        return TypedExpr::undefined();
-                                    };
+                                    let args = self
+                                        .lower_call_args_expanding_spread(args)
+                                        .into_arguments_after_expression(&mut receiver);
                                     if let Some(callback) = args.first() {
                                         if let Some(function_id) =
                                             self.resolve_single_function_target(callback)
@@ -1705,14 +1761,15 @@ impl<'a> ScriptLowerer<'a> {
                                                         kind: ValueKind::Dynamic,
                                                         possible_kinds: KindSet::all_runtime_tags(),
                                                         heap_shape: None,
-                                                        function_targets: BTreeSet::new(),
+                                                        function_targets:
+                                                            FunctionTargetKnowledge::unknown(),
                                                     },
                                                     ValueInfo::new(ValueKind::Number),
                                                 ],
                                             );
                                         }
                                     }
-                                    return TypedExpr::from_info(
+                                    let result = TypedExpr::from_info(
                                         ValueInfo::undefined(),
                                         ExprIr::CallMethod {
                                             receiver: Box::new(receiver),
@@ -1720,6 +1777,8 @@ impl<'a> ScriptLowerer<'a> {
                                             args,
                                         },
                                     );
+                                    self.invalidate_unknown_user_code_effects();
+                                    return result;
                                 }
                                 if field_name == "splice"
                                     && Self::static_splice_delete_count_is_supported(args)
@@ -1728,6 +1787,9 @@ impl<'a> ScriptLowerer<'a> {
                                     else {
                                         return self.unsupported_expr("call spread");
                                     };
+                                    self.record_builtin_receiver_mutation(
+                                        StandardBuiltinId::ArrayPrototypeSplice,
+                                    );
                                     return TypedExpr::from_info(
                                         Self::array_value_info_from_elements(Vec::new()),
                                         ExprIr::CallMethod {
@@ -1818,45 +1880,32 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: receiver.heap_shape.clone(),
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                                 receiver.expr.clone(),
                             );
                             self.lower_object_property_key(dynamic_receiver, access.field())
                         }
                     };
-                    if callee.kind != ValueKind::Function {
-                        let Some(args) = self.lower_call_args_expanding_spread(args) else {
-                            return TypedExpr::undefined();
-                        };
-                        return self.lower_indirect_method_call(
-                            ValueInfo {
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
-                            callee,
-                            receiver,
-                            args,
-                            None,
-                        );
+                    if self.intervening_effect_epoch != receiver_capture_epoch {
+                        receiver.heap_shape = None;
                     }
                     let Some(function_id) = self.resolve_single_function_target(&callee) else {
-                        let Some(args) = self.lower_call_args_expanding_spread(args) else {
+                        let source_args = args;
+                        let args = self
+                            .lower_call_args_expanding_spread(source_args)
+                            .into_arguments_after_two_expressions(&mut callee, &mut receiver);
+                        let analysis = self.analyze_known_call_candidates(
+                            &callee.value_info(),
+                            Some(&receiver.value_info()),
+                            &args,
+                            CallCandidateSource::IndirectSyntax(source_args),
+                        );
+                        let CallCandidateAnalysis::Accepted { result, effects } = analysis else {
                             return TypedExpr::undefined();
                         };
                         return self.lower_indirect_method_call(
-                            ValueInfo {
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
-                            callee,
-                            receiver,
-                            args,
-                            None,
+                            result, callee, receiver, args, None, effects,
                         );
                     };
                     let Some(signature) = self.function_signatures.get(&function_id) else {
@@ -1866,12 +1915,11 @@ impl<'a> ScriptLowerer<'a> {
                     if !signature.callable
                         && signature.protocol.class_kind() != ClassFunctionKind::Constructor
                     {
-                        return unsupported_call(self, signature.protocol.class_kind());
+                        return self.unsupported_expr("indirect call");
                     }
                     self.mark_host_builtin_from_function_id(&function_id);
                     self.host_builtin_calls +=
                         usize::from(HostBuiltinId::from_function_id(&function_id).is_some());
-                    self.merge_function_this_info(&function_id, receiver.value_info());
                     if let Some(
                         array_builtin @ (StandardBuiltinId::ArrayPrototypePush
                         | StandardBuiltinId::ArrayPrototypePop
@@ -1930,9 +1978,9 @@ impl<'a> ScriptLowerer<'a> {
                         | StandardBuiltinId::ArrayPrototypeReduceRight),
                     ) = StandardBuiltinId::from_function_id(&function_id)
                     {
-                        let Some(args) = self.lower_call_args_expanding_spread(args) else {
-                            return TypedExpr::undefined();
-                        };
+                        let args = self
+                            .lower_call_args_expanding_spread(args)
+                            .into_arguments_after_two_expressions(&mut callee, &mut receiver);
                         // An Array.prototype method can be copied onto an
                         // arbitrary object after the prototype was mutated.
                         // Its inferred builtin target is not enough to prove
@@ -1942,14 +1990,19 @@ impl<'a> ScriptLowerer<'a> {
                                 .possible_kinds
                                 .is_subset_of(KindSet::from_kind(ValueKind::Array))
                         {
+                            self.observe_unaccounted_invocation_effects(
+                                InvocationTargetProvenance::from(&callee),
+                            );
                             return self.lower_indirect_method_call(
                                 ValueInfo::new(ValueKind::Dynamic),
                                 callee,
                                 receiver,
                                 args,
                                 None,
+                                AnalyzedInvocationEffects::already_applied(),
                             );
                         }
+                        self.record_builtin_receiver_mutation(array_builtin);
                         if array_builtin == StandardBuiltinId::ArrayPrototypePush {
                             if let Some(base_len) = Self::static_array_shape_len(&receiver) {
                                 for (arg_offset, arg) in args.iter().enumerate() {
@@ -2009,13 +2062,15 @@ impl<'a> ScriptLowerer<'a> {
                                                 kind: ValueKind::Dynamic,
                                                 possible_kinds: KindSet::all_runtime_tags(),
                                                 heap_shape: None,
-                                                function_targets: BTreeSet::new(),
+                                                function_targets: FunctionTargetKnowledge::unknown(
+                                                ),
                                             },
                                             ValueInfo {
                                                 kind: ValueKind::Dynamic,
                                                 possible_kinds: KindSet::all_runtime_tags(),
                                                 heap_shape: None,
-                                                function_targets: BTreeSet::new(),
+                                                function_targets: FunctionTargetKnowledge::unknown(
+                                                ),
                                             },
                                             ValueInfo::new(ValueKind::Number),
                                             receiver.value_info(),
@@ -2052,7 +2107,7 @@ impl<'a> ScriptLowerer<'a> {
                                             kind: ValueKind::Dynamic,
                                             possible_kinds: KindSet::all_runtime_tags(),
                                             heap_shape: None,
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                         ValueInfo::new(ValueKind::Number),
                                         receiver.value_info(),
@@ -2102,13 +2157,13 @@ impl<'a> ScriptLowerer<'a> {
                                             kind: ValueKind::Dynamic,
                                             possible_kinds: KindSet::all_runtime_tags(),
                                             heap_shape: None,
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                         ValueInfo {
                                             kind: ValueKind::Dynamic,
                                             possible_kinds: KindSet::all_runtime_tags(),
                                             heap_shape: None,
-                                            function_targets: BTreeSet::new(),
+                                            function_targets: FunctionTargetKnowledge::unknown(),
                                         },
                                     ],
                                 );
@@ -2161,7 +2216,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeToReversed => {
@@ -2182,7 +2237,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: Self::object_like_kind_set(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeCopyWithin => (
@@ -2191,7 +2246,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: Self::object_like_kind_set(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeIncludes
@@ -2212,7 +2267,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::TypedArrayPrototypeFind => (
@@ -2221,7 +2276,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeFindIndex
@@ -2235,7 +2290,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeFindLastIndex
@@ -2262,7 +2317,7 @@ impl<'a> ScriptLowerer<'a> {
                                     heap_shape: Some(Box::new(HeapShape::Array(
                                         ArrayShape::default(),
                                     ))),
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeMap => {
@@ -2274,7 +2329,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Object,
                                     possible_kinds: KindSet::from_kind(ValueKind::Object),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::none(),
                                 },
                             ),
                             StandardBuiltinId::TypedArrayPrototypeFilter => (
@@ -2283,7 +2338,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Object,
                                     possible_kinds: KindSet::from_kind(ValueKind::Object),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::none(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeReduce
@@ -2293,7 +2348,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeReduceRight
@@ -2303,7 +2358,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypePop => (
@@ -2312,7 +2367,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Dynamic,
                                     possible_kinds: KindSet::all_runtime_tags(),
                                     heap_shape: None,
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::unknown(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeKeys => (
@@ -2321,7 +2376,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Object,
                                     possible_kinds: KindSet::from_kind(ValueKind::Object),
                                     heap_shape: Some(Box::new(Self::empty_object_shape())),
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::none(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeEntries => (
@@ -2330,7 +2385,7 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Object,
                                     possible_kinds: KindSet::from_kind(ValueKind::Object),
                                     heap_shape: Some(Box::new(Self::empty_object_shape())),
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::none(),
                                 },
                             ),
                             StandardBuiltinId::ArrayPrototypeValues => (
@@ -2339,12 +2394,12 @@ impl<'a> ScriptLowerer<'a> {
                                     kind: ValueKind::Object,
                                     possible_kinds: KindSet::from_kind(ValueKind::Object),
                                     heap_shape: Some(Box::new(Self::empty_object_shape())),
-                                    function_targets: BTreeSet::new(),
+                                    function_targets: FunctionTargetKnowledge::none(),
                                 },
                             ),
                             _ => unreachable!(),
                         };
-                        return TypedExpr::from_info(
+                        let result = TypedExpr::from_info(
                             info,
                             ExprIr::CallMethod {
                                 receiver: Box::new(receiver),
@@ -2352,6 +2407,10 @@ impl<'a> ScriptLowerer<'a> {
                                 args,
                             },
                         );
+                        if array_builtin.may_run_user_code_synchronously() {
+                            self.invalidate_unknown_user_code_effects();
+                        }
+                        return result;
                     }
                     if let Some(method_name) =
                         match StandardBuiltinId::from_function_id(&function_id) {
@@ -2360,7 +2419,9 @@ impl<'a> ScriptLowerer<'a> {
                             _ => None,
                         }
                     {
-                        let args = args.iter().map(|arg| self.lower_expression(arg)).collect();
+                        let args = self
+                            .lower_call_args_expanding_spread(args)
+                            .into_arguments_after_two_expressions(&mut callee, &mut receiver);
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::String),
                             ExprIr::CallMethod {
@@ -2370,7 +2431,17 @@ impl<'a> ScriptLowerer<'a> {
                             },
                         );
                     }
-                    let (args, mut info) = self.lower_call_args(&function_id, args);
+                    let source_arguments = args;
+                    let prepared_static_json_parse_reviver =
+                        self.prepare_static_json_parse_reviver(&function_id, source_arguments);
+                    let (args, mut info, mut invocation_effects) = self.lower_call_args(
+                        &function_id,
+                        source_arguments,
+                        InvocationThisObservation::ExplicitMethod {
+                            receiver: &mut receiver,
+                            callee: &mut callee,
+                        },
+                    );
                     if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id) {
                         if let Some(folded) =
                             Self::fold_standard_builtin_literal_call(builtin, &args)
@@ -2378,18 +2449,13 @@ impl<'a> ScriptLowerer<'a> {
                             return folded;
                         }
                     }
-                    if let Some(ExprIr::JsonParseStaticReviver { value, reviver }) =
-                        self.try_lower_static_json_parse_reviver(&function_id, &args)
+                    if let Some(static_json_parse_reviver) = prepared_static_json_parse_reviver
+                        .and_then(|prepared| {
+                            self.finish_static_json_parse_reviver(prepared, &callee, &args)
+                        })
                     {
-                        return TypedExpr::from_info(
-                            ValueInfo {
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
-                            ExprIr::JsonParseStaticReviver { value, reviver },
-                        );
+                        return invocation_effects
+                            .attach_to_emitted_call(static_json_parse_reviver);
                     }
                     if matches!(
                         StandardBuiltinId::from_function_id(&function_id),
@@ -2404,7 +2470,9 @@ impl<'a> ScriptLowerer<'a> {
                         };
                         let constructor_targets = receiver
                             .function_targets
-                            .iter()
+                            .exact_targets()
+                            .into_iter()
+                            .flatten()
                             .filter_map(|function_id| {
                                 StandardBuiltinId::from_function_id(function_id)
                                     .filter(|builtin| Self::is_typed_array_constructor(*builtin))
@@ -2463,7 +2531,12 @@ impl<'a> ScriptLowerer<'a> {
                                 // components so a transferred method reaches
                                 // its own closed receiver check.
                                 return self.lower_indirect_method_call(
-                                    info, callee, receiver, args, None,
+                                    info,
+                                    callee,
+                                    receiver,
+                                    args,
+                                    None,
+                                    invocation_effects,
                                 );
                             }
                         }
@@ -2559,11 +2632,38 @@ impl<'a> ScriptLowerer<'a> {
                                 | StandardBuiltinId::FunctionPrototypeBind
                         )
                     ) {
-                        if let Some(target_function_id) =
-                            self.resolve_single_function_target(&receiver)
+                        let forwarded_dynamic_source_result = if matches!(
+                            StandardBuiltinId::from_function_id(&function_id),
+                            Some(StandardBuiltinId::FunctionPrototypeCall)
+                        ) && !Self::call_args_have_spread(
+                            &args,
+                        ) {
+                            match self.preflight_function_prototype_call_dynamic_source(
+                                &receiver.value_info(),
+                                source_arguments,
+                                &args,
+                            ) {
+                                DynamicSourceCallAdmission::Admitted(admission) => self
+                                    .consume_forwarded_dynamic_source_admission(
+                                        &receiver.value_info(),
+                                        admission,
+                                    ),
+                                DynamicSourceCallAdmission::Rejected => {
+                                    return TypedExpr::undefined();
+                                }
+                            }
+                        } else {
+                            None
+                        };
+                        if let Some(target_function_id) = matches!(
+                            InvocationTargetProvenance::from(&receiver),
+                            InvocationTargetProvenance::ProvenFunction(_)
+                        )
+                        .then(|| self.resolve_single_function_target(&receiver))
+                        .flatten()
                         {
                             if let Some(signature) =
-                                self.function_signatures.get(&target_function_id).cloned()
+                                self.function_signature_for_current_flow(&target_function_id)
                             {
                                 match StandardBuiltinId::from_function_id(&function_id) {
                                     Some(StandardBuiltinId::FunctionPrototypeCall)
@@ -2595,7 +2695,14 @@ impl<'a> ScriptLowerer<'a> {
                                                         .collect::<Vec<_>>(),
                                                 )
                                             } else {
-                                                self.forwarded_apply_arg_infos(args.get(1))
+                                                self.forwarded_apply_args(args.get(1)).map(
+                                                    |forwarded_args| {
+                                                        forwarded_args
+                                                            .iter()
+                                                            .map(TypedExpr::value_info)
+                                                            .collect()
+                                                    },
+                                                )
                                             };
                                             if let Some(forwarded_args) = forwarded_args {
                                                 self.merge_function_param_infos(
@@ -2627,14 +2734,14 @@ impl<'a> ScriptLowerer<'a> {
                                                                 possible_kinds:
                                                                     KindSet::all_runtime_tags(),
                                                                 heap_shape: None,
-                                                                function_targets: BTreeSet::new(),
+                                                                function_targets: FunctionTargetKnowledge::unknown(),
                                                             },
                                                             ValueInfo {
                                                                 kind: ValueKind::Dynamic,
                                                                 possible_kinds:
                                                                     KindSet::all_runtime_tags(),
                                                                 heap_shape: None,
-                                                                function_targets: BTreeSet::new(),
+                                                                function_targets: FunctionTargetKnowledge::unknown(),
                                                             },
                                                         ],
                                                     );
@@ -2648,11 +2755,67 @@ impl<'a> ScriptLowerer<'a> {
                                         if signature.protocol.class_kind()
                                             != ClassFunctionKind::Constructor
                                         {
-                                            info = ValueInfo {
-                                                kind: signature.return_kind,
-                                                possible_kinds: signature.return_possible_kinds,
-                                                heap_shape: signature.return_shape,
-                                                function_targets: signature.return_targets,
+                                            info = self.function_call_return_info(&signature);
+                                        }
+                                        if let Some(target_builtin) =
+                                            Self::define_property_builtin(&target_function_id)
+                                        {
+                                            info = match StandardBuiltinId::from_function_id(
+                                                &function_id,
+                                            ) {
+                                                Some(StandardBuiltinId::FunctionPrototypeCall)
+                                                    if !Self::call_args_have_spread(&args) =>
+                                                {
+                                                    let analysis = self
+                                                        .forwarded_define_property_call_analysis(
+                                                            target_builtin,
+                                                            args.get(1..).unwrap_or_default(),
+                                                        );
+                                                    let (result, effects) = analysis.into_parts();
+                                                    invocation_effects = effects;
+                                                    result
+                                                }
+                                                Some(StandardBuiltinId::FunctionPrototypeApply)
+                                                    if !Self::call_args_have_spread(&args) =>
+                                                {
+                                                    match self.forwarded_apply_args(args.get(1)) {
+                                                        Some(forwarded_args) => {
+                                                            let analysis = self
+                                                                .forwarded_define_property_call_analysis(
+                                                                    target_builtin,
+                                                                    &forwarded_args,
+                                                                );
+                                                            let (result, effects) =
+                                                                analysis.into_parts();
+                                                            invocation_effects = effects;
+                                                            result
+                                                        }
+                                                        None => {
+                                                            let (result, effects) = self
+                                                                .unknown_forwarded_define_property_call_analysis(
+                                                                    target_builtin,
+                                                                )
+                                                                .into_parts();
+                                                            invocation_effects = effects;
+                                                            result
+                                                        }
+                                                    }
+                                                }
+                                                Some(
+                                                    StandardBuiltinId::FunctionPrototypeCall
+                                                    | StandardBuiltinId::FunctionPrototypeApply,
+                                                ) => {
+                                                    let (result, effects) = self
+                                                        .unknown_forwarded_define_property_call_analysis(
+                                                            target_builtin,
+                                                        )
+                                                        .into_parts();
+                                                    invocation_effects = effects;
+                                                    result
+                                                }
+                                                _ => unreachable!(
+                                                    "defineProperty forwarding only applies to call/apply"
+                                                ),
                                             };
                                         }
                                     }
@@ -2684,10 +2847,10 @@ impl<'a> ScriptLowerer<'a> {
                                             heap_shape: Some(Self::function_heap_shape(
                                                 signature.protocol.is_constructable(),
                                             )),
-                                            function_targets: BTreeSet::from([
+                                            function_targets: FunctionTargetKnowledge::exact(
                                                 StandardBuiltinId::BoundFunctionInvoker
                                                     .function_id(),
-                                            ]),
+                                            ),
                                         };
                                         self.bound_functions += 1;
                                         self.bound_function_constructs +=
@@ -2696,6 +2859,19 @@ impl<'a> ScriptLowerer<'a> {
                                     _ => {}
                                 }
                             }
+                        }
+                        if matches!(
+                            StandardBuiltinId::from_function_id(&function_id),
+                            Some(
+                                StandardBuiltinId::FunctionPrototypeCall
+                                    | StandardBuiltinId::FunctionPrototypeApply
+                            )
+                        ) && forwarded_dynamic_source_result.is_none()
+                        {
+                            self.consume_forwarded_call_flow_effects(&receiver);
+                        }
+                        if let Some(result) = forwarded_dynamic_source_result {
+                            info = result;
                         }
                     }
                     if string_from_code_point_apply_call
@@ -2753,62 +2929,79 @@ impl<'a> ScriptLowerer<'a> {
                         receiver,
                         args,
                         static_regexp_compilation,
+                        invocation_effects,
                     );
                 }
                 PropertyAccess::Private(access) => {
                     let Some(private_name_id) = self.current_private_name_id(access.field()) else {
                         return self.unsupported_expr("private class element");
                     };
-                    let receiver = self.lower_property_target(access.target());
-                    let receiver_info = receiver.value_info();
+                    let mut receiver = self.lower_property_target(access.target());
+                    let mut receiver_info = receiver.value_info();
                     let receiver_storage_name =
                         self.alloc_temp_binding_name("private.call.receiver.");
-                    let materialized_receiver = TypedExpr::from_info(
+                    let mut materialized_receiver = TypedExpr::from_info(
                         receiver_info.clone(),
                         ExprIr::Identifier(receiver_storage_name.clone()),
                     );
-                    let callee = TypedExpr::from_info(
+                    let mut callee = TypedExpr::from_info(
                         self.read_object_shape(&receiver, &private_data_key(private_name_id))
                             .unwrap_or(ValueInfo {
                                 kind: ValueKind::Dynamic,
                                 possible_kinds: KindSet::all_runtime_tags(),
                                 heap_shape: None,
-                                function_targets: BTreeSet::new(),
+                                function_targets: FunctionTargetKnowledge::unknown(),
                             }),
                         ExprIr::PrivateRead {
                             target: Box::new(materialized_receiver.clone()),
                             private_name_id,
                         },
                     );
-                    let function_id = (callee.kind == ValueKind::Function)
-                        .then(|| self.resolve_single_function_target(&callee))
-                        .flatten();
-                    let (args, info) = if let Some(function_id) = function_id {
+                    let function_id = matches!(
+                        InvocationTargetProvenance::from(&callee),
+                        InvocationTargetProvenance::ProvenFunction(_)
+                    )
+                    .then(|| self.resolve_single_function_target(&callee))
+                    .flatten();
+                    let (args, info, invocation_effects) = if let Some(function_id) = function_id {
                         let Some(signature) = self.function_signatures.get(&function_id) else {
                             return self.unsupported_expr("indirect call");
                         };
                         if !signature.callable
                             && signature.protocol.class_kind() != ClassFunctionKind::Constructor
                         {
-                            return unsupported_call(self, signature.protocol.class_kind());
+                            return self.unsupported_expr("indirect call");
                         }
-                        self.merge_function_this_info(&function_id, receiver_info);
-                        self.lower_call_args(&function_id, args)
-                    } else {
-                        let Some(args) = self.lower_call_args_expanding_spread(args) else {
-                            return TypedExpr::undefined();
-                        };
-                        (
+                        self.lower_call_args(
+                            &function_id,
                             args,
-                            ValueInfo {
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
+                            InvocationThisObservation::ExplicitValueMethod {
+                                receiver: &mut receiver_info,
+                                callee: &mut callee,
                             },
                         )
+                    } else {
+                        let source_args = args;
+                        let args = self
+                            .lower_call_args_expanding_spread(source_args)
+                            .into_arguments_after_expression_and_value(
+                                &mut callee,
+                                &mut receiver_info,
+                            );
+                        let analysis = self.analyze_known_call_candidates(
+                            &callee.value_info(),
+                            Some(&receiver_info),
+                            &args,
+                            CallCandidateSource::IndirectSyntax(source_args),
+                        );
+                        let CallCandidateAnalysis::Accepted { result, effects } = analysis else {
+                            return TypedExpr::undefined();
+                        };
+                        (args, result, effects)
                     };
-                    let call = TypedExpr::from_info(
+                    receiver.heap_shape = receiver_info.heap_shape.clone();
+                    materialized_receiver.heap_shape = receiver_info.heap_shape.clone();
+                    let call = invocation_effects.attach_to_emitted_call(TypedExpr::from_info(
                         info.clone(),
                         ExprIr::CallIndirect {
                             callee: Box::new(callee),
@@ -2816,7 +3009,7 @@ impl<'a> ScriptLowerer<'a> {
                             args,
                             static_regexp_compilation: None,
                         },
-                    );
+                    ));
                     return TypedExpr::from_info(
                         info,
                         ExprIr::MaterializeBinding {
@@ -2827,31 +3020,40 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
                 PropertyAccess::Super(access) => {
-                    let callee = self.lower_super_property_access(access);
-                    let Some(function_id) = (callee.kind == ValueKind::Function)
-                        .then(|| self.resolve_single_function_target(&callee))
-                        .flatten()
-                    else {
-                        let Some(args) = self.lower_call_args_expanding_spread(args) else {
+                    let mut callee = self.lower_super_property_access(access);
+                    let Some(function_id) = matches!(
+                        InvocationTargetProvenance::from(&callee),
+                        InvocationTargetProvenance::ProvenFunction(_)
+                    )
+                    .then(|| self.resolve_single_function_target(&callee))
+                    .flatten() else {
+                        let source_args = args;
+                        let args = self
+                            .lower_call_args_expanding_spread(source_args)
+                            .into_arguments_after_expression(&mut callee);
+                        let this_value = self.current_this_info();
+                        let analysis = self.analyze_known_call_candidates(
+                            &callee.value_info(),
+                            Some(&this_value),
+                            &args,
+                            CallCandidateSource::IndirectSyntax(source_args),
+                        );
+                        let CallCandidateAnalysis::Accepted { result, effects } = analysis else {
                             return TypedExpr::undefined();
                         };
-                        return TypedExpr::from_info(
-                            ValueInfo {
-                                kind: ValueKind::Dynamic,
-                                possible_kinds: KindSet::all_runtime_tags(),
-                                heap_shape: None,
-                                function_targets: BTreeSet::new(),
-                            },
+                        let call = TypedExpr::from_info(
+                            result,
                             ExprIr::CallIndirect {
                                 callee: Box::new(callee),
                                 this_arg: Some(Box::new(TypedExpr::from_info(
-                                    self.current_this_info(),
+                                    this_value,
                                     ExprIr::This,
                                 ))),
                                 args,
                                 static_regexp_compilation: None,
                             },
                         );
+                        return effects.attach_to_emitted_call(call);
                     };
                     let Some(signature) = self.function_signatures.get(&function_id) else {
                         return self.unsupported_expr("indirect call");
@@ -2859,10 +3061,14 @@ impl<'a> ScriptLowerer<'a> {
                     if !signature.callable
                         && signature.protocol.class_kind() != ClassFunctionKind::Constructor
                     {
-                        return unsupported_call(self, signature.protocol.class_kind());
+                        return self.unsupported_expr("indirect call");
                     }
-                    let (args, info) = self.lower_call_args(&function_id, args);
-                    return TypedExpr::from_info(
+                    let (args, info, invocation_effects) = self.lower_call_args(
+                        &function_id,
+                        args,
+                        InvocationThisObservation::Current,
+                    );
+                    let call = TypedExpr::from_info(
                         info,
                         ExprIr::CallIndirect {
                             callee: Box::new(callee),
@@ -2874,271 +3080,10 @@ impl<'a> ScriptLowerer<'a> {
                             static_regexp_compilation: None,
                         },
                     );
+                    return invocation_effects.attach_to_emitted_call(call);
                 }
             }
         }
-        let callee = self.lower_expression(callee);
-        let callee = match callee {
-            TypedExpr {
-                expr: ExprIr::OptionalPropertyChain { target, mut chain },
-                ..
-            } => {
-                let source_args = args;
-                let Some(args) = self.lower_call_args_expanding_spread(args) else {
-                    return TypedExpr::undefined();
-                };
-                let mut call_sources = already_accounted_optional_calls(&chain);
-                chain.push(OptionalChainOperationIr::Call {
-                    args,
-                    receiver: OptionalChainCallReceiverIr::ReferenceOrUndefined,
-                    shorted: false,
-                    boundary_before: true,
-                });
-                call_sources.push(OptionalCallSource::Syntax(source_args));
-                let info =
-                    self.analyze_optional_property_chain(target.as_ref(), &chain, &call_sources);
-                return TypedExpr::from_info(info, ExprIr::OptionalPropertyChain { target, chain });
-            }
-            callee => callee,
-        };
-        let lower_generic_indirect_call = |this: &mut Self, callee: TypedExpr| {
-            let Some(args) = this.lower_call_args_expanding_spread(args) else {
-                return TypedExpr::undefined();
-            };
-            let result = TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                },
-                ExprIr::CallIndirect {
-                    callee: Box::new(callee),
-                    this_arg: None,
-                    args,
-                    static_regexp_compilation: None,
-                },
-            );
-            this.invalidate_unknown_user_code_effects();
-            result
-        };
-        if callee.kind != ValueKind::Function {
-            return lower_generic_indirect_call(self, callee);
-        }
-        let mut callee = callee;
-        if matches!(&callee.expr, ExprIr::FunctionValue(_))
-            && !self.exact_context_callback_targets.is_empty()
-            && !callee.function_targets.is_empty()
-        {
-            let mut rewritten_targets = BTreeSet::new();
-            for target_id in &callee.function_targets {
-                let original_target_id = self.original_exact_function_id(target_id);
-                if let Some(helper_context_id) = self
-                    .exact_context_callback_targets
-                    .get(&original_target_id)
-                    .cloned()
-                {
-                    if let Some(synthetic_id) = self
-                        .exact_context_callback_specializations
-                        .get(&(original_target_id, helper_context_id))
-                        .cloned()
-                    {
-                        rewritten_targets.insert(synthetic_id);
-                        continue;
-                    }
-                }
-                rewritten_targets.insert(target_id.clone());
-            }
-            if rewritten_targets != callee.function_targets {
-                callee.function_targets = rewritten_targets;
-                if let Some(single_target) = self.resolve_single_function_target(&callee) {
-                    callee = self.function_value_expr(single_target);
-                }
-            }
-        }
-        let Some(mut function_id) = self.resolve_single_function_target(&callee) else {
-            if !callee.function_targets.is_empty() {
-                let source_args = args;
-                let Some(args) = self.lower_call_args_expanding_spread(args) else {
-                    return TypedExpr::undefined();
-                };
-                let args_have_spread = Self::call_args_have_spread(&args);
-                let mut result_info: Option<ValueInfo> = None;
-                let function_targets = callee.function_targets.iter().cloned().collect::<Vec<_>>();
-                let source_function_may_run = function_targets
-                    .iter()
-                    .any(|function_id| self.analysis.function_plans.contains_key(function_id));
-                let mut rejected_dynamic_source = false;
-                for function_id in &function_targets {
-                    let context = resolved_builtin_call_context(&callee, function_id);
-                    let eval_pass_through = match self.resolve_dynamic_source_call(
-                        function_id,
-                        context,
-                        Some(source_args),
-                        &args,
-                    ) {
-                        None => None,
-                        Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => {
-                            if let Some(builtin) = StandardBuiltinId::from_function_id(function_id)
-                            {
-                                self.note_standard_builtin_call(builtin);
-                            }
-                            Some(proof.into_result_info())
-                        }
-                        Some(ResolvedDynamicSourceCall::Unsupported(gap)) => {
-                            self.record_unsupported_dynamic_source(function_id, gap);
-                            rejected_dynamic_source = true;
-                            None
-                        }
-                    };
-                    let Some(signature) = self.function_signatures.get(function_id).cloned() else {
-                        continue;
-                    };
-                    if !signature.callable
-                        && signature.protocol.class_kind() != ClassFunctionKind::Constructor
-                    {
-                        continue;
-                    }
-                    self.mark_host_builtin_from_function_id(function_id);
-                    self.host_builtin_calls +=
-                        usize::from(HostBuiltinId::from_function_id(function_id).is_some());
-                    let arg_infos = args.iter().map(TypedExpr::value_info).collect::<Vec<_>>();
-                    let exact_prepass_call =
-                        self.is_prepass && self.analysis.function_plans.contains_key(function_id);
-                    if !args_have_spread && !exact_prepass_call {
-                        let this_info = self.default_this_info_for_function_target(function_id);
-                        self.merge_function_this_info(function_id, this_info);
-                        self.merge_function_param_infos(function_id, &arg_infos);
-                    } else if !args_have_spread {
-                        if let Some(helper_context_id) = self
-                            .exact_context_callback_targets
-                            .get(&self.original_exact_function_id(function_id))
-                            .cloned()
-                        {
-                            let original_function_id = self.original_exact_function_id(function_id);
-                            let arg_infos = self.canonical_exact_context_arg_infos(&arg_infos);
-                            let this_info = self.default_this_info_for_function_target(function_id);
-                            self.observe_exact_callback_this_info(
-                                &original_function_id,
-                                &helper_context_id,
-                                this_info,
-                            );
-                            self.observe_exact_callback_param_infos(
-                                &original_function_id,
-                                &helper_context_id,
-                                &arg_infos,
-                            );
-                        }
-                    }
-                    if self.is_prepass && !args_have_spread {
-                        self.propagate_direct_call_context(function_id, &arg_infos);
-                    }
-                    let next_info = eval_pass_through.unwrap_or(ValueInfo {
-                        kind: signature.return_kind,
-                        possible_kinds: signature.return_possible_kinds,
-                        heap_shape: signature.return_shape,
-                        function_targets: signature.return_targets,
-                    });
-                    result_info = Some(match result_info {
-                        Some(existing) => self.merge_value_infos(existing, next_info),
-                        None => next_info,
-                    });
-                }
-                if rejected_dynamic_source {
-                    return TypedExpr::undefined();
-                }
-                let result = TypedExpr::from_info(
-                    result_info.unwrap_or_else(|| ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: BTreeSet::new(),
-                    }),
-                    ExprIr::CallIndirect {
-                        callee: Box::new(callee),
-                        this_arg: None,
-                        args,
-                        static_regexp_compilation: None,
-                    },
-                );
-                if source_function_may_run {
-                    self.invalidate_unknown_user_code_effects();
-                }
-                return result;
-            }
-            return lower_generic_indirect_call(self, callee);
-        };
-        if let Some(helper_context_id) = self
-            .exact_context_callback_targets
-            .get(&self.original_exact_function_id(&function_id))
-            .cloned()
-        {
-            let original_function_id = self.original_exact_function_id(&function_id);
-            if let Some(synthetic_id) = self
-                .exact_context_callback_specializations
-                .get(&(original_function_id, helper_context_id))
-                .cloned()
-            {
-                function_id = synthetic_id.clone();
-                if matches!(&callee.expr, ExprIr::FunctionValue(_)) {
-                    callee = self.function_value_expr(synthetic_id);
-                }
-            }
-        }
-        let Some(signature) = self.function_signatures.get(&function_id) else {
-            return lower_generic_indirect_call(self, callee);
-        };
-        if !signature.callable && signature.protocol.class_kind() != ClassFunctionKind::Constructor
-        {
-            return unsupported_call(self, signature.protocol.class_kind());
-        }
-        self.mark_host_builtin_from_function_id(&function_id);
-        self.host_builtin_calls +=
-            usize::from(HostBuiltinId::from_function_id(&function_id).is_some());
-        let this_info = self.default_this_info_for_function_target(&function_id);
-        self.merge_function_this_info(&function_id, this_info);
-        let context = resolved_builtin_call_context(&callee, &function_id);
-        let (effective_function_id, args, info) =
-            self.lower_call_args_with_target(&function_id, args, context);
-        if let Some(builtin) = StandardBuiltinId::from_function_id(&effective_function_id) {
-            if let Some(folded) = Self::fold_standard_builtin_literal_call(builtin, &args) {
-                return folded;
-            }
-        }
-        // A context-specialized body is only safe to materialize directly when
-        // the source expression already creates that function object here.
-        // Replacing an identifier/property callee would discard the original
-        // closure object's captured environment and function identity.
-        let callee = if effective_function_id != function_id
-            && matches!(&callee.expr, ExprIr::FunctionValue(_))
-        {
-            self.function_value_expr(effective_function_id.clone())
-        } else {
-            callee
-        };
-        if let Some(ExprIr::JsonParseStaticReviver { value, reviver }) =
-            self.try_lower_static_json_parse_reviver(&effective_function_id, &args)
-        {
-            return TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: BTreeSet::new(),
-                },
-                ExprIr::JsonParseStaticReviver { value, reviver },
-            );
-        }
-        let static_regexp_compilation =
-            self.static_regexp_compilation_for_direct_call(&callee, &effective_function_id, &args);
-        TypedExpr::from_info(
-            info,
-            ExprIr::CallIndirect {
-                callee: Box::new(callee),
-                this_arg: None,
-                args,
-                static_regexp_compilation,
-            },
-        )
+        self.lower_non_property_call(callee, args)
     }
 }
