@@ -1,5 +1,8 @@
 use lila_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
 
+#[path = "../../lila-aot-wasm/tests/fixtures/exception_control.rs"]
+mod native_exception_fixtures;
+
 fn assert_wasm_true(source: &str) {
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
@@ -144,5 +147,51 @@ second: {
 }
 score === 15;
 "#,
+    );
+}
+
+fn native_exception_engine() -> wasmtime::Engine {
+    let mut config = wasmtime::Config::new();
+    config.wasm_exceptions(true);
+    config.consume_fuel(true);
+    wasmtime::Engine::new(&config).expect("the required Wasmtime exception feature must be available")
+}
+
+#[test]
+fn native_exception_artifacts_preserve_payloads_rethrow_and_handler_order() {
+    let engine = native_exception_engine();
+    for (name, bytes, expected) in native_exception_fixtures::CASES {
+        let module = wasmtime::Module::new(&engine, bytes)
+            .unwrap_or_else(|error| panic!("fixture {name} must compile: {error}"));
+        let mut store = wasmtime::Store::new(&engine, ());
+        store.set_fuel(10_000).expect("fuel is enabled");
+        let instance = wasmtime::Instance::new(&mut store, &module, &[])
+            .unwrap_or_else(|error| panic!("fixture {name} must instantiate: {error}"));
+        let run = instance
+            .get_typed_func::<(), i32>(&mut store, "run")
+            .expect("fixture exports () -> i32");
+        let actual = run
+            .call(&mut store, ())
+            .unwrap_or_else(|error| panic!("fixture {name} must execute: {error}"));
+        assert_eq!(actual, *expected, "fixture {name}");
+    }
+}
+
+#[test]
+fn native_catch_all_does_not_swallow_a_wasm_trap() {
+    let engine = native_exception_engine();
+    let module = wasmtime::Module::new(&engine, native_exception_fixtures::TRAP_NOT_CAUGHT)
+        .expect("trap fixture must compile");
+    let mut store = wasmtime::Store::new(&engine, ());
+    store.set_fuel(10_000).expect("fuel is enabled");
+    let instance = wasmtime::Instance::new(&mut store, &module, &[])
+        .expect("trap fixture must instantiate");
+    let run = instance
+        .get_typed_func::<(), i32>(&mut store, "run")
+        .expect("fixture exports () -> i32");
+    let error = run.call(&mut store, ()).expect_err("unreachable must bypass catch_all");
+    assert!(
+        matches!(error.downcast_ref::<wasmtime::Trap>(), Some(wasmtime::Trap::UnreachableCodeReached)),
+        "expected an unreachable trap, not a link error, exhausted fuel or an exception: {error}"
     );
 }
