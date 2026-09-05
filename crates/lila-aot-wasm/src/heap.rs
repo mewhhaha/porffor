@@ -5114,8 +5114,8 @@ mod tests {
             .split_once("fn emit_route_promise_reaction_pair(")
             .expect("one Promise reaction-pair router should exist")
             .1
-            .split_once("fn emit_intrinsic_promise_resolve_to_locals(")
-            .expect("Promise reaction router should have a stable boundary")
+            .split_once("\n    }\n")
+            .expect("Promise reaction router must end at its method-level closing brace")
             .0;
         assert_eq!(router.matches("emit_load_promise_state_strict(").count(), 1);
         assert_eq!(router.matches("PromiseState::ALL").count(), 1);
