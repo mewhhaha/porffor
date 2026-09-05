@@ -1,0 +1,54 @@
+name: AOT suspended-reference rebased verification
+
+on:
+  push:
+    branches: [codex/aot-suspended-property-reference]
+
+permissions:
+  contents: write
+
+jobs:
+  verify-publish:
+    if: github.event.head_commit.message == 'Seed rebased suspended-reference follow-up'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply follow-up on current parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/aot-rebase/part-*.b64 | base64 -d > /tmp/followup.tar.gz
+          mkdir -p /tmp/followup
+          tar -xzf /tmp/followup.tar.gz -C /tmp/followup
+          python3 /tmp/followup/apply.py .
+      - name: Format
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+      - name: Workspace compile gate
+        run: cargo check --locked --workspace --all-targets
+      - name: Focused synchronous suspended References
+        run: >-
+          cargo test --locked -p lila-engine --test aot_control_flow
+          suspended_property_reference:: -- --test-threads=1
+      - name: Parent suspended Reference matrix
+        run: cargo test --locked -p lila-engine --test aot_suspended_references -- --test-threads=1
+      - name: Product artifact gate
+        run: cargo test --locked -p lila-aot-wasm --test product_artifact -- --test-threads=1
+      - name: Publish verified rebased tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/aot-rebase/part-*.b64 .github/workflows/aot-suspended-reference-rebase.yml
+          git add -A
+          git diff --cached --check
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'Share suspended property references with ordinary PutValue'
+          git push origin HEAD:refs/heads/codex/aot-suspended-property-reference
