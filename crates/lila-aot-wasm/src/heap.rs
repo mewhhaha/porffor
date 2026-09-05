@@ -5029,8 +5029,10 @@ mod tests {
     fn promise_lifecycle_owns_every_raw_state_access() {
         let heap_source = include_str!("heap.rs");
         let heap_implementation = heap_source
-            .split_once("#[cfg(test)]")
-            .expect("heap tests should follow the implementation")
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect(
+                "heap test module should follow the implementation, including test-only imports",
+            )
             .0;
         let promise_source = include_str!("builtins/promise.rs");
         let consumer_sources = [
@@ -5147,8 +5149,10 @@ mod tests {
     fn async_function_resume_completion_owns_every_raw_access() {
         let heap_source = include_str!("heap.rs");
         let heap_implementation = heap_source
-            .split_once("#[cfg(test)]")
-            .expect("heap tests should follow the implementation")
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect(
+                "heap test module should follow the implementation, including test-only imports",
+            )
             .0;
         let functions_source = include_str!("functions.rs");
         let promise_source = include_str!("builtins/promise.rs");
