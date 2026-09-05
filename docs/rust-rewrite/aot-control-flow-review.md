@@ -120,12 +120,13 @@ tracing, module linking or general builtin conformance. Existing typed stages,
 Wasm validation, execution regressions and the pinned Test262 gate retain those
 responsibilities.
 
-Exception-control forms (`try`, `try_table`, `catch`, `catch_all`, `delegate`,
-`rethrow`) remain explicitly rejected by the sink until their label semantics
-are implemented. JS try/catch/finally continues through the existing completion
-representation. Suspended materialized loop/body environments remain a
-separate backend boundary; the captured-head IR test is an ownership check,
-not a claim of complete runtime support for that case.
+This review originally left exception-control forms explicitly rejected.
+Their native instruction accounting is now implemented and covered by the
+[exception-control follow-up](aot-native-exception-control.md). This does not
+migrate JS try/catch/finally away from the existing completion representation.
+Suspended materialized loop/body environments remain a separate backend
+boundary; the captured-head IR test is an ownership check, not a claim of
+complete runtime support for that case.
 
 The full CLI/engine suites, the before/after CLI-fixture golden comparison,
 performance comparison and current-pin real Test262 aggregate are outside the

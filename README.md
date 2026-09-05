@@ -19,6 +19,13 @@ commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace
 and its `lila` CLI are the only current product implementation.
 
+Async-generator ordinary property assignments across `yield` and `yield*` now
+use the shared suspended Reference path. The base and raw key survive suspension;
+normal resumption performs key conversion and the strictness-aware write, while
+abrupt resumption bypasses it. This is a focused backend capability, not a claim
+of complete generator or Test262 conformance. See
+[the suspended Reference follow-up](docs/rust-rewrite/aot-suspended-references.md).
+
 ## Current Status
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:

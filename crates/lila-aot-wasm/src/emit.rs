@@ -1023,10 +1023,6 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             .statements
             .iter()
             .find_map(async_generator_dispatcher_unsupported_feature),
-        StatementIr::GeneratorYield {
-            resume_mode: GeneratorResumeModeIr::AssignProperty(_),
-            ..
-        } => Some("property-assignment yield resumption"),
         StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. } => None,
         StatementIr::GeneratorLoop {
             before_suspension,

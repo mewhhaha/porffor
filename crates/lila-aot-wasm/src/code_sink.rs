@@ -1,9 +1,9 @@
 //! The only path from an emitter to a Wasm function body.
 //!
-//! Every raw `block`, `loop` and `if` contributes to the real label stack,
-//! including frames that the JS control-flow builder does not manage. A branch
-//! target records both its stack position and its identity: a closed frame must
-//! not become a valid target again when a sibling reuses its depth.
+//! Every raw structured-control instruction contributes to the real label
+//! stack, including frames that the JS control-flow builder does not manage.
+//! A branch target records both its stack position and its identity: a closed
+//! frame must not become a valid target again when a sibling reuses its depth.
 //!
 //! These checks are unconditional, including in release builds used for
 //! conformance runs. They validate emission structure, not Wasm operand types;
@@ -11,7 +11,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use wasm_encoder::{Instruction, ValType};
+use wasm_encoder::{Catch, Instruction, ValType};
 
 /// A live label's position and identity, not a relative branch immediate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -45,6 +45,10 @@ enum FrameKind {
     Loop,
     IfThen,
     IfElse,
+    TryTable,
+    LegacyTry,
+    LegacyCatch,
+    LegacyCatchAll,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -130,6 +134,69 @@ impl Function {
             Instruction::Block(_) => self.frames.push(Frame::new(FrameKind::Block)),
             Instruction::Loop(_) => self.frames.push(Frame::new(FrameKind::Loop)),
             Instruction::If(_) => self.frames.push(Frame::new(FrameKind::IfThen)),
+            Instruction::TryTable(_, catches) => {
+                // Handler labels name enclosing frames, not the new try_table
+                // frame. Check EVERY clause before changing either the frame
+                // stack or encoded bytes, including clauses after catch_all.
+                for catch in catches.iter() {
+                    let label = match catch {
+                        Catch::One { label, .. }
+                        | Catch::OneRef { label, .. }
+                        | Catch::All { label }
+                        | Catch::AllRef { label } => *label,
+                    };
+                    self.check_branch(label);
+                }
+                self.frames.push(Frame::new(FrameKind::TryTable));
+            }
+            Instruction::Try(_) => self.frames.push(Frame::new(FrameKind::LegacyTry)),
+            Instruction::Catch(_) | Instruction::CatchAll => {
+                let frame = self
+                    .frames
+                    .last_mut()
+                    .expect("an open frame was checked above");
+                assert!(
+                    matches!(frame.kind, FrameKind::LegacyTry | FrameKind::LegacyCatch),
+                    "wasm `catch`/`catch_all` must belong to an open legacy try before catch_all"
+                );
+                // A handler replaces the arm, not its label identity. Multiple
+                // tagged catches are legal; catch_all is necessarily last.
+                frame.kind = if matches!(instruction, Instruction::CatchAll) {
+                    FrameKind::LegacyCatchAll
+                } else {
+                    FrameKind::LegacyCatch
+                };
+            }
+            Instruction::Delegate(label) => {
+                assert_eq!(
+                    self.frames
+                        .last()
+                        .expect("an open frame was checked above")
+                        .kind,
+                    FrameKind::LegacyTry,
+                    "wasm `delegate` must terminate a legacy try body before any catch"
+                );
+                // Delegate substitutes for end. Its immediate is relative to
+                // the enclosing stack AFTER removing this try. Ordinary block
+                // and function labels are legal delegation destinations too.
+                let enclosing_depth = self.depth() - 1;
+                assert!(
+                    *label < enclosing_depth,
+                    "delegate immediate {label} is out of range at enclosing label depth {enclosing_depth}"
+                );
+                self.frames.pop();
+            }
+            Instruction::Rethrow(label) => {
+                self.check_branch(*label);
+                let frame = &self.frames[self.frames.len() - 1 - *label as usize];
+                assert!(
+                    matches!(
+                        frame.kind,
+                        FrameKind::LegacyCatch | FrameKind::LegacyCatchAll
+                    ),
+                    "wasm `rethrow` must target a live legacy catch handler"
+                );
+            }
             Instruction::End => {
                 self.frames.pop();
             }
@@ -159,20 +226,6 @@ impl Function {
             Instruction::BrOnCast { relative_depth, .. }
             | Instruction::BrOnCastFail { relative_depth, .. } => {
                 self.check_branch(*relative_depth);
-            }
-            // No product emitter currently uses these exception-control forms.
-            // Keep them explicitly rejected until their catch/delegate label
-            // semantics are implemented, rather than silently miscounting them.
-            Instruction::Try(_)
-            | Instruction::TryTable(_, _)
-            | Instruction::Delegate(_)
-            | Instruction::Catch(_)
-            | Instruction::CatchAll
-            | Instruction::Rethrow(_) => {
-                panic!(
-                    "code_sink does not account for this control instruction yet; \
-                     teach `Function::instruction` about it before emitting it"
-                );
             }
             _ => {}
         }
@@ -265,3 +318,7 @@ impl Function {
 #[cfg(test)]
 #[path = "../tests/unit/code_sink.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/code_sink_exceptions.rs"]
+mod exception_tests;

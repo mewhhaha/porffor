@@ -53,6 +53,11 @@ jobs:
         timeout-minutes: 15
         run: cargo test --locked -p lila-engine --test aot_control_flow --test aot_async_for_of -- --test-threads=1
 
+      - name: Execute suspended Reference regressions through Wasmtime
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: cargo test --locked -p lila-engine --test aot_suspended_references -- --test-threads=1
+
   aot-backend:
     name: Complete AOT backend (${{ matrix.shard }})
     runs-on: ubuntu-latest

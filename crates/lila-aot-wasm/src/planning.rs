@@ -7102,7 +7102,7 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     for_each_suspended_property_reference_operand(reference, |expr| {
                         operand_locals = operand_locals.max(count_expr_temp_locals(expr));
                     });
-                    operand_locals + 4 + REFERENCE_STRICTNESS_FLAG_LOCALS
+                    operand_locals + 6 + REFERENCE_STRICTNESS_FLAG_LOCALS
                 }
                 GeneratorResumeModeIr::Ignore
                 | GeneratorResumeModeIr::Return
