@@ -3,6 +3,9 @@ use lila_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOpt
 #[path = "../../lila-aot-wasm/tests/fixtures/exception_control.rs"]
 mod native_exception_fixtures;
 
+#[path = "aot_control_flow/suspended_property_reference.rs"]
+mod suspended_property_reference;
+
 fn assert_wasm_true(source: &str) {
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine

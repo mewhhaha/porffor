@@ -234,7 +234,7 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Evaluate a property's referenced-name expression without applying
     /// ToPropertyKey. The consuming Reference transition owns that coercion.
-    fn compile_raw_property_key_expression_to_locals(
+    pub(crate) fn compile_raw_property_key_expression_to_locals(
         &mut self,
         key: &PropertyKeyIr,
         payload_local: u32,
@@ -660,6 +660,82 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(base_and_receiver_tag);
         self.release_temp_local(base_and_receiver_payload);
         Ok(())
+    }
+
+    /// Rejoin ordinary PutValue after a generator assignment RHS has completed
+    /// normally, through plain or delegated yield. The activation layout comes
+    /// from the execution owner, while the Reference lifecycle is exactly the
+    /// ordinary assignment lifecycle below.
+    pub(crate) fn write_suspended_property_reference(
+        &mut self,
+        reference: &SuspendedPropertyReferenceIr,
+        activation_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let offsets = self.suspended_property_reference_offsets()?;
+        match reference.use_view() {
+            SuspendedPropertyReferenceUse::Ordinary {
+                base_and_receiver: _,
+                key: _,
+                strictness,
+            } => {
+                let reserved: [u32;
+                    crate::planning::ORDINARY_PROPERTY_ASSIGNMENT_EVALUATED_TEMP_LOCALS] = [
+                    self.reserve_temp_local(),
+                    self.reserve_temp_local(),
+                    self.reserve_temp_local(),
+                    self.reserve_temp_local(),
+                    self.reserve_temp_local(),
+                    self.reserve_temp_local(),
+                ];
+                let [base_and_receiver_payload, base_and_receiver_tag, referenced_name_payload, referenced_name_tag, rhs_payload, rhs_tag] =
+                    reserved;
+
+                function.instruction(&Instruction::LocalGet(value_payload_local));
+                function.instruction(&Instruction::LocalSet(rhs_payload));
+                function.instruction(&Instruction::LocalGet(value_tag_local));
+                function.instruction(&Instruction::LocalSet(rhs_tag));
+
+                for (offset, destination) in offsets.into_iter().zip([
+                    base_and_receiver_payload,
+                    base_and_receiver_tag,
+                    referenced_name_payload,
+                    referenced_name_tag,
+                ]) {
+                    self.load_i64_to_local_from_offset(
+                        activation_local,
+                        offset,
+                        destination,
+                        function,
+                    );
+                }
+                // Retire the activation record before any observable coercion or
+                // Set can throw into a handler which itself suspends.
+                self.clear_suspended_property_reference(activation_local, function)?;
+
+                let assignment = EvaluatedRawOrdinaryPropertyAssignmentLocals {
+                    base_and_receiver_payload,
+                    base_and_receiver_tag,
+                    referenced_name_payload,
+                    referenced_name_tag,
+                    rhs_payload,
+                    rhs_tag,
+                };
+                let ready =
+                    self.canonicalize_raw_ordinary_property_assignment(assignment, function)?;
+                self.emit_put_value_from_ready_ordinary_property_assignment(
+                    ready,
+                    strictness,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_propagate_current_completion_if_throw(function);
+                Ok(())
+            }
+        }
     }
 
     fn compile_ordinary_property_assignment_to_locals(

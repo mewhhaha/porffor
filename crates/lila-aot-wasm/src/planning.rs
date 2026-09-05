@@ -7079,6 +7079,18 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
     }
 }
 
+/// Shared PutValue phase: ordinary and resumed assignments retain the same
+/// six evaluated operands before boxing the target, coercing the key and Set.
+fn count_ordinary_property_assignment_completion_temp_locals() -> usize {
+    let canonical_phase = ORDINARY_PROPERTY_ASSIGNMENT_CANONICAL_TEMP_LOCALS
+        + ORDINARY_PROPERTY_ASSIGNMENT_TO_OBJECT_TEMP_LOCALS
+            .max(ORDINARY_PROPERTY_ASSIGNMENT_TO_PROPERTY_KEY_TEMP_LOCALS);
+    let write_phase = ORDINARY_PROPERTY_ASSIGNMENT_READY_TEMP_LOCALS
+        + ORDINARY_PROPERTY_ASSIGNMENT_SET_HELPER_TEMP_LOCALS
+            .max(ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS);
+    canonical_phase.max(write_phase)
+}
+
 pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
     match statement {
         StatementIr::ModuleUnitOnce { block, .. } => block
@@ -7102,7 +7114,10 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     for_each_suspended_property_reference_operand(reference, |expr| {
                         operand_locals = operand_locals.max(count_expr_temp_locals(expr));
                     });
-                    operand_locals + 6 + REFERENCE_STRICTNESS_FLAG_LOCALS
+                    let preparation_phase =
+                        ORDINARY_PROPERTY_ASSIGNMENT_RAW_TEMP_LOCALS + operand_locals;
+                    preparation_phase
+                        .max(count_ordinary_property_assignment_completion_temp_locals())
                 }
                 GeneratorResumeModeIr::Ignore
                 | GeneratorResumeModeIr::Return
@@ -7467,8 +7482,8 @@ const ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS: usize = 4 + 3;
 // retained raw key after reserving the distinct boxed target, then adds its
 // single Set-result local. The final phase is the larger of the Set helper's
 // four own locals plus two-local argument vector and a strict failed-Set error.
-const ORDINARY_PROPERTY_ASSIGNMENT_RAW_TEMP_LOCALS: usize = 4;
-const ORDINARY_PROPERTY_ASSIGNMENT_EVALUATED_TEMP_LOCALS: usize = 4 + 2;
+pub(crate) const ORDINARY_PROPERTY_ASSIGNMENT_RAW_TEMP_LOCALS: usize = 4;
+pub(crate) const ORDINARY_PROPERTY_ASSIGNMENT_EVALUATED_TEMP_LOCALS: usize = 4 + 2;
 const ORDINARY_PROPERTY_ASSIGNMENT_CANONICAL_TEMP_LOCALS: usize = 4 + 2 + 2;
 const ORDINARY_PROPERTY_ASSIGNMENT_READY_TEMP_LOCALS: usize = 4 + 2 + 2 + 1;
 // ToObject's widest branch boxes a string: prototype + wrapper object, three
@@ -7696,16 +7711,9 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 + count_expr_temp_locals(assignment.base_and_receiver()).max(key_child);
             let evaluated_phase = ORDINARY_PROPERTY_ASSIGNMENT_EVALUATED_TEMP_LOCALS
                 + count_expr_temp_locals(assignment.rhs());
-            let canonical_phase = ORDINARY_PROPERTY_ASSIGNMENT_CANONICAL_TEMP_LOCALS
-                + ORDINARY_PROPERTY_ASSIGNMENT_TO_OBJECT_TEMP_LOCALS
-                    .max(ORDINARY_PROPERTY_ASSIGNMENT_TO_PROPERTY_KEY_TEMP_LOCALS);
-            let write_phase = ORDINARY_PROPERTY_ASSIGNMENT_READY_TEMP_LOCALS
-                + ORDINARY_PROPERTY_ASSIGNMENT_SET_HELPER_TEMP_LOCALS
-                    .max(ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS);
             raw_phase
                 .max(evaluated_phase)
-                .max(canonical_phase)
-                .max(write_phase)
+                .max(count_ordinary_property_assignment_completion_temp_locals())
         }
         ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {
             let key_child = match assignment.referenced_name() {
