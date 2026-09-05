@@ -60,13 +60,14 @@ fn one_borrowed_layout_owns_every_suspension_policy() {
         "impl DestructuringIteratorLocals {",
     );
     for method in [
+        "const fn environment_offset(&self) -> u64",
         "const fn resume_state_offset(&self) -> u64",
         "const fn resume_payload_offset(&self) -> u64",
         "const fn resume_tag_offset(&self) -> u64",
     ] {
         assert!(projection.contains(method), "missing borrowed {method}");
     }
-    assert_eq!(projection.matches("match self {").count(), 3);
+    assert_eq!(projection.matches("match self {").count(), 4);
     assert!(!projection.contains("is_async_generator"));
     assert!(!projection.contains("-> bool"));
 
@@ -121,4 +122,40 @@ fn contract_and_task_record_the_capability_boundary_and_nonclaims() {
         assert!(evidence.contains("noemittedWasmorruntimebehavior"));
         assert!(evidence.contains("BatchAB"));
     }
+}
+
+#[test]
+fn captured_iteration_cleanup_consumes_the_same_activation_authority() {
+    let lifecycle = include_str!("../src/control_flow/for_await_iteration_environment.rs");
+    assert!(!lifecycle.contains("#[derive("));
+    assert_eq!(lifecycle.matches("#[must_use =").count(), 2);
+    assert!(!lifecycle.contains("pub(crate) struct"));
+    assert!(lifecycle.contains("environment_offset: layout.environment_offset()"));
+    let enter = bounded(
+        lifecycle,
+        "pub(super) fn enter_suspended_for_await_iteration_environment(",
+        "pub(super) fn leave_suspended_for_await_iteration_environment(",
+    );
+    assert!(enter.contains("saved: SavedForAwaitIterationEnvironment"));
+    assert!(enter.contains("environment_offset: saved.environment_offset"));
+    assert!(enter.contains("activation_local: saved.activation_local"));
+    assert_eq!(enter.matches("emit_enter_lexical_environment(").count(), 1);
+    assert!(
+        enter.find("emit_enter_lexical_environment(").unwrap()
+            < enter.find("self.finally_stack.push(cleanup)").unwrap(),
+        "the cleanup must record the child depth, not unwind the child twice"
+    );
+    let leave = lifecycle
+        .split_once("pub(super) fn leave_suspended_for_await_iteration_environment(")
+        .unwrap()
+        .1;
+    assert!(leave.contains("active: ActiveForAwaitIterationEnvironment"));
+    assert!(leave.contains("assert_eq!(self.finally_stack.pop(), Some(active.cleanup))"));
+    assert_eq!(leave.matches("emit_leave_lexical_environment(").count(), 1);
+    assert!(leave.contains("active.activation_local"));
+    assert!(leave.contains("active.environment_offset"));
+    let leave_position = leave.find("emit_leave_lexical_environment(").unwrap();
+    let publish_position = leave.find("store_i64_local_at_offset(").unwrap();
+    let dispatch_position = leave.find("emit_dispatch_current_completion(").unwrap();
+    assert!(leave_position < publish_position && publish_position < dispatch_position);
 }

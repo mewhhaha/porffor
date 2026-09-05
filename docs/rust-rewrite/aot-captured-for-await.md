@@ -40,14 +40,17 @@ before the first body yield. Catch/finally handlers yield again to detect stale
 activation pointers rather than checking only the first completion.
 
 The existing IR activation tests continue to require one captured iteration
-cell and **no** duplicate root slot. The AOT regression workflow requires the
-new execution target alongside the existing control-flow, suspended-Reference,
+cell and **no** duplicate root slot. The activation-layout structure tests also
+require the exhaustive environment-offset projection and consuming cleanup
+authority. The AOT regression workflow requires those tests and the new execution
+target alongside the existing control-flow, suspended-Reference,
 product-artifact and complete-inventory backend tests. No tests are skipped or
 marked expected-failure, and no generated conformance counts are edited.
 
 ```sh
 cargo fmt --all -- --check
-cargo test --locked -p lila-ir --test async_for_of_activation
+cargo test --locked -p lila-ir --test async_for_of_activation -- --test-threads=1
+cargo test --locked -p lila-aot-wasm --test for_await_activation_layout_structure
 cargo test --locked -p lila-engine --test aot_captured_for_await -- --test-threads=1
 cargo test --locked -p lila-engine --test aot_async_for_of --test aot_suspended_references --test aot_control_flow -- --test-threads=1
 cargo test --locked -p lila-aot-wasm --test product_artifact -- --test-threads=1
