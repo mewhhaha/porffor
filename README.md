@@ -26,6 +26,13 @@ abrupt resumption bypasses it. This is a focused backend capability, not a claim
 of complete generator or Test262 conformance. See
 [the suspended Reference follow-up](docs/rust-rewrite/aot-suspended-references.md).
 
+Async-generator `for await` loops can also retain captured `let`/`const` head
+bindings across body yields. Closures and the resumed body share the same cell;
+each iteration gets a fresh cell, and iterator closing runs after the parent
+environment is restored. Additional materialized body scopes and nested
+for-await remain separate work. See
+[the captured iteration follow-up](docs/rust-rewrite/aot-captured-for-await.md).
+
 ## Current Status
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:

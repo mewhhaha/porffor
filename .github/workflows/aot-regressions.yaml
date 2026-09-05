@@ -33,7 +33,11 @@ jobs:
 
       - name: Test for-await activation planning
         if: ${{ !cancelled() }}
-        run: cargo test --locked -p lila-ir --test async_for_of_activation
+        run: cargo test --locked -p lila-ir --test async_for_of_activation -- --test-threads=1
+
+      - name: Test for-await activation and delegation ownership
+        if: ${{ !cancelled() }}
+        run: cargo test --locked -p lila-aot-wasm --test for_await_activation_layout_structure --test async_generator_delegation_kind_structure
 
       - name: Test emission invariants
         if: ${{ !cancelled() }}
@@ -57,6 +61,11 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 15
         run: cargo test --locked -p lila-engine --test aot_suspended_references -- --test-threads=1
+
+      - name: Execute captured for-await environment regressions through Wasmtime
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: cargo test --locked -p lila-engine --test aot_captured_for_await -- --test-threads=1
 
   aot-backend:
     name: Complete AOT backend (${{ matrix.shard }})

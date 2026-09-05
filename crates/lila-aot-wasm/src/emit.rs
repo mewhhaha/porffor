@@ -1117,15 +1117,10 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             body,
             ..
         } if async_generator_for_await_is_transparent_yield(&binding.name, body) => None,
-        // A for-await loop owns four states of its own (`entry`,
-        // `value_resume`, `close_resume`, `exit`) and re-enters at whichever of
-        // them the activation carries. That replay is sound as long as the loop
-        // is the only thing suspending: a suspension in the body would need a
-        // back edge from its resume state to the loop's entry state, which the
-        // linear state chain does not have, and resuming at a body state would
-        // fail the loop's entry test and skip the loop entirely. So a
-        // suspension-free body compiles like any ordinary loop body, and a
-        // suspending one is still refused rather than miscompiled.
+        // Body yields occupy states inside the for-await plan's span. Captured
+        // head bindings now reattach their existing per-iteration environment;
+        // nested for-await and additional materialized body scopes are separate
+        // dispatcher capabilities and remain explicitly rejected.
         StatementIr::ForOfIterator {
             head:
                 ForOfIteratorHeadIr::Assignment {
@@ -1133,7 +1128,6 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
                     ..
                 },
             body,
-            lexical_environment,
             ..
         } => {
             // A nested `for await` allocates its own four states inside this
@@ -1143,14 +1137,10 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
                 return Some("for-await iteration with a nested for-await in the loop body");
             }
             if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Yield)
-                && (lexical_environment
-                    .as_ref()
-                    .and_then(|environment| environment.iteration_environment.as_ref())
-                    .is_some()
-                    || matches!(body.as_ref(), StatementIr::Block(block) if block.lexical_environment.is_some()))
+                && matches!(body.as_ref(), StatementIr::Block(block) if block.lexical_environment.is_some())
             {
                 return Some(
-                    "for-await-of with a per-iteration lexical environment and a body suspension",
+                    "for-await-of with a block-scoped body environment and a body suspension",
                 );
             }
             None
