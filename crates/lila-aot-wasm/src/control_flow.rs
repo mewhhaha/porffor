@@ -18,6 +18,7 @@ use lila_ir::{
 };
 
 mod async_function_for_of_iterator;
+mod for_await_iteration_environment;
 mod for_await_iterator_symbol;
 use for_await_iterator_symbol::ForAwaitIteratorSymbol;
 
@@ -459,6 +460,13 @@ enum ForAwaitActivationLayout {
 }
 
 impl ForAwaitActivationLayout {
+    const fn environment_offset(&self) -> u64 {
+        match self {
+            Self::AsyncFunction => HEAP_ASYNC_ENV_OFFSET,
+            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
+        }
+    }
+
     const fn resume_state_offset(&self) -> u64 {
         match self {
             Self::AsyncFunction => HEAP_ASYNC_RESUME_STATE_OFFSET,
@@ -8478,27 +8486,15 @@ impl<'a> FunctionBuilder<'a> {
         // sequence, so the gates below and the body's own dispatch cannot
         // disagree about which states exist.
         let body_suspends = Self::async_statement_entry_state(body).is_some();
-        if body_suspends {
-            // A per-iteration environment is entered at the loop head and left
-            // after the body, both inside the same invocation. Split the
-            // iteration and the resume would enter a second environment while
-            // the first is still current, and leave only one of them.
-            if lexical_environment
-                .and_then(|environment| environment.iteration_environment.as_ref())
-                .is_some()
-            {
-                return Err(EmitError::unsupported(
-                    "for-await-of with a per-iteration lexical environment and a body suspension",
-                ));
-            }
-            // `compile_async_block_contents` enters a body block's own
-            // environment unconditionally, i.e. once per invocation, and
-            // leaves it only on the invocation that runs the block to its end.
-            if matches!(body, StatementIr::Block(block) if block.lexical_environment.is_some()) {
-                return Err(EmitError::unsupported(
-                    "for-await-of with a block-scoped body environment and a body suspension",
-                ));
-            }
+        // A captured head has its own resumable environment lifecycle below.
+        // A body block's *additional* materialized environment still needs a
+        // separate state-aware owner; never reallocate it on each invocation.
+        if body_suspends
+            && matches!(body, StatementIr::Block(block) if block.lexical_environment.is_some())
+        {
+            return Err(EmitError::unsupported(
+                "for-await-of with a block-scoped body environment and a body suspension",
+            ));
         }
         let resume_layout = match self
             .current_function_meta()
@@ -8562,6 +8558,20 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.open_frame(ControlFrameKind::If, function);
 
+        let iteration_environment =
+            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref());
+        let saved_iteration_environment = if body_suspends && iteration_environment.is_some() {
+            Some(self.detach_suspended_for_await_iteration_environment(
+                state_local,
+                async_plan,
+                activation_local,
+                &resume_layout,
+                function,
+            ))
+        } else {
+            None
+        };
+
         self.push_scope();
         let storage_without_environment = if mode == BindingMode::Var {
             Some(self.lookup_binding(name).ok_or_else(|| {
@@ -8578,9 +8588,10 @@ impl<'a> FunctionBuilder<'a> {
         // to live in an environment slot: wasm locals are reset on every
         // resume. For-await lowering retains an uncaptured head in the
         // activation when its per-iteration environment is elided. This
-        // guards that storage invariant; materialized environments still
-        // require their separate resumable lifecycle.
+        // guards that storage invariant. A captured head instead uses its
+        // existing per-iteration cell, reattached on every body resume.
         if body_suspends
+            && !iteration_environment_owns_binding(lexical_environment, name)
             && !matches!(
                 storage_without_environment,
                 Some(BindingStorage::EnvSlot { .. })
@@ -9044,22 +9055,26 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(done_payload_local));
         function.instruction(&Instruction::I32WrapI64);
         function.branch_if_to_label(break_frame.label);
-        // Binding the loop variable belongs to the start of an iteration. On a
-        // body resume the iteration is already under way, the value locals hold
-        // nothing this invocation assigned, and the binding still holds the
-        // value the body was suspended with — so rebinding would overwrite it
-        // with garbage. A per-iteration environment is refused above when the
-        // body can suspend, so entering one here stays a value-path-only step.
+        // Reattach the captured head before compiling either side of the
+        // value gate. The layout is identical on first entry and body resume;
+        // only first entry allocates a cell or initializes the loop binding.
+        let active_iteration_environment = if let Some(saved) = saved_iteration_environment {
+            Some(self.enter_suspended_for_await_iteration_environment(
+                saved,
+                iteration_environment.expect("a saved iteration must have a binding layout"),
+                function,
+            )?)
+        } else {
+            if let Some(environment) = iteration_environment {
+                self.emit_enter_lexical_environment(environment, function)?;
+            }
+            None
+        };
         if body_suspends {
             function.instruction(&Instruction::LocalGet(state_local));
             function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
             function.instruction(&Instruction::I64Eq);
             self.open_frame(ControlFrameKind::If, function);
-        }
-        if let Some(environment) =
-            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
-        {
-            self.emit_enter_lexical_environment(environment, function)?;
         }
         let storage = self
             .lookup_current_scope_binding(name)
@@ -9071,10 +9086,10 @@ impl<'a> FunctionBuilder<'a> {
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        // Emitted at the same control depth as before the gates above, so every
-        // `break`/`continue`/`return` inside the body still resolves to the same
-        // frame it did when a suspending body was refused outright.
         self.compile_statement(body, function)?;
+        if let Some(active) = active_iteration_environment {
+            self.leave_suspended_for_await_iteration_environment(active, function)?;
+        }
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
@@ -9100,18 +9115,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        // Pairs with the per-iteration enter at the loop head, and reads
-        // `resume_is_throw_local`. Both are sound only while an iteration begins
-        // and ends inside one invocation, which is why a per-iteration
-        // environment and a suspending body are refused together above.
-        if lexical_environment
-            .and_then(|environment| environment.iteration_environment.as_ref())
-            .is_some()
-        {
-            debug_assert!(
-                !body_suspends,
-                "a per-iteration environment and a body suspension must have been refused"
-            );
+        // Non-suspending iterations retain their existing same-invocation
+        // leave. Suspended iterations already crossed their consuming cleanup
+        // block, before iterator closing or the next step can suspend again.
+        if iteration_environment.is_some() && !body_suspends {
             function.instruction(&Instruction::LocalGet(resume_is_throw_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
