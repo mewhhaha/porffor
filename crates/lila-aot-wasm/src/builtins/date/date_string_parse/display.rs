@@ -1,9 +1,11 @@
 use super::*;
 
-const WEEKDAYS: [[u8; 3]; 7] = [*b"Sun", *b"Mon", *b"Tue", *b"Wed", *b"Thu", *b"Fri", *b"Sat"];
+const WEEKDAYS: [[u8; 3]; 7] = [
+    *b"Sun", *b"Mon", *b"Tue", *b"Wed", *b"Thu", *b"Fri", *b"Sat",
+];
 const MONTHS: [[u8; 3]; 12] = [
-    *b"Jan", *b"Feb", *b"Mar", *b"Apr", *b"May", *b"Jun", *b"Jul", *b"Aug", *b"Sep", *b"Oct", *b"Nov",
-    *b"Dec",
+    *b"Jan", *b"Feb", *b"Mar", *b"Apr", *b"May", *b"Jun", *b"Jul", *b"Aug", *b"Sep", *b"Oct",
+    *b"Nov", *b"Dec",
 ];
 
 impl<'a> FunctionBuilder<'a> {

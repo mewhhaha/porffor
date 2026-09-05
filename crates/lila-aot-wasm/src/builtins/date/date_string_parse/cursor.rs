@@ -43,12 +43,7 @@ impl DateParseCursor {
         function.instruction(&Instruction::End);
     }
 
-    pub(super) fn at(
-        &self,
-        builder: &FunctionBuilder<'_>,
-        expected: u8,
-        function: &mut Function,
-    ) {
+    pub(super) fn at(&self, builder: &FunctionBuilder<'_>, expected: u8, function: &mut Function) {
         self.peek(builder, function);
         function.instruction(&Instruction::LocalGet(self.byte));
         function.instruction(&Instruction::I64Const(expected as i64));

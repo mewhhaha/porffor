@@ -133,7 +133,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_temp_local(negative);
-        parts.finish(self, &cursor, DateParseForm::Iso, dest_payload_local, function);
+        parts.finish(
+            self,
+            &cursor,
+            DateParseForm::Iso,
+            dest_payload_local,
+            function,
+        );
         cursor.release(self);
     }
 
