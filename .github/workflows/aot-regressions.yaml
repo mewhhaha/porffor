@@ -35,9 +35,9 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo test --locked -p lila-ir --test async_for_of_activation -- --test-threads=1
 
-      - name: Test for-await activation ownership
+      - name: Test for-await activation and delegation ownership
         if: ${{ !cancelled() }}
-        run: cargo test --locked -p lila-aot-wasm --test for_await_activation_layout_structure
+        run: cargo test --locked -p lila-aot-wasm --test for_await_activation_layout_structure --test async_generator_delegation_kind_structure
 
       - name: Test emission invariants
         if: ${{ !cancelled() }}

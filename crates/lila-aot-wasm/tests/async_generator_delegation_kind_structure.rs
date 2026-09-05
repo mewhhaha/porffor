@@ -179,7 +179,7 @@ fn delegation_emitter_has_eight_exhaustive_semantic_projections_in_order() {
             "self.store_i64_const_at_offset(activation_local,",
             "HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,0,function,);",
             "self.set_completion_kind(CompletionKind::Throw,function);",
-            "self.emit_return_current_completion(function);",
+            "self.emit_dispatch_async_generator_completion(function);",
             "function.instruction(&Instruction::End);}}"
         )
     );
@@ -206,7 +206,7 @@ fn delegation_emitter_has_eight_exhaustive_semantic_projections_in_order() {
             "self.store_i64_const_at_offset(activation_local,",
             "HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,0,function,);",
             "self.set_completion_kind(CompletionKind::Return,function);",
-            "self.emit_return_current_completion(function);",
+            "self.emit_dispatch_async_generator_completion(function);",
             "function.instruction(&Instruction::End);}}"
         )
     );
@@ -231,7 +231,7 @@ fn delegation_emitter_has_eight_exhaustive_semantic_projections_in_order() {
             "self.load_i64_to_local_from_offset(record_local,",
             "HEAP_GENERATOR_DELEGATE_PENDING_TAG_OFFSET,self.result_tag_local,function,);",
             "self.set_completion_kind(CompletionKind::Throw,function);",
-            "self.emit_return_current_completion(function);",
+            "self.emit_dispatch_async_generator_completion(function);",
             "function.instruction(&Instruction::End);}}"
         )
     );
