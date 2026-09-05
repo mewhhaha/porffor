@@ -394,6 +394,8 @@ pub(crate) enum TestTarget {
     CliOutputEndingStructure,
     /// `tests/perf.rs`.
     Perf,
+    /// `tests/test262_verdict_command_structure.rs`.
+    Test262VerdictCommandStructure,
 }
 
 impl TestTarget {
@@ -404,6 +406,7 @@ impl TestTarget {
             TestTarget::Cli => "cli",
             TestTarget::CliOutputEndingStructure => "cli_output_ending_structure",
             TestTarget::Perf => "perf",
+            TestTarget::Test262VerdictCommandStructure => "test262_verdict_command_structure",
         }
     }
 
@@ -419,6 +422,7 @@ impl TestTarget {
             "cache" => Some(TestTarget::Cache),
             "cli_output_ending_structure" => Some(TestTarget::CliOutputEndingStructure),
             "perf" => Some(TestTarget::Perf),
+            "test262_verdict_command_structure" => Some(TestTarget::Test262VerdictCommandStructure),
             _ => None,
         }
     }
@@ -440,6 +444,7 @@ impl FromStr for TestTarget {
             "cli" => Ok(TestTarget::Cli),
             "cli_output_ending_structure" => Ok(TestTarget::CliOutputEndingStructure),
             "perf" => Ok(TestTarget::Perf),
+            "test262_verdict_command_structure" => Ok(TestTarget::Test262VerdictCommandStructure),
             other => Err(LedgerError::UnknownTarget(other.to_string())),
         }
     }
