@@ -32,11 +32,8 @@ impl DateParseComponents {
         // Month is zero-based for MakeDay. All absent ISO elements receive
         // their specified defaults, including reduced date-time forms.
         for local in parts.locals() {
-            function.instruction(&Instruction::F64Const(Ieee64::from(if local == parts.date {
-                1.0
-            } else {
-                0.0
-            }))));
+            let initial = if local == parts.date { 1.0 } else { 0.0 };
+            function.instruction(&Instruction::F64Const(Ieee64::from(initial)));
             function.instruction(&Instruction::I64ReinterpretF64);
             function.instruction(&Instruction::LocalSet(local));
         }
