@@ -1,0 +1,26 @@
+name: Baseline Date parser reproduction
+
+on:
+  push:
+    branches: [codex/date-parser-baseline-validation]
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Expected pre-fix Date failures
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Execute desired Date semantics on the pre-fix product
+        run: |
+          echo 'Product baseline: 821fccaa69ebd62a048543a70ed8480dd6a69841'
+          echo 'Only this validation workflow and three regression tests are added.'
+          echo 'These assertions are expected to fail on the original parser; failures are not suppressed.'
+          cargo test --locked -p lila-engine --test aot_date_parser_baseline -- --test-threads=1
