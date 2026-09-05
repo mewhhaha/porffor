@@ -70,15 +70,17 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Const(i64::from(saved.value_resume_state)));
         function.instruction(&Instruction::I64Eq);
         self.open_frame(ControlFrameKind::If, function);
-        // This registers the binding layout once at compile time. Both runtime
-        // arms finish with exactly that layout, but the resume arm never creates
-        // or initializes a second cell behind pre-suspension closures.
-        self.emit_enter_lexical_environment(environment, function)?;
+        // Allocate only for a fresh value. A body resume must keep the exact
+        // record addressed by closures created before suspension.
+        self.emit_allocate_lexical_environment_record(environment, function)?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(saved.environment_local));
         function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        // Both runtime arms now have the same layout. Attach the compiler's
+        // binding view once, independently of allocation or reattachment.
+        self.begin_existing_lexical_environment_scope(environment);
         self.release_temp_local(saved.environment_local);
         self.store_i64_local_at_offset(
             saved.activation_local,
