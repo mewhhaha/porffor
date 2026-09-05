@@ -100,8 +100,8 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot change non-configurable arguments.callee accessor",
     "Cannot change non-writable arguments.callee",
     "Cannot change value of non-writable arguments property",
-    "Cannot define array length",
     "Cannot define arguments index on a non-extensible object",
+    "Cannot define array length",
     "Cannot make non-configurable arguments property writable",
     "Cannot make non-configurable arguments.callee writable",
     "Cannot read properties of null or undefined",
@@ -543,7 +543,6 @@ impl StringPool {
         for value in [
             "",
             " ",
-            UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE,
             "          ",
             "\n",
             ": ",
@@ -2053,6 +2052,9 @@ impl StringPool {
         ] {
             pool.intern_string(value);
         }
+        // Keep diagnostics after the fixed literal seed: inserting them into
+        // its prefix changes every following packed string offset.
+        pool.intern_string(UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE);
         // Unconditional, and it must stay unconditional: these are the messages
         // `emit_runtime_error_object` now reads out of the pool, and the paths
         // that throw them (`null.x`, an unbound identifier, a TDZ read) are
@@ -5051,6 +5053,20 @@ mod runtime_error_message_pool_tests {
         let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
         let script = lower(&parsed).script.expect("empty script should lower");
         StringPool::collect(&script, &BTreeMap::new(), &[])
+    }
+
+    #[test]
+    fn rejection_diagnostic_is_interned_without_moving_fixed_literals() {
+        let pool = production_pool_for_an_empty_script();
+        assert_eq!(
+            pool.payload(","),
+            ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
+        );
+        let message = UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE;
+        let payload = pool.payload(message) as u64;
+        let offset = (payload >> 32) as usize - STATIC_DATA_OFFSET as usize;
+        let len = (payload & 0xFFFF_FFFF) as usize;
+        assert_eq!(&pool.bytes[offset..offset + len], message.as_bytes());
     }
 
     #[test]

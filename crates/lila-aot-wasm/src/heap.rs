@@ -5029,8 +5029,10 @@ mod tests {
     fn promise_lifecycle_owns_every_raw_state_access() {
         let heap_source = include_str!("heap.rs");
         let heap_implementation = heap_source
-            .split_once("#[cfg(test)]")
-            .expect("heap tests should follow the implementation")
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect(
+                "heap test module should follow the implementation, including test-only imports",
+            )
             .0;
         let promise_source = include_str!("builtins/promise.rs");
         let consumer_sources = [
@@ -5112,8 +5114,8 @@ mod tests {
             .split_once("fn emit_route_promise_reaction_pair(")
             .expect("one Promise reaction-pair router should exist")
             .1
-            .split_once("fn emit_intrinsic_promise_resolve_to_locals(")
-            .expect("Promise reaction router should have a stable boundary")
+            .split_once("\n    }\n")
+            .expect("Promise reaction router must end at its method-level closing brace")
             .0;
         assert_eq!(router.matches("emit_load_promise_state_strict(").count(), 1);
         assert_eq!(router.matches("PromiseState::ALL").count(), 1);
@@ -5147,8 +5149,10 @@ mod tests {
     fn async_function_resume_completion_owns_every_raw_access() {
         let heap_source = include_str!("heap.rs");
         let heap_implementation = heap_source
-            .split_once("#[cfg(test)]")
-            .expect("heap tests should follow the implementation")
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect(
+                "heap test module should follow the implementation, including test-only imports",
+            )
             .0;
         let functions_source = include_str!("functions.rs");
         let promise_source = include_str!("builtins/promise.rs");
@@ -5161,9 +5165,20 @@ mod tests {
             heap_implementation
                 .matches("HEAP_ASYNC_RESUME_COMPLETION_OFFSET")
                 .count(),
-            3,
-            "the declaration, typed store and strict decoder must be the only raw offset sites"
+            4,
+            "only the declaration, layout, typed store and strict decoder own the raw offset"
         );
+        let resume_layout_slots = HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT
+            .iter()
+            .filter(|slot| slot.name == "resume_completion")
+            .collect::<Vec<_>>();
+        assert_eq!(resume_layout_slots.len(), 1);
+        assert_eq!(
+            resume_layout_slots[0].offset,
+            HEAP_ASYNC_RESUME_COMPLETION_OFFSET
+        );
+        assert_eq!(resume_layout_slots[0].width, 8);
+        assert!(!resume_layout_slots[0].pointer);
         for source in [functions_source, promise_source, control_flow_source] {
             assert!(!source.contains("HEAP_ASYNC_RESUME_COMPLETION_OFFSET"));
             assert!(!source.contains(concat!("HEAP_ASYNC_RESUME_", "KIND_OFFSET")));

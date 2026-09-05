@@ -8562,10 +8562,10 @@ impl<'a> FunctionBuilder<'a> {
         // `next()` and read by whatever the body does afterwards. Once the body
         // can suspend those stop being the same invocation, so the binding has
         // to live in an environment slot: wasm locals are reset on every
-        // resume. `collect_owner_root_bindings_from_statement`
-        // (lila-ir/src/analysis.rs) gives every for-of loop binding of a
-        // resumable owner an activation slot, so this guards that invariant
-        // rather than a shape callers are expected to write.
+        // resume. For-await lowering retains an uncaptured head in the
+        // activation when its per-iteration environment is elided. This
+        // guards that storage invariant; materialized environments still
+        // require their separate resumable lifecycle.
         if body_suspends
             && !matches!(
                 storage_without_environment,

@@ -390,8 +390,12 @@ pub(crate) enum TestTarget {
     Cache,
     /// `tests/cli/` -- `main.rs` plus the area modules.
     Cli,
+    /// `tests/cli_output_ending_structure.rs`.
+    CliOutputEndingStructure,
     /// `tests/perf.rs`.
     Perf,
+    /// `tests/test262_verdict_command_structure.rs`.
+    Test262VerdictCommandStructure,
 }
 
 impl TestTarget {
@@ -400,7 +404,9 @@ impl TestTarget {
             TestTarget::AsyncGenerator => "async_generator",
             TestTarget::Cache => "cache",
             TestTarget::Cli => "cli",
+            TestTarget::CliOutputEndingStructure => "cli_output_ending_structure",
             TestTarget::Perf => "perf",
+            TestTarget::Test262VerdictCommandStructure => "test262_verdict_command_structure",
         }
     }
 
@@ -414,7 +420,9 @@ impl TestTarget {
         match stem {
             "async_generator" => Some(TestTarget::AsyncGenerator),
             "cache" => Some(TestTarget::Cache),
+            "cli_output_ending_structure" => Some(TestTarget::CliOutputEndingStructure),
             "perf" => Some(TestTarget::Perf),
+            "test262_verdict_command_structure" => Some(TestTarget::Test262VerdictCommandStructure),
             _ => None,
         }
     }
@@ -434,7 +442,9 @@ impl FromStr for TestTarget {
             "async_generator" => Ok(TestTarget::AsyncGenerator),
             "cache" => Ok(TestTarget::Cache),
             "cli" => Ok(TestTarget::Cli),
+            "cli_output_ending_structure" => Ok(TestTarget::CliOutputEndingStructure),
             "perf" => Ok(TestTarget::Perf),
+            "test262_verdict_command_structure" => Ok(TestTarget::Test262VerdictCommandStructure),
             other => Err(LedgerError::UnknownTarget(other.to_string())),
         }
     }
