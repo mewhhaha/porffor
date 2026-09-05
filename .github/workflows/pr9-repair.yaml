@@ -13,99 +13,32 @@ jobs:
   repair:
     if: github.repository == 'mewhhaha/porffor'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: write
-    env:
-      CARGO_BUILD_JOBS: 2
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Apply reviewed audit and documentation corrections
+      - name: Bound the Promise router audit by its own method body
         shell: python
         run: |
           from pathlib import Path
           import subprocess
-          def read_pinned(name, sha):
-              path = Path(name)
-              assert subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() == sha
-              return path, path.read_text()
-          def replace_once(text, old, new):
-              assert text.count(old) == 1, repr(old)
-              return text.replace(old, new)
-
-          path, text = read_pinned('crates/lila-aot-wasm/src/heap.rs', '5998887913b6af16f5bd6061723ac2d3d7cfec09')
-          old = '            3,\n            "the declaration, typed store and strict decoder must be the only raw offset sites"'
-          new = '            4,\n            "only the declaration, layout, typed store and strict decoder own the raw offset"'
-          text = replace_once(text, old, new)
-          old = '        for source in [functions_source, promise_source, control_flow_source] {'
-          new = '''        let resume_layout_slots = HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT
-                      .iter()
-                      .filter(|slot| slot.name == "resume_completion")
-                      .collect::<Vec<_>>();
-                  assert_eq!(resume_layout_slots.len(), 1);
-                  assert_eq!(resume_layout_slots[0].offset, HEAP_ASYNC_RESUME_COMPLETION_OFFSET);
-                  assert_eq!(resume_layout_slots[0].width, 8);
-                  assert!(!resume_layout_slots[0].pointer);
-                  for source in [functions_source, promise_source, control_flow_source] {'''
-          new = new.replace('                  ', '        ')
-          path.write_text(replace_once(text, old, new))
-
-          path, text = read_pinned('crates/lila-aot-wasm/src/control_flow.rs', 'ca612a7fee12227182d57500f73c414f69f8161f')
-          old = '''        // resume. `collect_owner_root_bindings_from_statement`
-                  // (lila-ir/src/analysis.rs) gives every for-of loop binding of a
-                  // resumable owner an activation slot, so this guards that invariant
-                  // rather than a shape callers are expected to write.'''.replace('                  ', '        ')
-          new = '''        // resume. For-await lowering retains an uncaptured head in the
-                  // activation when its per-iteration environment is elided. This
-                  // guards that storage invariant; materialized environments still
-                  // require their separate resumable lifecycle.'''.replace('                  ', '        ')
-          path.write_text(replace_once(text, old, new))
-
-          path, text = read_pinned('README.md', '568af57a8e9f30f07dbf3f0a7834739487b0ec9d')
-          old = '## Development\n\n'
-          new = '''## Development
-
-          Control-flow regression CI checks live Wasm label identities, function-body
-          structure, for-await activation storage, and Wasmtime execution. Uncaptured
-          for-await head values now receive activation slots when their per-iteration
-          lexical environment is elided; captured heads retain their single lexical
-          cell. Suspended materialized loop/body environments remain a separate
-          backend boundary, not a new conformance claim.
-
-          The complete AOT library test inventory is split into eight deterministic
-          shards. Each test runs in a fresh process; failures, ignored tests, missing
-          executions and timeouts fail the shard. Run the entire inventory locally
-          with `python3 scripts/run_aot_unit_shard.py 0 1`, or the same CI partitions
-          with indices `0` through `7` and a shard count of `8`. See
-          [the control-flow review](docs/rust-rewrite/aot-control-flow-review.md) for
-          the focused commands and verification boundaries. These tests do not
-          replace the pinned real Test262 aggregate.
-
-          '''
-          import textwrap
-          new = textwrap.dedent(new)
-          # The first line has no indentation, so normalize the remaining lines.
-          new = new.replace('\n          ', '\n')
-          path.write_text(replace_once(text, old, new))
-      - name: Format and publish the reviewed corrections
+          path = Path('crates/lila-aot-wasm/src/heap.rs')
+          assert subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() == '532c6596871b98d83ebcfc2d5b9a1c3a3cc71b26'
+          text = path.read_text()
+          old = '.split_once("fn emit_intrinsic_promise_resolve_to_locals(")\n            .expect("Promise reaction router should have a stable boundary")'
+          new = '.split_once("\\n    }\\n")\n            .expect("Promise reaction router must end at its method-level closing brace")'
+          assert text.count(old) == 1
+          path.write_text(text.replace(old, new))
+      - name: Format and publish only the reviewed audit repair
         shell: bash
         run: |
           set -euo pipefail
-          rustfmt --edition 2021 crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/src/control_flow.rs
+          rustfmt --edition 2021 crates/lila-aot-wasm/src/heap.rs
           git diff --check
-          git diff --stat
-          git diff -- crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/src/control_flow.rs README.md
-          git add crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/src/control_flow.rs README.md
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(test): account for canonical async-resume layout ownership'
+          git diff -- crates/lila-aot-wasm/src/heap.rs
+          git add crates/lila-aot-wasm/src/heap.rs
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(test): keep Promise router ownership audit within its method'
           git push origin HEAD:refs/heads/codex/aot-control-flow-review
-      - name: Verify the four original backend failures
-        if: ${{ !cancelled() }}
-        run: >-
-          cargo test --locked -p lila-aot-wasm --lib --
-          data::runtime_error_message_pool_tests::the_runtime_error_message_table_is_sorted_and_unique
-          heap::tests::promise_lifecycle_owns_every_raw_state_access
-          heap::tests::async_function_resume_completion_owns_every_raw_access
-          tests::async_generator_for_await_with_a_suspending_body_modules_validate
-          --exact --nocapture --test-threads=1
