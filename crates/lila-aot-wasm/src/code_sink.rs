@@ -169,7 +169,10 @@ impl Function {
             }
             Instruction::Delegate(label) => {
                 assert_eq!(
-                    self.frames.last().expect("an open frame was checked above").kind,
+                    self.frames
+                        .last()
+                        .expect("an open frame was checked above")
+                        .kind,
                     FrameKind::LegacyTry,
                     "wasm `delegate` must terminate a legacy try body before any catch"
                 );
@@ -187,7 +190,10 @@ impl Function {
                 self.check_branch(*label);
                 let frame = &self.frames[self.frames.len() - 1 - *label as usize];
                 assert!(
-                    matches!(frame.kind, FrameKind::LegacyCatch | FrameKind::LegacyCatchAll),
+                    matches!(
+                        frame.kind,
+                        FrameKind::LegacyCatch | FrameKind::LegacyCatchAll
+                    ),
                     "wasm `rethrow` must target a live legacy catch handler"
                 );
             }

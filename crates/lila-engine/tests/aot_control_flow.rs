@@ -154,7 +154,8 @@ fn native_exception_engine() -> wasmtime::Engine {
     let mut config = wasmtime::Config::new();
     config.wasm_exceptions(true);
     config.consume_fuel(true);
-    wasmtime::Engine::new(&config).expect("the required Wasmtime exception feature must be available")
+    wasmtime::Engine::new(&config)
+        .expect("the required Wasmtime exception feature must be available")
 }
 
 #[test]
@@ -184,14 +185,19 @@ fn native_catch_all_does_not_swallow_a_wasm_trap() {
         .expect("trap fixture must compile");
     let mut store = wasmtime::Store::new(&engine, ());
     store.set_fuel(10_000).expect("fuel is enabled");
-    let instance = wasmtime::Instance::new(&mut store, &module, &[])
-        .expect("trap fixture must instantiate");
+    let instance =
+        wasmtime::Instance::new(&mut store, &module, &[]).expect("trap fixture must instantiate");
     let run = instance
         .get_typed_func::<(), i32>(&mut store, "run")
         .expect("fixture exports () -> i32");
-    let error = run.call(&mut store, ()).expect_err("unreachable must bypass catch_all");
+    let error = run
+        .call(&mut store, ())
+        .expect_err("unreachable must bypass catch_all");
     assert!(
-        matches!(error.downcast_ref::<wasmtime::Trap>(), Some(wasmtime::Trap::UnreachableCodeReached)),
+        matches!(
+            error.downcast_ref::<wasmtime::Trap>(),
+            Some(wasmtime::Trap::UnreachableCodeReached)
+        ),
         "expected an unreachable trap, not a link error, exhausted fuel or an exception: {error}"
     );
 }

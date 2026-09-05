@@ -2,8 +2,8 @@ use super::*;
 use std::borrow::Cow;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use wasm_encoder::{
-    BlockType, CodeSection, ExportKind, ExportSection, FunctionSection, Module, RefType,
-    TagKind, TagSection, TagType, TypeSection,
+    BlockType, Catch as CatchClause, CodeSection, ExportKind, ExportSection, FunctionSection,
+    Module, RefType, TagKind, TagSection, TagType, TypeSection,
 };
 
 #[path = "../fixtures/exception_control.rs"]
@@ -13,7 +13,7 @@ fn empty_body() -> Function {
     Function::new_with_locals_types(std::iter::empty())
 }
 
-fn table(ty: BlockType, catches: Vec<Catch>) -> Instruction<'static> {
+fn table(ty: BlockType, catches: Vec<CatchClause>) -> Instruction<'static> {
     Instruction::TryTable(ty, Cow::Owned(catches))
 }
 
@@ -22,27 +22,33 @@ fn rejected_without_mutation(function: &mut Function, instruction: Instruction<'
     let result = catch_unwind(AssertUnwindSafe(|| {
         function.instruction(&instruction);
     }));
-    assert!(result.is_err(), "accepted invalid instruction: {instruction:?}");
-    assert_eq!(*function, before, "rejection changed the body or live frames");
+    assert!(
+        result.is_err(),
+        "accepted invalid instruction: {instruction:?}"
+    );
+    assert_eq!(
+        *function, before,
+        "rejection changed the body or live frames"
+    );
 }
 
 #[test]
 fn every_table_catch_checks_the_enclosing_stack_before_opening_a_frame() {
     for label in [1, u32::MAX] {
         for catch in [
-            Catch::One { tag: 0, label },
-            Catch::OneRef { tag: 0, label },
-            Catch::All { label },
-            Catch::AllRef { label },
+            CatchClause::One { tag: 0, label },
+            CatchClause::OneRef { tag: 0, label },
+            CatchClause::All { label },
+            CatchClause::AllRef { label },
         ] {
             rejected_without_mutation(&mut empty_body(), table(BlockType::Empty, vec![catch]));
         }
     }
     for catch in [
-        Catch::One { tag: 0, label: 0 },
-        Catch::OneRef { tag: 0, label: 0 },
-        Catch::All { label: 0 },
-        Catch::AllRef { label: 0 },
+        CatchClause::One { tag: 0, label: 0 },
+        CatchClause::OneRef { tag: 0, label: 0 },
+        CatchClause::All { label: 0 },
+        CatchClause::AllRef { label: 0 },
     ] {
         let mut function = empty_body();
         function.instruction(&table(BlockType::Empty, vec![catch]));
@@ -56,7 +62,10 @@ fn a_late_invalid_clause_does_not_partially_publish_the_table() {
         &mut empty_body(),
         table(
             BlockType::Empty,
-            vec![Catch::All { label: 0 }, Catch::One { tag: 0, label: 1 }],
+            vec![
+                CatchClause::All { label: 0 },
+                CatchClause::One { tag: 0, label: 1 },
+            ],
         ),
     );
 }
@@ -65,7 +74,10 @@ fn a_late_invalid_clause_does_not_partially_publish_the_table() {
 fn a_table_body_counts_its_own_label_for_ordinary_branches() {
     let mut function = empty_body();
     let root = function.label_depth();
-    function.instruction(&table(BlockType::Empty, vec![Catch::All { label: 0 }]));
+    function.instruction(&table(
+        BlockType::Empty,
+        vec![CatchClause::All { label: 0 }],
+    ));
     let table_label = function.label_depth();
     function.instruction(&Instruction::Block(BlockType::Empty));
     assert_eq!(function.branch_depth_to(table_label), BranchDepth(1));
@@ -83,9 +95,12 @@ fn nested_tables_resolve_handlers_against_their_immediate_enclosing_stack() {
     function.instruction(&table(BlockType::Empty, vec![]));
     rejected_without_mutation(
         &mut function,
-        table(BlockType::Empty, vec![Catch::All { label: 2 }]),
+        table(BlockType::Empty, vec![CatchClause::All { label: 2 }]),
     );
-    function.instruction(&table(BlockType::Empty, vec![Catch::All { label: 1 }]));
+    function.instruction(&table(
+        BlockType::Empty,
+        vec![CatchClause::All { label: 1 }],
+    ));
     assert_eq!(function.depth(), 3);
 }
 
@@ -104,7 +119,11 @@ fn tagged_handlers_and_catch_all_retain_the_try_label() {
     let mut function = empty_body();
     function.instruction(&Instruction::Try(BlockType::Empty));
     let label = function.label_depth();
-    for handler in [Instruction::Catch(0), Instruction::Catch(1), Instruction::CatchAll] {
+    for handler in [
+        Instruction::Catch(0),
+        Instruction::Catch(1),
+        Instruction::CatchAll,
+    ] {
         function.instruction(&handler);
         assert_eq!(function.label_depth(), label);
         assert_eq!(function.depth(), 2);
@@ -209,7 +228,10 @@ fn rethrow_requires_a_catch_at_the_exact_relative_depth() {
 #[test]
 fn modern_table_frames_are_not_legacy_catch_handlers() {
     let mut function = empty_body();
-    function.instruction(&table(BlockType::Empty, vec![Catch::All { label: 0 }]));
+    function.instruction(&table(
+        BlockType::Empty,
+        vec![CatchClause::All { label: 0 }],
+    ));
     rejected_without_mutation(&mut function, Instruction::Rethrow(0));
     rejected_without_mutation(&mut function, Instruction::Else);
 }
@@ -267,24 +289,37 @@ fn encoded_module(instructions: &[Instruction<'_>], legacy: bool) -> Vec<u8> {
         encoder.instruction(instruction);
     }
     let body = function.into_body();
-    assert_eq!(body, encoder, "the checked sink must not change encoder bytes");
+    assert_eq!(
+        body, encoder,
+        "the checked sink must not change encoder bytes"
+    );
 
     let mut types = TypeSection::new();
     types.ty().function([], [ValType::I32]);
     types.ty().function([ValType::I32], []);
-    types.ty().function([], [ValType::I32, ValType::Ref(RefType::EXNREF)]);
+    types
+        .ty()
+        .function([], [ValType::I32, ValType::Ref(RefType::EXNREF)]);
     let mut functions = FunctionSection::new();
     functions.function(0);
     let mut tags = TagSection::new();
     for _ in 0..2 {
-        tags.tag(TagType { kind: TagKind::Exception, func_type_idx: 1 });
+        tags.tag(TagType {
+            kind: TagKind::Exception,
+            func_type_idx: 1,
+        });
     }
     let mut exports = ExportSection::new();
     exports.export("run", ExportKind::Func, 0);
     let mut code = CodeSection::new();
     code.function(&body);
     let mut module = Module::new();
-    module.section(&types).section(&functions).section(&tags).section(&exports).section(&code);
+    module
+        .section(&types)
+        .section(&functions)
+        .section(&tags)
+        .section(&exports)
+        .section(&code);
     let bytes = module.finish();
     let mut features = wasmparser::WasmFeatures::default();
     features.set(wasmparser::WasmFeatures::EXCEPTIONS, true);
@@ -301,44 +336,118 @@ fn modern_exception_modules_match_the_executed_fixtures_byte_for_byte() {
     let result = BlockType::Result(ValType::I32);
     let reference = BlockType::Result(ValType::Ref(RefType::EXNREF));
     let payload_reference = BlockType::FunctionType(2);
-    let tagged = || vec![Catch::One { tag: 0, label: 0 }];
+    let tagged = || vec![CatchClause::One { tag: 0, label: 0 }];
     let bodies = [
-        vec![Block(result), table(result, tagged()), I32Const(42), Throw(0), End, End, End],
         vec![
-            Block(result), table(result, tagged()), Block(payload_reference),
-            table(payload_reference, vec![Catch::OneRef { tag: 0, label: 0 }]),
-            I32Const(73), Throw(0), End, End, ThrowRef, End, End, End,
+            Block(result),
+            table(result, tagged()),
+            I32Const(42),
+            Throw(0),
+            End,
+            End,
+            End,
         ],
         vec![
-            Block(BlockType::Empty), table(BlockType::Empty, vec![Catch::All { label: 0 }]),
-            I32Const(7), Throw(0), End, Unreachable, End, I32Const(11), End,
+            Block(result),
+            table(result, tagged()),
+            Block(payload_reference),
+            table(
+                payload_reference,
+                vec![CatchClause::OneRef { tag: 0, label: 0 }],
+            ),
+            I32Const(73),
+            Throw(0),
+            End,
+            End,
+            ThrowRef,
+            End,
+            End,
+            End,
         ],
         vec![
-            Block(result), table(result, tagged()), Block(reference),
-            table(reference, vec![Catch::AllRef { label: 0 }]),
-            I32Const(84), Throw(0), End, End, ThrowRef, End, End, End,
+            Block(BlockType::Empty),
+            table(BlockType::Empty, vec![CatchClause::All { label: 0 }]),
+            I32Const(7),
+            Throw(0),
+            End,
+            Unreachable,
+            End,
+            I32Const(11),
+            End,
         ],
         vec![
-            Block(result), table(result, tagged()), Block(result),
-            table(result, vec![Catch::One { tag: 1, label: 0 }]),
-            I32Const(25), Throw(0), End, End, End, End, End,
+            Block(result),
+            table(result, tagged()),
+            Block(reference),
+            table(reference, vec![CatchClause::AllRef { label: 0 }]),
+            I32Const(84),
+            Throw(0),
+            End,
+            End,
+            ThrowRef,
+            End,
+            End,
+            End,
         ],
-        vec![table(result, vec![]), I32Const(9), Br(0), Unreachable, End, End],
+        vec![
+            Block(result),
+            table(result, tagged()),
+            Block(result),
+            table(result, vec![CatchClause::One { tag: 1, label: 0 }]),
+            I32Const(25),
+            Throw(0),
+            End,
+            End,
+            End,
+            End,
+            End,
+        ],
+        vec![
+            table(result, vec![]),
+            I32Const(9),
+            Br(0),
+            Unreachable,
+            End,
+            End,
+        ],
         vec![table(result, tagged()), I32Const(17), Throw(0), End, End],
         vec![
-            Block(result), Block(result),
-            table(result, vec![Catch::One { tag: 0, label: 0 }, Catch::One { tag: 0, label: 1 }]),
-            I32Const(5), Throw(0), End, End, I32Const(10), I32Add, End, End,
+            Block(result),
+            Block(result),
+            table(
+                result,
+                vec![
+                    CatchClause::One { tag: 0, label: 0 },
+                    CatchClause::One { tag: 0, label: 1 },
+                ],
+            ),
+            I32Const(5),
+            Throw(0),
+            End,
+            End,
+            I32Const(10),
+            I32Add,
+            End,
+            End,
         ],
         vec![table(result, tagged()), I32Const(29), End, End],
     ];
     assert_eq!(bodies.len(), fixtures::CASES.len());
     for ((name, bytes, _), instructions) in fixtures::CASES.iter().zip(bodies) {
-        assert_eq!(encoded_module(&instructions, false), *bytes, "fixture {name}");
+        assert_eq!(
+            encoded_module(&instructions, false),
+            *bytes,
+            "fixture {name}"
+        );
     }
     let trap = [
-        Block(BlockType::Empty), table(BlockType::Empty, vec![Catch::All { label: 0 }]),
-        Unreachable, End, End, I32Const(99), End,
+        Block(BlockType::Empty),
+        table(BlockType::Empty, vec![CatchClause::All { label: 0 }]),
+        Unreachable,
+        End,
+        End,
+        I32Const(99),
+        End,
     ];
     assert_eq!(encoded_module(&trap, false), fixtures::TRAP_NOT_CAUGHT);
 }
@@ -349,15 +458,53 @@ fn legacy_catch_delegate_and_rethrow_modules_keep_encoder_bytes_and_validate() {
     let result = BlockType::Result(ValType::I32);
     let bodies = [
         vec![Try(result), I32Const(42), Throw(0), Catch(0), End, End],
-        vec![Try(result), I32Const(7), Throw(1), Catch(0), CatchAll, I32Const(8), End, End],
-        vec![Try(result), Try(result), I32Const(5), Throw(0), Delegate(0), Catch(0), End, End],
         vec![
-            Try(result), Block(result), Try(result), I32Const(6), Throw(0),
-            Delegate(0), End, Catch(0), End, End,
+            Try(result),
+            I32Const(7),
+            Throw(1),
+            Catch(0),
+            CatchAll,
+            I32Const(8),
+            End,
+            End,
         ],
         vec![
-            Try(result), Try(result), I32Const(7), Throw(0), Catch(0), Drop,
-            Block(BlockType::Empty), Rethrow(1), End, Unreachable, End, Catch(0), End, End,
+            Try(result),
+            Try(result),
+            I32Const(5),
+            Throw(0),
+            Delegate(0),
+            Catch(0),
+            End,
+            End,
+        ],
+        vec![
+            Try(result),
+            Block(result),
+            Try(result),
+            I32Const(6),
+            Throw(0),
+            Delegate(0),
+            End,
+            Catch(0),
+            End,
+            End,
+        ],
+        vec![
+            Try(result),
+            Try(result),
+            I32Const(7),
+            Throw(0),
+            Catch(0),
+            Drop,
+            Block(BlockType::Empty),
+            Rethrow(1),
+            End,
+            Unreachable,
+            End,
+            Catch(0),
+            End,
+            End,
         ],
         vec![Try(result), I32Const(8), Throw(0), Delegate(0), End],
     ];
