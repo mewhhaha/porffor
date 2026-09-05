@@ -6755,6 +6755,22 @@ artifact.
 
 ## Development
 
+Control-flow regression CI checks live Wasm label identities, function-body
+structure, for-await activation storage, and Wasmtime execution. Uncaptured
+for-await head values now receive activation slots when their per-iteration
+lexical environment is elided; captured heads retain their single lexical
+cell. Suspended materialized loop/body environments remain a separate
+backend boundary, not a new conformance claim.
+
+The complete AOT library test inventory is split into eight deterministic
+shards. Each test runs in a fresh process; failures, ignored tests, missing
+executions and timeouts fail the shard. Run the entire inventory locally
+with `python3 scripts/run_aot_unit_shard.py 0 1`, or the same CI partitions
+with indices `0` through `7` and a shard count of `8`. See
+[the control-flow review](docs/rust-rewrite/aot-control-flow-review.md) for
+the focused commands and verification boundaries. These tests do not
+replace the pinned real Test262 aggregate.
+
 Build flags live in `.cargo/config.toml`, which is the single source of truth
 for both `./scripts/dev.sh` and a bare `cargo` invocation. `RUSTFLAGS`
 participates in Cargo's unit fingerprint and the environment variable *replaces*

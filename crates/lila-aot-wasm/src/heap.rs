@@ -5165,9 +5165,20 @@ mod tests {
             heap_implementation
                 .matches("HEAP_ASYNC_RESUME_COMPLETION_OFFSET")
                 .count(),
-            3,
-            "the declaration, typed store and strict decoder must be the only raw offset sites"
+            4,
+            "only the declaration, layout, typed store and strict decoder own the raw offset"
         );
+        let resume_layout_slots = HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT
+            .iter()
+            .filter(|slot| slot.name == "resume_completion")
+            .collect::<Vec<_>>();
+        assert_eq!(resume_layout_slots.len(), 1);
+        assert_eq!(
+            resume_layout_slots[0].offset,
+            HEAP_ASYNC_RESUME_COMPLETION_OFFSET
+        );
+        assert_eq!(resume_layout_slots[0].width, 8);
+        assert!(!resume_layout_slots[0].pointer);
         for source in [functions_source, promise_source, control_flow_source] {
             assert!(!source.contains("HEAP_ASYNC_RESUME_COMPLETION_OFFSET"));
             assert!(!source.contains(concat!("HEAP_ASYNC_RESUME_", "KIND_OFFSET")));
