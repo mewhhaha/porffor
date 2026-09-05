@@ -6681,6 +6681,16 @@ impl<'a> FunctionBuilder<'a> {
                 ),
                 (HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET, 0),
                 (HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET, 0),
+                (HEAP_ASYNC_GENERATOR_ASSIGNMENT_TARGET_PAYLOAD_OFFSET, 0),
+                (
+                    HEAP_ASYNC_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET,
+                    ValueKind::Undefined.tag() as u64,
+                ),
+                (HEAP_ASYNC_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET, 0),
+                (
+                    HEAP_ASYNC_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET,
+                    ValueKind::Undefined.tag() as u64,
+                ),
             ] {
                 self.store_i64_const_at_offset(
                     async_generator_activation_local,

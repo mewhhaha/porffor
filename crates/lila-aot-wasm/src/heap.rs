@@ -333,7 +333,7 @@ pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_PROMISE_CAPABILITY_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 144;
 #[allow(dead_code)]
-pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE: u64 = 184;
+pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE: u64 = 216;
 #[allow(dead_code)]
 pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE: u64 = 56;
 pub(crate) const SPARSE_ARRAY_DENSE_GROW_FACTOR: u64 = 16;
@@ -429,6 +429,12 @@ pub(crate) const HEAP_ASYNC_GENERATOR_BODY_RESULT_PAYLOAD_OFFSET: u64 = 152;
 pub(crate) const HEAP_ASYNC_GENERATOR_BODY_RESULT_TAG_OFFSET: u64 = 160;
 pub(crate) const HEAP_ASYNC_GENERATOR_INITIALIZED_OFFSET: u64 = 168;
 pub(crate) const HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET: u64 = 176;
+// The suspended Reference owns two tagged values, separate from the iterator
+// delegation record. The computed key is still raw until normal PutValue.
+pub(crate) const HEAP_ASYNC_GENERATOR_ASSIGNMENT_TARGET_PAYLOAD_OFFSET: u64 = 184;
+pub(crate) const HEAP_ASYNC_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET: u64 = 192;
+pub(crate) const HEAP_ASYNC_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET: u64 = 200;
+pub(crate) const HEAP_ASYNC_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET: u64 = 208;
 const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET: u64 = 0;
 pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_PAYLOAD_OFFSET: u64 = 16;
@@ -2790,6 +2796,34 @@ pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
         width: 8,
         pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "assignment_target_payload",
+        offset: HEAP_ASYNC_GENERATOR_ASSIGNMENT_TARGET_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "assignment_target_tag",
+        offset: HEAP_ASYNC_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "assignment_key_payload",
+        offset: HEAP_ASYNC_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-generator-activation",
+        name: "assignment_key_tag",
+        offset: HEAP_ASYNC_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET,
+        width: 8,
+        pointer: false,
     },
 ];
 
@@ -5532,7 +5566,7 @@ mod tests {
         assert_eq!(HEAP_PENDING_JOB_RECORD_SIZE, 56);
         assert_eq!(HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE, 48);
         assert_eq!(HEAP_PENDING_COMPLETION_RECORD_SIZE, 40);
-        assert_eq!(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, 184);
+        assert_eq!(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, 216);
         assert_eq!(HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE, 56);
         assert_eq!(HEAP_MAP_RECORD_SIZE, 32);
         assert_eq!(HEAP_MAP_ENTRY_SIZE, 40);
@@ -6268,7 +6302,7 @@ mod tests {
             .iter()
             .map(PromiseCapabilityHeapSlot::layout)
             .collect::<Vec<_>>();
-        assert_eq!(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, 184);
+        assert_eq!(HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE, 216);
         assert_eq!(HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE, 56);
         assert_ne!(
             OBJECT_INTERNAL_BRAND_ASYNC_GENERATOR,
@@ -6307,6 +6341,8 @@ mod tests {
             "pending_completion_head",
             "body_result_payload",
             "delegate_record",
+            "assignment_target_payload",
+            "assignment_key_payload",
         ] {
             assert!(
                 HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT
@@ -6327,6 +6363,8 @@ mod tests {
             "body_status",
             "body_result_tag",
             "initialized",
+            "assignment_target_tag",
+            "assignment_key_tag",
         ] {
             assert!(
                 HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT
