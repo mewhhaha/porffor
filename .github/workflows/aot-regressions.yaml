@@ -22,12 +22,18 @@ jobs:
       CARGO_BUILD_JOBS: 2
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      - name: Check changed Rust formatting
-        run: >-
-          rustfmt --edition 2021 --check
-          crates/lila-aot-wasm/src/code_sink.rs
-          crates/lila-engine/tests/aot_control_flow.rs
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Test complete-inventory sharding
+        run: python3 -m unittest discover -s scripts/tests -p test_run_aot_unit_shard.py -v
+
+      - name: Test for-await activation planning
+        if: ${{ !cancelled() }}
+        run: cargo test --locked -p lila-ir --test async_for_of_activation
 
       - name: Test emission invariants
         if: ${{ !cancelled() }}
@@ -38,16 +44,28 @@ jobs:
           grep -q '^code_sink::tests::a_sibling_cannot_resurrect_a_closed_label: test$' /tmp/aot-emission-tests.txt
           cargo test --locked -p lila-aot-wasm --lib code_sink:: -- --test-threads=1
 
-      - name: Test the complete AOT backend library
-        if: ${{ !cancelled() }}
-        timeout-minutes: 15
-        run: cargo test --locked -p lila-aot-wasm --lib -- --test-threads=1
-
       - name: Audit compiled product artifact
         if: ${{ !cancelled() }}
         run: cargo test --locked -p lila-aot-wasm --test product_artifact -- --test-threads=1
 
-      - name: Execute abrupt-completion regressions through Wasmtime
+      - name: Execute control-flow and suspension regressions through Wasmtime
         if: ${{ !cancelled() }}
         timeout-minutes: 15
-        run: cargo test --locked -p lila-engine --test aot_control_flow -- --test-threads=1
+        run: cargo test --locked -p lila-engine --test aot_control_flow --test aot_async_for_of -- --test-threads=1
+
+  aot-backend:
+    name: Complete AOT backend (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Execute every test assigned from the compiled inventory
+        run: python3 scripts/run_aot_unit_shard.py ${{ matrix.shard }} 8

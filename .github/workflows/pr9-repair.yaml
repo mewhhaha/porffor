@@ -13,63 +13,62 @@ jobs:
   repair:
     if: github.repository == 'mewhhaha/porffor'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: write
+    env:
+      CARGO_BUILD_JOBS: 2
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Repair the source-audit implementation boundary
+      - name: Preserve elided for-await head storage across suspension
         shell: python
         run: |
           from pathlib import Path
           import subprocess
-          path = Path('crates/lila-aot-wasm/src/heap.rs')
-          assert subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() == 'd3779b5f2be7daafd04ee03e624a4b203467be5f'
+          path = Path('crates/lila-ir/src/lowering/for_of.rs')
+          assert subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() == '9b2409220646c9930c6143042356d7d5917faa38'
           text = path.read_text()
-          assert text.count('#[cfg(test)]\nmod tests {') == 1
-          old = '.split_once("#[cfg(test)]")\n            .expect("heap tests should follow the implementation")'
-          new = '.split_once("#[cfg(test)]\\nmod tests {")\n            .expect("heap test module should follow the implementation, including test-only imports")'
-          assert text.count(old) == 2
+          old = '''                    |(entry_state, value_resume_state, close_resume_state, exit_state)| {
+                                  // Allocation order is load-bearing:'''
+          old = old.replace('                                  //', '                        //')
+          new = '''                    |(entry_state, value_resume_state, close_resume_state, exit_state)| {
+                                  // An uncaptured lexical head has no materialized iteration
+                                  // environment. Analysis therefore does not place its alias
+                                  // in the root activation, but the body can still read it on
+                                  // a later resume. Retain that cell alongside the Iterator
+                                  // Record, without duplicating a captured iteration cell.
+                                  if lexical_environment
+                                      .as_ref()
+                                      .and_then(|environment| environment.iteration_environment.as_ref())
+                                      .is_none()
+                                  {
+                                      self.add_suspension_owned_binding(storage_name.clone());
+                                  }
+                                  // Allocation order is load-bearing:'''
+          new = new.replace('                                  ', '                        ')
+          assert text.count(old) == 1
           path.write_text(text.replace(old, new))
-      - name: Format and publish the reviewed heap audit repair
+      - name: Format and publish the reviewed compiler repair
         shell: bash
         run: |
           set -euo pipefail
-          rustfmt --edition 2021 crates/lila-aot-wasm/src/heap.rs
+          rustfmt --edition 2021 crates/lila-ir/src/lowering/for_of.rs crates/lila-ir/tests/async_for_of_activation.rs crates/lila-engine/tests/aot_async_for_of.rs
           git diff --check
-          git diff -- crates/lila-aot-wasm/src/heap.rs
-          git add crates/lila-aot-wasm/src/heap.rs
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(test): audit heap implementation past test-only imports'
+          git diff -- crates/lila-ir/src/lowering/for_of.rs
+          git add crates/lila-ir/src/lowering/for_of.rs crates/lila-ir/tests/async_for_of_activation.rs crates/lila-engine/tests/aot_async_for_of.rs
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(ir): retain uncaptured for-await head values across suspension'
           git push origin HEAD:refs/heads/codex/aot-control-flow-review
-
-  inspect:
-    if: github.repository == 'mewhhaha/porffor'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Inspect suspension binding storage
-        shell: python
-        run: |
-          from pathlib import Path
-          needles = ['does not survive a suspension', 'enum BindingStorage', 'fn wasm_agents_run_test262_wait_until_with_exact_assertions']
-          for root in ['crates/lila-aot-wasm/src', 'crates/lila-ir/src', 'crates/lila-test262/src', 'crates/lila-test262/tests']:
-              for path in Path(root).rglob('*.rs'):
-                  lines = path.read_text().splitlines()
-                  for i, line in enumerate(lines):
-                      if any(needle in line for needle in needles):
-                          print(f'=== {path}:{i + 1} ===', flush=True)
-                          for j in range(max(0, i - 80), min(len(lines), i + 60)):
-                              print(f'{j + 1}: {lines[j]}', flush=True)
-      - name: Package compiler sources for static review
-        run: tar -czf source-review.tar.gz crates/lila-aot-wasm/src crates/lila-ir/src crates/lila-engine/src Cargo.toml README.md
-      - uses: actions/upload-artifact@v4
-        with:
-          name: source-review
-          path: source-review.tar.gz
-          retention-days: 1
+      - name: Test activation-slot planning
+        if: ${{ !cancelled() }}
+        run: cargo test --locked -p lila-ir --test async_for_of_activation -- --nocapture
+      - name: Verify the backend failures found by the full-suite run
+        if: ${{ !cancelled() }}
+        run: >-
+          cargo test --locked -p lila-aot-wasm --lib --
+          data::runtime_error_message_pool_tests::the_runtime_error_message_table_is_sorted_and_unique
+          heap::tests::promise_lifecycle_owns_every_raw_state_access
+          heap::tests::async_function_resume_completion_owns_every_raw_access
+          tests::async_generator_for_await_with_a_suspending_body_modules_validate
+          --exact --nocapture --test-threads=1
