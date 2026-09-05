@@ -1161,7 +1161,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_dispatch_async_generator_completion(&self, function: &mut Function) {
+    pub(crate) fn emit_dispatch_async_generator_completion(&self, function: &mut Function) {
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
@@ -2269,12 +2269,6 @@ impl<'a> FunctionBuilder<'a> {
                 );
             }
         }
-        if matches!(resume_mode, GeneratorResumeModeIr::AssignProperty(_)) {
-            return Err(EmitError::unsupported(
-                "async-generator body dispatcher does not yet support property-assignment yield resumption",
-            ));
-        }
-
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
             EmitError::unsupported("async-generator suspension requires the function call ABI")
         })?;
@@ -2288,6 +2282,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(suspend_state as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        if let GeneratorResumeModeIr::AssignProperty(reference) = resume_mode {
+            self.prepare_suspended_property_reference(reference, activation_local, function)?;
+        }
         self.compile_expr_to_locals(value, self.result_local, self.result_tag_local, function)?;
         self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
@@ -2383,6 +2380,14 @@ impl<'a> FunctionBuilder<'a> {
         self.set_completion_kind(CompletionKind::Throw, function);
         function.instruction(&Instruction::End);
         self.release_loaded_async_generator_resume_kind(resume_kind);
+        if let GeneratorResumeModeIr::AssignProperty(_) = resume_mode {
+            function.instruction(&Instruction::LocalGet(self.completion_local));
+            function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.clear_suspended_property_reference(activation_local, function)?;
+            function.instruction(&Instruction::End);
+        }
         self.emit_dispatch_async_generator_completion(function);
 
         match resume_mode {
@@ -2417,7 +2422,16 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
-            GeneratorResumeModeIr::AssignProperty(_) => unreachable!(),
+            GeneratorResumeModeIr::AssignProperty(reference) => {
+                self.write_suspended_property_reference(
+                    reference,
+                    activation_local,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_statement_result(function, ValueKind::Undefined);
+            }
         }
         function.instruction(&Instruction::End);
         Ok(())

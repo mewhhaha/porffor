@@ -67,12 +67,6 @@ impl<'a> FunctionBuilder<'a> {
         delegation_kind: AsyncGeneratorDelegationKind,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if matches!(resume_mode, GeneratorResumeModeIr::AssignProperty(_)) {
-            return Err(EmitError::unsupported(
-                "async-generator body dispatcher does not yet support property-assignment yield resumption",
-            ));
-        }
-
         let activation_local = self.new_target_payload_local().ok_or_else(|| {
             EmitError::unsupported("async-generator delegation requires the function call ABI")
         })?;
@@ -110,12 +104,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(i64::from(resume_state)));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
-        self.open_frame(ControlFrameKind::If, function);
+        let delegation_exit = self.open_frame(ControlFrameKind::If, function);
+        // Every terminal abrupt exit, including a getter/call failure, must
+        // retire this delegation before entering an enclosing catch/finally.
+        // Otherwise a yield in that handler can be mistaken for yield* by the
+        // runtime because the activation still carries a delegate record.
+        let abrupt_exit = self.open_frame(ControlFrameKind::Block, function);
+        self.throw_handler_stack.push(abrupt_exit);
+        self.finally_stack.push(abrupt_exit);
 
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(i64::from(suspend_state)));
         function.instruction(&Instruction::I64Eq);
         self.open_frame(ControlFrameKind::If, function);
+        if let GeneratorResumeModeIr::AssignProperty(reference) = resume_mode {
+            self.prepare_suspended_property_reference(reference, activation_local, function)?;
+        }
         self.compile_expr_to_locals(value, value_payload_local, value_tag_local, function)?;
         self.emit_propagate_throw_from_locals_if_needed(
             value_payload_local,
@@ -337,7 +341,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 self.set_completion_kind(CompletionKind::Throw, function);
-                self.emit_return_current_completion(function);
+                self.emit_dispatch_async_generator_completion(function);
                 function.instruction(&Instruction::End);
             }
         }
@@ -419,7 +423,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 self.set_completion_kind(CompletionKind::Return, function);
-                self.emit_return_current_completion(function);
+                self.emit_dispatch_async_generator_completion(function);
                 function.instruction(&Instruction::End);
             }
         }
@@ -511,7 +515,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(value_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.set_completion_kind(CompletionKind::Return, function);
-        self.emit_return_current_completion(function);
+        self.emit_dispatch_async_generator_completion(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         match resume_mode {
@@ -524,7 +528,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(value_tag_local));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 self.set_completion_kind(CompletionKind::Return, function);
-                self.emit_return_current_completion(function);
+                self.emit_dispatch_async_generator_completion(function);
             }
             GeneratorResumeModeIr::AssignIdentifier(name) => {
                 if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
@@ -550,7 +554,16 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
-            GeneratorResumeModeIr::AssignProperty(_) => unreachable!(),
+            GeneratorResumeModeIr::AssignProperty(reference) => {
+                self.write_suspended_property_reference(
+                    reference,
+                    activation_local,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_statement_result(function, ValueKind::Undefined);
+            }
         }
         function.instruction(&Instruction::Else);
         self.store_i64_const_at_offset(
@@ -629,7 +642,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 self.set_completion_kind(CompletionKind::Throw, function);
-                self.emit_return_current_completion(function);
+                self.emit_dispatch_async_generator_completion(function);
                 function.instruction(&Instruction::End);
             }
         }
@@ -638,7 +651,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.set_completion_kind(CompletionKind::Throw, function);
-        self.emit_return_current_completion(function);
+        self.emit_dispatch_async_generator_completion(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
@@ -761,7 +774,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
         }
-        self.emit_return_current_completion(function);
+        self.emit_dispatch_async_generator_completion(function);
         function.instruction(&Instruction::Else);
         let close_arguments = match &delegation_kind {
             AsyncGeneratorDelegationKind::YieldStar => {
@@ -877,6 +890,21 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(iterator_payload_local);
         self.release_temp_local(record_local);
         self.release_temp_local(state_local);
+        self.finally_stack.pop();
+        self.throw_handler_stack.pop();
+        function.branch_to_label(delegation_exit.label);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.store_i64_const_at_offset(
+            activation_local,
+            HEAP_ASYNC_GENERATOR_DELEGATE_RECORD_OFFSET,
+            0,
+            function,
+        );
+        if let GeneratorResumeModeIr::AssignProperty(_) = resume_mode {
+            self.clear_suspended_property_reference(activation_local, function)?;
+        }
+        self.emit_dispatch_async_generator_completion(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())

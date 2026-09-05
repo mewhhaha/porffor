@@ -197,7 +197,7 @@ assignment.
 ## T08 suspended-property-reference follow-up
 
 The synchronous-generator activation already has four words which preserve an
-evaluated ordinary property's base/tag and normalized key/tag across `yield`.
+evaluated ordinary property's base/tag and raw key/tag across `yield`.
 The missing state was not another runtime word: lowering discarded the
 Reference's `[[Strict]]` when it converted a dummy `ExprIr::PropertyWrite` into
 `GeneratorResumeModeIr::AssignProperty { target, key }`, and both the plain
@@ -216,12 +216,13 @@ reloads them and spends `strictness` through `with_reference_strictness` only
 after a normal resume. Adding super/property receiver separation later requires
 a new use-view variant and compile-visible emitter work.
 
-This remains deliberately narrower than the complete generator/Reference
-matrix. Async-generator property-assignment resumption was already an explicit
-unsupported path and its activation has no assignment-reference slots; adding
-those slots and threading them through async delegation is a separate ABI
-feature, not something this type pretends to implement. Private and super yield
-assignment targets remain explicit lowering gaps as before.
+The [suspended Reference follow-up](../aot-suspended-references.md) adds four
+initialized activation words for async-generator ordinary property assignment,
+and threads the same consumer through plain and delegated yield. Both generator
+forms now store the raw computed key and defer ToPropertyKey until normal
+PutValue; the received RHS is pinned across user-code key coercion. Private and
+super yield assignment targets remain explicit lowering gaps. This does not
+claim the complete generator/Reference matrix.
 
 ## T08 delete-super-reference follow-up
 
