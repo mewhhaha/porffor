@@ -23,7 +23,11 @@ jobs:
           persist-credentials: true
 
       - name: Apply implementation patch
-        run: python3 scripts/aot_apply_for_await_env.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/aot_apply_for_await_env.py
+          python3 scripts/aot_apply_for_await_env_followup.py
 
       - name: Check formatting and compiler
         shell: bash
@@ -44,6 +48,7 @@ jobs:
           set -euo pipefail
           rm .github/workflows/aot-apply-for-await-env.yaml
           rm scripts/aot_apply_for_await_env.py
+          rm scripts/aot_apply_for_await_env_followup.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
