@@ -1,0 +1,53 @@
+name: Refactor for-await environment ownership
+
+on:
+  push:
+    branches:
+      - codex/aot-for-await-iteration-environments
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aot-for-await-env-refactor
+  cancel-in-progress: true
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+
+      - name: Extract focused environment owner
+        run: python3 scripts/aot_refactor_for_await_env_module.py
+
+      - name: Check repository contracts and compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo fmt --all -- --check
+          git diff --check
+          ./scripts/check-module-boundaries.sh
+          cargo check --locked -p lila-aot-wasm
+
+      - name: Execute focused for-await regressions through Wasmtime
+        timeout-minutes: 15
+        run: cargo test --locked -p lila-engine --test aot_async_for_of -- --test-threads=1
+
+      - name: Publish verified extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/aot-refactor-for-await-env.yaml
+          rm scripts/aot_refactor_for_await_env_module.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Extract resumable for-await environment ownership"
+          git push origin HEAD:codex/aot-for-await-iteration-environments
