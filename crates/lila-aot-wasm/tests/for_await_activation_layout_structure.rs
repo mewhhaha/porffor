@@ -139,11 +139,32 @@ fn captured_iteration_cleanup_consumes_the_same_activation_authority() {
     assert!(enter.contains("saved: SavedForAwaitIterationEnvironment"));
     assert!(enter.contains("environment_offset: saved.environment_offset"));
     assert!(enter.contains("activation_local: saved.activation_local"));
-    assert_eq!(enter.matches("emit_enter_lexical_environment(").count(), 1);
+    assert!(!enter.contains("emit_enter_lexical_environment("));
+    assert_eq!(
+        enter
+            .matches("emit_allocate_lexical_environment_record(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        enter
+            .matches("begin_existing_lexical_environment_scope(")
+            .count(),
+        1
+    );
+    let allocate_position = enter.find("emit_allocate_lexical_environment_record(").unwrap();
+    let resume_position = enter.find("Instruction::Else").unwrap();
+    let join_position = enter.find("Instruction::End").unwrap();
+    let attach_position = enter
+        .find("begin_existing_lexical_environment_scope(")
+        .unwrap();
+    let publish_position = enter.find("store_i64_local_at_offset(").unwrap();
+    let cleanup_position = enter.find("self.finally_stack.push(cleanup)").unwrap();
+    assert!(allocate_position < resume_position && resume_position < join_position);
+    assert!(join_position < attach_position && attach_position < publish_position);
     assert!(
-        enter.find("emit_enter_lexical_environment(").unwrap()
-            < enter.find("self.finally_stack.push(cleanup)").unwrap(),
-        "the cleanup must record the child depth, not unwind the child twice"
+        publish_position < cleanup_position,
+        "the cleanup must record the attached child depth, not unwind the child twice"
     );
     let leave = lifecycle
         .split_once("pub(super) fn leave_suspended_for_await_iteration_environment(")
@@ -158,4 +179,36 @@ fn captured_iteration_cleanup_consumes_the_same_activation_authority() {
     let publish_position = leave.find("store_i64_local_at_offset(").unwrap();
     let dispatch_position = leave.find("emit_dispatch_current_completion(").unwrap();
     assert!(leave_position < publish_position && publish_position < dispatch_position);
+}
+
+#[test]
+fn allocation_does_not_attach_the_compiler_binding_view() {
+    let environments = include_str!("../src/environments.rs");
+    let allocate = bounded(
+        environments,
+        "pub(crate) fn emit_allocate_lexical_environment_record(",
+        "pub(crate) fn begin_existing_lexical_environment_scope(",
+    );
+    assert_eq!(allocate.matches("self.emit_heap_alloc_const(").count(), 1);
+    assert!(!allocate.contains("self.begin_existing_lexical_environment_scope("));
+    assert!(!allocate.contains("self.push_scope("));
+    assert!(!allocate.contains("self.binding_scopes"));
+    assert!(!allocate.contains("self.environment_depth"));
+    let ordinary_enter = bounded(
+        environments,
+        "pub(crate) fn emit_enter_lexical_environment(",
+        "pub(crate) fn emit_allocate_lexical_environment_record(",
+    );
+    assert_eq!(
+        ordinary_enter
+            .matches("self.emit_allocate_lexical_environment_record(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        ordinary_enter
+            .matches("self.begin_existing_lexical_environment_scope(")
+            .count(),
+        1
+    );
 }
