@@ -31,6 +31,10 @@ attaches the compile-time binding view after the fresh and resumed paths converg
 
 ## Verification
 
+The bounded publication gate runs formatting, `git diff --check`, and
+`cargo check --locked -p lila-aot-wasm` before executing the focused Wasmtime
+target. The implementation is published only after all of those checks pass.
+
 `cargo test --locked -p lila-engine --test aot_async_for_of -- --test-threads=1`
 contains a captured-`let` Wasmtime regression. It proves that a closure observes a
 mutation made after resumption and that the next iteration receives a distinct
