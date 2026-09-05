@@ -1,0 +1,92 @@
+# Temporary PR-scoped repair runner; removed before the final review commit.
+name: PR9 repair diagnostics
+
+on:
+  push:
+    branches: [codex/aot-control-flow-review]
+    paths: [.github/workflows/pr9-repair.yaml]
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    if: github.repository == 'mewhhaha/porffor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Apply reviewed source repairs
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+
+          def replace_once(text, old, new):
+              assert text.count(old) == 1, repr(old)
+              return text.replace(old, new, 1)
+
+          path = Path('crates/lila-cli/tests/cli/known_failures.rs')
+          assert subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() == 'f5f61a735cbf063ad25d3d08be9664b59430ed34'
+          text = path.read_text()
+          text = replace_once(text, '    /// `tests/perf.rs`.\n    Perf,', '    /// `tests/cli_output_ending_structure.rs`.\n    CliOutputEndingStructure,\n    /// `tests/perf.rs`.\n    Perf,')
+          text = replace_once(text, '            TestTarget::Cli => "cli",', '            TestTarget::Cli => "cli",\n            TestTarget::CliOutputEndingStructure => "cli_output_ending_structure",')
+          text = replace_once(text, '            "cache" => Some(TestTarget::Cache),', '            "cache" => Some(TestTarget::Cache),\n            "cli_output_ending_structure" => Some(TestTarget::CliOutputEndingStructure),')
+          text = replace_once(text, '            "cli" => Ok(TestTarget::Cli),', '            "cli" => Ok(TestTarget::Cli),\n            "cli_output_ending_structure" => Ok(TestTarget::CliOutputEndingStructure),')
+          path.write_text(text)
+
+          path = Path('crates/lila-aot-wasm/src/data.rs')
+          assert subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() == '857e4345dc2de3798c673607a8ba540fe319a11f'
+          text = replace_once(path.read_text(), '    "Cannot define array length",\n    "Cannot define arguments index on a non-extensible object",', '    "Cannot define arguments index on a non-extensible object",\n    "Cannot define array length",')
+          path.write_text(text)
+      - name: Format and publish only the reviewed source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustfmt --edition 2021 crates/lila-cli/tests/cli/known_failures.rs crates/lila-aot-wasm/src/data.rs
+          git diff --check
+          git diff --stat
+          git diff -- crates/lila-cli/tests/cli/known_failures.rs crates/lila-aot-wasm/src/data.rs
+          git add crates/lila-cli/tests/cli/known_failures.rs crates/lila-aot-wasm/src/data.rs
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(ci): register CLI output tests and order runtime error literals'
+          git push origin HEAD:refs/heads/codex/aot-control-flow-review
+
+  diagnose:
+    if: github.repository == 'mewhhaha/porffor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Show ownership checks and async-generator regression sources
+        shell: python
+        run: |
+          from pathlib import Path
+          needles = [
+              'fn promise_lifecycle_owns_every_raw_state_access',
+              'fn async_function_resume_completion_owns_every_raw_access',
+              'fn async_generator_for_await_with_a_suspending_body_modules_validate',
+          ]
+          for path in Path('crates/lila-aot-wasm').rglob('*.rs'):
+              lines = path.read_text().splitlines()
+              for i, line in enumerate(lines):
+                  if any(needle in line for needle in needles):
+                      print(f'=== {path}:{i + 1} ===', flush=True)
+                      for j in range(max(0, i - 2), min(len(lines), i + 100)):
+                          print(f'{j + 1}: {lines[j]}', flush=True)
+      - name: Execute the failing backend regressions with immediate diagnostics
+        shell: bash
+        run: |
+          cargo test --locked -p lila-aot-wasm --lib -- \
+            heap::tests::promise_lifecycle_owns_every_raw_state_access \
+            heap::tests::async_function_resume_completion_owns_every_raw_access \
+            tests::async_generator_for_await_with_a_suspending_body_modules_validate \
+            --exact --nocapture --test-threads=1
