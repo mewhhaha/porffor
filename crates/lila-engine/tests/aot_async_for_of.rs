@@ -40,7 +40,13 @@ void 0;
     assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(matches!(outcome.completion, ObservedCompletion::Normal(_)));
     let expected = [
-        "6:false", "after:3", "4:false", "14:false", "after:7", "8:false", "undefined:true",
+        "6:false",
+        "after:3",
+        "4:false",
+        "14:false",
+        "after:7",
+        "8:false",
+        "undefined:true",
     ]
     .into_iter()
     .map(|line| HostOutputEvent::PrintLine(line.to_string()))

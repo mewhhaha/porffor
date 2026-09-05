@@ -687,6 +687,18 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 let async_plan = async_states.map(
                     |(entry_state, value_resume_state, close_resume_state, exit_state)| {
+                        // An uncaptured lexical head has no materialized iteration
+                        // environment. Analysis therefore does not place its alias
+                        // in the root activation, but the body can still read it on
+                        // a later resume. Retain that cell alongside the Iterator
+                        // Record, without duplicating a captured iteration cell.
+                        if lexical_environment
+                            .as_ref()
+                            .and_then(|environment| environment.iteration_environment.as_ref())
+                            .is_none()
+                        {
+                            self.add_suspension_owned_binding(storage_name.clone());
+                        }
                         // Allocation order is load-bearing: `alloc_temp_binding_name`
                         // numbers bindings as it hands them out, so these five calls
                         // must stay in this sequence for the emitted names to be the
