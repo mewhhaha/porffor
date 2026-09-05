@@ -1,0 +1,60 @@
+name: Prepare Date parser contribution
+
+on:
+  push:
+    branches: [codex/date-parser-conformance]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.repository == 'mewhhaha/porffor' && github.ref == 'refs/heads/codex/date-parser-conformance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Format the contribution and insert scoped documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustfmt --edition 2021 crates/lila-aot-wasm/src/builtins/date/date_string_parse.rs crates/lila-engine/tests/aot_date_parsing.rs
+          python3 - <<'PY'
+          from pathlib import Path
+          paragraph = (
+              "Date parsing now uses a shared bounded cursor rather than epoch-only display\n"
+              "string recognition. The direct Wasm path handles reduced ISO date-time forms,\n"
+              "valid `24:00` rollover, and the canonical UTC display formats emitted by Lila.\n"
+              "The focused Wasmtime regression target and remaining UTC/time-zone limitations\n"
+              "are described in [the Date parsing follow-up](docs/rust-rewrite/aot-date-parsing.md).\n"
+              "This does not change the published conformance counts below.\n\n"
+          )
+          path = Path('README.md')
+          text = path.read_text()
+          anchor = '## Current Status\n'
+          assert text.count(anchor) == 1
+          if 'the Date parsing follow-up' not in text:
+              path.write_text(text.replace(anchor, paragraph + anchor, 1))
+          path = Path('tasks/22-date-temporal.md')
+          text = path.read_text()
+          anchor = '## Current repository state\n\n'
+          assert text.count(anchor) == 1
+          paragraph = (
+              "The general Date parsing follow-up replaces the two epoch-only display string\n"
+              "branches with bounded runtime parsing of the existing UTC display formats. It\n"
+              "also adds reduced ISO date-time forms and validates end-of-day rollover before\n"
+              "offset adjustment and TimeClip. Twelve explicit Wasm-AOT engine regressions are\n"
+              "wired into CI; their results are recorded at the tested PR commit rather than\n"
+              "being counted as a new Test262 aggregate. See\n"
+              "[the parser contract and verification scope](../docs/rust-rewrite/aot-date-parsing.md).\n"
+              "This does not close T22 or add the missing default time-zone provider.\n\n"
+          )
+          if 'The general Date parsing follow-up' not in text:
+              path.write_text(text.replace(anchor, anchor + paragraph, 1))
+          PY
+          git diff --check
+          git add README.md tasks/22-date-temporal.md crates/lila-aot-wasm/src/builtins/date/date_string_parse.rs crates/lila-aot-wasm/src/builtins/date/date_string_parse crates/lila-engine/tests/aot_date_parsing.rs
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Format Date parser and document T22 scope without changing status counts'
+            git push origin HEAD:refs/heads/codex/date-parser-conformance
+          fi
