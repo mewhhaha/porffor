@@ -50,7 +50,7 @@ iteration cells. The Wasmtime regressions use multiple yields and observable
 reads after resumption, checking the complete output sequence for two loop
 iterations and final iterator completion.
 
-Three independent baseline defects also blocked verification:
+Independent baseline defects also blocked verification:
 
 - The runtime-error literal table had two adjacent messages out of order. The
   entries are now sorted; the strict ordering/uniqueness test remains intact.
@@ -60,9 +60,16 @@ Three independent baseline defects also blocked verification:
   non-pointer role. The Promise router audit ends at its own method boundary
   rather than a removed neighboring method. The ownership and dispatch
   assertions remain enforced.
-- `cli_output_ending_structure` was absent from the CLI test-target registry.
-  It is now a closed `TestTarget` variant with parsing and stem mappings. No
-  expected-failure ledger entry or ignored test was added.
+- `cli_output_ending_structure` and `test262_verdict_command_structure` were
+  absent from the CLI test-target registry. Both are now closed `TestTarget`
+  variants with parsing and stem mappings. No expected-failure ledger entry or
+  ignored test was added.
+- An unhandled-rejection diagnostic had been inserted before the fixed string
+  seeds, moving the comma payload and breaking both literal-layout and RegExp
+  append-only data checks. Interning the diagnostic after the fixed seeds
+  restores their offsets without deleting the diagnostic or changing those
+  tests' expected values. A new production-pool regression also verifies the
+  diagnostic payload resolves to its exact bytes.
 
 ## Verification commands and CI design
 
@@ -79,6 +86,8 @@ cargo test --locked -p lila-ir --test async_for_of_activation
 cargo test --locked -p lila-aot-wasm --lib code_sink:: -- --test-threads=1
 cargo test --locked -p lila-aot-wasm --test product_artifact -- --test-threads=1
 cargo test --locked -p lila-engine --test aot_control_flow --test aot_async_for_of -- --test-threads=1
+cargo test --locked -p lila-cli --test cli -- known_failures:: --test-threads=2
+cargo test --locked -p lila-cli --test cli_output_ending_structure --test test262_verdict_command_structure
 ```
 
 The full backend library is partitioned into eight deterministic, disjoint
