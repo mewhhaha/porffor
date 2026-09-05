@@ -1,0 +1,28 @@
+name: AOT draft workbench
+
+on:
+  pull_request:
+    types: [synchronize]
+    paths:
+      - '.github/workflows/aot-draft-workbench.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/aot-native-exception-control'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Snapshot tracked source only
+        run: git archive --format=tar.gz --output=source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aot-draft-source
+          path: source.tar.gz
+          retention-days: 1
