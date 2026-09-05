@@ -1,4 +1,4 @@
-# AOT control-flow emission review
+# AOT control-flow emission and suspension review
 
 ## Scope
 
@@ -6,77 +6,122 @@ This change strengthens the existing Rust JavaScript-to-Wasm compiler. It does
 not introduce a Wasm-to-JavaScript backend, restore the retired JavaScript
 implementation, or claim completion of the ECMAScript implementation.
 
-The reviewed boundary is `lila-aot-wasm::code_sink`: every emitted function body
-passes through it, including raw control instructions emitted outside the
+The principal boundary is `lila-aot-wasm::code_sink`: every emitted function
+body passes through it, including raw control instructions emitted outside the
 JavaScript control-flow builder. The companion engine tests execute JavaScript
 through `ExecutionBackend::WasmAot`, not the debug interpreter.
 
-## Findings and implementation
+## Emission invariants
 
-1. A numerical depth is not a live label identity. Closing a block and opening
-   a sibling at the same depth made the old `checked_sub` accept a stale target.
-   Targets now carry a unique identity checked against the frame at the recorded
-   depth. Foreign-function targets and independently opened clone frames are
-   rejected. Cloned bodies intentionally retain their shared live prefix.
-2. A final `end` terminates the body. Further instructions, including a new
-   block, are rejected before bytes are appended. Capturing a label from a
-   finished body is also rejected.
-3. `else` is legal only for the current unmatched `if`. It preserves that
-   frame's label identity; duplicate `else` and crossing an unclosed nested
-   frame are rejected.
-4. Relative reference-branch immediates receive the same bounds checks as
-   `br`, `br_if` and every `br_table` target. This does not replace reference
-   operand/type validation.
-5. Rewriting a local declaration preserves live frame identities and the
-   finished/open lifecycle instead of reconstructing a fresh control stack.
+A numerical depth is not a live label identity. Closing a block and opening a
+sibling at the same depth made the old depth subtraction accept a stale target.
+Targets now carry a unique identity checked against the frame at the recorded
+depth. Foreign-function targets and independently opened clone frames are
+rejected; cloned bodies intentionally retain their shared live prefix.
 
-All guards execute in release builds. Label identities affect compiler-side
-validation only; they are not serialized into Wasm. A byte-equivalence test
-compares a valid nested body with `wasm_encoder` and validates the resulting
-module using `wasmparser`.
+A final `end` terminates the body. Further instructions, including a new block,
+are rejected before bytes are appended. Capturing a label from a finished body
+is also rejected. An `else` must belong to the current unmatched `if`; it
+preserves that frame's identity. Duplicate `else` and crossing an unclosed
+nested frame are rejected.
 
-## Verification
+Reference-branch immediates receive the same bounds checks as `br`, `br_if` and
+every `br_table` target. Rewriting a local declaration preserves live frame
+identities and the finished/open lifecycle instead of creating a fresh stack.
 
-The independent `AOT control-flow regressions` workflow runs on pull requests
-and pushes to main, with read-only repository permissions. Formatting failures
-do not suppress subsequent diagnostic test steps and still fail the job.
-Emission test discovery checks for a named regression before running the test
-filter so a stale filter cannot silently report success with zero tests.
+All guards execute in release builds. Label identities are compiler-side
+validation metadata and are not serialized into Wasm. A byte-equivalence test
+compares one valid nested body with `wasm_encoder` and validates the resulting
+module using `wasmparser`. This is not a corpus-wide byte-equivalence claim.
 
-Reproduce the checks with:
+## Failures exposed by the full backend run
+
+The complete backend run exposed an actual suspension-storage defect: an
+uncaptured lexical for-await head could lose its value across a yield because
+its per-iteration environment was elided and its alias was not allocated in
+the root activation. For-await lowering now explicitly retains that binding
+when there is no materialized iteration environment. The existing allocation
+helper deduplicates already-owned bindings. Captured heads keep their single
+per-iteration lexical cell instead of acquiring a competing activation slot.
+
+The IR regressions check unique slots for `let`, `const` and `var` heads,
+separation from a shadowed outer binding, and non-duplication of captured
+iteration cells. The Wasmtime regressions use multiple yields and observable
+reads after resumption, checking the complete output sequence for two loop
+iterations and final iterator completion.
+
+Three independent baseline defects also blocked verification:
+
+- The runtime-error literal table had two adjacent messages out of order. The
+  entries are now sorted; the strict ordering/uniqueness test remains intact.
+- Heap ownership audits stopped at a test-only import rather than the test
+  module. They now inspect the entire implementation. The async-resume audit
+  accounts for the canonical layout entry and verifies its offset, width and
+  non-pointer role. The Promise router audit ends at its own method boundary
+  rather than a removed neighboring method. The ownership and dispatch
+  assertions remain enforced.
+- `cli_output_ending_structure` was absent from the CLI test-target registry.
+  It is now a closed `TestTarget` variant with parsing and stem mappings. No
+  expected-failure ledger entry or ignored test was added.
+
+## Verification commands and CI design
+
+The read-only `AOT control-flow regressions` workflow runs on pull requests and
+pushes to main. Its focused job checks formatting, the sharding runner, IR
+activation planning, emission invariants, the product artifact and Wasmtime
+execution. The emission filter first discovers a named regression, preventing
+a renamed filter from silently selecting zero tests.
 
 ```sh
-rustfmt --edition 2021 --check crates/lila-aot-wasm/src/code_sink.rs \
-  crates/lila-engine/tests/aot_control_flow.rs
+cargo fmt --all -- --check
+python3 -m unittest discover -s scripts/tests -p test_run_aot_unit_shard.py -v
+cargo test --locked -p lila-ir --test async_for_of_activation
 cargo test --locked -p lila-aot-wasm --lib code_sink:: -- --test-threads=1
 cargo test --locked -p lila-aot-wasm --test product_artifact -- --test-threads=1
-cargo test --locked -p lila-engine --test aot_control_flow -- --test-threads=1
+cargo test --locked -p lila-engine --test aot_control_flow --test aot_async_for_of -- --test-threads=1
 ```
 
-The engine regressions cover getter throws nested in loops/switches, labeled
-break/continue through finally, finally replacing return/throw, short-circuiting
-argument evaluation on throw, and successive sibling control regions.
+The full backend library is partitioned into eight deterministic, disjoint
+shards from the compiled test inventory, not a hand-maintained allowlist. Each
+test runs in a fresh process to bound retained compiler memory. A failing,
+ignored, missing or timed-out execution fails its shard. Test discovery checks
+its declared total against the unique names, and successful execution must
+report exactly one passing test. Runner tests verify complete partition
+coverage and rejection of vacuous or incomplete results.
 
-At the review base `c4e15caf53b495a41a9700eadba4ad7429e7a327`, the existing
-main CI run `33564514499` failed its known-failure-ledger audit because
-`cli_output_ending_structure` was not registered as a `TestTarget`. The Windows
-release job also failed checkout. Those pre-existing failures are not bypassed
-or converted into expected passes by this change. Consult the PR's checks for
-results on the changed code; baseline results are not evidence for the patch.
+```sh
+# The whole inventory in one local shard:
+python3 scripts/run_aot_unit_shard.py 0 1
+# CI uses every index from 0 through 7 with this shard count:
+python3 scripts/run_aot_unit_shard.py 0 8
+```
+
+The original single-process backend step exceeded its 15-minute deadline
+before completing the inventory. Sharding changes the scheduling, not the
+required test set. The existing main CI remains responsible for repository
+contracts, workspace compilation, the CLI ledger and both fake Test262 suites.
+Consult the PR checks and verification comment for results on the exact head;
+results from an earlier revision do not establish success for a later one.
 
 ## Remaining boundaries
 
-This is a bounded compiler-correctness change, not a complete compiler review.
-The sink does not validate the Wasm operand stack, JS evaluation semantics,
-heap tracing, module linking, builtin conformance, or dynamic-code support.
-Those remain the responsibility of their existing typed compiler stages,
-Wasm validation, execution regressions and the pinned Test262 gate.
+This is a bounded compiler-correctness review. The sink does not validate the
+Wasm operand stack, reference operand types, JS evaluation semantics, heap
+tracing, module linking or general builtin conformance. Existing typed stages,
+Wasm validation, execution regressions and the pinned Test262 gate retain those
+responsibilities.
 
 Exception-control forms (`try`, `try_table`, `catch`, `catch_all`, `delegate`,
 `rethrow`) remain explicitly rejected by the sink until their label semantics
-are implemented. This must not be confused with JS try/catch/finally, which the
-current backend lowers through its existing completion representation.
+are implemented. JS try/catch/finally continues through the existing completion
+representation. Suspended materialized loop/body environments remain a
+separate backend boundary; the captured-head IR test is an ownership check,
+not a claim of complete runtime support for that case.
 
-No conformance counts or generated README status artifacts are changed. A
-passing focused workflow does not establish full Test262 or ECMAScript
-conformance and must not be used to close the project's aggregate gate.
+The full CLI/engine suites, the before/after CLI-fixture golden comparison,
+performance comparison and current-pin real Test262 aggregate are outside the
+checks added here. Sorting the error-message pool can change encoded data
+positions, so the single-body byte-equivalence test does not imply unchanged
+whole-program bytes. No generated conformance counts are edited. Passing
+these focused and backend checks does not establish full ECMAScript or Test262
+conformance.
