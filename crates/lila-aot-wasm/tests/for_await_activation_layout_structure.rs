@@ -152,7 +152,9 @@ fn captured_iteration_cleanup_consumes_the_same_activation_authority() {
             .count(),
         1
     );
-    let allocate_position = enter.find("emit_allocate_lexical_environment_record(").unwrap();
+    let allocate_position = enter
+        .find("emit_allocate_lexical_environment_record(")
+        .unwrap();
     let resume_position = enter.find("Instruction::Else").unwrap();
     let join_position = enter.find("Instruction::End").unwrap();
     let attach_position = enter
