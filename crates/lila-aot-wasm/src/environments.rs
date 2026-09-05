@@ -37,6 +37,19 @@ impl<'a> FunctionBuilder<'a> {
         environment: &LexicalEnvironmentIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_allocate_lexical_environment_record(environment, function)?;
+        self.begin_existing_lexical_environment_scope(environment);
+        Ok(())
+    }
+
+    /// Allocate one lexical Environment Record without changing the compiler's
+    /// binding view. Resumable owners use this when a fresh runtime arm and a
+    /// resumed runtime arm must converge on the same compile-time scope.
+    pub(crate) fn emit_allocate_lexical_environment_record(
+        &mut self,
+        environment: &LexicalEnvironmentIr,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let parent_env_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(self.current_env_local));
         function.instruction(&Instruction::LocalSet(parent_env_local));
@@ -66,8 +79,6 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         self.release_temp_local(parent_env_local);
-
-        self.begin_existing_lexical_environment_scope(environment);
         Ok(())
     }
 

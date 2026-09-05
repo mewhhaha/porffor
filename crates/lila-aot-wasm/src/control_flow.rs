@@ -479,6 +479,13 @@ impl ForAwaitActivationLayout {
             Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_RESUME_TAG_OFFSET,
         }
     }
+
+    const fn lexical_environment_offset(&self) -> u64 {
+        match self {
+            Self::AsyncFunction => HEAP_ASYNC_ENV_OFFSET,
+            Self::AsyncGenerator => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
+        }
+    }
 }
 
 impl DestructuringIteratorLocals {
@@ -8479,18 +8486,6 @@ impl<'a> FunctionBuilder<'a> {
         // disagree about which states exist.
         let body_suspends = Self::async_statement_entry_state(body).is_some();
         if body_suspends {
-            // A per-iteration environment is entered at the loop head and left
-            // after the body, both inside the same invocation. Split the
-            // iteration and the resume would enter a second environment while
-            // the first is still current, and leave only one of them.
-            if lexical_environment
-                .and_then(|environment| environment.iteration_environment.as_ref())
-                .is_some()
-            {
-                return Err(EmitError::unsupported(
-                    "for-await-of with a per-iteration lexical environment and a body suspension",
-                ));
-            }
             // `compile_async_block_contents` enters a body block's own
             // environment unconditionally, i.e. once per invocation, and
             // leaves it only on the invocation that runs the block to its end.
@@ -8515,6 +8510,9 @@ impl<'a> FunctionBuilder<'a> {
         let resume_state_offset = resume_layout.resume_state_offset();
         let resume_payload_offset = resume_layout.resume_payload_offset();
         let resume_tag_offset = resume_layout.resume_tag_offset();
+        let activation_environment_offset = resume_layout.lexical_environment_offset();
+        let iteration_environment =
+            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref());
         let state_local = self.reserve_temp_local();
         let iterable_payload_local = self.reserve_temp_local();
         let iterable_tag_local = self.reserve_temp_local();
@@ -8581,6 +8579,7 @@ impl<'a> FunctionBuilder<'a> {
         // guards that storage invariant; materialized environments still
         // require their separate resumable lifecycle.
         if body_suspends
+            && !iteration_environment_owns_binding(lexical_environment, name)
             && !matches!(
                 storage_without_environment,
                 Some(BindingStorage::EnvSlot { .. })
@@ -9040,26 +9039,83 @@ impl<'a> FunctionBuilder<'a> {
         // `next()` that produced the in-flight iteration wrote `false` there,
         // and the iteration is not finished, so the loop correctly does not
         // break out from under a half-run body.
-        self.read_binding_to_locals(done_storage, done_payload_local, done_tag_local, function)?;
-        function.instruction(&Instruction::LocalGet(done_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.branch_if_to_label(break_frame.label);
-        // Binding the loop variable belongs to the start of an iteration. On a
-        // body resume the iteration is already under way, the value locals hold
-        // nothing this invocation assigned, and the binding still holds the
-        // value the body was suspended with — so rebinding would overwrite it
-        // with garbage. A per-iteration environment is refused above when the
-        // body can suspend, so entering one here stays a value-path-only step.
+        if body_suspends && iteration_environment.is_some() {
+            // A body-resume invocation already owns an in-flight iteration, so
+            // `done` is known false. Reading the parent-owned slot before the
+            // child environment is attached would use the wrong runtime base;
+            // perform the observable done test only on the value-resume path.
+            function.instruction(&Instruction::LocalGet(state_local));
+            function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
+            function.instruction(&Instruction::I64Eq);
+            self.open_frame(ControlFrameKind::If, function);
+            self.read_binding_to_locals(
+                done_storage,
+                done_payload_local,
+                done_tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalGet(done_payload_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.branch_if_to_label(break_frame.label);
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::End);
+        } else {
+            self.read_binding_to_locals(
+                done_storage,
+                done_payload_local,
+                done_tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalGet(done_payload_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.branch_if_to_label(break_frame.label);
+        }
+
+        // A captured `let`/`const` head owns one fresh Environment Record per
+        // iteration. The value-resume invocation allocates it and publishes its
+        // exact pointer in the activation. A body-resume invocation starts with
+        // that pointer already restored by function entry, so both runtime arms
+        // converge before the compiler attaches one binding view.
+        let iteration_cleanup_frame = if body_suspends && iteration_environment.is_some() {
+            Some(self.open_frame(ControlFrameKind::Block, function))
+        } else {
+            None
+        };
+        if let Some(environment) = iteration_environment {
+            if body_suspends {
+                function.instruction(&Instruction::LocalGet(state_local));
+                function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
+                function.instruction(&Instruction::I64Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                self.emit_allocate_lexical_environment_record(environment, function)?;
+                self.store_i64_local_at_offset(
+                    activation_local,
+                    activation_environment_offset,
+                    self.current_env_local,
+                    function,
+                );
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                self.push_scope();
+                self.begin_existing_lexical_environment_scope(environment);
+                self.finally_stack.push(ControlTarget {
+                    environment_depth: self.environment_depth,
+                    ..iteration_cleanup_frame
+                        .expect("resumable iteration environment needs a cleanup frame")
+                });
+            } else {
+                self.emit_enter_lexical_environment(environment, function)?;
+            }
+        }
+
+        // Binding the loop variable belongs only to the invocation that resumed
+        // from `next()`. On a body resume the retained Environment Record already
+        // contains the value and any mutations performed before suspension.
         if body_suspends {
             function.instruction(&Instruction::LocalGet(state_local));
             function.instruction(&Instruction::I64Const(async_plan.value_resume_state as i64));
             function.instruction(&Instruction::I64Eq);
             self.open_frame(ControlFrameKind::If, function);
-        }
-        if let Some(environment) =
-            lexical_environment.and_then(|environment| environment.iteration_environment.as_ref())
-        {
-            self.emit_enter_lexical_environment(environment, function)?;
         }
         let storage = self
             .lookup_current_scope_binding(name)
@@ -9071,10 +9127,24 @@ impl<'a> FunctionBuilder<'a> {
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        // Emitted at the same control depth as before the gates above, so every
-        // `break`/`continue`/`return` inside the body still resolves to the same
-        // frame it did when a suspending body was refused outright.
         self.compile_statement(body, function)?;
+        if body_suspends && iteration_environment.is_some() {
+            self.finally_stack.pop();
+            self.pop_control(ControlFrameKind::Block);
+            function.instruction(&Instruction::End);
+            self.emit_leave_lexical_environment(function);
+            self.pop_scope();
+            self.store_i64_local_at_offset(
+                activation_local,
+                activation_environment_offset,
+                self.current_env_local,
+                function,
+            );
+            // Normal fallthrough continues into the ordinary iterator-close
+            // decision. Abrupt completions are routed only after the parent
+            // environment is again authoritative in the activation.
+            self.emit_dispatch_async_completion(function)?;
+        }
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
@@ -9100,18 +9170,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        // Pairs with the per-iteration enter at the loop head, and reads
-        // `resume_is_throw_local`. Both are sound only while an iteration begins
-        // and ends inside one invocation, which is why a per-iteration
-        // environment and a suspending body are refused together above.
-        if lexical_environment
-            .and_then(|environment| environment.iteration_environment.as_ref())
-            .is_some()
-        {
-            debug_assert!(
-                !body_suspends,
-                "a per-iteration environment and a body suspension must have been refused"
-            );
+        // A non-suspending iteration still creates and retires its lexical
+        // environment in one invocation. Resumable iteration environments were
+        // already retired by the activation-aware cleanup immediately after the
+        // body, so they must not be left a second time here.
+        if iteration_environment.is_some() && !body_suspends {
             function.instruction(&Instruction::LocalGet(resume_is_throw_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));

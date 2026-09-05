@@ -1133,7 +1133,7 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
                     ..
                 },
             body,
-            lexical_environment,
+            lexical_environment: _,
             ..
         } => {
             // A nested `for await` allocates its own four states inside this
@@ -1143,14 +1143,10 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
                 return Some("for-await iteration with a nested for-await in the loop body");
             }
             if async_generator_contains_suspension(body, AsyncGeneratorSuspension::Yield)
-                && (lexical_environment
-                    .as_ref()
-                    .and_then(|environment| environment.iteration_environment.as_ref())
-                    .is_some()
-                    || matches!(body.as_ref(), StatementIr::Block(block) if block.lexical_environment.is_some()))
+                && matches!(body.as_ref(), StatementIr::Block(block) if block.lexical_environment.is_some())
             {
                 return Some(
-                    "for-await-of with a per-iteration lexical environment and a body suspension",
+                    "for-await-of with a block-scoped body environment and a body suspension",
                 );
             }
             None

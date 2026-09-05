@@ -26,6 +26,12 @@ abrupt resumption bypasses it. This is a focused backend capability, not a claim
 of complete generator or Test262 conformance. See
 [the suspended Reference follow-up](docs/rust-rewrite/aot-suspended-references.md).
 
+Captured `let`/`const` heads in async-generator `for await...of` loops retain the
+exact per-iteration Environment Record across body `yield` suspension. Re-entry
+reattaches the activation-owned record rather than allocating a second closure
+cell, and completion restores the parent before iterator-close handling. See
+[the for-await environment follow-up](docs/rust-rewrite/aot-for-await-iteration-environments.md).
+
 ## Current Status
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:
