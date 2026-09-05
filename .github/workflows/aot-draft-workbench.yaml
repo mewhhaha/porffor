@@ -13,16 +13,31 @@ jobs:
   snapshot:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/aot-native-exception-control'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - name: Snapshot tracked source only
-        run: git archive --format=tar.gz --output=source.tar.gz HEAD
+      - name: Snapshot public toolchain and locked dependency sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir /tmp/aot-verification-inputs
+          cargo vendor --locked /tmp/aot-verification-inputs/deps > /tmp/aot-verification-inputs/config.toml
+          tar -C /tmp/aot-verification-inputs -czf dependencies.tar.gz deps config.toml
+          tar -C "$(rustc --print sysroot)" -czf rust-toolchain.tar.gz bin lib
+          rustc --version
+          du -h dependencies.tar.gz rust-toolchain.tar.gz
       - uses: actions/upload-artifact@v4
         with:
-          name: aot-draft-source
-          path: source.tar.gz
+          name: aot-draft-dependencies
+          path: dependencies.tar.gz
           retention-days: 1
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aot-draft-toolchain
+          path: rust-toolchain.tar.gz
+          retention-days: 1
+          compression-level: 0
