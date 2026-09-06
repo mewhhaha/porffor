@@ -6766,6 +6766,8 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_indexed_element_read_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementRead);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_typed_array_or_object_index_read_from_locals_inner(

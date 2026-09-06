@@ -54,7 +54,17 @@ fn indexed_get_body_enters_the_classified_helper_domain_before_emission() {
     let read = body
         .find("self.emit_typed_array_or_object_index_read_from_locals_inner(")
         .unwrap();
-    assert!(classify < read);
+    let normalized: String = body.chars().filter(|ch| !ch.is_whitespace()).collect();
+    let binding = concat!(
+        "function.instruction(&Instruction::LocalGet(6));",
+        "function.instruction(&Instruction::LocalSet(self.current_env_local));",
+    );
+    assert_eq!(normalized.matches(binding).count(), 1);
+    let bind = body
+        .find("function.instruction(&Instruction::LocalSet(self.current_env_local))")
+        .unwrap();
+    assert!(classify < bind && bind < read);
+    assert_eq!(body.matches("LocalSet(self.current_env_local)").count(), 1);
     assert_eq!(body.matches("begin_helper_body(").count(), 1);
     assert!(!body.contains("current_env_local ="));
 }

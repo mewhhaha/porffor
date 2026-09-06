@@ -91,7 +91,6 @@ compiler. Rust compilation, rustfmt, the engine regressions on the patched
 backend, and the two real Test262 subtrees must pass before merge. Broader
 conformance counts are intentionally unchanged.
 
-
 ## Review follow-up: property equality, callable setters, and error Realms
 
 The shared indexed-Get helper now receives the trusted method Realm through its
