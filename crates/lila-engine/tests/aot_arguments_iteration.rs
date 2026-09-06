@@ -218,3 +218,74 @@ void 0;
         vec![HostOutputEvent::PrintLine("body;body;end;".to_string())]
     );
 }
+
+#[test]
+fn arguments_own_iterator_override_preserves_receiver_and_close() {
+    assert_wasm_true(
+        r#"
+function check() {
+  var source = arguments;
+  var trace = "";
+  var iterator = {
+    next() { trace += this === iterator ? "step;" : "wrong-step;"; return { value: 9, done: false }; },
+    return() { trace += "close;"; return {}; }
+  };
+  source[Symbol.iterator] = function() {
+    trace += this === source ? "call;" : "wrong-call;";
+    return iterator;
+  };
+  var observed;
+  for (var value of source) { observed = value; break; }
+  return observed === 9 && trace === "call;step;close;";
+}
+check(2, 3);
+"#,
+    );
+}
+
+#[test]
+fn arguments_iterator_getter_runs_once_and_propagates_throw() {
+    assert_wasm_true(
+        r#"
+function check() {
+  var source = arguments;
+  var gets = 0;
+  var called = 0;
+  Object.defineProperty(source, Symbol.iterator, { configurable: true, get() {
+    gets++;
+    if (this !== source) throw "wrong-getter-receiver";
+    return function() { called++; return [9][Symbol.iterator](); };
+  } });
+  var observed = "";
+  for (var value of source) observed += value;
+  if (gets !== 1 || called !== 1 || observed !== "9") return false;
+  var marker = {};
+  Object.defineProperty(source, Symbol.iterator, { get() { gets++; throw marker; } });
+  try { for (var value of source) return false; } catch (error) { return error === marker && gets === 2; }
+  return false;
+}
+check(2, 3);
+"#,
+    );
+}
+
+#[test]
+fn arguments_own_non_callable_iterator_does_not_fall_back() {
+    assert_wasm_true(
+        r#"
+function check(method) {
+  var source = arguments;
+  source[Symbol.iterator] = method;
+  try { for (var value of source) return false; } catch (error) { return error instanceof TypeError; }
+  return false;
+}
+function stringKey() {
+  arguments["Symbol.iterator"] = function() { throw "wrong-key"; };
+  var result = "";
+  for (var value of arguments) result += value;
+  return result;
+}
+check(undefined) && check(null) && check(1) && stringKey(2, 3) === "23";
+"#,
+    );
+}
