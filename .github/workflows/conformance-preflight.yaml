@@ -1,0 +1,23 @@
+name: Conformance review snapshot
+on:
+  push:
+    branches: [codex/conformance-inventory-preflight]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export exact baseline source
+        run: |
+          git archive 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5 | gzip -1 > /tmp/lila-baseline-source.tar.gz
+          printf '%s\n' 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5 > /tmp/lila-baseline-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lila-conformance-review-source
+          path: /tmp/lila-baseline-*
+          retention-days: 7
