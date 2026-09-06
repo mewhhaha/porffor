@@ -17,73 +17,28 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Reconcile pinned proposals without changing PR refs
+      - name: Validate the cross-realm repair and preserve concurrent iterator changes
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr-review-evidence
-          gzip -dc scripts/pr-review-fix.patch.gz > /tmp/locale-review-fix.patch
-          echo '76195f8012eaa5a716643753b16e09fe9ab3cabea41a1b934651401d23c56fc6  /tmp/locale-review-fix.patch' | sha256sum -c -
+          gzip -dc scripts/pr-review-realm.patch.gz > /tmp/indexed-realm-fix.patch
+          echo '86f3f0bdfc74fb43e05f7b2037952dbc6b356247ab31edde4c42b69a919fc57c  /tmp/indexed-realm-fix.patch' | sha256sum -c -
           base=abdcf56f1bd88d5debbb1d8c291f2e7213f77371
-          pr19=c590ab4835e7a6eb288b7a19dbd2c33560be488c
-          pr20=f4030ebaf8273ab25c4e7de6dc9d94061cfc022f
-          pr21=affd09b57f03b7eaffacf733adfa11384f7627fb
-          for sha in "$base" "$pr19" "$pr20" "$pr21"; do git fetch --depth=8 origin "$sha"; done
+          original20=f4030ebaf8273ab25c4e7de6dc9d94061cfc022f
+          candidate20=e684ad95a7b8ffdc9e433b1d65672fb69ceed52d
+          previous21=05cbd9927e05362904a9dd2845757ae50cfb3191
+          current21=acdd0d1aba6e53b9ed65ed42d16bfe953b454221
+          for sha in "$base" "$original20" "$candidate20" "$previous21" "$current21"; do git fetch --depth=12 origin "$sha"; done
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git checkout --detach "$pr19"
-          git diff --binary "$base" "$pr21" -- . ':!README.md' | git apply --whitespace=error-all
-          python3 - <<'PY'
-          from pathlib import Path
-          import subprocess
-          p = Path('README.md')
-          text = p.read_text()
-          other = subprocess.check_output(['git', 'show', 'affd09b57f03b7eaffacf733adfa11384f7627fb:README.md'], text=True)
-          start = other.index('Arguments-backed `for-of` loops')
-          paragraph = other[start:other.index('## Current Status', start)]
-          assert text.count('## Current Status') == 1
-          p.write_text(text.replace('## Current Status', paragraph + '## Current Status', 1))
-          PY
-          git add -A
-          tree21=$(git write-tree)
-          test "$tree21" = 1c64c944ddec28b17ac91cdf4523c8b245039930
-          reviewed21=$(printf 'Merge shared arguments-length repair into iterator acquisition fix\n' | git commit-tree "$tree21" -p "$pr21" -p "$pr19")
-          printf 'PR21 %s %s\n' "$reviewed21" "$tree21" | tee /tmp/pr-review-evidence/manifest.txt
-          git checkout --detach "$reviewed21"
-          git diff --binary "$base" "$pr20" -- . ':!crates/lila-aot-wasm/src/builtins/array.rs' | git apply --whitespace=error-all
-          python3 - <<'PY'
-          from pathlib import Path
-          import subprocess
-          path = 'crates/lila-aot-wasm/src/builtins/array.rs'
-          s19 = subprocess.check_output(['git', 'show', 'c590ab4835e7a6eb288b7a19dbd2c33560be488c:' + path], text=True)
-          s20 = subprocess.check_output(['git', 'show', 'f4030ebaf8273ab25c4e7de6dc9d94061cfc022f:' + path], text=True)
-          start = '    fn compile_to_locale_string_builtin('
-          end = '    pub(crate) fn emit_object_has_array_index_key_in_range_i32('
-          body = s20[s20.index(start):s20.index(end)]
-          a = body.index('            self.emit_array_iteration_to_object(\n')
-          b = body.index('\n        }\n\n        function.instruction(&Instruction::I64Const(0));', a)
-          replacement = '\n'.join('            ' + line for line in [
-              '// Generic receivers use the same observable LengthOfArrayLike as',
-              '// callback iteration. Only the direct TypedArray entry above owns',
-              '// private validation; every indexed Get below remains live.',
-              'self.emit_array_like_length_snapshot(',
-              '    receiver_payload_local,',
-              '    receiver_tag_local,',
-              '    key_local,',
-              '    len_local,',
-              '    element_tag_local,',
-              '    function,',
-              ')?;',
-              'self.emit_return_current_completion_if_throw(function);',
-          ])
-          body = body[:a] + replacement + body[b:]
-          Path(path).write_text(s19[:s19.index(start)] + body + s19[s19.index(end):])
-          PY
-          git apply --check --whitespace=error-all /tmp/locale-review-fix.patch
-          git apply --whitespace=error-all /tmp/locale-review-fix.patch
+          git checkout --detach "$candidate20"
+          git diff --binary "$previous21" "$current21" | git apply --whitespace=error-all
+          git apply --check --whitespace=error-all /tmp/indexed-realm-fix.patch
+          git apply --whitespace=error-all /tmp/indexed-realm-fix.patch
           git add -A
           before_format=$(git write-tree)
-          test "$before_format" = e5af6d7191ad0830806a511b8a83d6f196d92d0a
+          test "$before_format" = c7ebaddb380b8fec9b3559356ce7e235bf174359
           cargo fmt --all
           git diff "$before_format" > /tmp/pr-review-evidence/format.patch
           cargo fmt --all -- --check
@@ -91,36 +46,36 @@ jobs:
           ./scripts/check-module-boundaries.sh
           ./scripts/check-task-plan.sh
           python3 scripts/tests/test_engine_regression_inventory.py
-          for target in typed_array_to_locale_string_witness_structure to_locale_string_invocation_structure array_to_locale_string_observable_structure array_callback_iteration_structure array_flat_map_algorithm_owner_structure array_flat_map_typed_array_witness_structure array_map_algorithm_owner_structure array_filter_algorithm_owner_structure array_every_algorithm_owner_structure array_some_algorithm_owner_structure for_of_string_iterator_protocol_structure direct_sync_for_of_protocol_error_realm_structure plain_async_for_of_await_using_structure synchronous_using_for_of_structure sync_iterator_locals_release_ownership_structure sync_iterator_consumer_capability_structure math_sum_precise_runtime_structure; do
+          for target in typed_array_to_locale_string_witness_structure to_locale_string_invocation_structure array_to_locale_string_observable_structure array_callback_iteration_structure array_flat_map_algorithm_owner_structure array_flat_map_typed_array_witness_structure array_map_algorithm_owner_structure array_filter_algorithm_owner_structure array_every_algorithm_owner_structure array_some_algorithm_owner_structure for_of_string_iterator_protocol_structure direct_sync_for_of_protocol_error_realm_structure plain_async_for_of_await_using_structure synchronous_using_for_of_structure sync_iterator_locals_release_ownership_structure sync_iterator_consumer_capability_structure math_sum_precise_runtime_structure indexed_read_realm_structure object_read_proxy_realm_structure object_read_realm_projection_capability_structure proxy_execution_realm_structure; do
             CARGO_MANIFEST_DIR="$PWD/crates/lila-aot-wasm" rustc --edition=2024 --test "crates/lila-aot-wasm/tests/$target.rs" -o "/tmp/$target"
             "/tmp/$target" | tee "/tmp/pr-review-evidence/$target.txt"
           done
           git add -A
-          tree20=$(git write-tree)
-          reviewed20=$(printf 'fix(aot): reconcile locale invocation with shared length and iterator repairs\n' | git commit-tree "$tree20" -p "$pr20" -p "$reviewed21")
-          printf 'PR20 %s %s\n' "$reviewed20" "$tree20" | tee -a /tmp/pr-review-evidence/manifest.txt
-          git checkout --detach "$reviewed20"
+          tree=$(git write-tree)
+          reviewed=$(printf 'fix(aot): reconcile locale invocation and preserve indexed read error realms\n' | git commit-tree "$tree" -p "$original20" -p "$current21")
+          printf 'PR20 %s %s\n' "$reviewed" "$tree" | tee /tmp/pr-review-evidence/manifest.txt
+          git checkout --detach "$reviewed"
           ./scripts/check-readme-status-artifacts.sh "$base"
-          git diff --binary "$pr21" "$reviewed21" > /tmp/pr-review-evidence/pr21.patch
-          git diff --binary "$pr20" "$reviewed20" > /tmp/pr-review-evidence/pr20.patch
-          for revision in "$reviewed21" "$reviewed20"; do
-            if git cat-file -e "$revision:.github/workflows/pr-review-workbench.yaml" 2>/dev/null; then exit 1; fi
-            if git cat-file -e "$revision:scripts/pr-review-fix.patch.gz" 2>/dev/null; then exit 1; fi
-            if git ls-tree -r --name-only "$revision" | grep -E '(__pycache__|\.pyc$)'; then exit 1; fi
+          git diff --binary "$original20" "$reviewed" > /tmp/pr-review-evidence/pr20.patch
+          for path in .github/workflows/pr-review-workbench.yaml scripts/pr-review-fix.patch.gz scripts/pr-review-realm.patch.gz; do
+            if git cat-file -e "$reviewed:$path" 2>/dev/null; then exit 1; fi
           done
-      - name: Publish isolated review candidates for connector inspection
+          if git ls-tree -r --name-only "$reviewed" | grep -E '(__pycache__|\.pyc$)'; then exit 1; fi
+          for path in crates/lila-aot-wasm/src/control_flow/arguments_iterator.rs crates/lila-engine/tests/aot_arguments_iteration.rs docs/rust-rewrite/aot-arguments-iteration.md; do
+            test "$(git rev-parse "$current21:$path")" = "$(git rev-parse "$reviewed:$path")"
+          done
+      - name: Publish an isolated candidate for connector inspection
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           gh auth setup-git
-          read -r label reviewed21 tree21 < /tmp/pr-review-evidence/manifest.txt
-          read -r label reviewed20 tree20 < <(tail -n 1 /tmp/pr-review-evidence/manifest.txt)
-          git push origin "$reviewed21:refs/heads/codex/pr21-reviewed-20260906" "$reviewed20:refs/heads/codex/pr20-reviewed-20260906"
+          read -r label reviewed tree < /tmp/pr-review-evidence/manifest.txt
+          git push origin "$reviewed:refs/heads/codex/pr20-reviewed-realm-20260906"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pr-review-reconciliation-evidence
+          name: pr-review-realm-evidence
           path: /tmp/pr-review-evidence
           retention-days: 2
