@@ -65,6 +65,13 @@ indexed values remain live after length acquisition. See
 for regression commands and the exact-head verification boundary. This does not
 close element Invoke or change the generated full-suite status.
 
+Arguments-backed `for-of` loops now use the existing Arguments-aware iterator
+lookup, including escaped aliases and async-disposable loop heads. The bounded
+repair and focused regression commands are described in
+[the Arguments iteration follow-up](docs/rust-rewrite/aot-arguments-iteration.md).
+The next major deliverable remains T01's reproducible current-pin full-suite
+baseline; this change does not update the generated conformance counts.
+
 ## Current Status
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:
