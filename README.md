@@ -40,6 +40,15 @@ The focused Wasmtime regression target and remaining UTC/time-zone limitations
 are described in [the Date parsing follow-up](docs/rust-rewrite/aot-date-parsing.md).
 This does not change the published conformance counts below.
 
+Array `flatMap` now uses shared observable length, callability, species and
+property operations. Its source length is captured before mapper validation and
+species side effects; sparse properties and Proxy traps remain live during
+mapping. TypedArray receivers use ordinary `length` access rather than a private
+extent shortcut. The focused Wasm-AOT regressions, pinned subtree command and
+remaining work are documented in
+[the flatMap conformance follow-up](docs/rust-rewrite/aot-flat-map.md).
+This does not change the published full-suite status or denominator.
+
 ## Current Status
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:

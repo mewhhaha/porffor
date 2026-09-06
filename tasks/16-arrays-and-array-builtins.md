@@ -1435,3 +1435,26 @@ cargo test -p lila-cli wasm_array --quiet
 ```
 
 During development use method-level filters and deterministic shards. Before closing, run the entire Array tree and all local `wasm_array_*` fixtures.
+
+
+## 2026-09-06: Generic flatMap observable-operation closure
+
+The canonical Wasm-AOT flatMap compiler now delegates ToObject/LengthOfArrayLike,
+IsCallable, ArraySpeciesCreate, IsArray, HasProperty, Get and target property
+creation to shared operation owners. Length is observable and captured before
+mapper validation or species side effects. Missing callbacks no longer bypass
+length getters, huge numeric lengths use bounded ToLength, and TypedArray private
+extents no longer bypass own or inherited length properties.
+
+The source and mapped-array loops retain live property observations, nested Proxy
+traps, sparse behavior, one-level flattening and abrupt-completion order. A single
+append owner guards the maximum safe integer bound before data-property creation.
+The three affected structural targets track this ownership change; existing CLI
+fixture bodies remain unchanged. Seventeen new engine regression programs select
+WasmAot explicitly. CI includes a nonempty compiled-inventory check and the entire
+pinned flatMap subtree, and repairs the previously stale pinned-agent test filter.
+
+[The flatMap follow-up](../docs/rust-rewrite/aot-flat-map.md) gives the verification
+commands and follow-on priorities. This is not closure of T16 or T26, not a change
+to the Test262 denominator, and not a claim that the full current-pin suite is
+green. Runtime results must be attached to the exact tested PR revision.

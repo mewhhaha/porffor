@@ -155,9 +155,9 @@ fn shared_call_boundary_and_canonical_compiler_own_argument_and_mapping_order() 
     let canonical = bounded(
         ARRAY_SOURCE,
         "    pub(crate) fn compile_array_prototype_flat_map_builtin(",
-        "    pub(crate) fn compile_array_prototype_map_builtin(",
+        "    fn emit_flat_map_append(",
     );
-    assert_eq!(canonical.matches("self.argc_param_local()").count(), 2);
+    assert_eq!(canonical.matches("self.argc_param_local()").count(), 0);
     assert_eq!(
         canonical
             .matches("self.emit_builtin_arg_to_locals(0,")
@@ -172,28 +172,36 @@ fn shared_call_boundary_and_canonical_compiler_own_argument_and_mapping_order() 
     );
     for (earlier, later) in [
         (
+            "self.emit_array_iteration_length_before_callback_validation(",
             "self.emit_builtin_arg_to_locals(0,",
+        ),
+        (
+            "self.emit_builtin_arg_to_locals(0,",
+            "self.emit_is_callable_i32(",
+        ),
+        (
+            "self.emit_is_callable_i32(",
             "self.emit_builtin_arg_to_locals(1,",
         ),
         (
             "self.emit_builtin_arg_to_locals(1,",
-            "self.emit_array_iteration_to_object(",
+            "self.emit_array_species_create(",
         ),
         (
-            "self.emit_array_iteration_to_object(",
-            "self.emit_to_length_i64_from_value_locals(",
-        ),
-        (
-            "self.emit_to_length_i64_from_value_locals(",
+            "self.emit_array_species_create(",
             "self.emit_object_has_property_i32(",
         ),
         (
             "self.emit_object_has_property_i32(",
-            "self.emit_array_index_get_with_prototype(",
+            "self.emit_object_read(",
         ),
         (
-            "self.emit_array_index_get_with_prototype(",
+            "self.emit_object_read(",
             "self.emit_function_handle_call_with_argv(",
+        ),
+        (
+            "self.emit_function_handle_call_with_argv(",
+            "self.emit_is_array_i64(",
         ),
     ] {
         assert_before(canonical, earlier, later);
@@ -225,4 +233,47 @@ fn focused_fixture_observes_all_arguments_before_mapping() {
     assert!(ARRAY_CLI_TESTS.contains(
         "fn run_wasm_backend_succeeds_for_supported_array_flat_map_proxy_access_count_fixture()"
     ));
+}
+
+#[test]
+fn one_append_owner_bounds_the_index_before_defining_and_incrementing() {
+    let append = bounded(
+        ARRAY_SOURCE,
+        "    fn emit_flat_map_append(",
+        "    pub(crate) fn emit_array_iteration_length_before_callback_validation(",
+    );
+    assert_eq!(
+        append
+            .matches("emit_array_target_create_data_property_or_throw(")
+            .count(),
+        1
+    );
+    assert_before(
+        append,
+        "Instruction::I64Const(MAX_SAFE_INTEGER as i64)",
+        "emit_array_target_create_data_property_or_throw(",
+    );
+    assert_before(
+        append,
+        "emit_array_target_create_data_property_or_throw(",
+        "emit_return_current_completion_if_throw(",
+    );
+    assert_before(
+        append,
+        "emit_return_current_completion_if_throw(",
+        "Instruction::I64Add",
+    );
+    assert!(!append.contains("emit_object_write("));
+}
+
+#[test]
+fn flat_map_roots_the_shared_target_definition_builtin() {
+    let planning = include_str!("../src/planning.rs");
+    let start = planning
+        .find("            StandardBuiltinId::ArrayPrototypeFlatMap\n")
+        .expect("flatMap dependency arm");
+    let arm = &planning[start..];
+    let end = arm.find("\n        }").expect("dependency arm end");
+    assert!(arm[..end]
+        .contains("self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);"));
 }

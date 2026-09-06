@@ -1670,6 +1670,7 @@ impl StringPool {
             "Array.prototype.flatMap receiver is not array",
             "Array.prototype.flatMap called on null or undefined",
             "Array.prototype.flatMap mapper is not callable",
+            "Array.prototype.flatMap result exceeds the maximum safe length",
             "Array.prototype.flatMap constructor is not object",
             "Array.prototype.flatMap cannot add property to non-extensible target",
             "Array.prototype.flatMap cannot define non-configurable target property",
