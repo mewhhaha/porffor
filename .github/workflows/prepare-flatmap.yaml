@@ -22,19 +22,40 @@ jobs:
           shared-key: flatmap-conformance
           cache-on-failure: true
       - name: Assemble implementation, regression guards, and documentation
+        id: assembly
+        shell: bash
         run: |
-          python3 .github/preflight/prepare.py
-          python3 .github/preflight/fix-planning.py
-          cargo fmt --all
-          cargo fmt --all -- --check
+          set -euo pipefail
+          python3 .github/preflight/prepare.py 2>&1 | tee /tmp/flatmap-assembly.log
+          python3 .github/preflight/fix-planning.py 2>&1 | tee -a /tmp/flatmap-assembly.log
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('crates/lila-aot-wasm/src/data.rs')
+          s = p.read_text()
+          old = '            "Array.prototype.flatMap mapper is not callable",'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, old + '\n            "Array.prototype.flatMap result exceeds the maximum safe length",'))
+          PY
+          cargo fmt --all 2>&1 | tee -a /tmp/flatmap-assembly.log
+          cargo fmt --all -- --check 2>&1 | tee -a /tmp/flatmap-assembly.log
+      - name: Preserve assembly diagnostics and source for review
+        if: always()
+        run: tar -czf /tmp/flatmap-assembly-source.tar.gz .github/preflight crates/lila-aot-wasm/src/builtins/array.rs crates/lila-aot-wasm/src/planning.rs crates/lila-aot-wasm/src/data.rs crates/lila-aot-wasm/tests/array_flat_map_algorithm_owner_structure.rs crates/lila-aot-wasm/tests/array_flat_map_typed_array_witness_structure.rs crates/lila-aot-wasm/tests/array_species_create_operation_evidence_structure.rs crates/lila-engine/tests/aot_flat_map.rs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flatmap-assembly
+          path: /tmp/flatmap-assembly*
+          retention-days: 7
       - name: Publish only the reviewed product files to a new branch
+        if: ${{ steps.assembly.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
           base=31c89c4b29b1fe84e3a3eaef55312448b80e3f07
           test "$(git rev-parse origin/main)" = "$base"
           git read-tree "$base"
-          git add crates/lila-aot-wasm/src/builtins/array.rs crates/lila-aot-wasm/src/planning.rs crates/lila-aot-wasm/tests/array_flat_map_algorithm_owner_structure.rs crates/lila-aot-wasm/tests/array_flat_map_typed_array_witness_structure.rs crates/lila-aot-wasm/tests/array_species_create_operation_evidence_structure.rs crates/lila-engine/tests/aot_flat_map.rs README.md docs/rust-rewrite/aot-flat-map.md docs/rust-rewrite/contracts/array-flat-map-algorithm-owner.md docs/rust-rewrite/contracts/array-flat-map-typed-array-buffer-witness.md tasks/16-arrays-and-array-builtins.md
+          git add crates/lila-aot-wasm/src/builtins/array.rs crates/lila-aot-wasm/src/planning.rs crates/lila-aot-wasm/src/data.rs crates/lila-aot-wasm/tests/array_flat_map_algorithm_owner_structure.rs crates/lila-aot-wasm/tests/array_flat_map_typed_array_witness_structure.rs crates/lila-aot-wasm/tests/array_species_create_operation_evidence_structure.rs crates/lila-engine/tests/aot_flat_map.rs README.md docs/rust-rewrite/aot-flat-map.md docs/rust-rewrite/contracts/array-flat-map-algorithm-owner.md docs/rust-rewrite/contracts/array-flat-map-typed-array-buffer-witness.md tasks/16-arrays-and-array-builtins.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           tree=$(git write-tree)
@@ -46,17 +67,21 @@ jobs:
           git archive "$commit" | gzip > /tmp/flatmap-product-source.tar.gz
           tar -czf /tmp/flatmap-workflows.tar.gz .github/workflows/ci.yaml .github/workflows/array-conformance.yaml
       - uses: actions/upload-artifact@v4
+        if: ${{ steps.assembly.outcome == 'success' }}
         with:
           name: flatmap-product-source
-          path: /tmp/flatmap-*
+          path: |
+            /tmp/flatmap-product*
+            /tmp/flatmap-workflows.tar.gz
           retention-days: 7
       - name: Check structural contracts
+        if: ${{ steps.assembly.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
           cargo test --locked -p lila-aot-wasm --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test array_species_create_operation_evidence_structure --test array_concat_algorithm_owner_structure --test concat_typed_array_witness_structure 2>&1 | tee /tmp/flatmap-structure.log
       - name: Execute all product regressions
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.assembly.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
