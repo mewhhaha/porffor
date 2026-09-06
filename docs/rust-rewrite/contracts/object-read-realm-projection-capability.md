@@ -23,8 +23,9 @@ error construction.
 Both domains project `GlobalFallback` to `MainRealmFallback`. They project
 `StandardBuiltinEnvironment`, `ObjectReadHelperArgument` and
 `ProxyDispatchHelperArgument` to `TrustedCurrentEnvironment`. The two helper
-sources remain distinct: only `ObjectRead` and `ObjectReadProxy` receive the
-first, while only `ProxyCall` and `ProxyConstruct` receive the second. Every
+sources remain distinct: only `ObjectRead`, `ObjectReadProxy` and
+`IndexedElementRead` receive the first, while only `ProxyCall` and
+`ProxyConstruct` receive the second. Every
 helper assignment, projection and consumer is exhaustive. Neither projection
 domain supports clone, copy, debug, equality or default observation; the
 focused unit verifies its expected rows through exhaustive matches rather than
@@ -63,3 +64,14 @@ This extension does not claim an object-model redesign, complete Proxy
 conformance, a broad Test262 result, a Wasm golden result or a published
 conformance-count change. It routes revoked-Proxy errors; non-revocation
 TypeErrors created by Proxy `[[Get]]` remain separate object-read work.
+
+## Indexed Get extension
+
+`IndexedElementRead` now forwards the same trusted Realm-or-zero projection in
+ABI parameter 6. Its body is classified as `ObjectReadHelperArgument` for both
+ordinary reads and callable-Proxy accessor dispatch. User/host lexical
+environments still project to zero; no arbitrary environment becomes a Realm.
+This prevents a shared indexed read from changing which Realm creates a
+revoked-Proxy TypeError, including when a foreign Array `toLocaleString` method
+reads a receiver revoked during length acquisition or a revoked callable getter.
+The dedicated ABI guard and two Wasm-AOT regressions protect this boundary.

@@ -29,10 +29,11 @@ shortcut. The original 19 regressions are retained, with four additional engine
 regressions for inherited getters, mapped values, Proxy getter throws, undefined
 getters and inherited arguments receivers.
 
-After successful length conversion, the generic entry classifies a TypedArray
-only to select live indexed reads. Length acquisition may already have resized
-or detached the buffer. The returned length still controls the loop, while each
-later unavailable index contributes the existing undefined/nullish result.
+After successful length conversion, both entries use the shared indexed-Get
+dispatcher. Length acquisition may already have resized or detached the buffer.
+The returned length still controls the loop, while each later unavailable index
+contributes the existing undefined/nullish result. No separate cached receiver
+classification is needed in the locale-string emitter.
 
 The direct `%TypedArray%.prototype.toLocaleString` entry is intentionally
 unchanged: receiver-brand validation and one `ValidatedMethodEntry` witness
@@ -87,9 +88,10 @@ compiler or its emitted Wasm. Modified-compiler results must be attached to the
 exact tested source SHA in the PR before marking this capability verified.
 The 2026-08-24 private-witness checkpoint remains historical evidence only.
 
-This does not repair the separate element-Invoke dispatch gap for nested Array
-and arguments values, implement ECMA-402 locale formatting, change the shared
-integer-indexed object model, or retire the existing T18 constructor-matrix
+The [element-Invoke follow-up](aot-array-to-locale-string.md) builds on this
+shared length operation and repairs dispatch for nested Array and arguments
+values. Neither change implements ECMA-402 locale formatting, changes the shared
+integer-indexed object model, or retires the existing T18 constructor-matrix
 materializer. A green materialized subtree would not establish unchanged-source,
 all-constructor Test262 closure. T16 and the complete current-pin Wasm-AOT T26
 release gate remain open; no full-suite percentage is inferred from this batch.

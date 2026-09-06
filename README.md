@@ -19,6 +19,12 @@ commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace
 and its `lila` CLI are the only current product implementation.
 
+The Wasm-AOT `toLocaleString` lowering distinguishes public Array-like length
+access from validated TypedArray entry and uses the shared element invocation
+protocol while retaining the method Realm for indexed Proxy revocation errors. See [the observable locale-string lowering notes](docs/rust-rewrite/aot-array-to-locale-string.md)
+for regression coverage and the required conformance gates. This is a focused
+implementation change, not a claim of complete ECMAScript compatibility.
+
 Async-generator ordinary property assignments across `yield` and `yield*` now
 use the shared suspended Reference path. The base and raw key survive suspension;
 normal resumption performs key conversion and the strictness-aware write, while
@@ -62,8 +68,10 @@ generic receiver, including TypedArray and arguments length overrides. The
 strict direct TypedArray method retains its private validation witness, and
 indexed values remain live after length acquisition. See
 [the length follow-up](docs/rust-rewrite/aot-array-to-locale-string-length.md)
-for regression commands and the exact-head verification boundary. This does not
-close element Invoke or change the generated full-suite status.
+for the shared length contract. Element invocation and live indexed reads now
+use the shared property/invocation paths; see [the integration notes](docs/rust-rewrite/aot-array-to-locale-string.md)
+for retained regressions and verification gates. The generated full-suite status
+is unchanged.
 
 Arguments-backed `for-of` loops now use the existing Arguments-aware iterator
 lookup, including escaped aliases and async-disposable loop heads. The bounded

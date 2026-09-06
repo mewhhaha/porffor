@@ -102,7 +102,7 @@ length overrides, coercion and exceptions remain observable.
 After either entry has produced `len_local`, the shared loop remains one
 algorithm. It compares the ascending index with the captured length and then
 performs one live read through
-`emit_typed_array_or_object_index_read_from_locals` for a TypedArray receiver.
+`emit_typed_array_or_object_index_read_from_locals` for every receiver kind.
 No second method-entry witness belongs inside that loop.
 
 This migration also leaves the existing element-invocation ownership intact.
@@ -141,9 +141,9 @@ The regression must pin all of the following:
 - the generic arm contains no private witness and captures observable length
   through the shared ToObject/Get/ToLength operation before selecting live reads;
 - the complete `len_local` writer inventory leaves the witness snapshot intact
-  through the shared-loop bound, and the complete `typed_receiver_local`
-  writer/use inventory routes both direct and generic TypedArray entries to the
-  live indexed-read helper;
+  through the shared-loop bound, and one unconditional shared indexed Get
+  propagates abrupt completion before the nullish check; the retired
+  `typed_receiver_local` routing flag and per-receiver read branches are absent;
 - each Array and TypedArray dispatcher identifier has exactly one owner and is
   mapped to its matching wrapper, so an earlier duplicate arm cannot hide the
   reviewed mapping;
@@ -228,11 +228,15 @@ the separate 2026-08-23 checkpoint above.
 This direct method-entry lane does not own generic
 `Array.prototype.toLocaleString`; its later buffer-observation migration is
 recorded by the companion contract above. Neither lane changes the shared
-indexed-read helper, integer-indexed exotic semantics, separator selection,
+integer-indexed exotic semantics, separator selection,
 locale formatting, element lookup or conversion, Proxy `Call`, the validated
 element-invocation token, or the other remaining raw TypedArray validators. It
 does not migrate `copyWithin`, `with`, `set`, `slice`, `map`, `filter`,
-constructor validation or species-target validation.
+constructor validation or species-target validation. The later
+[observable element-Invoke follow-up](../aot-array-to-locale-string.md) does
+extend the shared indexed-read helper's existing ABI to retain the method Realm;
+that follow-up has its own explicit cross-Realm regressions and does not change
+this method-entry witness policy.
 
 The shared witness structurally routes direct-entry failures through the
 executing builtin's Realm, and the existing invocation fixture proves that the

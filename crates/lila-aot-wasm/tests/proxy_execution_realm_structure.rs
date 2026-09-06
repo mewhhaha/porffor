@@ -130,7 +130,7 @@ fn initial_and_helper_body_sources_project_exhaustively() {
     for (source, helper_arm) in [
         (
             "Self::ObjectReadHelperArgument",
-            concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy=>{",),
+            concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead=>",),
         ),
         (
             "Self::ProxyDispatchHelperArgument",

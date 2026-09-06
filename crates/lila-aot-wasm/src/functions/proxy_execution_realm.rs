@@ -125,7 +125,8 @@ mod tests {
             object_read_helpers,
             vec![
                 RuntimeHelperId::ObjectRead,
-                RuntimeHelperId::ObjectReadProxy
+                RuntimeHelperId::ObjectReadProxy,
+                RuntimeHelperId::IndexedElementRead
             ]
         );
 

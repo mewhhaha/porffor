@@ -338,9 +338,9 @@ impl ProxyExecutionRealmSource {
     /// The closed body-domain transition performed when a runtime helper starts.
     pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
         match helper {
-            RuntimeHelperId::ObjectRead | RuntimeHelperId::ObjectReadProxy => {
-                Self::ObjectReadHelperArgument
-            }
+            RuntimeHelperId::ObjectRead
+            | RuntimeHelperId::ObjectReadProxy
+            | RuntimeHelperId::IndexedElementRead => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -373,7 +373,6 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::BigIntArithmetic
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
-            | RuntimeHelperId::IndexedElementRead
             | RuntimeHelperId::IndexedElementWrite
             | RuntimeHelperId::ValueToPrimitiveDefault
             | RuntimeHelperId::ValueToPrimitiveNumber
@@ -389,7 +388,7 @@ impl ProxyExecutionRealmSource {
 ///
 /// User and host functions may carry ordinary lexical environments, so they
 /// must use the main-Realm fallback. Standard builtins carry a trusted
-/// self-backed Realm record. The two outlined object-read helpers and the Proxy
+/// self-backed Realm record. Ordinary, Proxy and indexed reads plus the Proxy
 /// call/construct helpers receive only that trusted record-or-zero through ABI
 /// parameter 6.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -482,9 +481,9 @@ impl ObjectReadErrorRealmSource {
     /// The closed body-domain transition performed when a runtime helper starts.
     pub(crate) const fn for_runtime_helper(helper: RuntimeHelperId) -> Self {
         match helper {
-            RuntimeHelperId::ObjectRead | RuntimeHelperId::ObjectReadProxy => {
-                Self::ObjectReadHelperArgument
-            }
+            RuntimeHelperId::ObjectRead
+            | RuntimeHelperId::ObjectReadProxy
+            | RuntimeHelperId::IndexedElementRead => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -517,7 +516,6 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::BigIntArithmetic
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
-            | RuntimeHelperId::IndexedElementRead
             | RuntimeHelperId::IndexedElementWrite
             | RuntimeHelperId::ValueToPrimitiveDefault
             | RuntimeHelperId::ValueToPrimitiveNumber

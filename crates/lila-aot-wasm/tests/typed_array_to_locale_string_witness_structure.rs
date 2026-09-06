@@ -46,16 +46,6 @@ const INITIAL_LENGTH_WIRING: &str = r#"
     function.instruction(&Instruction::LocalSet(len_local));
 "#;
 
-const TYPED_RECEIVER_DISABLED_WIRING: &str = r#"
-    function.instruction(&Instruction::I64Const(0));
-    function.instruction(&Instruction::LocalSet(typed_receiver_local));
-"#;
-
-const TYPED_RECEIVER_ENABLED_WIRING: &str = r#"
-    function.instruction(&Instruction::I64Const(1));
-    function.instruction(&Instruction::LocalSet(typed_receiver_local));
-"#;
-
 const BRAND_WIRING: &str = r#"
     function.instruction(&Instruction::LocalGet(typed_brand_local));
     function.instruction(&Instruction::I64Const(
@@ -116,21 +106,16 @@ const GENERIC_LENGTH_WIRING: &str = r#"
     self.emit_return_current_completion_if_throw(function);
 "#;
 
-const GENERIC_TYPED_READ_ROUTING: &str = r#"
-    self.emit_is_typed_array_i32(receiver_payload_local, receiver_tag_local, function);
-    function.instruction(&Instruction::I64ExtendI32U);
-    function.instruction(&Instruction::LocalSet(typed_receiver_local));
-"#;
-
 const LIVE_TYPED_ARRAY_READ_WIRING: &str = r#"
-    function.instruction(&Instruction::LocalGet(typed_receiver_local));
-    function.instruction(&Instruction::I64Const(0));
-    function.instruction(&Instruction::I64Ne);
-    function.instruction(&Instruction::If(BlockType::Empty));
     self.emit_typed_array_or_object_index_read_from_locals(
         receiver_payload_local,
         receiver_tag_local,
         index_local,
+        element_payload_local,
+        element_tag_local,
+        function,
+    )?;
+    self.emit_propagate_throw_from_locals_if_needed(
         element_payload_local,
         element_tag_local,
         function,
@@ -250,21 +235,13 @@ fn direct_typed_array_entry_uses_one_validated_method_witness() {
     }
 
     let brand = unique_normalized_position(&normalized, BRAND_WIRING, "receiver-brand guard");
-    let typed_receiver = unique_normalized_position(
-        &normalized,
-        TYPED_RECEIVER_ENABLED_WIRING,
-        "direct TypedArray live-read routing",
-    );
     let private_state =
         unique_normalized_position(&normalized, PRIVATE_STATE_WIRING, "private-state load");
     let view = unique_normalized_position(&normalized, VIEW_WIRING, "immutable view");
     let witness = unique_normalized_position(&normalized, WITNESS_WIRING, "method-entry witness");
     assert!(
-        brand < typed_receiver
-            && typed_receiver < private_state
-            && private_state < view
-            && view < witness,
-        "brand validation, live-read routing, private view construction and witness consumption must retain specification order"
+        brand < private_state && private_state < view && view < witness,
+        "brand validation, private view construction and witness consumption must retain specification order"
     );
 }
 
@@ -272,9 +249,8 @@ fn direct_typed_array_entry_uses_one_validated_method_witness() {
 fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
     let shared = shared_body();
     let generic = arraylike_arm();
-    let normalized_shared = without_whitespace(shared);
+    let normalized = without_whitespace(shared);
     let normalized_generic = without_whitespace(generic);
-
     assert_eq!(shared.matches("receiver_kind").count(), 4);
     for consumer in [
         "letmethod_name=match&receiver_kind{",
@@ -282,26 +258,37 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
         "iftyped_array_entry{",
         "self.emit_validate_to_locale_string_invocation(&receiver_kind,",
     ] {
-        assert_eq!(normalized_shared.matches(consumer).count(), 1, "{consumer}");
+        assert_eq!(normalized.matches(consumer).count(), 1, "{consumer}");
     }
     assert_eq!(
         shared.matches("Instruction::LocalSet(len_local)").count(),
         1
     );
-    assert_eq!(shared.matches("typed_receiver_local").count(), 6);
     assert_eq!(
         shared
-            .matches("Instruction::LocalSet(typed_receiver_local)")
-            .count(),
-        3,
-        "initialize, select direct TypedArray, or classify the generic live-read route"
-    );
-    assert_eq!(
-        shared
-            .matches("Instruction::LocalGet(typed_receiver_local)")
+            .matches("self.emit_array_like_length_snapshot(")
             .count(),
         1
     );
+    assert_eq!(
+        shared
+            .matches("self.emit_typed_array_or_object_index_read_from_locals(")
+            .count(),
+        1
+    );
+    for forbidden in [
+        "typed_receiver_local",
+        "emit_arguments_read(",
+        "emit_array_index_get_with_prototype(",
+        "TypedArrayWitnessUse::ArrayLikeLengthSnapshot",
+        "emit_typed_array_current_byte_length(",
+        "emit_validate_typed_array_current_byte_length(",
+    ] {
+        assert!(
+            !shared.contains(forbidden),
+            "retired private bypass: {forbidden}"
+        );
+    }
     for operation in [
         "emit_load_typed_array_private_state(",
         "TypedArrayViewLocals::new(",
@@ -316,16 +303,6 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
         assert!(
             !generic.contains(operation),
             "generic length must not use {operation}"
-        );
-    }
-    for forbidden in [
-        "TypedArrayWitnessUse::ArrayLikeLengthSnapshot",
-        "emit_typed_array_current_byte_length(",
-        "emit_validate_typed_array_current_byte_length(",
-    ] {
-        assert!(
-            !shared.contains(forbidden),
-            "retired length shortcut: {forbidden}"
         );
     }
     for forbidden in [
@@ -344,71 +321,42 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
             "generic length must delegate, not use {forbidden}"
         );
     }
-
-    let generic_length = unique_normalized_position(
+    unique_normalized_position(
         &normalized_generic,
         GENERIC_LENGTH_WIRING,
         "one observable LengthOfArrayLike",
     );
-    let generic_route = unique_normalized_position(
-        &normalized_generic,
-        GENERIC_TYPED_READ_ROUTING,
-        "post-length live-read classification",
-    );
-    assert!(generic_length < generic_route);
-
-    let initial_length = unique_normalized_position(
-        &normalized_shared,
-        INITIAL_LENGTH_WIRING,
-        "length initialization",
-    );
-    let initial_route = unique_normalized_position(
-        &normalized_shared,
-        TYPED_RECEIVER_DISABLED_WIRING,
-        "initial live-read route",
-    );
-    let direct_route = unique_normalized_position(
-        &normalized_shared,
-        TYPED_RECEIVER_ENABLED_WIRING,
-        "direct TypedArray live-read route",
-    );
-    let direct_length = unique_normalized_position(
-        &normalized_shared,
-        WITNESS_WIRING,
-        "direct TypedArray validation and length",
-    );
-    let generic_length = unique_normalized_position(
-        &normalized_shared,
+    let initial =
+        unique_normalized_position(&normalized, INITIAL_LENGTH_WIRING, "length initialization");
+    let direct =
+        unique_normalized_position(&normalized, WITNESS_WIRING, "direct validation and length");
+    let generic = unique_normalized_position(
+        &normalized,
         GENERIC_LENGTH_WIRING,
         "generic observable length",
     );
-    let generic_route = unique_normalized_position(
-        &normalized_shared,
-        GENERIC_TYPED_READ_ROUTING,
-        "generic live-read route",
-    );
-    let loop_bound =
-        unique_normalized_position(&normalized_shared, LOOP_START, "captured-length loop bound");
-    let live_read = unique_normalized_position(
-        &normalized_shared,
+    let bound = unique_normalized_position(&normalized, LOOP_START, "captured-length loop bound");
+    let read = unique_normalized_position(
+        &normalized,
         LIVE_TYPED_ARRAY_READ_WIRING,
-        "live integer-indexed read",
+        "shared live indexed Get and abrupt completion",
     );
-    let validate = normalized_shared
+    let nullish = normalized
+        .find("self.compile_nullish_tagged_i32(element_tag_local,function)")
+        .unwrap();
+    let validate = normalized
         .find("self.emit_validate_to_locale_string_invocation(")
         .unwrap();
-    let call = normalized_shared
+    let call = normalized
         .find("self.emit_call_validated_to_locale_string_invocation(")
         .unwrap();
     assert!(
-        initial_length < initial_route
-            && initial_route < direct_route
-            && direct_route < direct_length
-            && direct_length < generic_length
-            && generic_length < generic_route
-            && generic_route < loop_bound
-            && loop_bound < live_read
-            && live_read < validate
+        initial < direct
+            && direct < generic
+            && generic < bound
+            && bound < read
+            && read < nullish
+            && nullish < validate
             && validate < call
     );
     let loop_tail = shared.split_once(LOOP_START).expect("shared loop start").1;

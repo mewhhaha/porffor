@@ -82,7 +82,8 @@ mod tests {
             object_read_helpers,
             vec![
                 RuntimeHelperId::ObjectRead,
-                RuntimeHelperId::ObjectReadProxy
+                RuntimeHelperId::ObjectReadProxy,
+                RuntimeHelperId::IndexedElementRead
             ]
         );
 
@@ -6708,7 +6709,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64Const(0));
+                self.emit_outlined_object_read_realm_argument(function);
                 function.instruction(&Instruction::Call(helper));
                 // Same discipline as `emit_object_read_ordinary_via_helper`: the
                 // value (or, on a throw, the thrown value) lands in the caller's
@@ -6743,15 +6744,17 @@ impl<'a> FunctionBuilder<'a> {
     /// emitted once here and reached with a plain `call`.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=target payload,
-    /// 1=target tag, 2=integer index. Params 3-6 are unused. Results are the
+    /// 1=target tag, 2=integer index, 6=trusted Realm environment or zero.
+    /// Params 3-5 are unused. Results are the
     /// standard `(result, result_tag, completion, completion_aux)` tuple: on a
     /// normal completion the read value is in the first two slots, and a getter
     /// or proxy-trap throw is surfaced through the completion slots for the
     /// seam to re-raise.
     ///
-    /// This helper has no realm-environment parameter. Its ordinary-read
-    /// delegation therefore reaches [`FunctionBuilder::compile_object_read_helper`]
-    /// with the main-Realm fallback rather than forwarding a caller Realm.
+    /// The call boundary projects only a standard-builtin/read-helper Realm
+    /// record or zero, never an ordinary lexical environment. Both ordinary
+    /// object reads and callable Proxy accessors forward that same authority,
+    /// so outlining an indexed Get cannot change its revocation-error Realm.
     ///
     /// This lives here rather than in `emit.rs` with the other 22 helper
     /// compilers so that
@@ -6763,6 +6766,8 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn compile_indexed_element_read_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementRead);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_typed_array_or_object_index_read_from_locals_inner(
@@ -18336,10 +18341,13 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_is_callable_i32(setter_tag_local, setter_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call(
+        // A callable setter may be a Proxy. Preserve the explicit Receiver
+        // and route its abrupt completion through the shared Call protocol.
+        self.emit_function_or_proxy_call_leave_throw_completion(
             setter_payload_local,
             setter_tag_local,
-            Some((receiver_payload_local, Some(receiver_tag_local))),
+            receiver_payload_local,
+            receiver_tag_local,
             &[(value_payload_local, value_tag_local)],
             setter_result_payload_local,
             setter_result_tag_local,

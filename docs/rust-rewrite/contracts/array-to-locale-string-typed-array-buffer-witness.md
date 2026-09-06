@@ -30,9 +30,11 @@ The standard-builtin dispatcher maps each identifier to its matching wrapper.
 The generic arm calls `emit_array_like_length_snapshot`, shared with flatMap and
 map/filter/every/some. It boxes in the current builtin's Realm, reads `length`
 with the boxed receiver, propagates lookup exceptions, and invokes shared
-ToLength. Only after this finishes does it classify the TypedArray live-read
-route. It must not load private state, construct a TypedArrayViewLocals, select
-any TypedArray witness, read HEAP_LEN_OFFSET, or duplicate ToLength here.
+ToLength. It must not load private state, construct a TypedArrayViewLocals,
+select any TypedArray witness, read HEAP_LEN_OFFSET, or duplicate ToLength here.
+Both entries then use one shared indexed-Get dispatcher, which owns Array,
+arguments, ordinary/Proxy and live TypedArray reads without a cached receiver
+classification in this emitter.
 
 The direct TypedArray arm retains one brand guard, one immutable private view,
 and one `ValidatedMethodEntry` witness. Detached or out-of-bounds direct
@@ -45,13 +47,14 @@ new bound.
 `typed_array_to_locale_string_witness_structure.rs` bounds both entry arms and
 requires exactly one private-state load/view/witness in the shared owner, solely
 in the direct arm. The generic arm must contain exactly one shared observable
-length call with abrupt propagation, followed by live-read classification. A
-separate guard pins the shared operation's ToObject/Get/propagation/ToLength
-order. Captured loop bounds, live read and validated element invocation order,
+length call with abrupt propagation. The loop contains one shared indexed Get
+followed by abrupt propagation before the nullish check. A separate guard pins
+the shared operation's ToObject/Get/propagation/ToLength order. Captured loop
+bounds, live read and validated element invocation order,
 exact wrapper dispatch and reverse temporary-local release remain checked.
 
 The unchanged CLI fixture retains tracking, fixed out-of-bounds, odd-byte and
-detached-view controls. The new 19-program explicit Wasm-AOT engine target adds
+detached-view controls. The 23-program explicit Wasm-AOT length target covers
 own/inherited length overrides, arguments, ordering and live-buffer regressions.
 See [the implementation follow-up](../aot-array-to-locale-string-length.md) for
 commands, evidence boundaries and remaining work.
@@ -68,5 +71,7 @@ observable length shadowing. This follow-up removes the old generic private
 snapshot rather than preserving that limitation as an alternate path.
 
 No materializer, source pin, generated status, exclusion or failure expectation
-is changed. Broader element Invoke, locale formatting, object-model and full
+is changed. The [element-Invoke follow-up](../aot-array-to-locale-string.md)
+retains these length guarantees while making every non-nullish element use the
+validated invocation protocol. Locale formatting, broader object-model and full
 current-pin conformance work remain separate.

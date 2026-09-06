@@ -44,6 +44,7 @@ impl<'a> FunctionBuilder<'a> {
         let typed_array_canonical_numeric_index_local = self.reserve_temp_local();
         let typed_array_valid_index_local = self.reserve_temp_local();
         let proxy_target_extensible_local = self.reserve_temp_local();
+        let key_constant_local = self.reserve_temp_local();
         let proxy_target_descriptor_fact = self.reserve_own_descriptor_fact_locals();
 
         self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
@@ -595,9 +596,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(key_string_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(key_constant_local));
+        self.emit_property_key_payload_equality_i32(key_string_local, key_constant_local, function);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_array_length(
@@ -695,9 +696,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(key_string_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(key_constant_local));
+        self.emit_property_key_payload_equality_i32(key_string_local, key_constant_local, function);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
@@ -801,9 +802,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(key_string_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("callee")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(key_constant_local));
+        self.emit_property_key_payload_equality_i32(key_string_local, key_constant_local, function);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
@@ -927,9 +928,9 @@ impl<'a> FunctionBuilder<'a> {
             value_payload_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(key_string_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(key_constant_local));
+        self.emit_property_key_payload_equality_i32(key_string_local, key_constant_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_boxed_string_length_number_payload(
             value_payload_local,
@@ -997,9 +998,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(key_string_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(key_constant_local));
+        self.emit_property_key_payload_equality_i32(key_string_local, key_constant_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_boxed_string_length_number_payload(
             target_payload_local,
@@ -1089,9 +1090,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(function_like_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(key_string_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(key_constant_local));
+        self.emit_property_key_payload_equality_i32(key_string_local, key_constant_local, function);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
@@ -1132,9 +1133,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalGet(DATA_VIEW_CONSTRUCTOR_GLOBAL_INDEX));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(key_string_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(key_constant_local));
+        self.emit_property_key_payload_equality_i32(key_string_local, key_constant_local, function);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_object_read(
@@ -1391,6 +1392,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_own_descriptor_fact_locals(proxy_target_descriptor_fact);
+        self.release_temp_local(key_constant_local);
         self.release_temp_local(proxy_target_extensible_local);
         self.release_temp_local(typed_array_valid_index_local);
         self.release_temp_local(typed_array_canonical_numeric_index_local);
