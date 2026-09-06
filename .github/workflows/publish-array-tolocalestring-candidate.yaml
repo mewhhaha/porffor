@@ -1,0 +1,79 @@
+name: Publish Array toLocaleString candidate
+
+on:
+  push:
+    branches:
+      - codex/array-tolocalestring-invocation
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-array-tolocalestring-candidate-v2
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'mewhhaha/porffor'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply, audit, and publish the rebased one-commit tree
+        shell: bash
+        env:
+          BASE_SHA: abdcf56f1bd88d5debbb1d8c291f2e7213f77371
+          PATCH_FILE: .github/patches/array-tolocalestring-existing.patch
+          SELF_FILE: .github/workflows/publish-array-tolocalestring-candidate.yaml
+        run: |
+          set -euo pipefail
+
+          test "${GITHUB_REF_NAME}" = "codex/array-tolocalestring-invocation"
+          test -f "$PATCH_FILE"
+          test -f "$SELF_FILE"
+          test "$(git rev-parse "$BASE_SHA^{commit}")" = "$BASE_SHA"
+
+          git apply --check "$PATCH_FILE"
+          git apply "$PATCH_FILE"
+          rm "$PATCH_FILE" "$SELF_FILE"
+
+          git add -A
+          git diff --cached "$BASE_SHA" --check
+
+          mapfile -t changed < <(git diff --cached --name-only "$BASE_SHA" | sort)
+          expected=(
+            .github/workflows/array-conformance.yaml
+            README.md
+            crates/lila-aot-wasm/src/builtins/array.rs
+            crates/lila-engine/tests/aot_array_to_locale_string.rs
+            docs/rust-rewrite/aot-array-to-locale-string.md
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          if [[ "$(printf '%s\n' "${changed[@]}")" != "$(printf '%s\n' "${expected_sorted[@]}")" ]]; then
+            printf 'unexpected final diff\nactual:\n%s\nexpected:\n%s\n' \
+              "$(printf '%s\n' "${changed[@]}")" \
+              "$(printf '%s\n' "${expected_sorted[@]}")"
+            exit 1
+          fi
+
+          test "$(git hash-object crates/lila-engine/tests/aot_array_to_locale_string.rs)" = \
+            "68452d99651a6d826127812069f37d85cbceda86"
+          grep -Fq 'Arrays and arguments use distinct heap tags, but Invoke still applies.' \
+            crates/lila-aot-wasm/src/builtins/array.rs
+          test "$(grep -Fc 'Arrays and arguments use distinct heap tags, but Invoke still applies.' crates/lila-aot-wasm/src/builtins/array.rs)" = 1
+          test ! -e "$PATCH_FILE"
+          test ! -e "$SELF_FILE"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tree_sha="$(git write-tree)"
+          commit_sha="$(printf '%s\n\n%s\n' \
+            'fix(array): invoke toLocaleString for nested arrays and arguments' \
+            'Route Array and arguments elements through observable toLocaleString lookup/call, add Wasm-AOT regressions and CI ownership checks, and document the remaining generic-length follow-up.' \
+            | git commit-tree "$tree_sha" -p "$BASE_SHA")"
+
+          git push origin "$commit_sha:refs/heads/$GITHUB_REF_NAME" \
+            --force-with-lease="refs/heads/$GITHUB_REF_NAME:$GITHUB_SHA"
