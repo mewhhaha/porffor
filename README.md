@@ -57,6 +57,14 @@ without species effects. See [the callback iteration follow-up](docs/rust-rewrit
 for regression commands, evidence boundaries and remaining work. The generated
 full-suite status below is unchanged.
 
+Array `toLocaleString` now uses shared observable length acquisition for every
+generic receiver, including TypedArray and arguments length overrides. The
+strict direct TypedArray method retains its private validation witness, and
+indexed values remain live after length acquisition. See
+[the length follow-up](docs/rust-rewrite/aot-array-to-locale-string-length.md)
+for regression commands and the exact-head verification boundary. This does not
+close element Invoke or change the generated full-suite status.
+
 Arguments-backed `for-of` loops now use the existing Arguments-aware iterator
 lookup, including escaped aliases and async-disposable loop heads. The bounded
 repair and focused regression commands are described in

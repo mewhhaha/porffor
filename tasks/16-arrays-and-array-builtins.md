@@ -1465,3 +1465,19 @@ pinned flatMap subtree, and repairs the previously stale pinned-agent test filte
 commands and follow-on priorities. This is not closure of T16 or T26, not a change
 to the Test262 denominator, and not a claim that the full current-pin suite is
 green. Runtime results must be attached to the exact tested PR revision.
+
+
+## 2026-09-06 — observable toLocaleString length follow-up
+
+The generic Array toLocaleString entry now uses the shared observable
+ToObject/Get(length)/ToLength operation instead of private Array/arguments
+extent or a TypedArray buffer-witness shortcut. The helper has a neutral name,
+`emit_array_like_length_snapshot`, at every callback and non-callback caller.
+Direct TypedArray validation and the downstream live indexed-read path remain
+separate. Nineteen explicit Wasm-AOT regression programs and updated ownership
+guards cover the boundary; exact-head runtime evidence is a PR merge gate.
+
+[The follow-up](../docs/rust-rewrite/aot-array-to-locale-string-length.md) records
+commands and nonclaims. No Test262 materialization or published count changes.
+Nested Array/arguments element Invoke remains separate work; T16 and T26 stay
+open until their broader closure gates are met.
