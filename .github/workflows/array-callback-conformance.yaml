@@ -40,27 +40,90 @@ jobs:
           retention-days: 7
 
   cli-regressions:
-    name: Retained Array CLI fixtures
+    name: Retained CLI fixtures (${{ matrix.family }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # The original substring filter array:: also selects typed_array::.
+        # Run both disjoint namespaces instead of timing out their combined job.
+        family: [array, typed_array]
     env:
       CARGO_BUILD_JOBS: 2
       LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+      CLI_FAMILY: ${{ matrix.family }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Execute the complete retained Array CLI selection
+      - name: Verify complete partition coverage and execute every selected CLI test
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked -p lila-cli --test cli -- array:: --test-threads=2 | tee /tmp/callback-cli.txt
-          grep -Eq '^test result: ok\. [1-9][0-9]* passed; 0 failed; 0 ignored;' /tmp/callback-cli.txt
+          mkdir -p /tmp/callback-cli-evidence
+          git rev-parse HEAD > /tmp/callback-cli-evidence/source-sha.txt
+          case "$CLI_FAMILY" in
+            array) selection=(array:: --skip typed_array::) ;;
+            typed_array) selection=(typed_array::) ;;
+            *) exit 1 ;;
+          esac
+          cargo test --locked -p lila-cli --test cli -- array:: --list > /tmp/callback-cli-evidence/complete.txt
+          cargo test --locked -p lila-cli --test cli -- "${selection[@]}" --list > /tmp/callback-cli-evidence/selected.txt
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          root = Path('/tmp/callback-cli-evidence')
+          def inventory(name):
+              names = re.findall(r'^(\S+): test$', (root / name).read_text(), re.M)
+              if not names or len(names) != len(set(names)):
+                  raise SystemExit(f'{name}: empty or duplicate compiled inventory')
+              return set(names)
+
+          complete = inventory('complete.txt')
+          groups = {kind: {name for name in complete if name.startswith(kind + '::')}
+                    for kind in ('array', 'typed_array')}
+          if not all(groups.values()) or groups['array'] & groups['typed_array']:
+              raise SystemExit('both CLI partitions must be nonempty and disjoint')
+          if set.union(*groups.values()) != complete:
+              raise SystemExit('CLI partitions must cover the entire original array:: selection')
+          family = os.environ['CLI_FAMILY']
+          selected = inventory('selected.txt')
+          if family not in groups or selected != groups[family]:
+              raise SystemExit('actual libtest selection does not match its complete partition')
+          manifest = {'source_sha': (root / 'source-sha.txt').read_text().strip(),
+                      'family': family, 'complete': sorted(complete),
+                      'partitions': {key: sorted(value) for key, value in groups.items()},
+                      'selected': sorted(selected)}
+          (root / 'inventory.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          print(f'Complete selection: {len(complete)}; {family}: {len(selected)}')
+          PY
+          cargo test --locked -p lila-cli --test cli -- "${selection[@]}" --test-threads=2 | tee /tmp/callback-cli-evidence/results.txt
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          root = Path('/tmp/callback-cli-evidence')
+          manifest = json.loads((root / 'inventory.json').read_text())
+          text = (root / 'results.txt').read_text()
+          passed = re.findall(r'^test (\S+) \.\.\. ok$', text, re.M)
+          summaries = re.findall(r'^test result: ok\. (\d+) passed; 0 failed; 0 ignored;'
+                                r' 0 measured; \d+ filtered out; finished in .+$', text, re.M)
+          if len(passed) != len(set(passed)) or set(passed) != set(manifest['selected']):
+              raise SystemExit('missing, duplicate or unexpected CLI test results')
+          if summaries != [str(len(manifest['selected']))]:
+              raise SystemExit('CLI partition must finish with every selected test passing, none ignored')
+          print(f'Verified {len(passed)}/{len(manifest["selected"])} CLI tests passed')
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: array-callback-cli-evidence
-          path: /tmp/callback-cli.txt
+          name: array-callback-cli-${{ matrix.family }}-evidence
+          path: /tmp/callback-cli-evidence
           retention-days: 7
 
   build-test262-cli:
