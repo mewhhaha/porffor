@@ -1,0 +1,22 @@
+name: Export pinned source for conformance review
+on:
+  push:
+    branches: [codex/conformance-source-snapshot]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 31c89c4b29b1fe84e3a3eaef55312448b80e3f07
+          persist-credentials: false
+      - name: Archive tracked source only
+        run: git archive --format=tar HEAD | gzip > /tmp/lila-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lila-source-31c89c4
+          path: /tmp/lila-source.tar.gz
+          retention-days: 1
