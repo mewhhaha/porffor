@@ -16,19 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 31c89c4b29b1fe84e3a3eaef55312448b80e3f07
           persist-credentials: false
-      - name: Materialize identical regression programs for both compilers
-        env:
-          PAYLOAD: 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
+      - name: Verify unchanged baseline compiler and complete test inventory
         run: |
-          python3 - <<'PY'
-          import base64, gzip, json, os
-          from pathlib import Path
-          payload = json.loads(gzip.decompress(base64.b64decode(os.environ['PAYLOAD'], validate=True)))
-          Path('crates/lila-engine/tests/aot_flat_map.rs').write_text(payload['test'])
-          Path('/tmp/flatmap-replacement.rs').write_text(payload['replacement'])
-          PY
+          test "$(git hash-object crates/lila-aot-wasm/src/builtins/array.rs)" = a9afe45ca05cb9fb70e78511dd610da954a8668e
+          test "$(grep -c '^#\[test\]' crates/lila-engine/tests/aot_flat_map.rs)" = 16
+          test -s .github/preflight/flatmap-replacement.rs
       - name: Execute all 16 regressions on unchanged main
         continue-on-error: true
         shell: bash
@@ -36,6 +29,7 @@ jobs:
           set -euo pipefail
           cargo test --locked -p lila-engine --test aot_flat_map -- --test-threads=1 2>&1 | tee /tmp/flatmap-baseline.log
       - name: Replace only the flatMap algorithm and format
+        id: source
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -43,7 +37,8 @@ jobs:
           source = p.read_text()
           start = source.index('    pub(crate) fn compile_array_prototype_flat_map_builtin(')
           end = source.index('    pub(crate) fn emit_array_iteration_length_before_callback_validation(', start)
-          p.write_text(source[:start] + Path('/tmp/flatmap-replacement.rs').read_text() + source[end:])
+          replacement = Path('.github/preflight/flatmap-replacement.rs').read_text()
+          p.write_text(source[:start] + replacement + '\n' + source[end:])
           PY
           cargo fmt --all
       - name: Execute the same 16 regressions on the product change
@@ -52,8 +47,10 @@ jobs:
           set -euo pipefail
           cargo test --locked -p lila-engine --test aot_flat_map -- --test-threads=1 2>&1 | tee /tmp/flatmap-product.log
       - name: Build the product CLI
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
         run: cargo build --locked -p lila-cli
       - name: Execute the complete pinned flatMap Test262 subtree
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -61,8 +58,7 @@ jobs:
           grep -Eq '^total: [1-9][0-9]*$' /tmp/flatmap-test262.log
       - name: Preserve reports and the exact formatted implementation
         if: always()
-        run: |
-          tar -czf /tmp/flatmap-formatted.tar.gz crates/lila-aot-wasm/src/builtins/array.rs crates/lila-engine/tests/aot_flat_map.rs
+        run: tar -czf /tmp/flatmap-formatted.tar.gz crates/lila-aot-wasm/src/builtins/array.rs crates/lila-engine/tests/aot_flat_map.rs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
