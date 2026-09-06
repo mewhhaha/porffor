@@ -1,0 +1,48 @@
+name: Unchanged Array callback baseline
+on:
+  push:
+    branches: [codex/array-callback-baseline]
+permissions:
+  contents: read
+jobs:
+  baseline:
+    name: Baseline ${{ matrix.method }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        method: [map, filter, every, some]
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5
+          persist-credentials: false
+      - name: Record exact unchanged source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD | tee /tmp/baseline-source.txt
+          test "$(git rev-parse HEAD)" = 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5
+      - name: Build unchanged product
+        run: cargo build --locked -p lila-cli
+      - name: Execute entire pinned real subtree without exclusions
+        shell: bash
+        env:
+          ARRAY_METHOD: ${{ matrix.method }}
+        run: |
+          set -euo pipefail
+          ./target/debug/lila test262 run "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/baseline-test262 --snapshot-name "$ARRAY_METHOD-baseline" 2>&1 | tee /tmp/baseline-test262.txt
+          grep -Eq '^total: [1-9][0-9]*$' /tmp/baseline-test262.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: array-${{ matrix.method }}-baseline
+          path: |
+            /tmp/baseline-source.txt
+            /tmp/baseline-test262.txt
+            /tmp/baseline-test262
+          retention-days: 7
