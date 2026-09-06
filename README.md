@@ -33,6 +33,13 @@ environment is restored. Additional materialized body scopes and nested
 for-await remain separate work. See
 [the captured iteration follow-up](docs/rust-rewrite/aot-captured-for-await.md).
 
+Date parsing now uses a shared bounded cursor rather than epoch-only display
+string recognition. The direct Wasm path handles reduced ISO date-time forms,
+valid `24:00` rollover, and the canonical UTC display formats emitted by Lila.
+The focused Wasmtime regression target and remaining UTC/time-zone limitations
+are described in [the Date parsing follow-up](docs/rust-rewrite/aot-date-parsing.md).
+This does not change the published conformance counts below.
+
 ## Current Status
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:

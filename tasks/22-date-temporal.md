@@ -8,6 +8,15 @@
 
 ## Current repository state
 
+The general Date parsing follow-up replaces the two epoch-only display string
+branches with bounded runtime parsing of the existing UTC display formats. It
+also adds reduced ISO date-time forms and validates end-of-day rollover before
+offset adjustment and TimeClip. Twelve explicit Wasm-AOT engine regressions are
+wired into CI; their results are recorded at the tested PR commit rather than
+being counted as a new Test262 aggregate. See
+[the parser contract and verification scope](../docs/rust-rewrite/aot-date-parsing.md).
+This does not close T22 or add the missing default time-zone provider.
+
 Date has a substantial dedicated backend implementation and focused complete
 leaves. Temporal now has a dedicated builtin module with Instant and
 ZonedDateTime work and focused snapshots. A realm-owned `HostClock` is the one
