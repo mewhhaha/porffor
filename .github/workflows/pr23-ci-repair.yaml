@@ -1,0 +1,125 @@
+name: PR 23 CI repair verification
+on:
+  push:
+    branches: [codex/pr23-ci-repair-20260906]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: 2
+      PR_HEAD: 6cafa24f76ed1db407a8178278bd2bdfa2d63cb5
+      BASELINE: 63da499ab52ea6e6c886cfac599569f540f74b1d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6cafa24f76ed1db407a8178278bd2bdfa2d63cb5
+          fetch-depth: 0
+      - name: Prepare a clean two-file fixup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PR_HEAD"
+          mkdir -p /tmp/pr23-ci-evidence
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/lila-test262/tests/snapshot_comparison_identity.rs')
+          source = path.read_text()
+          assert source.count('TestExecutionId::new(') == 2
+          for filename in ('case.js', 'regression.js'):
+              old = ('TestExecutionId::new(\n'
+                     f'            "language/comparison/{filename}",\n'
+                     '            TestExecutionMode::RawScript,\n'
+                     '        )')
+              new = (f'TestExecutionId::parse_wire_key("raw-script:language/comparison/{filename}")\n'
+                     '            .expect("fixture execution id should parse")')
+              assert source.count(old) == 1, filename
+              source = source.replace(old, new)
+          source = source.replace(', TestExecutionMode,', ',')
+          assert 'TestExecutionMode' not in source
+          path.write_text(source)
+          PY
+          cargo fmt --all
+          ./scripts/audit-test262-shortcuts.sh --target crates/lila-test262/src/lib.rs > /tmp/pr23-ci-evidence/shortcut-inventory.md
+          cp /tmp/pr23-ci-evidence/shortcut-inventory.md test262/backlog/shortcut-inventory.md
+          python3 - <<'PY'
+          import re
+          import subprocess
+          from pathlib import Path
+          path = 'test262/backlog/shortcut-inventory.md'
+          before = subprocess.check_output(['git', 'show', 'HEAD:' + path], text=True)
+          after = Path(path).read_text()
+          def without_line_numbers(text):
+              return re.sub(r'^(\| `[^`]+` \| `[^`]+` \| `[^`]+` \| `T\d+` \| `T\d+` \| )\d+( \|.*)$', r'\g<1>LINE\2', text, flags=re.M)
+          assert before != after, 'expected stale generated display line numbers'
+          assert without_line_numbers(before) == without_line_numbers(after), 'unexpected audit classification or evidence change'
+          print('Regenerated inventory: only display line numbers changed.')
+          PY
+          git diff --check
+          ./scripts/check-task-plan.sh
+          ./scripts/check-module-boundaries.sh
+          ./scripts/audit-test262-shortcuts.sh --check
+          git add crates/lila-test262/tests/snapshot_comparison_identity.rs test262/backlog/shortcut-inventory.md
+          test "$(git diff --cached --name-only | wc -l)" -eq 2
+          git diff --cached > /tmp/pr23-ci-evidence/fixup.diff
+          git -c user.name='ChatGPT' -c user.email='noreply@openai.com' commit -m 'fix(test262): repair comparison test API use and refresh audit inventory'
+          test "$(git rev-parse HEAD^)" = "$PR_HEAD"
+          test -z "$(git status --porcelain)"
+          git rev-parse HEAD | tee /tmp/pr23-ci-evidence/source-commit.txt
+          sha256sum crates/lila-test262/src/lib.rs crates/lila-test262/tests/snapshot_comparison_identity.rs | tee /tmp/pr23-ci-evidence/input-sha256.txt
+          cp crates/lila-test262/tests/snapshot_comparison_identity.rs /tmp/pr23-ci-evidence/
+          git push origin HEAD:refs/heads/codex/pr23-ci-fixed-20260906
+      - name: Reproduce exactly the three baseline identity defects
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'git restore crates/lila-test262/src/lib.rs' EXIT
+          git show "$BASELINE":crates/lila-test262/src/lib.rs > crates/lila-test262/src/lib.rs
+          set +e
+          cargo test --locked -p lila-test262 --test snapshot_comparison_identity -- --test-threads=1 > /tmp/pr23-ci-evidence/baseline.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/pr23-ci-evidence/baseline.log
+          test "$status" -eq 101
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          output = Path('/tmp/pr23-ci-evidence/baseline.log').read_text()
+          results = re.findall(r'^test (\S+) \.\.\. (ok|FAILED)$', output, re.M)
+          failures = {name for name, status in results if status == 'FAILED'}
+          expected = {'compare_requires_existing_base_name', 'compare_requires_existing_candidate_name', 'compare_rejects_two_missing_names'}
+          assert len(results) == 8 and len(dict(results)) == 8, results
+          assert failures == expected, failures
+          assert '5 passed; 3 failed; 0 ignored;' in output
+          assert output.count('an absent comparison input must not alias another run') == 3
+          print('Baseline: exactly 3 expected identity failures and 5 passing controls.')
+          PY
+      - name: Verify repaired contracts and workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          cargo fmt --all -- --check
+          cargo test --locked -p lila-test262 --test snapshot_comparison_identity -- --test-threads=1 2>&1 | tee /tmp/pr23-ci-evidence/fixed.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          output = Path('/tmp/pr23-ci-evidence/fixed.log').read_text()
+          results = re.findall(r'^test (\S+) \.\.\. (ok|FAILED|ignored)$', output, re.M)
+          assert len(results) == 8 and len(dict(results)) == 8, results
+          assert all(status == 'ok' for _, status in results), results
+          assert '8 passed; 0 failed; 0 ignored;' in output
+          print('Fixed: complete 8/8 comparison contract inventory passed.')
+          PY
+          cargo test --locked -p lila-test262 --test snapshot_use_structure --test aggregate_evidence_requirement_structure --test execution_identity_structure 2>&1 | tee /tmp/pr23-ci-evidence/structure.log
+          cargo xc 2>&1 | tee /tmp/pr23-ci-evidence/workspace-check.log
+          test -z "$(git status --porcelain)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr23-ci-repair-evidence
+          path: /tmp/pr23-ci-evidence
+          if-no-files-found: error
+          retention-days: 7
