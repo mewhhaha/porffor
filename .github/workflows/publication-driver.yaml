@@ -1,0 +1,36 @@
+name: Publication driver contracts
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  publication-driver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate the complete publication driver contract inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/publication-driver-evidence
+          git rev-parse HEAD | tee /tmp/publication-driver-evidence/source-commit.txt
+          sha256sum scripts/publish-real-status-low-ram.sh scripts/test_publish_real_status_low_ram.py \
+            | tee /tmp/publication-driver-evidence/input-sha256.txt
+          bash -n scripts/publish-real-status-low-ram.sh
+          python3 scripts/test_publish_real_status_low_ram.py 2>&1 \
+            | tee /tmp/publication-driver-evidence/contracts.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: publication-driver-contracts
+          path: /tmp/publication-driver-evidence
+          if-no-files-found: error
