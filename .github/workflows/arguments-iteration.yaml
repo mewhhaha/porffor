@@ -26,6 +26,7 @@ jobs:
       - name: Check formatting and regression runner contracts
         run: |
           cargo fmt --all -- --check
+          ./scripts/check-module-boundaries.sh
           python3 scripts/tests/test_engine_regression_inventory.py
       - name: Protect adjacent iterator ownership and realm behavior
         run: >-
@@ -58,6 +59,8 @@ jobs:
           grep -Fx 'count: 6' /tmp/arguments-evidence/test262-inventory.txt
           ./target/debug/lila test262 run language/statements/for-of/arguments- --execution-backend wasm --threads 1 --jobs 1 --timeout-ms 60000 --snapshot-dir /tmp/arguments-evidence/test262 --snapshot-name arguments-ci 2>&1 | tee /tmp/arguments-evidence/test262.txt
           grep -Fx 'total: 6' /tmp/arguments-evidence/test262.txt
+          grep -Fx 'passed: 6' /tmp/arguments-evidence/test262.txt
+          grep -Fx 'failed: 0' /tmp/arguments-evidence/test262.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
