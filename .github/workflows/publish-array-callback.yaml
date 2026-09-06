@@ -23,21 +23,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5
+          test "$(git rev-parse HEAD)" = 5be4dab236e970e07e7538e4190a49c45787ede6
           python3 - <<'PY'
           import base64
           import gzip
           import hashlib
           from pathlib import Path
           encoded = ''.join(Path(f'../transport/callback-patch-{i}.b64').read_text().strip() for i in range(1, 4))
-          # Repair a transcription error in the transport, never in source.
           encoded = encoded.replace('j2z3ke1fYba', 'j2z3ke1+Yba')
           patch = gzip.decompress(base64.b64decode(encoded, validate=True))
           assert hashlib.sha256(patch).hexdigest() == 'b3f8059342e69eb0b4799607a5db779cc348c367f55c1db7a09480b1ba2a815c'
           Path('/tmp/callback.patch').write_bytes(patch)
           PY
-          git apply --check /tmp/callback.patch
-          git apply /tmp/callback.patch
+          # The read-only CI workflow was created separately via the GitHub connector.
+          git apply --check --exclude=.github/workflows/array-callback-conformance.yaml /tmp/callback.patch
+          git apply --exclude=.github/workflows/array-callback-conformance.yaml /tmp/callback.patch
           python3 - <<'PY'
           from pathlib import Path
           import hashlib
@@ -67,6 +67,7 @@ jobs:
           PY
           cargo fmt --all -- --check
           git diff --check
+          test -z "$(git diff --name-only -- .github/workflows)"
           git config user.name 'mewhhaha'
           git config user.email '3399205+mewhhaha@users.noreply.github.com'
           git add -A
