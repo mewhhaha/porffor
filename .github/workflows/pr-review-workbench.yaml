@@ -19,123 +19,141 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Materialize and validate the exact reviewed source
+      - name: Initialize indexed-read Realm and reconcile contracts
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/pr20-final-evidence
-          python3 - <<'PY'
-          from pathlib import Path
-          import base64, gzip, hashlib
-          transfer = base64.b64encode(Path('scripts/pr20-final-fix-transfer.gz').read_bytes()).decode()
-          assert transfer.count('ct1Rr3nW6aXka') == 1
-          compressed = base64.b64decode(transfer.replace('ct1Rr3nW6aXka', 'ct1Rr3nW6vXka'), validate=True)
-          assert hashlib.sha1(b'blob ' + str(len(compressed)).encode() + b'\0' + compressed).hexdigest() == '43c479125f50db67da0332459b1d23def3accda9'
-          patch = gzip.decompress(compressed)
-          assert hashlib.sha256(patch).hexdigest() == '2d4a0f2a114441a295a87a9586e96cf804f114274bd838b3eab9fa963ea5bc6e'
-          Path('/tmp/pr20-final-fix.patch').write_bytes(patch)
-          PY
-          current=1a1d441adacaf887726892dedf95de4a49e2bf8a
-          main=5eb66f1d1f31c972259bbd0a09ec80e28d51a9f5
-          git fetch --depth=32 origin "$current" "$main"
+          mkdir -p /tmp/realm-init-evidence
+          current=16149c3baa803dd2da1e46180a4dc47b81ab3b56
+          git fetch --depth=32 origin "$current"
           git checkout --detach "$current"
-          git apply --check --whitespace=error-all /tmp/pr20-final-fix.patch
-          git apply --whitespace=error-all /tmp/pr20-final-fix.patch
-          git add -A
-          test "$(git write-tree)" = d8d635d8afe7fcc9aa4adc69e738771824a911bb
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('crates/lila-aot-wasm/tests/array_property_semantics_structure.rs')
-          s = p.read_text()
-          old = 'key_string_local,key_constant_local,function,);'
-          assert s.count(old) == 1
-          p.write_text(s.replace(old, 'key_string_local,key_constant_local,function);'))
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              assert text.count(old) == 1, (path, old, text.count(old))
+              p.write_text(text.replace(old, new, 1))
+          replace('crates/lila-aot-wasm/src/objects.rs',
+              '        let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementRead);\n        self.push_scope();\n        self.set_completion_kind(CompletionKind::Normal, &mut function);',
+              '        let mut function = self.begin_helper_body(RuntimeHelperId::IndexedElementRead);\n        self.push_scope();\n        function.instruction(&Instruction::LocalGet(6));\n        function.instruction(&Instruction::LocalSet(self.current_env_local));\n        self.set_completion_kind(CompletionKind::Normal, &mut function);')
+          replace('crates/lila-aot-wasm/tests/indexed_read_realm_structure.rs',
+              '    assert!(classify < read);\n    assert_eq!(body.matches("begin_helper_body(").count(), 1);',
+              '''    let normalized: String = body.chars().filter(|ch| !ch.is_whitespace()).collect();
+              let binding = concat!(
+                  "function.instruction(&Instruction::LocalGet(6));",
+                  "function.instruction(&Instruction::LocalSet(self.current_env_local));",
+              );
+              assert_eq!(normalized.matches(binding).count(), 1);
+              let bind = body
+                  .find("function.instruction(&Instruction::LocalSet(self.current_env_local))")
+                  .unwrap();
+              assert!(classify < bind && bind < read);
+              assert_eq!(body.matches("LocalSet(self.current_env_local)").count(), 1);
+              assert_eq!(body.matches("begin_helper_body(").count(), 1);'''.replace('\n          ', '\n'))
+          replace('docs/rust-rewrite/aot-array-to-locale-string-length.md',
+              'After successful length conversion, the generic entry classifies a TypedArray\nonly to select live indexed reads. Length acquisition may already have resized\nor detached the buffer. The returned length still controls the loop, while each\nlater unavailable index contributes the existing undefined/nullish result.',
+              'After successful length conversion, both entries use the shared indexed-Get\ndispatcher. Length acquisition may already have resized or detached the buffer.\nThe returned length still controls the loop, while each later unavailable index\ncontributes the existing undefined/nullish result. No separate cached receiver\nclassification is needed in the locale-string emitter.')
+          replace('docs/rust-rewrite/aot-array-to-locale-string-length.md',
+              'This does not repair the separate element-Invoke dispatch gap for nested Array\nand arguments values, implement ECMA-402 locale formatting, change the shared\ninteger-indexed object model, or retire the existing T18 constructor-matrix',
+              'The [element-Invoke follow-up](aot-array-to-locale-string.md) builds on this\nshared length operation and repairs dispatch for nested Array and arguments\nvalues. Neither change implements ECMA-402 locale formatting, changes the shared\ninteger-indexed object model, or retires the existing T18 constructor-matrix')
+          replace('docs/rust-rewrite/aot-array-to-locale-string.md',
+              'conformance counts are intentionally unchanged.\n\n\n## Review follow-up:',
+              'conformance counts are intentionally unchanged.\n\n## Review follow-up:')
+          replace('docs/rust-rewrite/contracts/array-to-locale-string-typed-array-buffer-witness.md',
+              'ToLength. Only after this finishes does it classify the TypedArray live-read\nroute. It must not load private state, construct a TypedArrayViewLocals, select\nany TypedArray witness, read HEAP_LEN_OFFSET, or duplicate ToLength here.',
+              'ToLength. It must not load private state, construct a TypedArrayViewLocals,\nselect any TypedArray witness, read HEAP_LEN_OFFSET, or duplicate ToLength here.\nBoth entries then use one shared indexed-Get dispatcher, which owns Array,\narguments, ordinary/Proxy and live TypedArray reads without a cached receiver\nclassification in this emitter.')
+          replace('docs/rust-rewrite/contracts/array-to-locale-string-typed-array-buffer-witness.md',
+              'length call with abrupt propagation, followed by live-read classification. A\nseparate guard pins the shared operation\'s ToObject/Get/propagation/ToLength\norder. Captured loop bounds, live read and validated element invocation order,',
+              'length call with abrupt propagation. The loop contains one shared indexed Get\nfollowed by abrupt propagation before the nullish check. A separate guard pins\nthe shared operation\'s ToObject/Get/propagation/ToLength order. Captured loop\nbounds, live read and validated element invocation order,')
+          replace('docs/rust-rewrite/contracts/array-to-locale-string-typed-array-buffer-witness.md',
+              'detached-view controls. The new 19-program explicit Wasm-AOT engine target adds',
+              'detached-view controls. The 23-program explicit Wasm-AOT length target covers')
+          replace('docs/rust-rewrite/contracts/array-to-locale-string-typed-array-buffer-witness.md',
+              'is changed. Broader element Invoke, locale formatting, object-model and full',
+              'is changed. The [element-Invoke follow-up](../aot-array-to-locale-string.md)\nretains these length guarantees while making every non-nullish element use the\nvalidated invocation protocol. Locale formatting, broader object-model and full')
+          replace('docs/rust-rewrite/contracts/typed-array-to-locale-string-buffer-witness.md',
+              '`emit_typed_array_or_object_index_read_from_locals` for a TypedArray receiver.',
+              '`emit_typed_array_or_object_index_read_from_locals` for every receiver kind.')
+          replace('docs/rust-rewrite/contracts/typed-array-to-locale-string-buffer-witness.md',
+              '  through the shared-loop bound, and the complete `typed_receiver_local`\n  writer/use inventory routes both direct and generic TypedArray entries to the\n  live indexed-read helper;',
+              '  through the shared-loop bound, and one unconditional shared indexed Get\n  propagates abrupt completion before the nullish check; the retired\n  `typed_receiver_local` routing flag and per-receiver read branches are absent;')
+          replace('docs/rust-rewrite/contracts/typed-array-to-locale-string-buffer-witness.md',
+              'indexed-read helper, integer-indexed exotic semantics, separator selection,',
+              'integer-indexed exotic semantics, separator selection,')
+          replace('docs/rust-rewrite/contracts/typed-array-to-locale-string-buffer-witness.md',
+              'constructor validation or species-target validation.',
+              'constructor validation or species-target validation. The later\n[observable element-Invoke follow-up](../aot-array-to-locale-string.md) does\nextend the shared indexed-read helper\'s existing ABI to retain the method Realm;\nthat follow-up has its own explicit cross-Realm regressions and does not change\nthis method-entry witness policy.')
           PY
+          git add -A
+          test "$(git write-tree)" = 805175e8f3a6fba547d99cefee3171f689b774e3
           cargo fmt --all
           cargo fmt --all -- --check
           git diff --check
           ./scripts/check-module-boundaries.sh
           ./scripts/check-task-plan.sh
-          python3 scripts/tests/test_engine_regression_inventory.py
-          git add -A
-          git diff --cached --check
-          git diff --cached --binary "$current" > /tmp/pr20-final-evidence/final.patch
-          git write-tree > /tmp/pr20-final-evidence/tree-sha.txt
-          for target in typed_array_to_locale_string_witness_structure to_locale_string_invocation_structure array_to_locale_string_observable_structure array_callback_iteration_structure array_flat_map_algorithm_owner_structure array_flat_map_typed_array_witness_structure array_map_algorithm_owner_structure array_filter_algorithm_owner_structure array_every_algorithm_owner_structure array_some_algorithm_owner_structure for_of_string_iterator_protocol_structure direct_sync_for_of_protocol_error_realm_structure plain_async_for_of_await_using_structure synchronous_using_for_of_structure sync_iterator_locals_release_ownership_structure sync_iterator_consumer_capability_structure math_sum_precise_runtime_structure indexed_read_realm_structure object_read_proxy_realm_structure object_read_realm_projection_capability_structure proxy_execution_realm_structure array_property_semantics_structure arguments_index_descriptor_structure array_index_descriptor_structure ordinary_set_receiver_fallback_structure object_get_own_property_descriptor_owner_structure object_write_proxy_realm_structure proxy_revocation_route_ownership_structure array_concat_algorithm_owner_structure; do
+          for target in indexed_read_realm_structure typed_array_to_locale_string_witness_structure to_locale_string_invocation_structure array_to_locale_string_observable_structure array_property_semantics_structure object_read_proxy_realm_structure object_read_realm_projection_capability_structure proxy_execution_realm_structure; do
             CARGO_MANIFEST_DIR="$PWD/crates/lila-aot-wasm" rustc --edition=2024 --test "crates/lila-aot-wasm/tests/$target.rs" -o "/tmp/$target"
-            "/tmp/$target" | tee "/tmp/pr20-final-evidence/$target.txt"
+            "/tmp/$target" | tee "/tmp/realm-init-evidence/$target.txt"
           done
+          git add -A
           tree=$(git write-tree)
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          reviewed=$(printf 'fix(aot): repair computed descriptors, callable setters and indexed read realms\n' | git commit-tree "$tree" -p "$current" -p "$main")
-          printf '%s\n' "$reviewed" > /tmp/pr20-final-evidence/source-sha.txt
+          reviewed=$(printf 'fix(aot): bind the indexed read helper execution Realm before dispatch\n' | git commit-tree "$tree" -p "$current")
+          printf '%s\n' "$reviewed" > /tmp/realm-init-evidence/source-sha.txt
+          printf '%s\n' "$tree" > /tmp/realm-init-evidence/tree-sha.txt
+          git diff --binary "$current" "$reviewed" > /tmp/realm-init-evidence/final.patch
           git checkout --detach "$reviewed"
           ./scripts/check-readme-status-artifacts.sh "$current"
-          for path in .github/workflows/pr-review-workbench.yaml scripts/pr20-final-fix-transfer.gz scripts/pr-review-fix.patch.gz scripts/pr-review-realm.patch.gz; do
-            if git cat-file -e "$reviewed:$path" 2>/dev/null; then exit 1; fi
-          done
-          if git ls-tree -r --name-only "$reviewed" | grep -E '(__pycache__|\.pyc$)'; then exit 1; fi
-          for path in crates/lila-cli/tests/fixtures/wasm_array_hasown_length.js crates/lila-cli/tests/fixtures/wasm_array_index_accessor_setter.js crates/lila-engine/tests/aot_arguments_iteration.rs crates/lila-engine/tests/aot_array_to_locale_string_length.rs; do
-            test "$(git rev-parse "$current:$path")" = "$(git rev-parse "$reviewed:$path")"
-          done
-      - name: Publish code-only transport for authorized connector publication
+          test -z "$(git diff --name-only "$current" "$reviewed" -- .github/workflows crates/lila-engine/tests)"
+      - name: Publish isolated source-validated candidate
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          current=1a1d441adacaf887726892dedf95de4a49e2bf8a
-          main=5eb66f1d1f31c972259bbd0a09ec80e28d51a9f5
-          reviewed=$(cat /tmp/pr20-final-evidence/source-sha.txt)
-          workflow=.github/workflows/array-to-locale-string-conformance.yaml
-          git update-index --cacheinfo "100644,$(git rev-parse "$current:$workflow"),$workflow"
-          transport_tree=$(git write-tree)
-          transport=$(printf 'fix(aot): repair property dispatch and indexed read error realms\n' | git commit-tree "$transport_tree" -p "$current" -p "$main")
-          git read-tree "$reviewed"
-          printf '%s\n' "$transport" > /tmp/pr20-final-evidence/transport-sha.txt
-          printf '%s\n' "$transport_tree" > /tmp/pr20-final-evidence/transport-tree.txt
-          test "$(git diff --name-only "$transport" "$reviewed")" = "$workflow"
           gh auth setup-git
-          git push origin "$transport:refs/heads/codex/pr20-final-ci-repair-20260906"
+          reviewed=$(cat /tmp/realm-init-evidence/source-sha.txt)
+          git push origin "$reviewed:refs/heads/codex/pr20-realm-initialization-20260906"
       - uses: actions/upload-artifact@v4
         with:
-          name: pr20-final-source-evidence
-          path: /tmp/pr20-final-evidence
+          name: realm-init-source-evidence
+          path: /tmp/realm-init-evidence
           retention-days: 2
-      - name: Execute both originally failing retained CLI fixtures
-        shell: bash
-        run: |
-          set -euo pipefail
-          for test in array::run_wasm_backend_succeeds_for_array_hasown_length_fixture array::run_wasm_backend_succeeds_for_array_index_accessor_setter_fixture; do
-            output="/tmp/pr20-final-evidence/${test##*::}.txt"
-            cargo test --locked -p lila-cli --test cli -- "$test" --exact --test-threads=1 2>&1 | tee "$output"
-            grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$output"
-          done
-      - name: Execute the complete collateral property inventory
-        run: python3 scripts/run_engine_regression_inventory.py aot_array_property_regressions --output-dir /tmp/pr20-final-evidence/property-engine --timeout 120
-      - name: Execute both new indexed-read Realm regressions
+      - name: Execute both retained cross-Realm regressions
         shell: bash
         run: |
           set -euo pipefail
           for test in indexed_proxy_revocation_keeps_the_locale_method_realm indexed_callable_proxy_getters_keep_the_locale_method_realm; do
-            output="/tmp/pr20-final-evidence/$test.txt"
+            output="/tmp/realm-init-evidence/$test.txt"
             cargo test --locked -p lila-engine --test aot_array_to_locale_string_observable -- "$test" --exact --test-threads=1 2>&1 | tee "$output"
             grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$output"
           done
-      - name: Retain this source's compiler for independent checks
+      - name: Recheck both repaired CLI fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test in array::run_wasm_backend_succeeds_for_array_hasown_length_fixture array::run_wasm_backend_succeeds_for_array_index_accessor_setter_fixture; do
+            output="/tmp/realm-init-evidence/${test##*::}.txt"
+            cargo test --locked -p lila-cli --test cli -- "$test" --exact --test-threads=1 2>&1 | tee "$output"
+            grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$output"
+          done
+      - name: Recheck the complete property inventory
+        run: python3 scripts/run_engine_regression_inventory.py aot_array_property_regressions --output-dir /tmp/realm-init-evidence/property-engine --timeout 120
+      - name: Retain tested compiler
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           if test -x target/debug/lila; then
-            sha256sum target/debug/lila > /tmp/pr20-final-evidence/cli-sha256.txt
-            tar -czf /tmp/pr20-final-evidence/cli.tar.gz -C target/debug lila
+            sha256sum target/debug/lila > /tmp/realm-init-evidence/cli-sha256.txt
+            tar -czf /tmp/realm-init-evidence/cli.tar.gz -C target/debug lila
           fi
           git diff --exit-code
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pr20-final-repair-evidence
-          path: /tmp/pr20-final-evidence
+          name: realm-init-runtime-evidence
+          path: /tmp/realm-init-evidence
           retention-days: 2
