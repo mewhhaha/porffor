@@ -1,0 +1,69 @@
+name: Assemble and validate flatMap product change
+on:
+  push:
+    branches: [codex/flatmap-conformance-prepare]
+permissions:
+  contents: write
+concurrency:
+  group: flatmap-prepare
+  cancel-in-progress: true
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: flatmap-conformance
+          cache-on-failure: true
+      - name: Assemble implementation, regression guards, and documentation
+        run: |
+          python3 .github/preflight/prepare.py
+          python3 .github/preflight/fix-planning.py
+          cargo fmt --all
+          cargo fmt --all -- --check
+      - name: Publish only the reviewed product files to a new branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=31c89c4b29b1fe84e3a3eaef55312448b80e3f07
+          test "$(git rev-parse origin/main)" = "$base"
+          git read-tree "$base"
+          git add crates/lila-aot-wasm/src/builtins/array.rs crates/lila-aot-wasm/src/planning.rs crates/lila-aot-wasm/tests/array_flat_map_algorithm_owner_structure.rs crates/lila-aot-wasm/tests/array_flat_map_typed_array_witness_structure.rs crates/lila-aot-wasm/tests/array_species_create_operation_evidence_structure.rs crates/lila-engine/tests/aot_flat_map.rs README.md docs/rust-rewrite/aot-flat-map.md docs/rust-rewrite/contracts/array-flat-map-algorithm-owner.md docs/rust-rewrite/contracts/array-flat-map-typed-array-buffer-witness.md tasks/16-arrays-and-array-builtins.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(git commit-tree "$tree" -p "$base" -m 'fix(array): use shared observable operations for flatMap')
+          git push origin "$commit:refs/heads/codex/flatmap-observable-conformance"
+          echo "$commit" | tee /tmp/flatmap-product-commit.txt
+          git diff "$base" "$commit" --stat | tee /tmp/flatmap-product-stat.txt
+          git diff "$base" "$commit" > /tmp/flatmap-product.patch
+          git archive "$commit" | gzip > /tmp/flatmap-product-source.tar.gz
+          tar -czf /tmp/flatmap-workflows.tar.gz .github/workflows/ci.yaml .github/workflows/array-conformance.yaml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatmap-product-source
+          path: /tmp/flatmap-*
+          retention-days: 7
+      - name: Check structural contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p lila-aot-wasm --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test array_species_create_operation_evidence_structure --test array_concat_algorithm_owner_structure --test concat_typed_array_witness_structure 2>&1 | tee /tmp/flatmap-structure.log
+      - name: Execute all product regressions
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p lila-engine --test aot_flat_map -- --test-threads=1 2>&1 | tee /tmp/flatmap-engine.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flatmap-product-regressions
+          path: /tmp/flatmap-*.log
+          retention-days: 7
