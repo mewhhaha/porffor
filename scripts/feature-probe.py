@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Probe which Test262 feature tags the Wasm-AOT path can execute at all.
+"""Measure representative feature snippets through the Wasm-AOT path.
 
 Test262 labels every case with `features: [...]`. This runs one minimal snippet
-per feature through the real compiler and records whether it executes, which
-turns "how many features are left" into a measurement instead of an estimate.
+per feature through the real compiler and records whether that snippet produces
+the expected output. This is a diagnostic survey, not a conformance gate.
 
-A probe proves presence, not conformance: passing means the feature is not
-categorically missing, and says nothing about edge cases. A failing probe is the
-stronger signal - it means every Test262 case carrying that tag is out of reach.
+A passing probe proves only the observed snippet behavior, not feature-wide
+conformance. A failed probe can reflect a bug, timeout, unavailable host surface
+or unsupported behavior; it does not prove every case with that tag fails.
+Recorded tag counts overlap and are reference data, not measured passing cases.
 
 CRITICAL: reference builtins STATICALLY. The backend runs a demand-driven
 bootstrap plan (`should_initialize_standard_builtin`) that only initializes
@@ -104,20 +105,29 @@ def run(probe):
             [str(LILA), "run", "--execution-backend", "wasm", str(path)],
             capture_output=True, text=True, timeout=120,
         )
-        combined = result.stdout + result.stderr
-        first = next((l for l in combined.splitlines() if l and not l.startswith("run outcome")), "")
-        # A probe must produce the RIGHT answer. Checking only for the absence
-        # of an error marks `typeof Intl -> undefined` as working.
-        ok = result.returncode == 0 and first.strip() == want
-        return tag, count, ok, (first[:70] if first.strip() != want else "")
+        # Diagnostics on stderr are never evidence of program output.
+        first = next((line for line in result.stdout.splitlines()
+                      if line.strip() and not line.startswith("run outcome")), "")
+        if result.returncode != 0:
+            diagnostic = next((line.strip() for line in result.stderr.splitlines() if line.strip()),
+                              first.strip() or "no diagnostic")
+            return tag, count, False, f"exit {result.returncode}: {diagnostic}"[:70]
+        if first.strip() != want:
+            detail = f"expected {want!r}, got {first.strip()!r}" if first else f"missing stdout; expected {want!r}"
+            return tag, count, False, detail[:70]
+        return tag, count, True, ""
     except subprocess.TimeoutExpired:
         return tag, count, False, "TIMEOUT"
+    except OSError as error:
+        return tag, count, False, f"launch error: {error}"[:70]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--jobs", type=int, default=4)
     args = parser.parse_args()
+    if args.jobs <= 0:
+        parser.error("--jobs must be positive")
 
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "dep.mjs").write_text("export const v = 10;\n")
@@ -138,8 +148,10 @@ def main():
 
     print()
     print(f"probed:      {len(results)} features")
-    print(f"executes:    {len(works)} ({sum(r[1] for r in works)} tagged cases)")
-    print(f"unsupported: {len(broken)} ({sum(r[1] for r in broken)} tagged cases)")
+    print(f"passes:      {len(works)} probes ({sum(r[1] for r in works)} reference tag-count sum)")
+    print(f"failed:      {len(broken)} probes ({sum(r[1] for r in broken)} reference tag-count sum)")
+    print("Tag counts overlap; probe results are not Test262 conformance counts.")
+    # A completed diagnostic survey is successful even when some probes fail.
     return 0
 
 
