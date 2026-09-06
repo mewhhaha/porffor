@@ -53,7 +53,7 @@ fn unique_normalized_position(source: &str, snippet: &str, label: &str) -> usize
 fn flat_map_uses_observable_length_and_shared_live_property_operations() {
     let body = flat_map_body();
     for (needle, expected) in [
-        ("emit_array_iteration_length_before_callback_validation(", 1),
+        ("emit_array_like_length_snapshot(", 1),
         ("emit_object_has_property_i32(", 2),
         ("emit_object_read(", 2),
         ("emit_typed_array_or_object_index_read_from_locals(", 1),
@@ -95,7 +95,7 @@ fn flat_map_keeps_the_snapshot_presence_read_and_mapper_order() {
     let body = flat_map_body();
     let snapshot = unique_position(
         body,
-        "emit_array_iteration_length_before_callback_validation(",
+        "emit_array_like_length_snapshot(",
         "ToObject/LengthOfArrayLike",
     );
     let validate = unique_position(body, "emit_is_callable_i32(", "IsCallable");

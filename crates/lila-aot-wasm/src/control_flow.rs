@@ -17,6 +17,7 @@ use lila_ir::{
     SyncDisposableScopeExecutionIr,
 };
 
+mod arguments_iterator;
 mod async_function_for_of_iterator;
 mod for_await_iteration_environment;
 mod for_await_iterator_symbol;
@@ -9874,6 +9875,22 @@ impl<'a> FunctionBuilder<'a> {
             self.strings.property_key_symbol_payload("Symbol.iterator"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
+        // Arguments has a dedicated iterator lookup in the current exotic
+        // representation. The generic object read below does not cover it.
+        // Dispatch on the runtime tag so aliases take the same path as a
+        // direct `arguments` expression, without changing the original this.
+        function.instruction(&Instruction::LocalGet(iterable_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_arguments_iterator_method_to_locals(
+            iterable_payload_local,
+            iterable_tag_local,
+            method_payload_local,
+            method_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
         self.emit_object_read(
             iterable_object_payload_local,
             iterable_object_tag_local,
@@ -9884,6 +9901,8 @@ impl<'a> FunctionBuilder<'a> {
             method_tag_local,
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         self.release_temp_local(iterable_object_tag_local);
         self.release_temp_local(iterable_object_payload_local);
         self.emit_propagate_throw_from_locals_if_needed(
@@ -10384,6 +10403,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(key_local));
         // The receiver stays the original value: `@@iterator` is looked up on the
         // wrapper object but invoked with the primitive as `this`.
+        // Arguments has a dedicated iterator lookup in the current exotic
+        // representation. The generic object read below does not cover it.
+        // Dispatch on the runtime tag so aliases take the same path as a
+        // direct `arguments` expression, without changing the original this.
+        function.instruction(&Instruction::LocalGet(iterable_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_arguments_iterator_method_to_locals(
+            iterable_payload_local,
+            iterable_tag_local,
+            method_payload_local,
+            method_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
         self.emit_object_read(
             iterable_object_payload_local,
             iterable_object_tag_local,
@@ -10394,6 +10429,8 @@ impl<'a> FunctionBuilder<'a> {
             method_tag_local,
             function,
         )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         self.release_temp_local(iterable_object_tag_local);
         self.release_temp_local(iterable_object_payload_local);
         self.emit_propagate_throw_from_locals_if_needed(
@@ -11263,52 +11300,6 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.release_temp_local(local);
         }
-    }
-
-    fn emit_arguments_iterator_method_to_locals(
-        &mut self,
-        source_payload: u32,
-        source_tag: u32,
-        method_payload: u32,
-        method_tag: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let source_name = "$sync.iterator.arguments.source";
-        self.push_scope();
-        self.binding_scopes
-            .last_mut()
-            .expect("binding scope stack must exist")
-            .insert(
-                source_name.to_string(),
-                BindingStorage::Dynamic {
-                    tag_local: source_tag,
-                    payload_local: source_payload,
-                },
-            );
-        let source = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Arguments,
-                possible_kinds: KindSet::from_kind(ValueKind::Arguments),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::none(),
-            },
-            ExprIr::Identifier(source_name.to_string()),
-        );
-        let method = TypedExpr::from_info(
-            ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::all_runtime_tags(),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::unknown(),
-            },
-            ExprIr::PropertyRead {
-                target: Box::new(source),
-                key: PropertyKeyIr::StaticString("Symbol.iterator".to_string()),
-            },
-        );
-        self.compile_expr_to_locals(&method, method_payload, method_tag, function)?;
-        self.pop_scope();
-        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]

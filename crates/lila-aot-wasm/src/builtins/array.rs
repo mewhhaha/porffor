@@ -9134,7 +9134,7 @@ impl<'a> FunctionBuilder<'a> {
         // ToObject and LengthOfArrayLike precede IsCallable and ArraySpeciesCreate.
         // In particular, a TypedArray's observable length property is not its
         // private element count. Get/HasProperty below own live buffer witnesses.
-        self.emit_array_iteration_length_before_callback_validation(
+        self.emit_array_like_length_snapshot(
             this_payload_local,
             this_tag_local,
             key_local,
@@ -9437,7 +9437,10 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_array_iteration_length_before_callback_validation(
+    /// Box the receiver and capture one observable LengthOfArrayLike. The
+    /// receiver locals retain the boxed value; the length payload local holds
+    /// the normalized integer bound, not a tagged Number, on normal completion.
+    pub(crate) fn emit_array_like_length_snapshot(
         &mut self,
         receiver_payload_local: u32,
         receiver_tag_local: u32,
@@ -17508,36 +17511,14 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion(function);
             function.instruction(&Instruction::End);
 
-            self.emit_array_iteration_to_object(
-                receiver_payload_local,
-                receiver_tag_local,
-                function,
-            )?;
-
-            // LengthOfArrayLike observes one public Get and ToLength, including
-            // arguments overrides and TypedArray own/inherited length accessors.
-            // Only the direct TypedArray entry above uses a private witness.
-            function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_read(
-                receiver_payload_local,
-                receiver_tag_local,
+            // Generic receivers use the shared observable LengthOfArrayLike
+            // owner. Only the direct TypedArray entry above owns a witness.
+            self.emit_array_like_length_snapshot(
                 receiver_payload_local,
                 receiver_tag_local,
                 key_local,
-                element_payload_local,
-                element_tag_local,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                element_payload_local,
-                element_tag_local,
-                function,
-            )?;
-            self.emit_to_length_i64_from_value_locals(
-                element_tag_local,
-                element_payload_local,
                 len_local,
+                element_tag_local,
                 function,
             )?;
             self.emit_return_current_completion_if_throw(function);

@@ -83,7 +83,7 @@ fn reserved_owner_is_the_only_value_accepted_by_reverse_release() {
     let lifecycle = bounded(
         CONTROL_FLOW_SOURCE,
         "    /// Reserves the common GetIterator/IteratorStep/IteratorValue working set.",
-        "    fn emit_arguments_iterator_method_to_locals(",
+        "    pub(crate) fn emit_get_iterator_from_value_locals(",
     );
     assert!(lifecycle.contains(
         "pub(crate) fn reserve_sync_iterator_locals(&mut self) -> ReservedSyncIteratorLocals"

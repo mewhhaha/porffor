@@ -1,0 +1,71 @@
+name: Arguments iteration regression
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  arguments-iteration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+      LILA_TEST262_FORCE_CASE_RUNNER: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record compiler provenance
+        run: |
+          mkdir -p /tmp/arguments-evidence
+          git rev-parse HEAD | tee /tmp/arguments-evidence/source-sha.txt
+          rustc --version --verbose > /tmp/arguments-evidence/rustc.txt
+      - name: Check formatting and regression runner contracts
+        run: |
+          cargo fmt --all -- --check
+          ./scripts/check-module-boundaries.sh
+          python3 scripts/tests/test_engine_regression_inventory.py
+      - name: Protect adjacent iterator ownership and realm behavior
+        run: >-
+          cargo test --locked -p lila-aot-wasm
+          --test for_of_string_iterator_protocol_structure
+          --test direct_sync_for_of_protocol_error_realm_structure
+          --test plain_async_for_of_await_using_structure
+          --test synchronous_using_for_of_structure
+          --test sync_iterator_locals_release_ownership_structure
+          --test sync_iterator_consumer_capability_structure
+          --test math_sum_precise_runtime_structure
+      - name: Run every compiled Arguments engine regression in a fresh process
+        run: >-
+          python3 scripts/run_engine_regression_inventory.py aot_arguments_iteration
+          --output-dir /tmp/arguments-evidence/engine
+      - name: Retain explicit iterator truncation control
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_name=tests::wasm_backend_arguments_iterators_observe_length_truncation
+          cargo test --locked -p lila-engine --lib "$test_name" -- --exact --nocapture 2>&1 | tee /tmp/arguments-evidence/truncation.txt
+          grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' /tmp/arguments-evidence/truncation.txt
+      - name: Execute complete pinned real Arguments for-of family
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p lila-cli
+          sha256sum target/debug/lila | tee /tmp/arguments-evidence/cli-sha256.txt
+          ./target/debug/lila test262 list language/statements/for-of/arguments- | tee /tmp/arguments-evidence/test262-inventory.txt
+          grep -Fx 'count: 6' /tmp/arguments-evidence/test262-inventory.txt
+          ./target/debug/lila test262 run language/statements/for-of/arguments- --execution-backend wasm --threads 1 --jobs 1 --timeout-ms 60000 --snapshot-dir /tmp/arguments-evidence/test262 --snapshot-name arguments-ci 2>&1 | tee /tmp/arguments-evidence/test262.txt
+          grep -Fx 'total: 6' /tmp/arguments-evidence/test262.txt
+          grep -Fx 'passed: 6' /tmp/arguments-evidence/test262.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arguments-iteration-evidence
+          path: /tmp/arguments-evidence
+          retention-days: 7
+          if-no-files-found: error

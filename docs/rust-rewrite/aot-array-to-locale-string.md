@@ -1,5 +1,21 @@
 # Observable Array `toLocaleString` lowering
 
+## Integration of PRs #19, #20 and #21
+
+The integrated emitter uses the shared `emit_array_like_length_snapshot` owner
+from #19 rather than a second inline length algorithm. It retains #19's ordinary
+Arguments descriptor Get repair and #21's override-preserving iterator lookup,
+while preserving #20's shared live indexed Get and universal non-nullish element
+Invoke. All 23 length, 24 observable-locale, and 12 Arguments engine regressions
+remain unchanged. Ownership guards now verify the single shared indexed Get
+rather than obsolete private routing flags.
+
+The historical evidence below is not a substitute for validation of this
+combined revision. Complete runtime inventories, retained fixtures, pinned real
+subtrees, and broad CI must pass before merge. No Test262 source, expected
+outcome, skip, pin, generated status block, or conformance denominator changes.
+
+
 This change targets the Rust Wasm-AOT implementation, not the retired JavaScript
 implementation and not a fallback evaluator. It is a focused conformance change;
 it does not establish full ECMAScript or Test262 compatibility.

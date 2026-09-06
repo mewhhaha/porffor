@@ -36,18 +36,15 @@ fn array_like_entry_observes_one_public_length_and_coercion() {
         "        function.instruction(&Instruction::Loop(BlockType::Empty));",
     );
     assert_eq!(
-        generic.matches("self.strings.payload(\"length\")").count(),
+        generic
+            .matches("self.emit_array_like_length_snapshot(")
+            .count(),
         1
     );
-    assert_eq!(generic.matches("self.emit_object_read(").count(), 1);
     assert_ordered(
         generic,
         &[
-            "emit_array_iteration_to_object(",
-            "self.strings.payload(\"length\")",
-            "emit_object_read(",
-            "emit_propagate_throw_from_locals_if_needed(",
-            "emit_to_length_i64_from_value_locals(",
+            "self.emit_array_like_length_snapshot(",
             "emit_return_current_completion_if_throw(function);",
         ],
     );
@@ -57,10 +54,12 @@ fn array_like_entry_observes_one_public_length_and_coercion() {
         "emit_load_typed_array_private_state(",
         "ValueKind::Array",
         "ValueKind::Arguments",
+        "emit_object_read(",
+        "emit_to_length_i64_from_value_locals(",
     ] {
         assert!(
             !generic.contains(forbidden),
-            "private length bypass: {forbidden}"
+            "length must use the shared observable owner: {forbidden}"
         );
     }
 }
