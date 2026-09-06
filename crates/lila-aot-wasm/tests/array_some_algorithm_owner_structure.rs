@@ -177,7 +177,7 @@ fn shared_call_boundary_and_canonical_compiler_own_argument_and_iteration_order(
     );
     for (earlier, later) in [
         (
-            "self.emit_array_iteration_length_before_callback_validation(",
+            "self.emit_array_like_length_snapshot(",
             "self.emit_builtin_arg_to_locals(0,",
         ),
         (

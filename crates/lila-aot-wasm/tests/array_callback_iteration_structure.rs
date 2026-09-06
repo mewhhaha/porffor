@@ -50,7 +50,7 @@ fn closed_result_policy_has_four_real_producers_and_no_receiver_mode() {
 #[test]
 fn shared_loop_has_one_observable_owner_for_each_input_operation() {
     for operation in [
-        "self.emit_array_iteration_length_before_callback_validation(",
+        "self.emit_array_like_length_snapshot(",
         "self.emit_is_callable_i32(",
         "self.emit_object_has_property_i32(",
         "self.emit_typed_array_or_object_index_read_from_locals(",

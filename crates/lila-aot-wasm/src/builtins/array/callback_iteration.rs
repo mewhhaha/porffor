@@ -60,7 +60,7 @@ impl<'a> FunctionBuilder<'a> {
 
         // The captured bound must survive callback validation, species effects,
         // and every callback. Do not substitute private Array/TypedArray extent.
-        self.emit_array_iteration_length_before_callback_validation(
+        self.emit_array_like_length_snapshot(
             receiver_payload_local,
             receiver_tag_local,
             key_local,
