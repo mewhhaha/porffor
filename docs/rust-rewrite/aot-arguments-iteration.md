@@ -30,10 +30,23 @@ including when Arguments escapes through an alias. Other receivers retain the
 existing symbol-key lookup and original receiver. Callability checks, cached
 `next`, per-iteration environments, disposal, and IteratorClose are unchanged.
 
-This is not a rewrite of Arguments construction or iteration. In particular,
-own `@@iterator` overrides/deletion/descriptors and created-realm iterator
-identity remain separate known gaps. No Test262 source, pin, prelude,
-materializer, exclusion, or expected-failure ledger is changed.
+An explicit own iterator override already works on the baseline and must not
+be replaced by the built-in fallback. The shared helper therefore checks the
+existing named-property table for the actual Symbol key without invoking a
+getter. A present entry goes through the ordinary property read exactly once,
+with the original receiver, including accessor throws and non-callable values.
+**Presence is not truthiness:** an own `undefined` or `null` iterator must still
+cause the consumer's TypeError. Only an absent entry uses the existing
+Arguments-specific default lookup. A string key named `"Symbol.iterator"` is
+not the well-known Symbol key.
+
+The helper lives in `control_flow/arguments_iterator.rs`, keeping the shared
+control-flow module within its existing budget without increasing the limit.
+This is not a rewrite of Arguments construction or iteration. Deletion and
+reflection of the virtual default iterator slot, direct property-read
+consistency, and created-realm iterator identity remain separate gaps. No
+Test262 source, pin, prelude, materializer, exclusion, or expected-failure
+ledger is changed.
 
 ## Reproducible focused verification
 
@@ -42,9 +55,12 @@ The complete `aot_arguments_iteration` integration target explicitly runs
 transcript, so a rejected promise or a missing continuation cannot pass merely
 because the initial script returned successfully. The first regression does
 not reference `Array` or `Symbol`, avoiding incidental bootstrap dependencies.
+The inventory also covers own iterator methods, one-shot getters and their
+throws, non-callable overrides, and string/Symbol key separation.
 
 ```sh
 cargo fmt --all -- --check
+./scripts/check-module-boundaries.sh
 python3 scripts/tests/test_engine_regression_inventory.py
 python3 scripts/run_engine_regression_inventory.py aot_arguments_iteration \
   --output-dir /tmp/arguments-engine
@@ -60,8 +76,9 @@ cargo test --locked -p lila-engine --lib \
   wasm_backend_arguments_iterators_observe_length_truncation -- --nocapture
 cargo build --locked -p lila-cli
 ./target/debug/lila test262 list language/statements/for-of/arguments-
-./target/debug/lila test262 run language/statements/for-of/arguments- \
-  --execution-backend wasm --threads 1 --jobs 1 --timeout-ms 60000 \
+LILA_TEST262_FORCE_CASE_RUNNER=1 ./target/debug/lila test262 run \
+  language/statements/for-of/arguments- --execution-backend wasm \
+  --threads 1 --jobs 1 --timeout-ms 60000 \
   --snapshot-dir /tmp/arguments-test262 --snapshot-name arguments-head
 ```
 
