@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
-const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const OBJECT_SOURCE: &str = include_str!("../src/builtins/object/define_property.rs");
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
