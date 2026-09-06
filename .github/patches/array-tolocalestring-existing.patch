@@ -1,0 +1,91 @@
+diff --git a/.github/workflows/array-conformance.yaml b/.github/workflows/array-conformance.yaml
+--- a/.github/workflows/array-conformance.yaml
++++ b/.github/workflows/array-conformance.yaml
+@@ -27,7 +27,7 @@ jobs:
+       - name: Check formatting and semantic ownership guards
+         run: |
+           cargo fmt --all -- --check
+-          cargo test --locked -p lila-aot-wasm --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test array_species_create_operation_evidence_structure --test array_concat_algorithm_owner_structure --test concat_typed_array_witness_structure
++          cargo test --locked -p lila-aot-wasm --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test array_species_create_operation_evidence_structure --test array_concat_algorithm_owner_structure --test concat_typed_array_witness_structure --test typed_array_to_locale_string_witness_structure
+ 
+       - name: Execute the complete nonempty engine regression inventory
+         shell: bash
+@@ -51,6 +51,37 @@ jobs:
+           print(f'Executed all {len(names)} compiled engine regressions')
+           PY
+ 
++      - name: Execute every toLocaleString engine regression
++        shell: bash
++        run: |
++          set -euo pipefail
++          cargo test --locked -p lila-engine --test aot_array_to_locale_string -- --list | tee /tmp/locale-inventory.txt
++          cargo test --locked -p lila-engine --test aot_array_to_locale_string -- --test-threads=1 | tee /tmp/locale-engine.txt
++          python3 - <<'PY'
++          import re
++          import sys
++          from pathlib import Path
++          sys.path.insert(0, 'scripts')
++          from run_aot_unit_shard import parse_inventory
++          names = parse_inventory(Path('/tmp/locale-inventory.txt').read_text())
++          if not names:
++              raise SystemExit('empty toLocaleString regression inventory')
++          summaries = re.findall(
++              r'^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;',
++              Path('/tmp/locale-engine.txt').read_text(), re.MULTILINE)
++          expected = [(str(len(names)), '0', '0', '0', '0')]
++          if summaries != expected:
++              raise SystemExit(f'incomplete execution: {summaries!r}; expected {expected!r}')
++          print(f'Executed all {len(names)} compiled toLocaleString regressions')
++          PY
++
++      - name: Execute retained Array toLocaleString CLI fixtures
++        shell: bash
++        run: |
++          set -euo pipefail
++          cargo test --locked -p lila-cli --test cli -- array_to_locale_string --test-threads=1 | tee /tmp/locale-cli.txt
++          grep -Eq '^test result: ok\. [1-9][0-9]* passed; 0 failed; 0 ignored;' /tmp/locale-cli.txt
++
+       - name: Execute retained flatMap CLI fixtures
+         shell: bash
+         run: |
+@@ -75,4 +106,5 @@ jobs:
+           path: |
+             /tmp/flatmap-*.txt
+             /tmp/flatmap-test262
++            /tmp/locale-*.txt
+           retention-days: 7
+diff --git a/crates/lila-aot-wasm/src/builtins/array.rs b/crates/lila-aot-wasm/src/builtins/array.rs
+--- a/crates/lila-aot-wasm/src/builtins/array.rs
++++ b/crates/lila-aot-wasm/src/builtins/array.rs
+@@ -17703,6 +17703,16 @@ impl<'a> FunctionBuilder<'a> {
+         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+         function.instruction(&Instruction::I64Eq);
+         function.instruction(&Instruction::I32Or);
++        // Arrays and arguments use distinct heap tags, but Invoke still applies.
++        // A missing or non-callable method must throw, not fall back to ToString.
++        function.instruction(&Instruction::LocalGet(element_tag_local));
++        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
++        function.instruction(&Instruction::I64Eq);
++        function.instruction(&Instruction::I32Or);
++        function.instruction(&Instruction::LocalGet(element_tag_local));
++        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
++        function.instruction(&Instruction::I64Eq);
++        function.instruction(&Instruction::I32Or);
+         function.instruction(&Instruction::If(BlockType::Empty));
+         function.instruction(&Instruction::I64Const(
+             self.strings.payload("toLocaleString"),
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -56,5 +56,11 @@ share species construction and data-property definition; quantifiers short-circuit
+ without species effects. See [the callback iteration follow-up](docs/rust-rewrite/aot-array-callback-iteration.md)
+ for regression commands, evidence boundaries and remaining work. The generated
+ full-suite status below is unchanged.
+ 
++Array `toLocaleString` has a focused follow-up for nested Array and arguments
++elements, which require observable method lookup and invocation rather than
++ordinary string conversion. Its regression target and pending product-validation
++gates are documented in
++[the element invocation follow-up](docs/rust-rewrite/aot-array-to-locale-string.md).
++
+ ## Current Status
