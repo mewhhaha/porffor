@@ -1,0 +1,215 @@
+name: Prepare exact Array locale proposal
+
+on:
+  push:
+    branches: [codex/publish-array-locale-proposal-20260906]
+    paths: [.github/workflows/prepare-array-locale-proposal.yaml]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.repository == 'mewhhaha/porffor' && github.ref == 'refs/heads/codex/publish-array-locale-proposal-20260906'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: abdcf56f1bd88d5debbb1d8c291f2e7213f77371
+          persist-credentials: false
+      - name: Apply exact patch and prepare blobs without changing any ref
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import urllib.request
+          import zlib
+
+          encoded = '''
+          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
+          '''
+          # Correct the transport-only line spelling before decoding; the SHA-256
+          # below is the authority for the original, unchanged prepared patch.
+          encoded = ''.join(encoded.split()).replace('QK1NgPRLBRLZGDmx', 'QK1NgPRBRLZGDmx')
+          patch = zlib.decompress(base64.b64decode(encoded, validate=True))
+          expected_digest = '1f4ae6e80d3348567f47a780f9745bdb35ccf072e06ffd670490d820f2912c8e'
+          if hashlib.sha256(patch).hexdigest() != expected_digest:
+              raise SystemExit('Patch checksum mismatch')
+          base = 'abdcf56f1bd88d5debbb1d8c291f2e7213f77371'
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          if git('rev-parse', 'HEAD') != base or git('status', '--porcelain'):
+              raise SystemExit('Unexpected or dirty checkout')
+          old_blobs = {
+              'crates/lila-aot-wasm/src/builtins/array.rs': '135c3568acdf5a4f5d9da69b0489eb6860e7ec44',
+              'README.md': '46cf3179976a9321e619d9e6baa215b79ad54e7e',
+          }
+          new_paths = [
+              '.github/workflows/array-to-locale-string-conformance.yaml',
+              'crates/lila-aot-wasm/tests/array_to_locale_string_observable_structure.rs',
+              'crates/lila-engine/tests/aot_array_to_locale_string_observable.rs',
+              'docs/rust-rewrite/aot-array-to-locale-string.md',
+          ]
+          for name, sha in old_blobs.items():
+              if git('hash-object', '--', name) != sha:
+                  raise SystemExit('Unexpected base blob: ' + name)
+          for name in new_paths:
+              if Path(name).exists():
+                  raise SystemExit('Refusing to replace existing path: ' + name)
+          patch_file = Path('/tmp/locale-proposal.patch')
+          patch_file.write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', '--whitespace=error-all', str(patch_file)], check=True)
+          subprocess.run(['git', 'apply', '--whitespace=error-all', str(patch_file)], check=True)
+          paths = sorted([*old_blobs, *new_paths])
+          subprocess.run(['git', 'add', '-N', '--', *paths], check=True)
+          if sorted(git('diff', '--name-only').splitlines()) != paths:
+              raise SystemExit('Unexpected changed file inventory')
+          subprocess.run(['git', 'diff', '--check'], check=True)
+          subprocess.run(['git', 'diff', '--stat'], check=True)
+          files = []
+          for name in paths:
+              path = Path(name)
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit('Unexpected file kind: ' + name)
+              data = path.read_bytes()
+              expected_sha = git('hash-object', '--', name)
+              body = json.dumps({'content': base64.b64encode(data).decode('ascii'), 'encoding': 'base64'}).encode()
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/mewhhaha/porffor/git/blobs',
+                  data=body, method='POST', headers={
+                      'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                      'Accept': 'application/vnd.github+json',
+                      'Content-Type': 'application/json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  result = json.load(response)
+              if result['sha'] != expected_sha:
+                  raise SystemExit('Uploaded blob differs: ' + name)
+              files.append({'path': name, 'mode': '100644', 'type': 'blob', 'sha': expected_sha,
+                            'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+          manifest = {
+              'repository': 'mewhhaha/porffor', 'base_commit': base,
+              'base_tree': git('rev-parse', 'HEAD^{tree}'),
+              'patch_sha256': expected_digest, 'files': files,
+              'verification': ['exact clean base', 'base blob hashes', 'patch checksum',
+                               'git apply --check --whitespace=error-all', 'git diff --check',
+                               'exact six-file inventory', 'uploaded blob hashes'],
+              'not_run': ['Rust compilation', 'rustfmt', 'modified Wasm execution', 'Test262'],
+              'refs_modified': False,
+          }
+          text = json.dumps(manifest, indent=2) + '\n'
+          Path('/tmp/locale-proposal-manifest.json').write_text(text)
+          print(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: locale-proposal-publication-manifest
+          path: /tmp/locale-proposal-manifest.json
+          if-no-files-found: error
+          retention-days: 7
