@@ -54,10 +54,19 @@ The explicit Wasm-AOT target `aot_array_callback_iteration` contains 21 regressi
 programs. Reference evaluation in Node is a check of test expectations, not
 product execution evidence. Structural guards pin all four producers, input
 operation ordering, exhaustive result policy, live indexed-operation ownership,
-complete temporary release, and the descriptor dependency. The inventory runner executes each exact test in a fresh process, rejects empty,
-ignored or missing selections and checks that the complete nonempty inventory
-ran. Five Python regressions cover its reporting contract. Existing direct-call
-argument fixtures and strict TypedArray witness guards remain in place.
+complete temporary release, and the descriptor dependency. The inventory runner
+executes each exact test in a fresh process, rejects empty, ignored or missing
+selections and checks that the complete nonempty inventory ran. Five Python
+regressions cover its reporting contract. Existing direct-call argument fixtures
+and strict TypedArray witness guards remain in place.
+
+The exact unchanged baseline passed 11 of the original 20 new programs; the
+callback implementation passed all 20. The review then reproduced the internal
+descriptor bug on that implementation before applying its fix. The corrected
+compiler passed all 21 programs, including the new regression. These are focused
+engine results, not a full-suite percentage. The revision-specific evidence is
+in the [baseline inventory run](https://github.com/mewhhaha/porffor/actions/runs/34023616463)
+and [descriptor review run](https://github.com/mewhhaha/porffor/actions/runs/34024035648).
 
 Reproduce the focused checks:
 
@@ -81,6 +90,15 @@ with the same execution modes and unchanged sources on baseline and head:
   --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 \
   --snapshot-dir /tmp/array-callback-test262 --snapshot-name map
 ```
+
+A complete subtree exceeded the original 60-minute CI job limit while making
+steady progress. CI therefore builds the product once, checks its source SHA in
+each consumer, and executes all four one-based disjoint shards for each of the
+four subtrees. For example, `test262 shard 1/4 built-ins/Array/prototype/map/`
+uses the same backend and timeout arguments above; shards `2/4`, `3/4`, and `4/4`
+are required too. No test or execution mode is excluded. Every shard must
+complete with a nonempty passing verdict. Retained Array CLI fixtures run in a
+separate job so their budget is not shared with the engine regression inventory.
 
 Exact executed counts, failures and revision-specific CI evidence belong in the
 PR verification record. No full-suite percentage or generated README status is
