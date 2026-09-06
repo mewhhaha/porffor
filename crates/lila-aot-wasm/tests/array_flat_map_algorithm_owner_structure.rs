@@ -193,14 +193,14 @@ fn shared_call_boundary_and_canonical_compiler_own_argument_and_mapping_order() 
         ),
         (
             "self.emit_object_has_property_i32(",
-            "self.emit_object_read(",
+            "self.emit_typed_array_or_object_index_read_from_locals(",
         ),
         (
-            "self.emit_object_read(",
-            "self.emit_function_handle_call_with_argv(",
+            "self.emit_typed_array_or_object_index_read_from_locals(",
+            "self.emit_function_or_proxy_call_with_argv_leave_throw_completion(",
         ),
         (
-            "self.emit_function_handle_call_with_argv(",
+            "self.emit_function_or_proxy_call_with_argv_leave_throw_completion(",
             "self.emit_is_array_i64(",
         ),
     ] {

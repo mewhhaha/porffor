@@ -89,3 +89,13 @@ remain explicit instead of disappearing from the denominator.
 
 Generic-operation performance has not been benchmarked against former private
 fast paths. Any later optimization must preserve observable semantics.
+
+
+## Shared-operation review follow-up
+
+Execution exposed three distinct owner choices: callback invocation must use the
+Proxy-aware Call dispatcher, ArraySpeciesCreate must use the Proxy-aware Construct
+dispatcher, and source element reads must use the shared indexed-read dispatcher
+that owns live TypedArray element access. Ordinary named-property Get remains the
+owner for observable length. The ArraySpeciesCreate correction also applies to its
+existing slice and splice callers; it does not migrate other copied species paths.

@@ -55,7 +55,8 @@ fn flat_map_uses_observable_length_and_shared_live_property_operations() {
     for (needle, expected) in [
         ("emit_array_iteration_length_before_callback_validation(", 1),
         ("emit_object_has_property_i32(", 2),
-        ("emit_object_read(", 3),
+        ("emit_object_read(", 2),
+        ("emit_typed_array_or_object_index_read_from_locals(", 1),
         ("emit_is_array_i64(", 1),
         ("emit_array_species_create(", 1),
     ] {
@@ -105,8 +106,14 @@ fn flat_map_keeps_the_snapshot_presence_read_and_mapper_order() {
     let presence = body
         .find("emit_object_has_property_i32(")
         .expect("source HasProperty");
-    let read = body.find("emit_object_read(").expect("source Get");
-    let mapper = unique_position(body, "emit_function_handle_call_with_argv(", "mapper Call");
+    let read = body
+        .find("emit_typed_array_or_object_index_read_from_locals(")
+        .expect("source Get");
+    let mapper = unique_position(
+        body,
+        "emit_function_or_proxy_call_with_argv_leave_throw_completion(",
+        "mapper Call",
+    );
     let is_array = unique_position(body, "emit_is_array_i64(", "mapped IsArray");
     assert!(
         snapshot < validate

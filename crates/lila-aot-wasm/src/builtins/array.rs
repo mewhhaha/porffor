@@ -9199,12 +9199,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        self.emit_object_read(
+        self.emit_typed_array_or_object_index_read_from_locals(
             this_payload_local,
             this_tag_local,
-            this_payload_local,
-            this_tag_local,
-            key_local,
+            source_index_local,
             element_payload_local,
             element_tag_local,
             function,
@@ -9228,10 +9226,11 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             function,
         )?;
-        self.emit_function_handle_call_with_argv(
+        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
             mapper_payload_local,
             mapper_tag_local,
-            Some((this_arg_payload_local, Some(this_arg_tag_local))),
+            this_arg_payload_local,
+            this_arg_tag_local,
             argc_local,
             argv_local,
             mapped_payload_local,
@@ -15328,7 +15327,7 @@ impl<'a> FunctionBuilder<'a> {
             argv_local,
             function,
         )?;
-        self.emit_function_handle_construct_with_argv(
+        self.emit_function_or_proxy_construct_with_argv(
             species_payload_local,
             species_tag_local,
             species_payload_local,
