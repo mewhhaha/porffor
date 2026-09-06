@@ -26,34 +26,16 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('crates/lila-aot-wasm/src/builtins/array.rs')
           s = p.read_text()
           start = s.index('    pub(crate) fn compile_array_prototype_flat_map_builtin(')
           end = s.index('    fn emit_flat_map_append(', start)
           body = s[start:end]
-          old = '''        self.emit_object_read(
-              this_payload_local,
-              this_tag_local,
-              this_payload_local,
-              this_tag_local,
-              key_local,
-              element_payload_local,
-              element_tag_local,
-              function,
-          )?;'''
-          # Rust body indentation is twelve spaces for arguments.
-          old = old.replace('\n    ', '\n        ')
-          new = '''        self.emit_typed_array_or_object_index_read_from_locals(
-              this_payload_local,
-              this_tag_local,
-              source_index_local,
-              element_payload_local,
-              element_tag_local,
-              function,
-          )?;'''
-          new = new.replace('\n    ', '\n        ')
-          assert body.count(old) == 1, repr(old)
-          body = body.replace(old, new)
+          old = r'        self\.emit_object_read\(\s*this_payload_local,\s*this_tag_local,\s*this_payload_local,\s*this_tag_local,\s*key_local,\s*element_payload_local,\s*element_tag_local,\s*function,\s*\)\?;'
+          new = '        self.emit_typed_array_or_object_index_read_from_locals(this_payload_local, this_tag_local, source_index_local, element_payload_local, element_tag_local, function)?;'
+          body, count = re.subn(old, new, body)
+          assert count == 1, count
           assert body.count('self.emit_function_handle_call_with_argv(') == 1
           body = body.replace('self.emit_function_handle_call_with_argv(', 'self.emit_function_or_proxy_call_with_argv_leave_throw_completion(')
           old_this = '            Some((this_arg_payload_local, Some(this_arg_tag_local))),'
@@ -76,9 +58,7 @@ jobs:
                   text = text.replace('body.find("emit_object_read(")', 'body.find("emit_typed_array_or_object_index_read_from_locals(")')
               p.write_text(text)
           p = Path('docs/rust-rewrite/aot-flat-map.md')
-          text = p.read_text()
-          text += '''\n\n## Shared-operation review follow-up\n\nExecution exposed three distinct owner choices: callback invocation must use the\nProxy-aware Call dispatcher, ArraySpeciesCreate must use the Proxy-aware Construct\ndispatcher, and source element reads must use the shared indexed-read dispatcher\nthat owns live TypedArray element access. Ordinary named-property Get remains the\nowner for observable length. The ArraySpeciesCreate correction also applies to its\nexisting slice and splice callers; it does not migrate other copied species paths.\n'''
-          p.write_text(text)
+          p.write_text(p.read_text() + '\n\n## Shared-operation review follow-up\n\nExecution exposed three distinct owner choices: callback invocation must use the\nProxy-aware Call dispatcher, ArraySpeciesCreate must use the Proxy-aware Construct\ndispatcher, and source element reads must use the shared indexed-read dispatcher\nthat owns live TypedArray element access. Ordinary named-property Get remains the\nowner for observable length. The ArraySpeciesCreate correction also applies to its\nexisting slice and splice callers; it does not migrate other copied species paths.\n')
           PY
           cargo fmt --all
           cargo fmt --all -- --check
