@@ -1,0 +1,47 @@
+name: Bootstrap Wasm-AOT current-pin follow-up
+
+on:
+  push:
+    branches: [codex/wasm-aot-current-pin-inventory]
+    paths:
+      - 'scripts/apply_wasm_aot_current_pin_followup.py'
+      - '.github/workflows/bootstrap-wasm-aot-current-pin.yaml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/wasm-aot-current-pin-inventory
+          fetch-depth: 0
+      - name: Apply exact current-pin transformations
+        run: python3 scripts/apply_wasm_aot_current_pin_followup.py
+      - name: Format and validate structural owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo test --locked -p lila-aot-wasm --test array_owner_followup_structure
+          cargo test --locked -p lila-aot-wasm --test array_callback_iteration_structure
+          cargo test --locked -p lila-engine --test aot_array_callback_iteration --no-run
+      - name: Commit only the reviewable product/evidence diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm scripts/apply_wasm_aot_current_pin_followup.py
+          rm .github/workflows/bootstrap-wasm-aot-current-pin.yaml
+          git status --short
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix(array): close current-pin Wasm AOT owner gaps'
+          git push origin HEAD:codex/wasm-aot-current-pin-inventory
