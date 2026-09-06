@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use lila_engine::ExecutionBackend;
 use lila_test262::{
     compare_snapshots, load_verified_aggregate_summary, run_top_level_matrix, LocalHarnessSource,
-    RunConfig, SuiteConfig, TestExecutionId, TestExecutionMode, VerifiedAggregateSummary,
+    RunConfig, SuiteConfig, TestExecutionId, VerifiedAggregateSummary,
 };
 
 const BACKEND: ExecutionBackend = ExecutionBackend::WasmAot;
@@ -163,17 +163,17 @@ fn compare_reports_real_pass_and_regression() {
     assert_eq!((comparison.base_total, comparison.candidate_total), (2, 2));
     assert_eq!(
         comparison.added_passes,
-        vec![TestExecutionId::new(
-            "language/comparison/case.js",
-            TestExecutionMode::RawScript,
-        )]
+        vec![
+            TestExecutionId::parse_wire_key("raw-script:language/comparison/case.js")
+                .expect("fixture execution id should parse")
+        ]
     );
     assert_eq!(
         comparison.regressions,
-        vec![TestExecutionId::new(
-            "language/comparison/regression.js",
-            TestExecutionMode::RawScript,
-        )]
+        vec![
+            TestExecutionId::parse_wire_key("raw-script:language/comparison/regression.js")
+                .expect("fixture execution id should parse")
+        ]
     );
     assert!(comparison.changed_failure_hashes.is_empty());
 }
