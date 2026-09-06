@@ -1,0 +1,68 @@
+diff --git a/crates/lila-aot-wasm/src/control_flow.rs b/crates/lila-aot-wasm/src/control_flow.rs
+index aaea174..47689e7 100644
+--- a/crates/lila-aot-wasm/src/control_flow.rs
++++ b/crates/lila-aot-wasm/src/control_flow.rs
+@@ -9874,6 +9874,22 @@ impl<'a> FunctionBuilder<'a> {
+             self.strings.property_key_symbol_payload("Symbol.iterator"),
+         ));
+         function.instruction(&Instruction::LocalSet(key_local));
++        // Arguments has a dedicated iterator lookup in the current exotic
++        // representation. The generic object read below does not cover it.
++        // Dispatch on the runtime tag so aliases take the same path as a
++        // direct `arguments` expression, without changing the original this.
++        function.instruction(&Instruction::LocalGet(iterable_tag_local));
++        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
++        function.instruction(&Instruction::I64Eq);
++        self.open_frame(ControlFrameKind::If, function);
++        self.emit_arguments_iterator_method_to_locals(
++            iterable_payload_local,
++            iterable_tag_local,
++            method_payload_local,
++            method_tag_local,
++            function,
++        )?;
++        function.instruction(&Instruction::Else);
+         self.emit_object_read(
+             iterable_object_payload_local,
+             iterable_object_tag_local,
+@@ -9884,6 +9900,8 @@ impl<'a> FunctionBuilder<'a> {
+             method_tag_local,
+             function,
+         )?;
++        self.pop_control(ControlFrameKind::If);
++        function.instruction(&Instruction::End);
+         self.release_temp_local(iterable_object_tag_local);
+         self.release_temp_local(iterable_object_payload_local);
+         self.emit_propagate_throw_from_locals_if_needed(
+@@ -10384,6 +10402,22 @@ impl<'a> FunctionBuilder<'a> {
+         function.instruction(&Instruction::LocalSet(key_local));
+         // The receiver stays the original value: `@@iterator` is looked up on the
+         // wrapper object but invoked with the primitive as `this`.
++        // Arguments has a dedicated iterator lookup in the current exotic
++        // representation. The generic object read below does not cover it.
++        // Dispatch on the runtime tag so aliases take the same path as a
++        // direct `arguments` expression, without changing the original this.
++        function.instruction(&Instruction::LocalGet(iterable_tag_local));
++        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
++        function.instruction(&Instruction::I64Eq);
++        self.open_frame(ControlFrameKind::If, function);
++        self.emit_arguments_iterator_method_to_locals(
++            iterable_payload_local,
++            iterable_tag_local,
++            method_payload_local,
++            method_tag_local,
++            function,
++        )?;
++        function.instruction(&Instruction::Else);
+         self.emit_object_read(
+             iterable_object_payload_local,
+             iterable_object_tag_local,
+@@ -10394,6 +10428,8 @@ impl<'a> FunctionBuilder<'a> {
+             method_tag_local,
+             function,
+         )?;
++        self.pop_control(ControlFrameKind::If);
++        function.instruction(&Instruction::End);
+         self.release_temp_local(iterable_object_tag_local);
+         self.release_temp_local(iterable_object_payload_local);
+         self.emit_propagate_throw_from_locals_if_needed(
