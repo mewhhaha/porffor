@@ -95,13 +95,13 @@ matrix_progress() {
     $1 == "matrix_nodes_total" { total = $2; total_fields++; if (NF != 2) invalid = 1 }
     END {
       if (invalid || completed_fields != 1 || total_fields != 1) exit 1
-      printf "%s\n%s\n", completed, total
+      printf "%s:%s\n", completed, total
     }
   ' <<<"$progress")"; then
     fail "invalid matrix progress: expected exactly one completed and total field"
   fi
-  MATRIX_COMPLETED="${fields%%$'\n'*}"
-  MATRIX_TOTAL="${fields#*$'\n'}"
+  MATRIX_COMPLETED="${fields%%:*}"
+  MATRIX_TOTAL="${fields#*:}"
   [[ "$MATRIX_COMPLETED" =~ ^(0|[1-9][0-9]{0,17})$ ]] || fail "invalid matrix progress: completed count"
   positive_integer "$MATRIX_TOTAL" || fail "invalid matrix progress: total must be positive"
   (( MATRIX_COMPLETED <= MATRIX_TOTAL )) || fail "invalid matrix progress: completed exceeds total"

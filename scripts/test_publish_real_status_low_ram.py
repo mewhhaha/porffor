@@ -227,7 +227,7 @@ class PublicationDriverTests(unittest.TestCase):
 
     def test_progress_rejects_noncanonical_and_overflowing_counts(self):
         for key in ("completed", "total"):
-            for value in ("-1", "1.0", "01", "x", " 1", "9" * 19):
+            for value in ("", "-1", "1.0", "01", "x", " 1", "9" * 19):
                 with self.subTest(key=key, value=value):
                     result = self.run_driver([{"completed": 1, "total": 1, key: value}])
                     self.assert_failure(result, "invalid matrix progress")
