@@ -3,57 +3,63 @@ name: Arguments regression workbench
 on:
   push:
     branches: [codex/arguments-iteration-workbench]
+    paths: [.github/workflows/arguments-workbench.yaml]
 
 permissions:
   contents: read
 
 jobs:
-  baseline:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      CARGO_BUILD_JOBS: 2
-      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: abdcf56f1bd88d5debbb1d8c291f2e7213f77371
-          persist-credentials: false
-      - name: Build exact baseline product
-        run: |
-          mkdir -p /tmp/arguments-baseline
-          git rev-parse HEAD | tee /tmp/arguments-baseline/source-sha.txt
-          rustc --version --verbose > /tmp/arguments-baseline/rustc.txt
-          cargo build --locked -p lila-cli
-          sha256sum target/debug/lila | tee /tmp/arguments-baseline/cli-sha256.txt
-      - name: Execute retained regression and adjacent symbol-identity control
+      - name: Apply reviewed patch to the dedicated feature branch only
         shell: bash
+        env:
+          WORKBENCH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          cargo test --locked -p lila-engine --lib --no-run
-          set +e
-          cargo test --locked -p lila-engine --lib wasm_backend_arguments_iterators_observe_length_truncation -- --nocapture --test-threads=1 > /tmp/arguments-baseline/truncation.txt 2>&1
-          truncation=$?
-          cargo test --locked -p lila-engine --lib wasm_backend_computed_symbol_keys_stay_distinct_from_similar_strings -- --nocapture --test-threads=1 > /tmp/arguments-baseline/symbol-control.txt 2>&1
-          symbols=$?
-          set -e
-          cat /tmp/arguments-baseline/truncation.txt /tmp/arguments-baseline/symbol-control.txt
-          printf 'truncation_exit=%s\nsymbol_control_exit=%s\n' "$truncation" "$symbols" | tee /tmp/arguments-baseline/exits.txt
-      - name: Package exact baseline executable
-        if: ${{ !cancelled() }}
-        run: tar -czf /tmp/arguments-baseline-cli.tar.gz -C target/debug lila
+          cp scripts/arguments-iteration-workbench.patch "$RUNNER_TEMP/arguments.patch"
+          git fetch --depth=1 origin codex/fix-arguments-for-of
+          git switch -c arguments-fix FETCH_HEAD
+          test "$(git rev-parse HEAD)" = abdcf56f1bd88d5debbb1d8c291f2e7213f77371
+          git apply --check "$RUNNER_TEMP/arguments.patch"
+          git apply "$RUNNER_TEMP/arguments.patch"
+          for path in crates/lila-engine/tests/aot_arguments_iteration.rs docs/rust-rewrite/aot-arguments-iteration.md .github/workflows/arguments-iteration.yaml; do
+            git show "$WORKBENCH_SHA:$path" > "$path"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('README.md')
+          text = p.read_text()
+          marker = '## Current Status\n'
+          assert text.count(marker) == 1
+          note = ('Arguments-backed `for-of` loops now use the existing Arguments-aware iterator\n'
+                  'lookup, including escaped aliases and async-disposable loop heads. The bounded\n'
+                  'repair and focused regression commands are described in\n'
+                  '[the Arguments iteration follow-up](docs/rust-rewrite/aot-arguments-iteration.md).\n'
+                  'The next major deliverable remains T01\'s reproducible current-pin full-suite\n'
+                  'baseline; this change does not update the generated conformance counts.\n\n')
+          p.write_text(text.replace(marker, note + marker))
+          PY
+          git add crates/lila-aot-wasm/src/control_flow.rs crates/lila-engine/tests/aot_arguments_iteration.rs docs/rust-rewrite/aot-arguments-iteration.md README.md .github/workflows/arguments-iteration.yaml
+          git diff --cached --check
+          git diff --cached --stat
+          git diff --cached > "$RUNNER_TEMP/arguments-review.patch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(iterators): preserve Arguments lookup in for-of consumers'
+          git push origin HEAD:refs/heads/codex/fix-arguments-for-of
+          git rev-parse HEAD | tee "$RUNNER_TEMP/arguments-head.txt"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: arguments-baseline-evidence
-          path: /tmp/arguments-baseline
+          name: arguments-pr-review
+          path: |
+            ${{ runner.temp }}/arguments-review.patch
+            ${{ runner.temp }}/arguments-head.txt
           retention-days: 7
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: arguments-baseline-cli
-          path: /tmp/arguments-baseline-cli.tar.gz
-          retention-days: 3
-          compression-level: 0
           if-no-files-found: error
