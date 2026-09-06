@@ -14,26 +14,40 @@ fail() {
   failures=$((failures + 1))
 }
 
-check_no_boa_in_default_graph() {
-  package="$1"
-  count="$(cargo tree -p "$package" 2>/dev/null | grep -c boa_engine || true)"
-  if [ "$count" -ne 0 ]; then
-    fail "expected 0 boa_engine crates in the default dependency graph of $package, found $count"
+# Capture Cargo's exit status separately from inspecting its output. A failed
+# graph query is not evidence that the product excludes the interpreter.
+check_graph() {
+  local package="$1" expectation="$2" graph count
+  shift 2
+  if ! graph="$(cargo tree --locked -p "$package" --prefix none --format '{p}' "$@")"; then
+    fail "could not inspect dependency graph of $package ($expectation)"
+    return
   fi
+  if [[ -z "$graph" ]]; then
+    fail "empty dependency graph for $package ($expectation)"
+    return
+  fi
+  # Match package names, not paths or similarly named crates. --prefix none
+  # makes the first field independent of Cargo's tree-drawing characters.
+  count="$(awk '$1 == "boa_engine" { count++ } END { print count + 0 }' <<<"$graph")"
+  case "$expectation" in
+    absent)
+      if [[ "$count" -ne 0 ]]; then
+        fail "expected 0 boa_engine crates in the default dependency graph of $package, found $count"
+      fi
+      ;;
+    present)
+      if [[ "$count" -eq 0 ]]; then
+        fail "expected boa_engine to be reachable from $package with --features spec-exec-oracle (developer oracle build)"
+      fi
+      ;;
+  esac
 }
 
-check_boa_present_with_oracle_feature() {
-  package="$1"
-  count="$(cargo tree -p "$package" --features spec-exec-oracle 2>/dev/null | grep -c boa_engine || true)"
-  if [ "$count" -eq 0 ]; then
-    fail "expected boa_engine to be reachable from $package with --features spec-exec-oracle (developer oracle build)"
-  fi
-}
-
-check_no_boa_in_default_graph lila-engine
-check_no_boa_in_default_graph lila-cli
-check_boa_present_with_oracle_feature lila-engine
-check_boa_present_with_oracle_feature lila-cli
+check_graph lila-engine absent
+check_graph lila-cli absent
+check_graph lila-engine present --features spec-exec-oracle
+check_graph lila-cli present --features spec-exec-oracle
 
 artifact_test="crates/lila-aot-wasm/tests/product_artifact.rs"
 if [ ! -f "$artifact_test" ]; then
