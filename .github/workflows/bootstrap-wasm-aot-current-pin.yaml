@@ -22,6 +22,20 @@ jobs:
         with:
           ref: codex/wasm-aot-current-pin-inventory
           fetch-depth: 0
+      - name: Align the staged patch with the exact current planner formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_wasm_aot_current_pin_followup.py')
+          text = path.read_text()
+          old = 'StandardBuiltinId::ArrayPrototypeFlatMap\\n            | StandardBuiltinId::ArrayPrototypeMap'
+          new = 'StandardBuiltinId::ArrayPrototypeFlatMap\\n                | StandardBuiltinId::ArrayPrototypeMap'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one planner formatting match, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Apply exact current-pin transformations
         run: python3 scripts/apply_wasm_aot_current_pin_followup.py
       - name: Format and validate structural owners
