@@ -49,6 +49,14 @@ remaining work are documented in
 [the flatMap conformance follow-up](docs/rust-rewrite/aot-flat-map.md).
 This does not change the published full-suite status or denominator.
 
+Array `map`, `filter`, `every` and `some` now share one observable callback
+iteration compiler. It preserves the initial length, live sparse/Proxy reads,
+callable Proxy callbacks and borrowed TypedArray length overrides. Map and filter
+share species construction and data-property definition; quantifiers short-circuit
+without species effects. See [the callback iteration follow-up](docs/rust-rewrite/aot-array-callback-iteration.md)
+for regression commands, evidence boundaries and remaining work. The generated
+full-suite status below is unchanged.
+
 ## Current Status
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:

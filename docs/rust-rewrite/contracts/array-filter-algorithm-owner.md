@@ -1,5 +1,21 @@
 # `Array.prototype.filter` direct-entry ownership
 
+## Current algorithm ownership (2026-09-06)
+
+The direct-call argument boundary and standard-builtin entry below remain.
+The entry now delegates to the closed result policy in
+`builtins/array/callback_iteration.rs`, rather than retaining a copied algorithm.
+ToObject and captured LengthOfArrayLike precede callback validation; live
+HasProperty/Get precede Proxy-aware Call. The revised structural guard pins this
+shared ordering and forbids the private-length/function-only bypasses.
+See [the shared callback iteration contract](../aot-array-callback-iteration.md)
+for result semantics, exact commands and evidence limits.
+
+## Historical direct-entry checkpoint
+
+The dated implementation hashes, counts and unchanged-algorithm statements below
+describe the original direct-entry refactor, not the current shared algorithm.
+
 Status: implemented and verified for the bounded Wasm-AOT owner closure on
 2026-08-28.
 

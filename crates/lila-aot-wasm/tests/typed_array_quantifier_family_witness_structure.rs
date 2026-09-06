@@ -1,3 +1,4 @@
+const CALLBACK_ITERATION_SOURCE: &str = include_str!("../src/builtins/array/callback_iteration.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 
@@ -485,12 +486,21 @@ fn array_and_typed_array_quantifier_entry_families_are_disjoint() {
                 "{method} must not retain the unreachable strict TypedArray entry projection {forbidden}"
             );
         }
+        assert!(body.contains("self.compile_array_callback_iteration("));
+        assert!(!body.contains("TypedArrayWitnessUse::"));
         assert_eq!(
-            body.matches("TypedArrayWitnessUse::IntegerIndexedProperty")
+            CALLBACK_ITERATION_SOURCE
+                .matches("self.emit_object_has_property_i32(")
                 .count(),
-            1,
-            "{method} must retain one fresh integer-indexed witness for borrowed TypedArrays"
+            1
         );
+        assert_eq!(
+            CALLBACK_ITERATION_SOURCE
+                .matches("self.emit_typed_array_or_object_index_read_from_locals(")
+                .count(),
+            1
+        );
+        assert!(!CALLBACK_ITERATION_SOURCE.contains("TypedArrayWitnessUse::ValidatedMethodEntry"));
     }
 
     let normalized_standard = without_whitespace(STANDARD_SOURCE).replace(",)", ")");
@@ -557,36 +567,21 @@ fn array_quantifiers_have_no_array_result_or_species_residue() {
             );
         }
 
-        for required in [
-            "typed_receiver_local",
-            "typed_buffer_payload_local",
-            "typed_byte_offset_local",
-            "typed_stored_byte_length_local",
-            "typed_bytes_per_element_local",
+        assert!(body.contains("self.compile_array_callback_iteration("));
+        assert_eq!(body.matches("reserve_temp_local()").count(), 0);
+        assert_eq!(body.matches("release_temp_local(").count(), 0);
+        for forbidden in [
             "TypedArrayViewLocals::new(",
             "emit_load_typed_array_private_state(",
         ] {
             assert!(
-                body.contains(required),
-                "{method} must retain borrowed-TypedArray state `{required}`"
+                !CALLBACK_ITERATION_SOURCE.contains(forbidden),
+                "{method} must leave live integer-indexed policy with shared property operations"
             );
         }
-        assert_eq!(
-            body.matches("TypedArrayWitnessUse::IntegerIndexedProperty")
-                .count(),
-            1,
-            "{method} must retain one fresh integer-indexed witness"
-        );
-
-        let reservations = local_sequence(body, "let ", " = self.reserve_temp_local();");
-        let releases = local_sequence(body, "self.release_temp_local(", ");");
-        assert_eq!(reservations.len(), 28, "{method} temporary census");
-        let mut expected_releases = reservations;
-        expected_releases.reverse();
-        assert_eq!(
-            releases, expected_releases,
-            "{method} must release each retained temporary in reverse order"
-        );
+        assert!(CALLBACK_ITERATION_SOURCE.contains(
+            "ArrayCallbackIterationKind::Every | ArrayCallbackIterationKind::Some => {}"
+        ));
     }
 }
 
