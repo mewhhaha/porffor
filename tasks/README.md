@@ -635,6 +635,22 @@ the remaining apply and construct rewrites stay open.
 9. Backend design targets the experimental Wasmtime lower bound from `AGENTS.md` (Wasm GC, typed function references, reference types, `exnref` exception handling). Do not build second object models, closure representations, or exception mechanisms for runtimes that lack these features; reject such runtimes at the boundary.
 10. The legacy JavaScript product exists only in Git history at the recovery commit recorded by T28. Do not restore its compiler, runtime, package, publication, benchmark, or playground surfaces. JavaScript remains only as Rust-owned test/conformance data or vendored source.
 
+## T01 comparison identity — 2026-09-06
+
+Snapshot comparison now rejects a missing requested name instead of silently
+substituting another complete run and reporting an empty diff. Explicit
+self-comparison, complete-evidence validation and status/backlog discovery remain
+intact. The retained `snapshot_comparison_identity` integration target covers the
+boundary with product-front-end compile-negative fixtures, not real-suite
+conformance evidence. See [T01](01-baseline-and-generated-backlog.md) and the
+[comparison contract](../docs/rust-rewrite/test262-snapshot-comparison.md).
+
+Next: finish the guarded current-pin Wasm-AOT matrix with fixed compiler inputs,
+publish only its verified canonical artifacts, then generate and curate the
+failure backlog. Compare explicitly named compatible runs; mandatory compiler
+provenance is still a separate schema migration. No aggregate status or T26
+closure is claimed by this repair.
+
 ## How to execute one task
 
 1. Read this file, the selected task file, `AGENTS.md`, and the touched crate manifests.
