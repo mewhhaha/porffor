@@ -100,6 +100,29 @@ This does not bind older checkpoints to a compiler or introduce optional
 snapshot provenance metadata. Current-pin publication and the separately
 designed mandatory provenance schema remain open.
 
+## Exact comparison inputs — 2026-09-06
+
+`compare-snapshots` now requires both requested snapshot names to match their
+validated aggregate identities. A missing baseline or candidate must not resolve
+to the other run (or a third run) and fabricate a zero-change comparison. The
+shared loader still validates current schema, pins, the complete matrix and node
+evidence; status/backlog discovery retains its existing unique-name fallback.
+Explicitly comparing a snapshot with itself remains supported.
+
+The retained `snapshot_comparison_identity` integration target exercises missing
+inputs, explicit self-comparison, an actual added pass and regression, discovery
+fallback and incomplete/corrupt named candidates. Its compile-negative fixture
+matrices use the Wasm-AOT front end without enabling the oracle; these are harness
+contracts, not pinned real-suite conformance counts. See
+[the comparison contract](../docs/rust-rewrite/test262-snapshot-comparison.md).
+
+Next batch: build and record one unchanged compiler, finish the complete
+current-pin Wasm-AOT matrix through the guarded publication driver, verify and
+publish its canonical artifacts, and generate the failure backlog. Compare only
+explicitly named compatible snapshots; do not invent a missing historical
+baseline. Mandatory cross-invocation compiler provenance still requires its
+separate schema design. T01 and T26 remain open.
+
 ## Objective
 
 Produce a complete, reproducible view of the current pinned Test262 state for the `wasm-aot` product backend, then generate a machine-readable backlog that assigns every non-passing case to a semantic family and task ID. A `spec-exec` oracle snapshot may be produced alongside it for differential triage, but it is diagnostic data only — it is never the baseline that tasks burn down and never product status.

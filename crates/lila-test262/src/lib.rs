@@ -14033,15 +14033,36 @@ pub fn generate_backlog(
     Ok((artifact, paths))
 }
 
+/// A comparison names two specific runs, not two discovery hints. In particular,
+/// a missing baseline must not resolve to the candidate and manufacture an empty
+/// diff. Keep the shared complete-evidence validation and discovery behavior for
+/// other consumers, but require the requested identity at this boundary.
+fn load_comparison_aggregate_summary(
+    config: &SuiteConfig,
+    snapshot_name: &str,
+    execution_backend: ExecutionBackend,
+) -> Result<VerifiedAggregateSummary, String> {
+    let verified = load_current_aggregate_summary(config, snapshot_name, execution_backend)?;
+    if verified.resolved_snapshot_name != snapshot_name {
+        return Err(format!(
+            "snapshot comparison requires exact snapshot name `{snapshot_name}`; only `{}` resolved; refusing to compare a different snapshot",
+            verified.resolved_snapshot_name
+        ));
+    }
+    Ok(verified)
+}
+
+/// Compare two explicitly named, complete current snapshots.
+/// Unlike status/backlog discovery, comparison never substitutes another name.
 pub fn compare_snapshots(
     config: &SuiteConfig,
     base_snapshot_name: &str,
     candidate_snapshot_name: &str,
     execution_backend: ExecutionBackend,
 ) -> Result<SnapshotComparison, String> {
-    let base = load_current_aggregate_summary(config, base_snapshot_name, execution_backend)?;
+    let base = load_comparison_aggregate_summary(config, base_snapshot_name, execution_backend)?;
     let candidate =
-        load_current_aggregate_summary(config, candidate_snapshot_name, execution_backend)?;
+        load_comparison_aggregate_summary(config, candidate_snapshot_name, execution_backend)?;
     // Refuse to compare snapshots whose suite pins are not verifiably the
     // same suite content. Textual pin differences are accepted only when the
     // git object store proves the vendored suite trees are identical.

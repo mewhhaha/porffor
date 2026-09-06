@@ -70,6 +70,11 @@ inconsistent matrix progress before calling the Rust publisher. See
 for resume safeguards and provenance limits. This does not establish a new
 current-pin baseline or change the generated status block.
 
+`test262 compare-snapshots <base> --snapshot-name <candidate>` requires both
+exact snapshot names. A missing input is an error, not permission to compare
+against a different run. See [the snapshot comparison contract](docs/rust-rewrite/test262-snapshot-comparison.md)
+for commands and evidence requirements.
+
 Array `toLocaleString` now uses shared observable length acquisition for every
 generic receiver, including TypedArray and arguments length overrides. The
 strict direct TypedArray method retains its private validation witness, and
