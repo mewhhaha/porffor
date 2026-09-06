@@ -41,6 +41,8 @@ jobs:
           git add -A
           before_format=$(git write-tree)
           test "$before_format" = c7ebaddb380b8fec9b3559356ce7e235bf174359
+          git diff --binary "$base" > /tmp/pr-review-evidence/candidate.patch
+          git write-tree > /tmp/pr-review-evidence/candidate-tree.txt
           python3 - <<'PY'
           from pathlib import Path
           def replace(path, old, new):
@@ -49,14 +51,11 @@ jobs:
               assert s.count(old) == 1, (path, old, s.count(old))
               p.write_text(s.replace(old, new, 1))
           replace('crates/lila-aot-wasm/tests/object_read_proxy_realm_structure.rs',
-              '.matches("RuntimeHelperId::ObjectRead | RuntimeHelperId::ObjectReadProxy")',
-              '.chars().filter(|ch| !ch.is_whitespace()).collect::<String>().matches(concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|", "RuntimeHelperId::IndexedElementRead=>Self::ObjectReadHelperArgument,"))')
-          replace('crates/lila-aot-wasm/tests/object_read_realm_projection_capability_structure.rs',
-              '"RuntimeHelperId::ObjectRead,RuntimeHelperId::ObjectReadProxy]);"',
-              '"RuntimeHelperId::ObjectRead,RuntimeHelperId::ObjectReadProxy,",\n            "RuntimeHelperId::IndexedElementRead]);"')
+              'RuntimeHelperId::IndexedElementRead=>{Self::ObjectReadHelperArgument}',
+              'RuntimeHelperId::IndexedElementRead=>Self::ObjectReadHelperArgument,')
           replace('crates/lila-aot-wasm/tests/proxy_execution_realm_structure.rs',
-              'concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy=>{",)',
-              'concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|", "RuntimeHelperId::IndexedElementRead=>")')
+              'RuntimeHelperId::IndexedElementRead=>{',
+              'RuntimeHelperId::IndexedElementRead=>')
           PY
           cargo fmt --all
           git diff "$before_format" > /tmp/pr-review-evidence/format-and-guard.patch
