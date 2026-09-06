@@ -74,15 +74,33 @@ jobs:
           for path in crates/lila-cli/tests/fixtures/wasm_array_hasown_length.js crates/lila-cli/tests/fixtures/wasm_array_index_accessor_setter.js crates/lila-engine/tests/aot_arguments_iteration.rs crates/lila-engine/tests/aot_array_to_locale_string_length.rs; do
             test "$(git rev-parse "$current:$path")" = "$(git rev-parse "$reviewed:$path")"
           done
-      - name: Publish isolated source-validated candidate
+      - name: Publish product sources without changing workflow permissions
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          gh auth setup-git
+          current=1a1d441adacaf887726892dedf95de4a49e2bf8a
+          main=5eb66f1d1f31c972259bbd0a09ec80e28d51a9f5
           reviewed=$(cat /tmp/pr20-final-evidence/source-sha.txt)
-          git push origin "$reviewed:refs/heads/codex/pr20-final-ci-repair-20260906"
+          workflow=.github/workflows/array-to-locale-string-conformance.yaml
+          # The runner token can publish code, but workflow changes are left
+          # to the user's authorized GitHub connection. Runtime checks still
+          # execute the complete reviewed source tree recorded above.
+          git update-index --cacheinfo "100644,$(git rev-parse "$current:$workflow"),$workflow"
+          transport_tree=$(git write-tree)
+          transport=$(printf 'fix(aot): repair property dispatch and indexed read error realms\n' | git commit-tree "$transport_tree" -p "$current" -p "$main")
+          git read-tree "$reviewed"
+          printf '%s\n' "$transport" > /tmp/pr20-final-evidence/transport-sha.txt
+          printf '%s\n' "$transport_tree" > /tmp/pr20-final-evidence/transport-tree.txt
+          test "$(git diff --name-only "$transport" "$reviewed")" = "$workflow"
+          gh auth setup-git
+          git push origin "$transport:refs/heads/codex/pr20-final-ci-repair-20260906"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr20-final-source-evidence
+          path: /tmp/pr20-final-evidence
+          retention-days: 2
       - name: Execute both originally failing retained CLI fixtures
         shell: bash
         run: |
