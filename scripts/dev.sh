@@ -53,8 +53,9 @@ case "$command" in
     exec cargo test $jobs_flag "$@"
     ;;
   test262)
-    cargo build $jobs_flag -p lila-cli
-    exec ./target/debug/lila test262 "$@"
+    # Cargo owns target-dir, target triples and runners. A hard-coded path
+    # can execute a stale binary when any of those settings changes.
+    exec cargo run $jobs_flag -p lila-cli -- test262 "$@"
     ;;
   timings)
     if [ "$#" -eq 0 ]; then set -- -p lila-ir -p lila-aot-wasm; fi
