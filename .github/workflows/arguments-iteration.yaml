@@ -18,6 +18,8 @@ jobs:
       LILA_TEST262_FORCE_CASE_RUNNER: 1
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Record compiler provenance
         run: |
           mkdir -p /tmp/arguments-evidence
@@ -60,7 +62,6 @@ jobs:
           ./target/debug/lila test262 run language/statements/for-of/arguments- --execution-backend wasm --threads 1 --jobs 1 --timeout-ms 60000 --snapshot-dir /tmp/arguments-evidence/test262 --snapshot-name arguments-ci 2>&1 | tee /tmp/arguments-evidence/test262.txt
           grep -Fx 'total: 6' /tmp/arguments-evidence/test262.txt
           grep -Fx 'passed: 6' /tmp/arguments-evidence/test262.txt
-          grep -Fx 'failed: 0' /tmp/arguments-evidence/test262.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
