@@ -8,6 +8,13 @@
 
 ## Current repository state
 
+The four generic callback methods `map`, `filter`, `every` and `some` now use one
+closed-result-policy compiler with shared observable length, callable/Proxy Call,
+HasProperty/Get, species and data-definition operations. The new Wasm-AOT
+regression target and revised ownership guards are documented in
+[the callback iteration follow-up](../docs/rust-rewrite/aot-array-callback-iteration.md).
+This is not T16 closure or a new full-suite percentage.
+
 Array exotic storage, descriptors, species and most prototype families have
 substantial implementations and many focused complete-leaf results recorded in
 the README. `crates/lila-aot-wasm/src/builtins/array.rs` remains a very large

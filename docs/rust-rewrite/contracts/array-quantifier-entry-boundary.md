@@ -1,5 +1,25 @@
 # Array quantifier entry boundary
 
+## Current generic-loop boundary (2026-09-06)
+
+The generic Array and strict TypedArray entry families remain disjoint. The two
+Array wrappers now select `ArrayCallbackIterationKind::{Every, Some}` in the
+shared [callback iteration compiler](../aot-array-callback-iteration.md). That
+kind selects only result policy, never a receiver-validation mode. Borrowed
+TypedArray HasProperty/Get now delegate to the common property operations; the
+generic loop no longer owns a private view or witness cache. Quantifier result
+policy emits no species operation or result allocation. Its wrappers reserve no
+temporaries; the shared compiler's complete lifecycle has its own LIFO guard.
+
+The updated entry-family guard pins this delegation, bans strict TypedArray entry
+validation in the generic loop, and retains the exact separate TypedArray
+producer/consumer checks.
+
+## Historical boundary and residue checkpoints
+
+The old per-wrapper witness and 28-local census below describe the implementation
+before shared callback iteration, not the current contract.
+
 Status: implemented and focused-verified for the Wasm-AOT
 `Array.prototype.every` and `some` entry-family separation, 2026-08-26. The
 2026-08-29 Array-result residue cleanup is implemented with verification

@@ -1727,6 +1727,8 @@ impl RuntimeBootstrapPlan {
         if matches!(
             builtin,
             StandardBuiltinId::ArrayPrototypeFlatMap
+                | StandardBuiltinId::ArrayPrototypeMap
+                | StandardBuiltinId::ArrayPrototypeFilter
                 | StandardBuiltinId::ArrayPrototypeSlice
                 | StandardBuiltinId::ArrayPrototypeSplice
         ) {

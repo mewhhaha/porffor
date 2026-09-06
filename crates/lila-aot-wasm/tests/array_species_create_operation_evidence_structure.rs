@@ -4,6 +4,7 @@ use lila_ir::{
     TrackedGapReason, SPEC_OPERATION_CATALOG,
 };
 
+const CALLBACK_ITERATION_SOURCE: &str = include_str!("../src/builtins/array/callback_iteration.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const BACKEND_JOIN_SOURCE: &str = include_str!("../src/backend_operation_evidence.rs");
 const BACKEND_LIB_SOURCE: &str = include_str!("../src/lib.rs");
@@ -111,7 +112,7 @@ fn backend_operation_join_is_exhaustive_and_names_the_real_emitter() {
 }
 
 #[test]
-fn array_species_create_emitter_has_flat_map_slice_and_splice_callers() {
+fn array_species_create_emitter_has_map_filter_flat_map_slice_and_splice_callers() {
     assert_eq!(
         ARRAY_SOURCE
             .matches("pub(crate) fn emit_array_species_create(")
@@ -123,6 +124,18 @@ fn array_species_create_emitter_has_flat_map_slice_and_splice_callers() {
         4
     );
 
+    assert_eq!(
+        CALLBACK_ITERATION_SOURCE
+            .matches("self.emit_array_species_create(")
+            .count(),
+        2
+    );
+    for kind in ["Map", "Filter"] {
+        assert!(CALLBACK_ITERATION_SOURCE.contains(&format!(
+            "ArrayCallbackIterationKind::{kind} => self.emit_array_species_create("
+        )));
+    }
+    assert_eq!(CALLBACK_ITERATION_SOURCE.matches(SPECIES_READ).count(), 0);
     let flat_map = bounded(
         ARRAY_SOURCE,
         "    pub(crate) fn compile_array_prototype_flat_map_builtin(",
@@ -147,8 +160,8 @@ fn array_species_create_emitter_has_flat_map_slice_and_splice_callers() {
 }
 
 #[test]
-fn symbol_species_reads_remain_a_reviewed_eight_site_census() {
-    assert_eq!(ARRAY_SOURCE.matches(SPECIES_READ).count(), 8);
+fn symbol_species_reads_remain_a_reviewed_six_site_census() {
+    assert_eq!(ARRAY_SOURCE.matches(SPECIES_READ).count(), 6);
 
     let live_array_copies = [
         (
@@ -159,16 +172,8 @@ fn symbol_species_reads_remain_a_reviewed_eight_site_census() {
             "    pub(crate) fn compile_array_prototype_concat_builtin(",
             "    pub(crate) fn compile_array_prototype_flat_map_builtin(",
         ),
-        (
-            "    pub(crate) fn compile_array_prototype_map_builtin(",
-            "    pub(crate) fn compile_typed_array_prototype_slice_builtin(",
-        ),
-        (
-            "    pub(crate) fn compile_array_prototype_filter_builtin(",
-            "    pub(crate) fn emit_array_direct_builtin_method_call(",
-        ),
     ];
-    assert_eq!(live_array_copies.len(), 4);
+    assert_eq!(live_array_copies.len(), 2);
     for (start, end) in live_array_copies {
         assert_eq!(
             bounded(ARRAY_SOURCE, start, end)

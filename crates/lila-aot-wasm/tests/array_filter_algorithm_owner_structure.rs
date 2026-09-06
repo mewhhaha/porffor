@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+const CALLBACK_ITERATION_SOURCE: &str = include_str!("../src/builtins/array/callback_iteration.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
@@ -146,47 +147,66 @@ fn shared_call_boundary_and_canonical_compiler_own_argument_and_filter_order() {
         "    pub(crate) fn compile_array_prototype_filter_builtin(",
         "    pub(crate) fn emit_array_direct_builtin_method_call(",
     );
-    assert_eq!(canonical.matches("self.argc_param_local()").count(), 2);
     assert_eq!(
         canonical
-            .matches("self.emit_builtin_arg_to_locals(0,")
+            .matches("self.compile_array_callback_iteration(")
             .count(),
         1
     );
+    assert!(canonical.contains("ArrayCallbackIterationKind::Filter"));
+    assert!(!canonical.contains("emit_builtin_arg_to_locals("));
+    let shared = CALLBACK_ITERATION_SOURCE;
     assert_eq!(
-        canonical
-            .matches("self.emit_builtin_arg_to_locals(1,")
-            .count(),
+        shared.matches("self.emit_builtin_arg_to_locals(0,").count(),
+        1
+    );
+    assert_eq!(
+        shared.matches("self.emit_builtin_arg_to_locals(1,").count(),
         1
     );
     for (earlier, later) in [
         (
+            "self.emit_array_iteration_length_before_callback_validation(",
             "self.emit_builtin_arg_to_locals(0,",
+        ),
+        (
+            "self.emit_builtin_arg_to_locals(0,",
+            "self.emit_is_callable_i32(",
+        ),
+        (
+            "self.emit_is_callable_i32(",
             "self.emit_builtin_arg_to_locals(1,",
         ),
         (
             "self.emit_builtin_arg_to_locals(1,",
-            "self.emit_array_iteration_to_object(",
+            "self.emit_array_species_create(",
         ),
         (
-            "self.emit_array_iteration_to_object(",
+            "self.emit_array_species_create(",
             "self.emit_object_has_property_i32(",
         ),
         (
             "self.emit_object_has_property_i32(",
-            "self.emit_array_index_get_with_prototype(",
+            "self.emit_typed_array_or_object_index_read_from_locals(",
         ),
         (
-            "self.emit_array_index_get_with_prototype(",
-            "self.emit_function_handle_call_with_argv(",
+            "self.emit_typed_array_or_object_index_read_from_locals(",
+            "self.emit_function_or_proxy_call_with_argv_leave_throw_completion(",
         ),
-        (
-            "self.emit_function_handle_call_with_argv(",
-            "self.compile_truthy_tagged_i32(",
-        ),
-        ("self.compile_truthy_tagged_i32(", "self.emit_array_write("),
     ] {
-        assert_before(canonical, earlier, later);
+        assert_before(shared, earlier, later);
+    }
+    for forbidden in [
+        "emit_function_handle_call_with_argv(",
+        "emit_array_index_get_with_prototype(",
+        "emit_load_typed_array_private_state(",
+        "ARRAY_LENGTH_OFFSET",
+        "property_key_symbol_payload(\"Symbol.species\")",
+    ] {
+        assert!(
+            !shared.contains(forbidden),
+            "shared filter loop must not duplicate {forbidden}"
+        );
     }
 }
 
