@@ -1,0 +1,80 @@
+name: Array toLocaleString conformance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: array-to-locale-string-conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regressions:
+    name: Observable toLocaleString Wasm-AOT regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check Rust and semantic ownership guards
+        run: |
+          cargo fmt --all -- --check
+          cargo check --locked --workspace
+          cargo test --locked -p lila-aot-wasm --test array_to_locale_string_observable_structure
+      - name: Execute every regression in a fresh bounded process
+        run: python3 scripts/run_engine_regression_inventory.py aot_array_to_locale_string_observable --output-dir /tmp/locale-engine --timeout 120
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: array-to-locale-string-regression-evidence
+          path: /tmp/locale-engine
+          retention-days: 7
+
+  real-test262:
+    name: Pinned real ${{ matrix.kind }} toLocaleString
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [Array, TypedArray]
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build this revision of the product CLI
+        run: |
+          cargo build --locked -p lila-cli
+          git rev-parse HEAD > /tmp/locale-source-sha.txt
+      - name: Execute the complete pinned real subtree
+        shell: bash
+        env:
+          LOCALE_KIND: ${{ matrix.kind }}
+        run: |
+          set -euo pipefail
+          filter="built-ins/$LOCALE_KIND/prototype/toLocaleString/"
+          ./target/debug/lila test262 list "$filter" | tee /tmp/locale-inventory.txt
+          ./target/debug/lila test262 run "$filter" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/locale-test262 --snapshot-name "${LOCALE_KIND}-toLocaleString-ci" 2>&1 | tee /tmp/locale-test262.txt
+          grep -Eq '^total: [1-9][0-9]*$' /tmp/locale-test262.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.kind }}-to-locale-string-real-evidence
+          path: |
+            /tmp/locale-source-sha.txt
+            /tmp/locale-inventory.txt
+            /tmp/locale-test262.txt
+            /tmp/locale-test262
+          retention-days: 7
