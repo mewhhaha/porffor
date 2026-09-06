@@ -7,17 +7,39 @@ permissions:
 jobs:
   source:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5
           persist-credentials: false
       - name: Export exact baseline source
+        shell: bash
         run: |
-          git archive 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5 | gzip -1 > /tmp/lila-baseline-source.tar.gz
-          printf '%s\n' 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5 > /tmp/lila-baseline-sha.txt
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5
+          git archive HEAD | gzip -1 > /tmp/lila-baseline-source.tar.gz
+          test "$(stat -c %s /tmp/lila-baseline-source.tar.gz)" -gt 1000000
+          git rev-parse HEAD > /tmp/lila-baseline-sha.txt
       - uses: actions/upload-artifact@v4
         with:
           name: lila-conformance-review-source
           path: /tmp/lila-baseline-*
+          retention-days: 7
+      - name: Export public locked dependencies and Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo vendor --locked /tmp/lila-vendor > /tmp/lila-vendor-config.toml
+          tar -C /tmp -czf /tmp/lila-vendor.tar.gz lila-vendor lila-vendor-config.toml
+          sysroot=$(rustc --print sysroot)
+          tar -C "$sysroot" -czf /tmp/lila-rust-toolchain.tar.gz bin lib
+          rustc -vV > /tmp/lila-rust-version.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lila-offline-build-inputs
+          path: |
+            /tmp/lila-vendor.tar.gz
+            /tmp/lila-rust-toolchain.tar.gz
+            /tmp/lila-rust-version.txt
           retention-days: 7
