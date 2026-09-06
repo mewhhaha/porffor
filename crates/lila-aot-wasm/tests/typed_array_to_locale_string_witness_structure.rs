@@ -645,3 +645,48 @@ fn focused_cli_fixture_covers_non_throwing_generic_typed_array_snapshots() {
         "the coupled odd-byte and detached scenarios must precede the sole final publication"
     );
 }
+
+#[test]
+fn ordinary_get_distinguishes_arguments_length_descriptors_from_array_storage() {
+    let body = bounded(
+        include_str!("../src/objects.rs"),
+        "pub(crate) fn emit_object_read_ordinary_inner(",
+        "// Array-like exotic elements and named properties live in",
+    );
+    let descriptor = unique_normalized_position(
+        body,
+        "HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET",
+        "arguments own length descriptor",
+    );
+    let present = unique_normalized_position(
+        body,
+        "HEAP_ARGUMENTS_LENGTH_VALUE_OFFSET",
+        "arguments own data value",
+    );
+    assert!(descriptor < present);
+    for field in [
+        "HEAP_ARGUMENTS_LENGTH_VALUE_TAG_OFFSET",
+        "HEAP_ARGUMENTS_LENGTH_GETTER_PAYLOAD_OFFSET",
+        "HEAP_ARGUMENTS_LENGTH_GETTER_TAG_OFFSET",
+    ] {
+        assert!(
+            body.contains(field),
+            "missing arguments length field: {field}"
+        );
+    }
+    assert!(without_whitespace(body).contains(&without_whitespace(
+        r#"
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            getter_payload_local,
+            getter_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            &[],
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        "#
+    )));
+    assert!(body.contains("self.emit_load_prototype_to_current_locals("));
+}

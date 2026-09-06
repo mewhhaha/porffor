@@ -297,3 +297,79 @@ ok && Array.prototype.toLocaleString.call('ab') === 'a,b' &&
 "#,
     );
 }
+
+#[test]
+fn deleted_arguments_length_getter_keeps_receiver_and_live_mapped_values() {
+    assert_wasm_true(
+        r#"
+function check(a, b) {
+  var source = arguments, calls = 0, correctThis = false;
+  delete source.length;
+  Object.setPrototypeOf(source, {
+    get length() { calls++; correctThis = this === source; a = 8; return 1; }
+  });
+  return Array.prototype.toLocaleString.call(source) === '8' && calls === 1 && correctThis;
+}
+check(4, 5);
+"#,
+    );
+}
+
+#[test]
+fn arguments_length_proxy_getter_propagates_the_exact_throw_before_elements() {
+    assert_wasm_true(
+        r#"
+function check(a) {
+  var source = arguments, calls = 0, reads = 0, correctThis = false, marker = {};
+  Object.defineProperty(source, '0', { get() { reads++; return 7; } });
+  var getter = new Proxy(function() { throw 'target must not run'; }, {
+    apply(target, receiver, args) {
+      calls++; correctThis = receiver === source && args.length === 0; throw marker;
+    }
+  });
+  Object.defineProperty(source, 'length', { get: getter });
+  try { Array.prototype.toLocaleString.call(source); return false; }
+  catch (e) { return e === marker && calls === 1 && reads === 0 && correctThis; }
+}
+check(4);
+"#,
+    );
+}
+
+#[test]
+fn undefined_arguments_length_getter_shadows_inherited_length() {
+    assert_wasm_true(
+        r#"
+function check(a) {
+  'use strict';
+  var source = arguments, calls = 0;
+  Object.setPrototypeOf(source, { get length() { calls++; return 1; } });
+  Object.defineProperty(source, 'length', { get: undefined });
+  return Array.prototype.toLocaleString.call(source) === '' && calls === 0;
+}
+check(4);
+"#,
+    );
+}
+
+#[test]
+fn inherited_arguments_length_accessor_uses_the_original_get_receiver() {
+    assert_wasm_true(
+        r#"
+function check(a, b) {
+  'use strict';
+  var source = arguments, calls = 0, correctThis = false;
+  var receiver = Object.create(source);
+  receiver[0] = 8;
+  var getter = new Proxy(function() { return 99; }, {
+    apply(target, value, args) {
+      calls++; correctThis = value === receiver && args.length === 0; return 1;
+    }
+  });
+  Object.defineProperty(source, 'length', { get: getter });
+  return Array.prototype.toLocaleString.call(receiver) === '8' && calls === 1 && correctThis;
+}
+check(4, 5);
+"#,
+    );
+}
