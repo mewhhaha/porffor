@@ -50,7 +50,7 @@ The algorithms follow ECMA-262's
 
 ## Verification
 
-The explicit Wasm-AOT target `aot_array_callback_iteration` contains 20 regression
+The explicit Wasm-AOT target `aot_array_callback_iteration` contains 21 regression
 programs. Reference evaluation in Node is a check of test expectations, not
 product execution evidence. Structural guards pin all four producers, input
 operation ordering, exhaustive result policy, live indexed-operation ownership,
@@ -88,6 +88,15 @@ changed by authoring this batch. A green focused subtree is not full Test262
 conformance, and historical materialized-source results are not raw-source proof.
 
 ## Review findings and next work
+
+Review found a pre-existing bug in the shared Array-result definition helper:
+its internal descriptor carrier inherited Object.prototype, exposing inherited
+`get`/`set` getters during ObjectDefineProperty conversion. Reusing it would
+also regress map/filter. The carrier now has a null prototype; public
+FromPropertyDescriptor objects and Proxy trap descriptors are unchanged.
+A regression covers both inherited field names across map/filter/flatMap,
+with both default and custom Array species results, and a structural guard
+pins the internal carrier's isolation.
 
 The original implementations duplicated callback and species checks, dispatched
 Call to function handles rather than general callable Proxies, and bypassed

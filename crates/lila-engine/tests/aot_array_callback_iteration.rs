@@ -397,3 +397,32 @@ result.length === 1 && result[0] === 4;
 "#,
     );
 }
+
+#[test]
+fn internal_result_descriptors_ignore_inherited_get_and_set() {
+    assert_wasm_true(
+        r#"
+var methods = [Array.prototype.map, Array.prototype.filter, Array.prototype.flatMap];
+var fields = ['get', 'set'], ok = true, reads = 0, marker = {};
+for (var f = 0; f < fields.length; f++) {
+  Object.defineProperty(Object.prototype, fields[f], {
+    configurable: true,
+    get: function() { reads++; throw marker; }
+  });
+  try {
+    for (var m = 0; m < methods.length; m++) {
+      for (var custom = 0; custom < 2; custom++) {
+        var source = [2, 3], target = [];
+        if (custom) source.constructor = { [Symbol.species]: function() { return target; } };
+        var result = methods[m].call(source, function(value) { return value + 1; });
+        ok = ok && result.length === 2 && result[0] === (m === 1 ? 2 : 3) && result[1] === (m === 1 ? 3 : 4);
+        if (custom) ok = ok && result === target;
+      }
+    }
+  } catch (error) { ok = false; }
+  finally { delete Object.prototype[fields[f]]; }
+}
+ok && reads === 0;
+"#,
+    );
+}

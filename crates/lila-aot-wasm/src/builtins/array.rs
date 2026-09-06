@@ -12449,11 +12449,10 @@ impl<'a> FunctionBuilder<'a> {
         let define_property_tag_local = self.reserve_temp_local();
         let call_payload_local = self.reserve_temp_local();
         let call_tag_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
+        // This carrier is internal to CreateDataProperty, not a public
+        // FromPropertyDescriptor result. Inherited get/set properties must
+        // not participate when ObjectDefineProperty consumes its fields.
+        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
         function.instruction(&Instruction::LocalSet(descriptor_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(descriptor_tag_local));
