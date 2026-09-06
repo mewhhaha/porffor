@@ -8,27 +8,52 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  baseline:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: abdcf56f1bd88d5debbb1d8c291f2e7213f77371
           persist-credentials: false
-      - name: Identify Arguments regression and task owners
+      - name: Build exact baseline product
+        run: |
+          mkdir -p /tmp/arguments-baseline
+          git rev-parse HEAD | tee /tmp/arguments-baseline/source-sha.txt
+          rustc --version --verbose > /tmp/arguments-baseline/rustc.txt
+          cargo build --locked -p lila-cli
+          sha256sum target/debug/lila | tee /tmp/arguments-baseline/cli-sha256.txt
+      - name: Execute retained regression and adjacent symbol-identity control
         shell: bash
         run: |
           set -euo pipefail
-          git rev-parse HEAD
-          find . -name AGENTS.md -not -path './.git/*'
-          rg -n -i 'arguments.{0,80}iterat|iterat.{0,80}arguments' crates/lila-engine crates/lila-aot-wasm tasks docs/rust-rewrite | head -200 || true
-          find tasks -maxdepth 1 -type f | sort
-      - name: Package source without repository credentials
-        run: tar --exclude='./.git' -czf "$RUNNER_TEMP/arguments-source.tar.gz" .
+          cargo test --locked -p lila-engine --lib --no-run
+          set +e
+          cargo test --locked -p lila-engine --lib wasm_backend_arguments_iterators_observe_length_truncation -- --nocapture --test-threads=1 > /tmp/arguments-baseline/truncation.txt 2>&1
+          truncation=$?
+          cargo test --locked -p lila-engine --lib wasm_backend_computed_symbol_keys_stay_distinct_from_similar_strings -- --nocapture --test-threads=1 > /tmp/arguments-baseline/symbol-control.txt 2>&1
+          symbols=$?
+          set -e
+          cat /tmp/arguments-baseline/truncation.txt /tmp/arguments-baseline/symbol-control.txt
+          printf 'truncation_exit=%s\nsymbol_control_exit=%s\n' "$truncation" "$symbols" | tee /tmp/arguments-baseline/exits.txt
+      - name: Package exact baseline executable
+        if: ${{ !cancelled() }}
+        run: tar -czf /tmp/arguments-baseline-cli.tar.gz -C target/debug lila
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: arguments-source-snapshot
-          path: ${{ runner.temp }}/arguments-source.tar.gz
+          name: arguments-baseline-evidence
+          path: /tmp/arguments-baseline
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: arguments-baseline-cli
+          path: /tmp/arguments-baseline-cli.tar.gz
           retention-days: 3
           compression-level: 0
           if-no-files-found: error
