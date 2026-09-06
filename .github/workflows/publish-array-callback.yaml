@@ -1,0 +1,74 @@
+name: Publish reviewed callback batch
+on:
+  push:
+    branches: [codex/array-callback-prepare]
+    paths: [.github/workflows/publish-array-callback.yaml]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: transport
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/array-callback-iteration-conformance
+          path: product
+      - name: Verify and apply the reviewed source
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5
+          python3 - <<'PY'
+          import base64
+          import gzip
+          import hashlib
+          from pathlib import Path
+          encoded = ''.join(Path(f'../transport/callback-patch-{i}.b64').read_text().strip() for i in range(1, 4))
+          # Repair a transcription error in the transport, never in source.
+          encoded = encoded.replace('j2z3ke1fYba', 'j2z3ke1+Yba')
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'b3f8059342e69eb0b4799607a5db779cc348c367f55c1db7a09480b1ba2a815c'
+          Path('/tmp/callback.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/callback.patch
+          git apply /tmp/callback.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p = Path('crates/lila-aot-wasm/src/builtins/array.rs')
+          s = p.read_text()
+          assert hashlib.sha256(s.encode()).hexdigest() == '99c89d701c4109bb6aa95f4b83d8640c837267891d474f04dc4adf9f92de5c07'
+          s = s.replace('mod copy_within;', 'mod callback_iteration;\nmod copy_within;', 1)
+          s = s.replace('use copy_within::ArrayCopyWithinDirection;', 'use callback_iteration::ArrayCallbackIterationKind;\nuse copy_within::ArrayCopyWithinDirection;', 1)
+          for method, next_fn in [('map', 'compile_typed_array_prototype_slice_builtin'), ('every', 'compile_array_prototype_some_builtin'), ('some', 'compile_array_prototype_filter_builtin'), ('filter', 'emit_array_direct_builtin_method_call')]:
+              start = s.index(f'    pub(crate) fn compile_array_prototype_{method}_builtin(')
+              end = s.index(f'    pub(crate) fn {next_fn}(', start)
+              wrapper = f'    pub(crate) fn compile_array_prototype_{method}_builtin(\n        &mut self,\n        function: &mut Function,\n    ) -> Result<(), EmitError> {{\n        self.compile_array_callback_iteration(function, ArrayCallbackIterationKind::{method.title()})\n    }}\n\n'
+              s = s[:start] + wrapper + s[end:]
+          start = s.index('    pub(crate) fn emit_string_hex_length_to_i64_local(')
+          end = s.index('    pub(crate) fn compile_array_prototype_map_builtin(', start)
+          s = s[:start] + s[end:]
+          assert hashlib.sha256(s.encode()).hexdigest() == '540a4cb0b347cf1acabb54c44aaaeec60e9dd08bb87db949412b7e721e2eb594'
+          p.write_text(s)
+          p = Path('crates/lila-aot-wasm/src/planning.rs')
+          s = p.read_text()
+          assert hashlib.sha256(s.encode()).hexdigest() == '0f1edb59069e8ff8c7bacb0354779b293b329e7fad1640c0da5a0707ae2d3cb9'
+          old = '            StandardBuiltinId::ArrayPrototypeFlatMap\n                | StandardBuiltinId::ArrayPrototypeSlice'
+          assert s.count(old) == 1
+          s = s.replace(old, '            StandardBuiltinId::ArrayPrototypeFlatMap\n                | StandardBuiltinId::ArrayPrototypeMap\n                | StandardBuiltinId::ArrayPrototypeFilter\n                | StandardBuiltinId::ArrayPrototypeSlice')
+          assert hashlib.sha256(s.encode()).hexdigest() == '5813eb531163872d981b5b04067991a1a65021211debf5f6b7f54e50d5e2c038'
+          p.write_text(s)
+          PY
+          cargo fmt --all -- --check
+          git diff --check
+          git config user.name 'mewhhaha'
+          git config user.email '3399205+mewhhaha@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(array): share observable callback iteration for map filter every and some'
+          git push origin HEAD:refs/heads/codex/array-callback-iteration-conformance
