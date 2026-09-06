@@ -18,6 +18,7 @@ jobs:
     env:
       PROPOSAL: 2c5e139394abea434a23616ba817bceb7d632e37
       INTEGRATE: acdd0d1aba6e53b9ed65ed42d16bfe953b454221
+      ORIGINAL_WORKFLOW: 2aa555559feba1271fed336610f64f0fc51c29d1
       CANDIDATE: codex/pr-fixup-candidate-20260906
     steps:
       - uses: actions/checkout@v4
@@ -25,253 +26,58 @@ jobs:
           ref: 2c5e139394abea434a23616ba817bceb7d632e37
           fetch-depth: 32
           persist-credentials: false
-      - name: Reconcile the pinned proposals without rewriting either history
+      - name: Apply the immutable reviewed reconciliation script
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=32 origin "$INTEGRATE"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          test "$(git rev-parse HEAD)" = "$PROPOSAL"
-          merge_status=0
-          git merge --no-commit --no-ff "$INTEGRATE" || merge_status=$?
-          test "$merge_status" -le 1
+          git fetch --no-tags --depth=1 origin "$ORIGINAL_WORKFLOW"
+          git show "$ORIGINAL_WORKFLOW:.github/workflows/pr-fixup-prepare.yaml" > /tmp/original-pr-fixup.yaml
           python3 - <<'PY'
-          import os
-          import re
-          import subprocess
           from pathlib import Path
-
-          proposal = os.environ['PROPOSAL']
-          integrate = os.environ['INTEGRATE']
-          array_path = 'crates/lila-aot-wasm/src/builtins/array.rs'
-          witness_path = 'crates/lila-aot-wasm/tests/typed_array_to_locale_string_witness_structure.rs'
-          observable_path = 'crates/lila-aot-wasm/tests/array_to_locale_string_observable_structure.rs'
-          conflicts = set(subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=U'], text=True).splitlines())
-          assert conflicts <= {array_path, 'README.md'}, conflicts
-
-          def source(ref, path):
-              return subprocess.check_output(['git', 'show', f'{ref}:{path}'], text=True)
-
-          def replace_once(text, old, new):
-              assert text.count(old) == 1, (old[:100], text.count(old))
-              return text.replace(old, new, 1)
-
-          def section(text, start, end):
-              assert text.count(start) == 1, start
-              begin = text.index(start)
-              finish = text.index(end, begin)
-              return text[begin:finish]
-
-          # Keep every shared Get/Arguments/iterator repair from #19 and #21.
-          # Transplant only #20's locale emitter, delegating length to #19's owner.
-          start = '    fn compile_to_locale_string_builtin('
-          end = '    pub(crate) fn emit_object_has_array_index_key_in_range_i32('
-          integrated_array = source(integrate, array_path)
-          locale = section(source(proposal, array_path), start, end)
-          length_start = '            self.emit_array_iteration_to_object(\n                receiver_payload_local,'
-          length_end = '\n        }\n\n        function.instruction(&Instruction::I64Const(0));\n        function.instruction(&Instruction::LocalSet(index_local));'
-          begin = locale.index(length_start)
-          finish = locale.index(length_end, begin)
-          shared_length = '''            // Generic receivers use the shared observable LengthOfArrayLike
-              // owner. Only the direct TypedArray entry above owns a witness.
-              self.emit_array_like_length_snapshot(
-                  receiver_payload_local,
-                  receiver_tag_local,
-                  key_local,
-                  len_local,
-                  element_tag_local,
-                  function,
-              )?;
-              self.emit_return_current_completion_if_throw(function);'''
-          locale = locale[:begin] + shared_length + locale[finish:]
-          integrated_array = replace_once(integrated_array, section(integrated_array, start, end), locale)
-          Path(array_path).write_text(integrated_array)
-
-          # Retain all existing witness tests, replacing obsolete routing-flag
-          # assertions with assertions about the single shared live indexed Get.
-          witness = source(integrate, witness_path)
-          for name in ('TYPED_RECEIVER_DISABLED_WIRING', 'TYPED_RECEIVER_ENABLED_WIRING', 'GENERIC_TYPED_READ_ROUTING'):
-              witness, count = re.subn(r'const ' + name + r': &str = r#".*?"#;\n\n', '', witness, flags=re.S)
-              assert count == 1, (name, count)
-          old_read = section(witness, 'const LIVE_TYPED_ARRAY_READ_WIRING:', '\nfn bounded')
-          new_read = '''const LIVE_TYPED_ARRAY_READ_WIRING: &str = r#"
-              self.emit_typed_array_or_object_index_read_from_locals(
-                  receiver_payload_local,
-                  receiver_tag_local,
-                  index_local,
-                  element_payload_local,
-                  element_tag_local,
-                  function,
-              )?;
-              self.emit_propagate_throw_from_locals_if_needed(
-                  element_payload_local,
-                  element_tag_local,
-                  function,
-              )?;
-          "#;
-          '''
-          witness = replace_once(witness, old_read, new_read)
-          witness = replace_once(witness, '''    let typed_receiver = unique_normalized_position(
-                  &normalized,
-                  TYPED_RECEIVER_ENABLED_WIRING,
-                  "direct TypedArray live-read routing",
-              );
-          ''', '')
-          witness = replace_once(witness, '''        brand < typed_receiver
-                      && typed_receiver < private_state
-                      && private_state < view
-                      && view < witness,
-                  "brand validation, live-read routing, private view construction and witness consumption must retain specification order"''', '''        brand < private_state && private_state < view && view < witness,
-                  "brand validation, private view construction and witness consumption must retain specification order"''')
-          generic_start = '#[test]\nfn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {'
-          generic_end = '#[test]\nfn shared_length_owner_boxes_gets_propagates_and_normalizes_in_order() {'
-          new_generic = '''#[test]
-          fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
-              let shared = shared_body();
-              let generic = arraylike_arm();
-              let normalized = without_whitespace(shared);
-              let normalized_generic = without_whitespace(generic);
-              assert_eq!(shared.matches("receiver_kind").count(), 4);
-              for consumer in [
-                  "letmethod_name=match&receiver_kind{",
-                  "lettyped_array_entry=match&receiver_kind{",
-                  "iftyped_array_entry{",
-                  "self.emit_validate_to_locale_string_invocation(&receiver_kind,",
-              ] {
-                  assert_eq!(normalized.matches(consumer).count(), 1, "{consumer}");
-              }
-              assert_eq!(shared.matches("Instruction::LocalSet(len_local)").count(), 1);
-              assert_eq!(shared.matches("self.emit_array_like_length_snapshot(").count(), 1);
-              assert_eq!(shared.matches("self.emit_typed_array_or_object_index_read_from_locals(").count(), 1);
-              for forbidden in [
-                  "typed_receiver_local",
-                  "emit_arguments_read(",
-                  "emit_array_index_get_with_prototype(",
-                  "TypedArrayWitnessUse::ArrayLikeLengthSnapshot",
-                  "emit_typed_array_current_byte_length(",
-                  "emit_validate_typed_array_current_byte_length(",
-              ] {
-                  assert!(!shared.contains(forbidden), "retired private bypass: {forbidden}");
-              }
-              for operation in [
-                  "emit_load_typed_array_private_state(",
-                  "TypedArrayViewLocals::new(",
-                  "emit_typed_array_witness(",
-                  "TypedArrayWitnessUse::ValidatedMethodEntry",
-              ] {
-                  assert_eq!(shared.matches(operation).count(), 1, "direct entry owns {operation}");
-                  assert!(!generic.contains(operation), "generic length must not use {operation}");
-              }
-              for forbidden in [
-                  "emit_load_array_buffer_byte_length(",
-                  "emit_load_array_buffer_data(",
-                  "HEAP_TYPED_ARRAY_",
-                  "HEAP_LEN_OFFSET",
-                  "Instruction::I64DivU",
-                  "Instruction::LocalSet(len_local)",
-                  "emit_array_iteration_to_object(",
-                  "emit_object_read(",
-                  "emit_to_length_i64_from_value_locals(",
-              ] {
-                  assert!(!generic.contains(forbidden), "generic length must delegate, not use {forbidden}");
-              }
-              unique_normalized_position(&normalized_generic, GENERIC_LENGTH_WIRING, "one observable LengthOfArrayLike");
-              let initial = unique_normalized_position(&normalized, INITIAL_LENGTH_WIRING, "length initialization");
-              let direct = unique_normalized_position(&normalized, WITNESS_WIRING, "direct validation and length");
-              let generic = unique_normalized_position(&normalized, GENERIC_LENGTH_WIRING, "generic observable length");
-              let bound = unique_normalized_position(&normalized, LOOP_START, "captured-length loop bound");
-              let read = unique_normalized_position(&normalized, LIVE_TYPED_ARRAY_READ_WIRING, "shared live indexed Get and abrupt completion");
-              let nullish = normalized.find("self.compile_nullish_tagged_i32(element_tag_local,function)").unwrap();
-              let validate = normalized.find("self.emit_validate_to_locale_string_invocation(").unwrap();
-              let call = normalized.find("self.emit_call_validated_to_locale_string_invocation(").unwrap();
-              assert!(initial < direct && direct < generic && generic < bound && bound < read && read < nullish && nullish < validate && validate < call);
-              let loop_tail = shared.split_once(LOOP_START).expect("shared loop start").1;
-              for forbidden in [
-                  "emit_load_typed_array_private_state(",
-                  "emit_typed_array_witness(",
-                  "emit_array_like_length_snapshot(",
-                  "Instruction::LocalSet(len_local)",
-              ] {
-                  assert!(!loop_tail.contains(forbidden), "loop must not replace its bound via {forbidden}");
-              }
-          }
-
-          '''
-          witness = replace_once(witness, section(witness, generic_start, generic_end), new_generic)
-          assert witness.count('#[test]') == source(integrate, witness_path).count('#[test]')
-          Path(witness_path).write_text(witness)
-
-          observable = source(proposal, observable_path)
-          observable_start = '#[test]\nfn array_like_entry_observes_one_public_length_and_coercion() {'
-          observable_end = '#[test]\nfn only_direct_typed_array_entry_uses_a_private_length_witness() {'
-          new_observable = '''#[test]
-          fn array_like_entry_observes_one_public_length_and_coercion() {
-              let generic = between(
-                  locale_body(),
-                  "        } else {",
-                  "        function.instruction(&Instruction::Loop(BlockType::Empty));",
-              );
-              assert_eq!(generic.matches("self.emit_array_like_length_snapshot(").count(), 1);
-              assert_ordered(generic, &[
-                  "self.emit_array_like_length_snapshot(",
-                  "emit_return_current_completion_if_throw(function);",
-              ]);
-              for forbidden in [
-                  "HEAP_LEN_OFFSET", "TypedArrayWitnessUse",
-                  "emit_load_typed_array_private_state(", "ValueKind::Array", "ValueKind::Arguments",
-                  "emit_object_read(", "emit_to_length_i64_from_value_locals(",
-              ] {
-                  assert!(!generic.contains(forbidden), "length must use the shared observable owner: {forbidden}");
-              }
-          }
-
-          '''
-          observable = replace_once(observable, section(observable, observable_start, observable_end), new_observable)
-          assert observable.count('#[test]') == source(proposal, observable_path).count('#[test]')
-          Path(observable_path).write_text(observable)
-
-          readme = source(integrate, 'README.md')
-          paragraph = section(source(proposal, 'README.md'), 'The Wasm-AOT `toLocaleString` lowering', 'Async-generator ordinary property assignments')
-          readme = replace_once(readme, 'Async-generator ordinary property assignments', paragraph + 'Async-generator ordinary property assignments')
-          readme = replace_once(readme, 'for regression commands and the exact-head verification boundary. This does not\nclose element Invoke or change the generated full-suite status.', 'for the shared length contract. Element invocation and live indexed reads now\nuse the shared property/invocation paths; see [the integration notes](docs/rust-rewrite/aot-array-to-locale-string.md)\nfor retained regressions and verification gates. The generated full-suite status\nis unchanged.')
-          assert section(readme, '<!-- lila-status:start -->', '<!-- lila-status:end -->') == section(source(integrate, 'README.md'), '<!-- lila-status:start -->', '<!-- lila-status:end -->')
-          Path('README.md').write_text(readme)
-          notes = Path('docs/rust-rewrite/aot-array-to-locale-string.md')
-          old_notes = source(proposal, str(notes))
-          heading, rest = old_notes.split('\n', 1)
-          notes.write_text(heading + '\n\n## Integration of PRs #19, #20 and #21\n\nThe integrated emitter uses the shared `emit_array_like_length_snapshot` owner\nfrom #19 rather than a second inline length algorithm. It retains #19\'s ordinary\nArguments descriptor Get repair and #21\'s override-preserving iterator lookup,\nwhile preserving #20\'s shared live indexed Get and universal non-nullish element\nInvoke. All 23 length, 24 observable-locale, and 12 Arguments engine regressions\nremain unchanged. Ownership guards now verify the single shared indexed Get\nrather than obsolete private routing flags.\n\nThe historical evidence below is not a substitute for validation of this\ncombined revision. Complete runtime inventories, retained fixtures, pinned real\nsubtrees, and broad CI must pass before merge. No Test262 source, expected\noutcome, skip, pin, generated status block, or conformance denominator changes.\n\n' + rest)
-
-          for path, ref in [
-              ('crates/lila-engine/tests/aot_array_to_locale_string_length.rs', integrate),
-              ('crates/lila-engine/tests/aot_arguments_iteration.rs', integrate),
-              ('crates/lila-engine/tests/aot_array_to_locale_string_observable.rs', proposal),
-          ]:
-              assert Path(path).read_text() == source(ref, path), path
-          assert not Path('.github/workflows/pr-fixup-prepare.yaml').exists()
+          text = Path('/tmp/original-pr-fixup.yaml').read_text()
+          start = '      - name: Reconcile the pinned proposals without rewriting either history\n'
+          end = '      - name: Format and execute complete retained ownership targets\n'
+          assert text.count(start) == text.count(end) == 1
+          block = text.split(start, 1)[1].split(end, 1)[0].split('        run: |\n', 1)[1]
+          lines = block.splitlines()
+          assert all(not line.strip() or line.startswith('          ') for line in lines)
+          Path('/tmp/reconcile-prs.sh').write_text('\n'.join(line[10:] if line.strip() else '' for line in lines) + '\n')
           PY
-      - name: Format and execute complete retained ownership targets
+          bash /tmp/reconcile-prs.sh
+      - name: Format and execute every retained ownership target
         shell: bash
         run: |
           set -euo pipefail
           cargo fmt --all
-          mkdir -p /tmp/pr-fixup-evidence
-          for test in typed_array_to_locale_string_witness_structure to_locale_string_invocation_structure array_callback_iteration_structure array_flat_map_algorithm_owner_structure array_flat_map_typed_array_witness_structure array_map_algorithm_owner_structure array_filter_algorithm_owner_structure array_every_algorithm_owner_structure array_some_algorithm_owner_structure array_to_locale_string_observable_structure; do
-            rustc --edition=2024 --test "crates/lila-aot-wasm/tests/$test.rs" -o "/tmp/$test"
-            "/tmp/$test" --test-threads=1 | tee "/tmp/pr-fixup-evidence/$test.txt"
-          done
           cargo fmt --all -- --check
           git add -u
           test -z "$(git diff --name-only --diff-filter=U)"
           git diff --cached --check
+          mkdir -p /tmp/pr-fixup-evidence
           git diff --cached --stat > /tmp/pr-fixup-evidence/stat.txt
           git diff --cached > /tmp/pr-fixup-evidence/integration.patch
+          tar -czf /tmp/pr-fixup-evidence/review-sources.tar.gz crates scripts Cargo.toml Cargo.lock README.md .github/workflows
+          export CARGO_MANIFEST_DIR="$GITHUB_WORKSPACE/crates/lila-aot-wasm"
+          status=0
+          for test in typed_array_to_locale_string_witness_structure to_locale_string_invocation_structure array_callback_iteration_structure array_flat_map_algorithm_owner_structure array_flat_map_typed_array_witness_structure array_map_algorithm_owner_structure array_filter_algorithm_owner_structure array_every_algorithm_owner_structure array_some_algorithm_owner_structure array_to_locale_string_observable_structure; do
+            log="/tmp/pr-fixup-evidence/$test.txt"
+            if rustc --edition=2024 --test "crates/lila-aot-wasm/tests/$test.rs" -o "/tmp/$test" > "$log" 2>&1 && "/tmp/$test" --test-threads=1 >> "$log" 2>&1; then
+              echo "PASS: $test"
+            else
+              status=1
+              echo "FAIL: $test"
+            fi
+            cat "$log"
+          done
+          test "$status" -eq 0
+          test ! -e .github/workflows/pr-fixup-prepare.yaml
           git commit -m 'fix(array): reconcile observable locale invocation with shared length and iterator repairs'
           git merge-base --is-ancestor "$PROPOSAL" HEAD
           git merge-base --is-ancestor "$INTEGRATE" HEAD
+          test -z "$(git status --porcelain)"
           git rev-parse HEAD > /tmp/pr-fixup-evidence/source-sha.txt
           git rev-parse HEAD^{tree} > /tmp/pr-fixup-evidence/tree-sha.txt
-      - name: Publish candidate branch only; PR ref update is separately reviewed
+      - name: Publish candidate only for separately reviewed PR ref update
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
