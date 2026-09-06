@@ -88,6 +88,18 @@ README still reports that the current pinned Wasm-AOT aggregate has not been
 fully republished, and there is no checked-in current-pin generated Wasm-AOT
 backlog artifact.
 
+The low-RAM publication wrapper now prints the checkout commit and executable
+SHA-256 into the publication transcript and checks both between CLI invocations.
+It permits one initial checkpoint attempt, then rejects unreadable, stalled,
+regressing or inconsistent progress instead of retrying indefinitely. Exact
+positive completion is required before delegating to the existing Rust publisher.
+The nonempty driver contract inventory runs in read-only CI; these fake-CLI
+orchestration tests are not compiler or Test262 conformance evidence. See
+[the driver contract](../docs/rust-rewrite/reproducible-publication-driver.md).
+This does not bind older checkpoints to a compiler or introduce optional
+snapshot provenance metadata. Current-pin publication and the separately
+designed mandatory provenance schema remain open.
+
 ## Objective
 
 Produce a complete, reproducible view of the current pinned Test262 state for the `wasm-aot` product backend, then generate a machine-readable backlog that assigns every non-passing case to a semantic family and task ID. A `spec-exec` oracle snapshot may be produced alongside it for differential triage, but it is diagnostic data only — it is never the baseline that tasks burn down and never product status.
