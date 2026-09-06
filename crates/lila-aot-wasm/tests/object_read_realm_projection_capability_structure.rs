@@ -136,7 +136,7 @@ fn all_four_source_rows_project_exhaustively_into_both_domains() {
     for runtime_body_census in [
         concat!(
             "assert_eq!(object_read_helpers,vec![",
-            "RuntimeHelperId::ObjectRead,RuntimeHelperId::ObjectReadProxy]);"
+            "RuntimeHelperId::ObjectRead,RuntimeHelperId::ObjectReadProxy,RuntimeHelperId::IndexedElementRead]);"
         ),
         concat!(
             "assert_eq!(proxy_dispatch_helpers,vec![",

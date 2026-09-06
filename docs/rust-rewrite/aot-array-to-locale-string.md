@@ -90,3 +90,33 @@ a recovered pre-change Wasm-AOT CLI. Neither check executes the modified Rust
 compiler. Rust compilation, rustfmt, the engine regressions on the patched
 backend, and the two real Test262 subtrees must pass before merge. Broader
 conformance counts are intentionally unchanged.
+
+
+## Review follow-up: property equality, callable setters, and error Realms
+
+The shared indexed-Get helper now receives the trusted method Realm through its
+existing ABI slot 6. Its closed helper-domain classification includes that
+argument in the object-read and Proxy-call projections; arbitrary user lexical
+environments still select the main-Realm fallback. Two additional explicit
+Wasm-AOT regressions cover revoked indexed receivers and callable-Proxy getters
+with foreign Array locale methods. The observable locale inventory is therefore
+26 tests; no earlier test is removed.
+
+The broad retained Array CLI inventory exposed two existing object-model bugs.
+The public own-descriptor builtin compared virtual string keys by payload
+identity, so a computed `length` missed Array and Arguments descriptors. All
+virtual String key predicates in that owner now reuse property-key equality,
+which compares string content and preserves distinct Symbol identity. The
+OrdinarySet indexed-accessor branch also used a Function-only call after accepting
+a callable Proxy. It now shares the Proxy-aware call protocol and propagates the
+original abrupt completion before publishing success, retaining the explicit
+Receiver and one assigned argument.
+
+The four-test `aot_array_property_regressions` inventory covers computed keys,
+descriptor attributes and deletion, non-invoking accessor reflection, Symbol
+non-aliasing, dense/sparse Array and Arguments Proxy setters, apply traps,
+Reflect.set receivers, thrown identity, revocation, and absent-setter behavior.
+The original `wasm_array_hasown_length.js` and
+`wasm_array_index_accessor_setter.js` CLI fixtures remain unchanged in the full
+Array CLI selection. Structural guards pin the shared equality and call owners.
+Final-head execution, not these source assertions, determines the CI outcome.

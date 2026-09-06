@@ -21,7 +21,7 @@ and its `lila` CLI are the only current product implementation.
 
 The Wasm-AOT `toLocaleString` lowering distinguishes public Array-like length
 access from validated TypedArray entry and uses the shared element invocation
-protocol. See [the observable locale-string lowering notes](docs/rust-rewrite/aot-array-to-locale-string.md)
+protocol while retaining the method Realm for indexed Proxy revocation errors. See [the observable locale-string lowering notes](docs/rust-rewrite/aot-array-to-locale-string.md)
 for regression coverage and the required conformance gates. This is a focused
 implementation change, not a claim of complete ECMAScript compatibility.
 

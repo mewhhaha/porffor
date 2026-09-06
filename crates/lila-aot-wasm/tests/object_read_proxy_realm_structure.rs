@@ -40,7 +40,10 @@ fn object_read_realm_source_exhaustively_projects_every_helper_body() {
     );
     assert_eq!(
         helper_projection
-            .matches("RuntimeHelperId::ObjectRead | RuntimeHelperId::ObjectReadProxy")
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>()
+            .matches("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead=>Self::ObjectReadHelperArgument,")
             .count(),
         1
     );

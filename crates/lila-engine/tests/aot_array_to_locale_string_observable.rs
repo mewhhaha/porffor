@@ -1,12 +1,25 @@
-use lila_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
+use lila_engine::{
+    CompileOptions, Engine, ExecutionBackend, HostSurfacePolicy, RealmBuilder, RunOptions,
+};
 
 fn assert_wasm_aot_boolean(name: &str, source: &str) {
+    assert_wasm_aot_boolean_with_policy(name, source, HostSurfacePolicy::Product);
+}
+
+fn assert_wasm_aot_boolean_with_policy(
+    name: &str,
+    source: &str,
+    host_surface_policy: HostSurfacePolicy,
+) {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(
             source,
-            CompileOptions::default(),
+            CompileOptions {
+                host_surface_policy,
+                ..CompileOptions::default()
+            },
             RunOptions {
                 backend: ExecutionBackend::WasmAot,
                 ..RunOptions::default()
@@ -422,5 +435,57 @@ fn array_method_rejects_nullish_receivers() {
         catch (error) { undefinedCaught = error instanceof TypeError; }
         nullCaught && undefinedCaught;
         "#,
+    );
+}
+
+#[test]
+fn indexed_proxy_revocation_keeps_the_locale_method_realm() {
+    assert_wasm_aot_boolean_with_policy(
+        "indexed_proxy_revocation_keeps_the_locale_method_realm",
+        r#"
+var other = __lilaCreateRealm().global;
+var pair, lengthGets = 0;
+pair = Proxy.revocable({ length: 1, 0: 7 }, {
+  get(target, key, receiver) {
+    if (key === 'length') { lengthGets++; pair.revoke(); return 1; }
+    throw 'revoked indexed Get must not call this trap';
+  }
+});
+var caught = false;
+try { other.Array.prototype.toLocaleString.call(pair.proxy); }
+catch (error) {
+  caught = Object.getPrototypeOf(error) === other.TypeError.prototype &&
+    Object.getPrototypeOf(error) !== TypeError.prototype;
+}
+caught && lengthGets === 1;
+"#,
+        HostSurfacePolicy::Test262,
+    );
+}
+
+#[test]
+fn indexed_callable_proxy_getters_keep_the_locale_method_realm() {
+    assert_wasm_aot_boolean_with_policy(
+        "indexed_callable_proxy_getters_keep_the_locale_method_realm",
+        r#"
+var other = __lilaCreateRealm().global;
+var getter = Proxy.revocable(function() { throw 'revoked getter body'; }, {});
+getter.revoke();
+function make() { return arguments; }
+var array = [7], args = make(7), ordinary = { length: 1, 0: 7 };
+Object.defineProperty(array, '0', { get: getter.proxy });
+Object.defineProperty(args, '0', { get: getter.proxy });
+Object.defineProperty(ordinary, '0', { get: getter.proxy });
+var receivers = [array, args, ordinary], correct = 0;
+for (var i = 0; i < receivers.length; i++) {
+  try { other.Array.prototype.toLocaleString.call(receivers[i]); }
+  catch (error) {
+    if (Object.getPrototypeOf(error) === other.TypeError.prototype &&
+        Object.getPrototypeOf(error) !== TypeError.prototype) correct++;
+  }
+}
+correct === 3;
+"#,
+        HostSurfacePolicy::Test262,
     );
 }
