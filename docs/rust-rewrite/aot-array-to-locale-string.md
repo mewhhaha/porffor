@@ -74,3 +74,14 @@ a recovered pre-change Wasm-AOT CLI. Neither check executes the modified Rust
 compiler. Rust compilation, rustfmt, the engine regressions on the patched
 backend, and the two real Test262 subtrees must pass before merge. Broader
 conformance counts are intentionally unchanged.
+
+## Reconciled receiver and iterator fixes
+
+This proposal now builds on the shared `emit_array_like_length_snapshot` and
+arguments length-descriptor repair from PR #19, plus the Arguments iteration
+repair from PR #21. The generic entry does not duplicate ToObject/Get/ToLength.
+The 23 length regressions, 24 observable invocation regressions, nine Arguments
+iteration regressions, and every existing conformance gate remain enabled.
+The witness guards now enforce one unconditional shared indexed Get rather than
+the removed per-receiver routing flag. Final execution results belong to the
+exact tested PR head and must not be inferred from the earlier proposals.

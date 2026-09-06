@@ -63,6 +63,22 @@ without species effects. See [the callback iteration follow-up](docs/rust-rewrit
 for regression commands, evidence boundaries and remaining work. The generated
 full-suite status below is unchanged.
 
+Array `toLocaleString` now uses shared observable length acquisition for every
+generic receiver, including TypedArray and arguments length overrides. The
+strict direct TypedArray method retains its private validation witness, and
+indexed values remain live after length acquisition. See
+[the length follow-up](docs/rust-rewrite/aot-array-to-locale-string-length.md)
+for regression commands and the exact-head verification boundary. The shared
+indexed-Get and element-Invoke follow-up also covers nested Array and arguments
+values; none of these focused fixes changes the generated full-suite status.
+
+Arguments-backed `for-of` loops now use the existing Arguments-aware iterator
+lookup, including escaped aliases and async-disposable loop heads. The bounded
+repair and focused regression commands are described in
+[the Arguments iteration follow-up](docs/rust-rewrite/aot-arguments-iteration.md).
+The next major deliverable remains T01's reproducible current-pin full-suite
+baseline; this change does not update the generated conformance counts.
+
 ## Current Status
 <!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:

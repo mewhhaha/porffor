@@ -35,27 +35,57 @@ fn array_like_entry_observes_one_public_length_and_coercion() {
         "        } else {",
         "        function.instruction(&Instruction::Loop(BlockType::Empty));",
     );
-    assert_eq!(generic.matches("self.strings.payload(\"length\")").count(), 1);
-    assert_eq!(generic.matches("self.emit_object_read(").count(), 1);
+    assert_eq!(
+        generic
+            .matches("self.emit_array_like_length_snapshot(")
+            .count(),
+        1
+    );
     assert_ordered(
         generic,
         &[
-            "emit_array_iteration_to_object(",
+            "emit_array_like_length_snapshot(",
+            "emit_return_current_completion_if_throw(function);",
+        ],
+    );
+    let length_owner = between(
+        ARRAY_SOURCE,
+        "    pub(crate) fn emit_array_like_length_snapshot(",
+        "    pub(crate) fn compile_array_prototype_map_builtin(",
+    );
+    for operation in [
+        "emit_value_to_current_function_realm_object_locals(",
+        "self.strings.payload(\"length\")",
+        "emit_object_read(",
+        "emit_propagate_throw_from_locals_if_needed(",
+        "emit_to_length_i64_from_value_locals(",
+    ] {
+        assert_eq!(length_owner.matches(operation).count(), 1, "{operation}");
+    }
+    assert_ordered(
+        length_owner,
+        &[
+            "emit_value_to_current_function_realm_object_locals(",
             "self.strings.payload(\"length\")",
             "emit_object_read(",
             "emit_propagate_throw_from_locals_if_needed(",
             "emit_to_length_i64_from_value_locals(",
-            "emit_return_current_completion_if_throw(function);",
         ],
     );
     for forbidden in [
+        "emit_array_iteration_to_object(",
+        "emit_object_read(",
+        "emit_to_length_i64_from_value_locals(",
         "HEAP_LEN_OFFSET",
         "TypedArrayWitnessUse",
         "emit_load_typed_array_private_state(",
         "ValueKind::Array",
         "ValueKind::Arguments",
     ] {
-        assert!(!generic.contains(forbidden), "private length bypass: {forbidden}");
+        assert!(
+            !generic.contains(forbidden),
+            "private length bypass: {forbidden}"
+        );
     }
 }
 
@@ -64,7 +94,12 @@ fn only_direct_typed_array_entry_uses_a_private_length_witness() {
     let body = locale_body();
     let direct = between(body, "        if typed_array_entry {", "        } else {");
     assert_eq!(body.matches("self.emit_typed_array_witness(").count(), 1);
-    assert_eq!(direct.matches("TypedArrayWitnessUse::ValidatedMethodEntry").count(), 1);
+    assert_eq!(
+        direct
+            .matches("TypedArrayWitnessUse::ValidatedMethodEntry")
+            .count(),
+        1
+    );
     assert!(!body.contains("TypedArrayWitnessUse::ArrayLikeLengthSnapshot"));
     assert_ordered(
         direct,
@@ -81,7 +116,8 @@ fn only_direct_typed_array_entry_uses_a_private_length_witness() {
 fn indexed_get_uses_shared_dispatch_before_the_nullish_check() {
     let body = locale_body();
     assert_eq!(
-        body.matches("self.emit_typed_array_or_object_index_read_from_locals(").count(),
+        body.matches("self.emit_typed_array_or_object_index_read_from_locals(")
+            .count(),
         1
     );
     assert_ordered(
@@ -93,8 +129,14 @@ fn indexed_get_uses_shared_dispatch_before_the_nullish_check() {
             "compile_nullish_tagged_i32(element_tag_local, function)",
         ],
     );
-    for forbidden in ["emit_arguments_read(", "emit_array_index_get_with_prototype("] {
-        assert!(!body.contains(forbidden), "private indexed Get bypass: {forbidden}");
+    for forbidden in [
+        "emit_arguments_read(",
+        "emit_array_index_get_with_prototype(",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "private indexed Get bypass: {forbidden}"
+        );
     }
 }
 
@@ -119,7 +161,14 @@ fn every_non_nullish_element_uses_the_validated_invocation_protocol() {
             "emit_return_current_completion_if_throw(function);",
         ],
     );
-    for forbidden in ["ValueKind::Object", "ValueKind::Function", "Instruction::Else"] {
-        assert!(!invocation.contains(forbidden), "element Invoke bypass: {forbidden}");
+    for forbidden in [
+        "ValueKind::Object",
+        "ValueKind::Function",
+        "Instruction::Else",
+    ] {
+        assert!(
+            !invocation.contains(forbidden),
+            "element Invoke bypass: {forbidden}"
+        );
     }
 }

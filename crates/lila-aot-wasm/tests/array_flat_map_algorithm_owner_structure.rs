@@ -172,7 +172,7 @@ fn shared_call_boundary_and_canonical_compiler_own_argument_and_mapping_order() 
     );
     for (earlier, later) in [
         (
-            "self.emit_array_iteration_length_before_callback_validation(",
+            "self.emit_array_like_length_snapshot(",
             "self.emit_builtin_arg_to_locals(0,",
         ),
         (
@@ -240,7 +240,7 @@ fn one_append_owner_bounds_the_index_before_defining_and_incrementing() {
     let append = bounded(
         ARRAY_SOURCE,
         "    fn emit_flat_map_append(",
-        "    pub(crate) fn emit_array_iteration_length_before_callback_validation(",
+        "    pub(crate) fn emit_array_like_length_snapshot(",
     );
     assert_eq!(
         append
