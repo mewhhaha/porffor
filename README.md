@@ -63,6 +63,13 @@ without species effects. See [the callback iteration follow-up](docs/rust-rewrit
 for regression commands, evidence boundaries and remaining work. The generated
 full-suite status below is unchanged.
 
+The low-RAM real-suite publication driver now records the checkout commit and
+compiler SHA-256, checks them between CLI invocations, and rejects stalled or
+inconsistent matrix progress before calling the Rust publisher. See
+[the publication-driver contract](docs/rust-rewrite/reproducible-publication-driver.md)
+for resume safeguards and provenance limits. This does not establish a new
+current-pin baseline or change the generated status block.
+
 Array `toLocaleString` now uses shared observable length acquisition for every
 generic receiver, including TypedArray and arguments length overrides. The
 strict direct TypedArray method retains its private validation witness, and
