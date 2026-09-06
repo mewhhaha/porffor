@@ -104,32 +104,22 @@ const WITNESS_WIRING: &str = r#"
     )?;
 "#;
 
-const GENERIC_WITNESS_WIRING: &str = r#"
-    self.emit_typed_array_witness(
-        &typed_view,
-        TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
-            length_local: len_local,
-        },
-        function,
-    )?;
-"#;
-
-const ARRAYLIKE_ARRAY_LENGTH_WIRING: &str = r#"
-    self.load_i64_to_local_from_offset(
+const GENERIC_LENGTH_WIRING: &str = r#"
+    self.emit_array_like_length_snapshot(
         receiver_payload_local,
-        HEAP_LEN_OFFSET,
+        receiver_tag_local,
+        key_local,
         len_local,
-        function,
-    );
-"#;
-
-const GENERIC_OBJECT_LENGTH_WIRING: &str = r#"
-    self.emit_to_length_i64_from_value_locals(
         element_tag_local,
-        element_payload_local,
-        len_local,
         function,
     )?;
+    self.emit_return_current_completion_if_throw(function);
+"#;
+
+const GENERIC_TYPED_READ_ROUTING: &str = r#"
+    self.emit_is_typed_array_i32(receiver_payload_local, receiver_tag_local, function);
+    function.instruction(&Instruction::I64ExtendI32U);
+    function.instruction(&Instruction::LocalSet(typed_receiver_local));
 "#;
 
 const LIVE_TYPED_ARRAY_READ_WIRING: &str = r#"
@@ -285,38 +275,18 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
     let normalized_shared = without_whitespace(shared);
     let normalized_generic = without_whitespace(generic);
 
-    assert_eq!(
-        shared.matches("receiver_kind").count(),
-        4,
-        "the closed entry policy must have one binding and only the method-name, typed-entry and invocation consumers"
-    );
-    assert_eq!(
-        normalized_shared
-            .matches("letmethod_name=match&receiver_kind{")
-            .count(),
-        1
-    );
-    assert_eq!(
-        normalized_shared
-            .matches("lettyped_array_entry=match&receiver_kind{")
-            .count(),
-        1
-    );
-    assert_eq!(normalized_shared.matches("iftyped_array_entry{").count(), 1);
-    assert_eq!(
-        normalized_shared
-            .matches("self.emit_validate_to_locale_string_invocation(&receiver_kind,")
-            .count(),
-        1
-    );
-    let typed_receiver_disabled_wiring = without_whitespace(TYPED_RECEIVER_DISABLED_WIRING);
-    let typed_receiver_enabled_wiring = without_whitespace(TYPED_RECEIVER_ENABLED_WIRING);
-
-    assert_eq!(shared.matches("len_local").count(), 8);
+    assert_eq!(shared.matches("receiver_kind").count(), 4);
+    for consumer in [
+        "letmethod_name=match&receiver_kind{",
+        "lettyped_array_entry=match&receiver_kind{",
+        "iftyped_array_entry{",
+        "self.emit_validate_to_locale_string_invocation(&receiver_kind,",
+    ] {
+        assert_eq!(normalized_shared.matches(consumer).count(), 1, "{consumer}");
+    }
     assert_eq!(
         shared.matches("Instruction::LocalSet(len_local)").count(),
-        1,
-        "only initialization may directly write len_local; both witnesses own their snapshots"
+        1
     );
     assert_eq!(shared.matches("typed_receiver_local").count(), 6);
     assert_eq!(
@@ -324,190 +294,161 @@ fn generic_arraylike_policy_and_shared_live_loop_remain_distinct() {
             .matches("Instruction::LocalSet(typed_receiver_local)")
             .count(),
         3,
-        "typed_receiver_local must have one zero initialization and one true writer in each entry arm"
+        "initialize, select direct TypedArray, or classify the generic live-read route"
     );
     assert_eq!(
         shared
             .matches("Instruction::LocalGet(typed_receiver_local)")
             .count(),
-        1,
-        "the shared live indexed-read dispatch must be the sole consumer"
-    );
-    assert_eq!(
-        normalized_shared
-            .matches(typed_receiver_disabled_wiring.as_str())
-            .count(),
         1
     );
-    assert_eq!(
-        normalized_shared
-            .matches(typed_receiver_enabled_wiring.as_str())
-            .count(),
-        2
-    );
-
-    assert_eq!(
-        shared
-            .matches("emit_validate_typed_array_current_byte_length(")
-            .count(),
-        0,
-        "the shared compiler must contain no legacy throwing validator"
-    );
-    assert_eq!(
-        shared
-            .matches("emit_load_typed_array_private_state(")
-            .count(),
-        2,
-        "the statically distinct direct and generic TypedArray arms each load one private record"
-    );
-    assert_eq!(shared.matches("TypedArrayViewLocals::new(").count(), 2);
-    assert_eq!(shared.matches("emit_typed_array_witness(").count(), 2);
-    assert_eq!(
-        shared
-            .matches("emit_typed_array_current_byte_length(")
-            .count(),
-        0,
-        "neither entry arm may retain a raw current-byte-length observation"
-    );
-    assert_eq!(
-        generic
-            .matches("emit_load_typed_array_private_state(")
-            .count(),
-        1
-    );
-    assert_eq!(generic.matches("TypedArrayViewLocals::new(").count(), 1);
-    assert_eq!(generic.matches("emit_typed_array_witness(").count(), 1);
-    assert_eq!(
-        generic
-            .matches("TypedArrayWitnessUse::ArrayLikeLengthSnapshot")
-            .count(),
-        1
-    );
-    assert!(!generic.contains("TypedArrayWitnessUse::ValidatedMethodEntry"));
+    for operation in [
+        "emit_load_typed_array_private_state(",
+        "TypedArrayViewLocals::new(",
+        "emit_typed_array_witness(",
+        "TypedArrayWitnessUse::ValidatedMethodEntry",
+    ] {
+        assert_eq!(
+            shared.matches(operation).count(),
+            1,
+            "direct entry owns {operation}"
+        );
+        assert!(
+            !generic.contains(operation),
+            "generic length must not use {operation}"
+        );
+    }
     for forbidden in [
+        "TypedArrayWitnessUse::ArrayLikeLengthSnapshot",
         "emit_typed_array_current_byte_length(",
         "emit_validate_typed_array_current_byte_length(",
+    ] {
+        assert!(
+            !shared.contains(forbidden),
+            "retired length shortcut: {forbidden}"
+        );
+    }
+    for forbidden in [
         "emit_load_array_buffer_byte_length(",
         "emit_load_array_buffer_data(",
-        "HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET",
-        "HEAP_TYPED_ARRAY_BYTE_OFFSET",
-        "HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET",
-        "HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET",
+        "HEAP_TYPED_ARRAY_",
+        "HEAP_LEN_OFFSET",
         "Instruction::I64DivU",
         "Instruction::LocalSet(len_local)",
-        "TypedArrayWitnessUse::IntegerIndexedProperty",
-        "TypedArrayWitnessUse::Accessor",
+        "emit_array_iteration_to_object(",
+        "emit_object_read(",
+        "emit_to_length_i64_from_value_locals(",
     ] {
         assert!(
             !generic.contains(forbidden),
-            "the generic TypedArray snapshot must not bypass its ArrayLike witness through {forbidden}"
+            "generic length must delegate, not use {forbidden}"
         );
     }
 
-    let generic_check = normalized_generic
-        .find("self.emit_is_typed_array_i32(receiver_payload_local,receiver_tag_local,function);")
-        .expect("generic TypedArray detection");
-    let generic_typed_receiver_in_arm = unique_normalized_position(
+    let generic_length = unique_normalized_position(
         &normalized_generic,
-        TYPED_RECEIVER_ENABLED_WIRING,
-        "generic TypedArray live-read routing",
+        GENERIC_LENGTH_WIRING,
+        "one observable LengthOfArrayLike",
     );
-    let generic_private = unique_normalized_position(
+    let generic_route = unique_normalized_position(
         &normalized_generic,
-        PRIVATE_STATE_WIRING,
-        "generic private-state load",
+        GENERIC_TYPED_READ_ROUTING,
+        "post-length live-read classification",
     );
-    let generic_view =
-        unique_normalized_position(&normalized_generic, VIEW_WIRING, "generic immutable view");
-    let generic_witness_in_arm = unique_normalized_position(
-        &normalized_generic,
-        GENERIC_WITNESS_WIRING,
-        "generic ArrayLike length witness",
-    );
-    assert!(
-        generic_check < generic_typed_receiver_in_arm
-            && generic_typed_receiver_in_arm < generic_private
-            && generic_private < generic_view
-            && generic_view < generic_witness_in_arm,
-        "generic TypedArray detection and live-read routing must precede its immutable view and non-throwing length witness"
-    );
+    assert!(generic_length < generic_route);
 
     let initial_length = unique_normalized_position(
         &normalized_shared,
         INITIAL_LENGTH_WIRING,
         "length initialization",
     );
-    let typed_receiver_disabled = unique_normalized_position(
+    let initial_route = unique_normalized_position(
         &normalized_shared,
         TYPED_RECEIVER_DISABLED_WIRING,
-        "TypedArray live-read routing initialization",
+        "initial live-read route",
     );
-    let direct_typed_receiver_write = normalized_shared
-        .find(typed_receiver_enabled_wiring.as_str())
-        .expect("direct TypedArray live-read routing");
-    let generic_typed_receiver_write = normalized_shared
-        .rfind(typed_receiver_enabled_wiring.as_str())
-        .expect("generic TypedArray live-read routing");
-    assert_ne!(direct_typed_receiver_write, generic_typed_receiver_write);
-    let witness = unique_normalized_position(
+    let direct_route = unique_normalized_position(
+        &normalized_shared,
+        TYPED_RECEIVER_ENABLED_WIRING,
+        "direct TypedArray live-read route",
+    );
+    let direct_length = unique_normalized_position(
         &normalized_shared,
         WITNESS_WIRING,
-        "direct method-entry witness",
+        "direct TypedArray validation and length",
     );
-    let array_length = unique_normalized_position(
+    let generic_length = unique_normalized_position(
         &normalized_shared,
-        ARRAYLIKE_ARRAY_LENGTH_WIRING,
-        "generic Array/arguments length",
+        GENERIC_LENGTH_WIRING,
+        "generic observable length",
     );
-    let generic_witness = unique_normalized_position(
+    let generic_route = unique_normalized_position(
         &normalized_shared,
-        GENERIC_WITNESS_WIRING,
-        "generic TypedArray ArrayLike witness",
-    );
-    let object_length = unique_normalized_position(
-        &normalized_shared,
-        GENERIC_OBJECT_LENGTH_WIRING,
-        "generic object ToLength",
+        GENERIC_TYPED_READ_ROUTING,
+        "generic live-read route",
     );
     let loop_bound =
         unique_normalized_position(&normalized_shared, LOOP_START, "captured-length loop bound");
     let live_read = unique_normalized_position(
         &normalized_shared,
         LIVE_TYPED_ARRAY_READ_WIRING,
-        "live TypedArray indexed read",
+        "live integer-indexed read",
     );
-    let validate_invocation = normalized_shared
+    let validate = normalized_shared
         .find("self.emit_validate_to_locale_string_invocation(")
-        .expect("validated element invocation");
-    let call_invocation = normalized_shared
+        .unwrap();
+    let call = normalized_shared
         .find("self.emit_call_validated_to_locale_string_invocation(")
-        .expect("validated element call");
+        .unwrap();
     assert!(
-        initial_length < typed_receiver_disabled
-            && typed_receiver_disabled < direct_typed_receiver_write
-            && direct_typed_receiver_write < witness
-            && witness < array_length
-            && array_length < generic_typed_receiver_write
-            && generic_typed_receiver_write < generic_witness
-            && generic_witness < object_length
-            && object_length < loop_bound
+        initial_length < initial_route
+            && initial_route < direct_route
+            && direct_route < direct_length
+            && direct_length < generic_length
+            && generic_length < generic_route
+            && generic_route < loop_bound
             && loop_bound < live_read
-            && live_read < validate_invocation
-            && validate_invocation < call_invocation,
-        "entry validation, captured loop bound, live read and validated element invocation must retain specification order"
+            && live_read < validate
+            && validate < call
     );
-
     let loop_tail = shared.split_once(LOOP_START).expect("shared loop start").1;
     for forbidden in [
         "emit_load_typed_array_private_state(",
         "emit_typed_array_witness(",
-        "emit_validate_typed_array_current_byte_length(",
-        "emit_typed_array_current_byte_length(",
+        "emit_array_like_length_snapshot(",
         "Instruction::LocalSet(len_local)",
     ] {
         assert!(
             !loop_tail.contains(forbidden),
-            "the shared loop must not re-observe or replace its captured length through {forbidden}"
+            "loop must not replace its bound via {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn shared_length_owner_boxes_gets_propagates_and_normalizes_in_order() {
+    let helper = bounded(
+        ARRAY_SOURCE,
+        "pub(crate) fn emit_array_like_length_snapshot(",
+        "pub(crate) fn compile_array_prototype_map_builtin(",
+    );
+    let normalized = without_whitespace(helper);
+    let mut previous = 0;
+    for (index, operation) in [
+        "self.emit_value_to_current_function_realm_object_locals(receiver_payload_local,receiver_tag_local,receiver_payload_local,receiver_tag_local,function,)?;",
+        "Instruction::I64Const(self.strings.payload(\"length\"))",
+        "self.emit_object_read(receiver_payload_local,receiver_tag_local,receiver_payload_local,receiver_tag_local,key_local,length_payload_local,length_tag_local,function,)?;",
+        "self.emit_propagate_throw_from_locals_if_needed(length_payload_local,length_tag_local,function,)?;",
+        "self.emit_to_length_i64_from_value_locals(length_tag_local,length_payload_local,length_payload_local,function,)?;",
+    ].iter().enumerate() {
+        let position = unique_normalized_position(&normalized, operation, "shared length operation");
+        if index > 0 { assert!(previous < position); }
+        previous = position;
+    }
+    for forbidden in ["HEAP_", "TypedArrayWitnessUse", "Instruction::I64TruncF64U"] {
+        assert!(
+            !helper.contains(forbidden),
+            "observable length cannot use {forbidden}"
         );
     }
 }

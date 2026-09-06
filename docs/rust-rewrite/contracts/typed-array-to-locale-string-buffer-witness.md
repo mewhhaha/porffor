@@ -91,21 +91,13 @@ policy; this lane adds no `TypedArrayWitnessUse` variant.
 
 ## Distinct generic and element-invocation paths
 
-The `ArrayLike` arm remains outside this direct method-entry migration. Its
-TypedArray length snapshot is now owned by the separate
-[`array-to-locale-string-typed-array-buffer-witness.md`](array-to-locale-string-typed-array-buffer-witness.md)
-contract. In particular:
-
-- its nullish receiver check and `ToObject` boundary stay unchanged;
-- ordinary Arrays and arguments objects retain their existing length paths;
-- a TypedArray reached through the generic Array entry uses the non-throwing,
-  out-of-bounds-as-zero `ArrayLikeLengthSnapshot` projection; and
-- other objects retain the observable `length` read and `ToLength` ordering.
-
-The generic arm must never consume `ValidatedMethodEntry`. Its companion
-migration replaces the former raw non-throwing observation with the
-semantically matching `TypedArrayWitnessUse::ArrayLikeLengthSnapshot`
-projection; it does not reuse this lane's throwing projection.
+The `ArrayLike` arm remains separate from this direct method-entry policy.
+Its [observable length contract](array-to-locale-string-typed-array-buffer-witness.md)
+now requires shared ToObject/Get(length)/ToLength for every receiver, including
+arguments and TypedArray values. The generic arm does not consume a private
+witness. Standard TypedArray accessors still own their non-throwing
+out-of-bounds-as-zero behavior when ordinary property lookup reaches them;
+length overrides, coercion and exceptions remain observable.
 
 After either entry has produced `len_local`, the shared loop remains one
 algorithm. It compares the ascending index with the captured length and then
@@ -146,9 +138,8 @@ The regression must pin all of the following:
   direct backing-store observation, byte-length division, entry-global
   TypeError construction, `typed_buffer_tag_local`, second witness or direct
   `len_local` assignment in the TypedArray arm;
-- the generic arm contains no `ValidatedMethodEntry` and retains its distinct
-  non-throwing TypedArray length policy through one `ArrayLikeLengthSnapshot`
-  witness;
+- the generic arm contains no private witness and captures observable length
+  through the shared ToObject/Get/ToLength operation before selecting live reads;
 - the complete `len_local` writer inventory leaves the witness snapshot intact
   through the shared-loop bound, and the complete `typed_receiver_local`
   writer/use inventory routes both direct and generic TypedArray entries to the

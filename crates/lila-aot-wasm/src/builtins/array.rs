@@ -9134,7 +9134,7 @@ impl<'a> FunctionBuilder<'a> {
         // ToObject and LengthOfArrayLike precede IsCallable and ArraySpeciesCreate.
         // In particular, a TypedArray's observable length property is not its
         // private element count. Get/HasProperty below own live buffer witnesses.
-        self.emit_array_iteration_length_before_callback_validation(
+        self.emit_array_like_length_snapshot(
             this_payload_local,
             this_tag_local,
             key_local,
@@ -9437,7 +9437,10 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_array_iteration_length_before_callback_validation(
+    /// Box the receiver and capture one observable LengthOfArrayLike. The
+    /// receiver locals retain the boxed value; the length payload local holds
+    /// the normalized integer bound, not a tagged Number, on normal completion.
+    pub(crate) fn emit_array_like_length_snapshot(
         &mut self,
         receiver_payload_local: u32,
         receiver_tag_local: u32,
@@ -17514,85 +17517,24 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion(function);
             function.instruction(&Instruction::End);
 
-            self.emit_array_iteration_to_object(
-                receiver_payload_local,
-                receiver_tag_local,
-                function,
-            )?;
-
-            function.instruction(&Instruction::LocalGet(receiver_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(receiver_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.load_i64_to_local_from_offset(
-                receiver_payload_local,
-                HEAP_LEN_OFFSET,
-                len_local,
-                function,
-            );
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(receiver_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(receiver_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_is_typed_array_i32(receiver_payload_local, receiver_tag_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(typed_receiver_local));
-            self.emit_load_typed_array_private_state(
-                receiver_payload_local,
-                typed_buffer_payload_local,
-                typed_byte_offset_local,
-                typed_byte_length_local,
-                typed_bytes_per_element_local,
-                function,
-            );
-            let typed_view = TypedArrayViewLocals::new(
-                receiver_payload_local,
-                typed_buffer_payload_local,
-                typed_byte_offset_local,
-                typed_byte_length_local,
-                typed_bytes_per_element_local,
-            );
-            self.emit_typed_array_witness(
-                &typed_view,
-                TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
-                    length_local: len_local,
-                },
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_read(
-                receiver_payload_local,
-                receiver_tag_local,
+            // Generic Array methods observe length even for TypedArray and
+            // arguments receivers. The private witness belongs only to the
+            // direct TypedArray method above, never to LengthOfArrayLike.
+            self.emit_array_like_length_snapshot(
                 receiver_payload_local,
                 receiver_tag_local,
                 key_local,
-                element_payload_local,
-                element_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
-            self.emit_to_length_i64_from_value_locals(
-                element_tag_local,
-                element_payload_local,
                 len_local,
+                element_tag_local,
                 function,
             )?;
             self.emit_return_current_completion_if_throw(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
+
+            // Classify only the live indexed-read route, after observable
+            // length acquisition/coercion. This must not replace the bound.
+            self.emit_is_typed_array_i32(receiver_payload_local, receiver_tag_local, function);
+            function.instruction(&Instruction::I64ExtendI32U);
+            function.instruction(&Instruction::LocalSet(typed_receiver_local));
         }
 
         function.instruction(&Instruction::I64Const(0));
