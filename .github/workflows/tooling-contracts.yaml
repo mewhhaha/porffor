@@ -1,0 +1,32 @@
+name: Tooling contracts
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/tooling-contracts.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/tooling-contracts.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  tooling-contracts:
+    name: Tooling contracts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run dependency-free tooling regressions
+        run: python3 -m unittest discover -s scripts/tests -p 'test_tooling_*.py' -v
