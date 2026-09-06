@@ -1,0 +1,81 @@
+name: Callback review evidence
+on:
+  push:
+    branches: [codex/array-callback-prepare]
+    paths: [.github/workflows/array-callback-review-evidence.yaml]
+permissions:
+  contents: read
+jobs:
+  baseline-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 65d1b70382d03e6bb1ffc17a5394c05125d8bbc5
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 436527ccf2d2c2e27c994b15fac9ed86ec0b765b
+          path: reviewed
+          persist-credentials: false
+      - name: Run unchanged compiler against the exact new regression inventory
+        working-directory: baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/callback-baseline-engine
+          git rev-parse HEAD > /tmp/callback-baseline-engine/compiler-sha.txt
+          git -C ../reviewed rev-parse HEAD > /tmp/callback-baseline-engine/tests-sha.txt
+          cp ../reviewed/crates/lila-engine/tests/aot_array_callback_iteration.rs crates/lila-engine/tests/
+          cp ../reviewed/scripts/run_engine_regression_inventory.py scripts/
+          cp ../reviewed/crates/lila-engine/tests/aot_array_callback_iteration.rs /tmp/callback-baseline-engine/
+          set +e
+          python3 scripts/run_engine_regression_inventory.py aot_array_callback_iteration --output-dir /tmp/callback-baseline-engine 2>&1 | tee /tmp/callback-baseline-engine/run.log
+          result=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$result" > /tmp/callback-baseline-engine/runner-exit-code.txt
+          test -f /tmp/callback-baseline-engine/summary.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('/tmp/callback-baseline-engine/summary.json').read_text())
+          assert summary['total'] == 20 and len(summary['results']) == 20
+          print(f"Unchanged compiler: {summary['passed']}/{summary['total']} passed; baseline failures are recorded, not suppressed")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: exact-callback-baseline-engine
+          path: /tmp/callback-baseline-engine
+          retention-days: 7
+  review-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 436527ccf2d2c2e27c994b15fac9ed86ec0b765b
+          persist-credentials: false
+      - name: Build the exact reviewed product for supplemental probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p lila-cli
+          mkdir -p /tmp/callback-review-runtime/lib
+          cp target/debug/lila /tmp/callback-review-runtime/
+          cp /lib/x86_64-linux-gnu/libgcc_s.so.1 /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/libm.so.6 /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 /tmp/callback-review-runtime/lib/
+          cp crates/lila-engine/tests/aot_array_callback_iteration.rs /tmp/callback-review-runtime/
+          git rev-parse HEAD > /tmp/callback-review-runtime/commit-sha.txt
+          tar -czf /tmp/callback-review-runtime.tar.gz -C /tmp callback-review-runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exact-callback-review-runtime
+          path: /tmp/callback-review-runtime.tar.gz
+          retention-days: 7
