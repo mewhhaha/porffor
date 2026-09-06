@@ -32,7 +32,25 @@ jobs:
         run: python3 scripts/tests/test_engine_regression_inventory.py
       - name: Execute every engine regression in a bounded process
         run: python3 scripts/run_engine_regression_inventory.py aot_array_callback_iteration --output-dir /tmp/callback-engine
-      - name: Execute retained Array CLI fixtures
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: array-callback-regression-evidence
+          path: /tmp/callback-engine
+          retention-days: 7
+
+  cli-regressions:
+    name: Retained Array CLI fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Execute the complete retained Array CLI selection
         shell: bash
         run: |
           set -euo pipefail
@@ -41,42 +59,80 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: array-callback-regression-evidence
-          path: |
-            /tmp/callback-*.txt
-            /tmp/callback-engine
+          name: array-callback-cli-evidence
+          path: /tmp/callback-cli.txt
+          retention-days: 7
+
+  build-test262-cli:
+    name: Build the callback conformance product
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build once for every pinned real subtree shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p lila-cli
+          git rev-parse HEAD > target/debug/callback-source-sha.txt
+          tar -czf /tmp/callback-test262-cli.tar.gz -C target/debug lila callback-source-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: array-callback-test262-cli
+          path: /tmp/callback-test262-cli.tar.gz
           retention-days: 7
 
   real-test262:
-    name: Pinned real Array ${{ matrix.method }}
+    name: Pinned real Array ${{ matrix.method }} (${{ matrix.shard }}/4)
+    needs: build-test262-cli
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         method: [map, filter, every, some]
+        # The CLI selector is one-based. All four disjoint shares run; this is
+        # not a subset/skip list. A whole subtree exceeded the old job limit.
+        shard: [1, 2, 3, 4]
     env:
-      CARGO_BUILD_JOBS: 2
       LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Build the product CLI
-        run: cargo build --locked -p lila-cli
-      - name: Execute the entire pinned real subtree
+      - uses: actions/download-artifact@v4
+        with:
+          name: array-callback-test262-cli
+          path: /tmp/callback-cli-artifact
+      - name: Verify and unpack the exact product revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/debug
+          tar -xzf /tmp/callback-cli-artifact/callback-test262-cli.tar.gz -C target/debug
+          test "$(cat target/debug/callback-source-sha.txt)" = "$(git rev-parse HEAD)"
+      - name: Execute a complete disjoint share of the pinned real subtree
         shell: bash
         env:
           ARRAY_METHOD: ${{ matrix.method }}
+          ARRAY_SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
-          ./target/debug/lila test262 run "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/callback-test262 --snapshot-name "$ARRAY_METHOD-ci" 2>&1 | tee /tmp/callback-test262.txt
+          ./target/debug/lila test262 list "built-ins/Array/prototype/$ARRAY_METHOD/" | tee /tmp/callback-inventory.txt
+          ./target/debug/lila test262 shard "$ARRAY_SHARD/4" "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/callback-test262 --snapshot-name "$ARRAY_METHOD-ci-$ARRAY_SHARD" 2>&1 | tee /tmp/callback-test262.txt
+          grep -Fx "shard: $ARRAY_SHARD/4" /tmp/callback-test262.txt
           grep -Eq '^total: [1-9][0-9]*$' /tmp/callback-test262.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: array-${{ matrix.method }}-real-evidence
+          name: array-${{ matrix.method }}-shard-${{ matrix.shard }}-real-evidence
           path: |
+            /tmp/callback-inventory.txt
             /tmp/callback-test262.txt
             /tmp/callback-test262
+            target/debug/callback-source-sha.txt
           retention-days: 7
