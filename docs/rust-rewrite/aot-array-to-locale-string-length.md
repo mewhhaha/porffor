@@ -18,6 +18,17 @@ or inherited `length` property. Accessor receiver identity, numeric conversion
 side effects, thrown values, fractional lengths and nullish rejection remain
 observable through their existing shared operations.
 
+The shared ordinary Get owner also distinguishes the arguments length property
+from Array storage. It reads the dedicated descriptor's tagged data value or
+invokes its callable getter with the original Get receiver, including callable
+Proxies. A deleted descriptor resumes the existing tagged prototype walk; an
+undefined getter still shadows inherited length. Presence is committed before
+calling a getter, so a thrown completion leaves the walk without further reads.
+This correction is shared by generic Array consumers, not a toLocaleString-only
+shortcut. The original 19 regressions are retained, with four additional engine
+regressions for inherited getters, mapped values, Proxy getter throws, undefined
+getters and inherited arguments receivers.
+
 After successful length conversion, the generic entry classifies a TypedArray
 only to select live indexed reads. Length acquisition may already have resized
 or detached the buffer. The returned length still controls the loop, while each
@@ -36,7 +47,7 @@ Normative references: [Array.prototype.toLocaleString](https://tc39.es/ecma262/#
 
 ## Regression and CI contract
 
-`crates/lila-engine/tests/aot_array_to_locale_string_length.rs` contains 19
+`crates/lila-engine/tests/aot_array_to_locale_string_length.rs` contains 23
 explicit `ExecutionBackend::WasmAot` regression programs. They cover Number and
 BigInt TypedArray overrides, inherited and own accessors, arguments redefinition
 and deletion, exact length/coercion/index/call ordering, abrupt propagation,
