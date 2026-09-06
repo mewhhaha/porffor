@@ -43,7 +43,16 @@ jobs:
         run: |
           cargo test -p lila-test262 --lib -- harness
           cargo test -p lila-test262 --lib -- load_preludes
-          cargo test -p lila-test262 --lib -- wasm_agents_run_test262_wait_until_with_exact_assertions
+
+      - name: Execute the pinned Test262 agent regression (non-vacuous)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_name=tests::wasm_agents_run_pinned_test262_case_with_exact_host_order
+          cargo test --locked -p lila-test262 --lib "$test_name" -- --exact --list | tee /tmp/agent-inventory.txt
+          grep -Fxq "$test_name: test" /tmp/agent-inventory.txt
+          cargo test --locked -p lila-test262 --lib "$test_name" -- --exact --nocapture | tee /tmp/agent-result.txt
+          grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' /tmp/agent-result.txt
 
       - name: Audit emitted product artifact
         run: cargo test -p lila-aot-wasm --test product_artifact

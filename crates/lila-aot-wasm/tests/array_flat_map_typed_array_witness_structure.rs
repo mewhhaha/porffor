@@ -18,7 +18,7 @@ fn flat_map_body() -> &'static str {
     bounded(
         ARRAY_SOURCE,
         "pub(crate) fn compile_array_prototype_flat_map_builtin(",
-        "pub(crate) fn compile_array_prototype_map_builtin(",
+        "fn emit_flat_map_append(",
     )
 }
 
@@ -50,56 +50,37 @@ fn unique_normalized_position(source: &str, snippet: &str, label: &str) -> usize
 }
 
 #[test]
-fn flat_map_uses_one_view_for_its_snapshot_and_live_property_observation() {
+fn flat_map_uses_observable_length_and_shared_live_property_operations() {
     let body = flat_map_body();
-
-    for (needle, expected, role) in [
-        (
-            "emit_load_typed_array_private_state(",
-            1,
-            "private-state load",
-        ),
-        ("TypedArrayViewLocals::new(", 1, "immutable view"),
-        ("emit_typed_array_witness(", 2, "buffer witness"),
-        (
-            "TypedArrayWitnessUse::ArrayLikeLengthSnapshot",
-            1,
-            "entry length projection",
-        ),
-        (
-            "TypedArrayWitnessUse::IntegerIndexedProperty",
-            1,
-            "live property projection",
-        ),
-        ("typed_view", 3, "view producer and consumers"),
+    for (needle, expected) in [
+        ("emit_array_iteration_length_before_callback_validation(", 1),
+        ("emit_object_has_property_i32(", 2),
+        ("emit_object_read(", 2),
+        ("emit_typed_array_or_object_index_read_from_locals(", 1),
+        ("emit_is_array_i64(", 1),
+        ("emit_array_species_create(", 1),
     ] {
-        assert_eq!(
-            body.matches(needle).count(),
-            expected,
-            "flatMap must contain exactly {expected} {role}"
-        );
+        assert_eq!(body.matches(needle).count(), expected, "{needle}");
     }
-
     for forbidden in [
+        "TypedArrayViewLocals",
+        "TypedArrayWitnessUse",
+        "emit_load_typed_array_private_state(",
         "emit_typed_array_current_byte_length(",
         "emit_validate_typed_array_current_byte_length(",
         "emit_load_array_buffer_byte_length(",
         "emit_load_array_buffer_data(",
-        "HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET",
-        "HEAP_TYPED_ARRAY_BYTE_OFFSET",
-        "HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET",
-        "HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET",
-        "HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET",
-        "TypedArrayWitnessUse::ValidatedMethodEntry",
-        "TypedArrayWitnessUse::Accessor",
+        "HEAP_TYPED_ARRAY_",
+        "HEAP_LEN_OFFSET",
+        "HEAP_OBJECT_BOXED_",
+        "Instruction::I64TruncF64U",
         "Instruction::I64DivU",
     ] {
         assert!(
             !body.contains(forbidden),
-            "flatMap must not bypass its two non-throwing witnesses through {forbidden}"
+            "flatMap must delegate property semantics, not use {forbidden}"
         );
     }
-
     assert_eq!(
         ARRAY_SOURCE
             .matches("emit_typed_array_current_byte_length(")
@@ -107,108 +88,52 @@ fn flat_map_uses_one_view_for_its_snapshot_and_live_property_observation() {
         0,
         "Array builtins must not reintroduce the legacy raw current-length observer"
     );
-
-    let normalized = without_whitespace(body);
-    unique_normalized_position(
-        &normalized,
-        r#"
-        let typed_view = TypedArrayViewLocals::new(
-            this_payload_local,
-            typed_buffer_payload_local,
-            typed_byte_offset_local,
-            typed_stored_byte_length_local,
-            typed_bytes_per_element_local,
-        );
-        "#,
-        "immutable view wiring",
-    );
-    unique_normalized_position(
-        &normalized,
-        r#"
-        self.emit_load_typed_array_private_state(
-            this_payload_local,
-            typed_buffer_payload_local,
-            typed_byte_offset_local,
-            typed_stored_byte_length_local,
-            typed_bytes_per_element_local,
-            function,
-        );
-        self.emit_typed_array_witness(
-            &typed_view,
-            TypedArrayWitnessUse::ArrayLikeLengthSnapshot {
-                length_local: current_len_local,
-            },
-            function,
-        )?;
-        "#,
-        "entry view and snapshot wiring",
-    );
-    unique_normalized_position(
-        &normalized,
-        r#"
-        self.emit_typed_array_witness(
-            &typed_view,
-            TypedArrayWitnessUse::IntegerIndexedProperty {
-                index_local: src_index_local,
-                result_local: has_property_local,
-            },
-            function,
-        )?;
-        "#,
-        "live property wiring",
-    );
 }
 
 #[test]
 fn flat_map_keeps_the_snapshot_presence_read_and_mapper_order() {
     let body = flat_map_body();
-
-    let to_object = unique_position(
-        body,
-        "emit_array_iteration_to_object(this_payload_local, this_tag_local, function)?",
-        "ToObject",
-    );
-    let private_state = unique_position(
-        body,
-        "emit_load_typed_array_private_state(",
-        "private-state load",
-    );
     let snapshot = unique_position(
         body,
-        "TypedArrayWitnessUse::ArrayLikeLengthSnapshot",
-        "entry length snapshot",
+        "emit_array_iteration_length_before_callback_validation(",
+        "ToObject/LengthOfArrayLike",
     );
-    let target = unique_position(
-        body,
-        "emit_alloc_array_payload_with_length(zero_local, result_payload_local, function)?",
-        "zero-length target allocation",
-    );
+    let validate = unique_position(body, "emit_is_callable_i32(", "IsCallable");
+    let target = unique_position(body, "emit_array_species_create(", "ArraySpeciesCreate");
     let first_loop = body
         .find("Instruction::Loop(BlockType::Empty)")
-        .expect("flatMap must retain its source loop");
-    let property = unique_position(
+        .expect("source loop");
+    let presence = body
+        .find("emit_object_has_property_i32(")
+        .expect("source HasProperty");
+    let read = body
+        .find("emit_typed_array_or_object_index_read_from_locals(")
+        .expect("source Get");
+    let mapper = unique_position(
         body,
-        "TypedArrayWitnessUse::IntegerIndexedProperty",
-        "live integer-indexed property observation",
+        "emit_function_or_proxy_call_with_argv_leave_throw_completion(",
+        "mapper Call",
     );
-    let read = unique_position(
-        body,
-        "emit_typed_array_or_object_index_read_from_locals(",
-        "live indexed read",
-    );
-    let mapper = unique_position(body, "emit_function_handle_call_with_argv(", "mapper call");
-
+    let is_array = unique_position(body, "emit_is_array_i64(", "mapped IsArray");
     assert!(
-        to_object < private_state
-            && private_state < snapshot
-            && snapshot < target
+        snapshot < validate
+            && validate < target
             && target < first_loop
-            && first_loop < property
-            && property < read
-            && read < mapper,
-        "flatMap must snapshot before allocation and keep live HasProperty before Get and mapper"
+            && first_loop < presence
+            && presence < read
+            && read < mapper
+            && mapper < is_array
     );
-
+    let normalized = without_whitespace(body);
+    for receiver in ["this", "mapped"] {
+        let snippet = format!(
+            "self.emit_object_has_property_i32({receiver}_payload_local,{receiver}_tag_local,key_local,present_local,function,)?;self.emit_return_current_completion_if_throw(function);"
+        );
+        assert!(
+            normalized.contains(&snippet),
+            "{receiver} HasProperty must propagate abrupt completion"
+        );
+    }
     let dispatcher = without_whitespace(STANDARD_SOURCE);
     unique_normalized_position(
         &dispatcher,
@@ -216,7 +141,7 @@ fn flat_map_keeps_the_snapshot_presence_read_and_mapper_order() {
         StandardBuiltinId::ArrayPrototypeFlatMap => {
             self.compile_array_prototype_flat_map_builtin(function)?;
         }
-        "#,
+    "#,
         "Array.prototype.flatMap dispatcher edge",
     );
 }

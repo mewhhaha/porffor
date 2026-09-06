@@ -1726,8 +1726,12 @@ impl RuntimeBootstrapPlan {
         }
         if matches!(
             builtin,
-            StandardBuiltinId::ArrayPrototypeSlice | StandardBuiltinId::ArrayPrototypeSplice
+            StandardBuiltinId::ArrayPrototypeFlatMap
+                | StandardBuiltinId::ArrayPrototypeSlice
+                | StandardBuiltinId::ArrayPrototypeSplice
         ) {
+            // These algorithms create result properties through the shared
+            // descriptor path, even when user code never references Object.
             self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
         }
         if builtin == StandardBuiltinId::IteratorZipKeyed {

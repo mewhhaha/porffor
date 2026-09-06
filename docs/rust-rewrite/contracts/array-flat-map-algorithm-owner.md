@@ -1,87 +1,45 @@
-# `Array.prototype.flatMap` direct-entry ownership
+# `Array.prototype.flatMap` algorithm ownership
 
-Status: implemented for the Wasm-AOT compiler on 2026-08-28. Focused
-verification is recorded below; broader Array and Test262 verification remain
-at the shared checkpoint.
+The Wasm-AOT implementation has one canonical Array algorithm,
+`compile_array_prototype_flat_map_builtin`. The static Array entry continues to
+use the shared argument-vector call boundary; the Iterator-helper branch is
+unchanged. The removed direct Array wrapper must not return.
 
-## Single Array direct entry
+## Observable algorithm
 
-The Array arm of static `flatMap()` syntax delegates through
-`emit_array_direct_builtin_method_call` to
-`StandardBuiltinId::ArrayPrototypeFlatMap`. The shared direct-call boundary
-evaluates the receiver once, propagates its abrupt completion, evaluates and
-expands the complete argument list from left to right, and only then enters the
-standard builtin.
+All call-site argument expressions, including unused arguments and spreads,
+finish before builtin execution. Inside the builtin, ToObject and one observable
+LengthOfArrayLike precede IsCallable and ArraySpeciesCreate. Missing argument zero
+is undefined, not a reason to skip observable length access. The length snapshot
+survives species getters and construction without being refreshed.
 
-The deleted `emit_array_flat_map_method_call` was a second Array entry owner. It
-compiled each argument as an ordinary expression and then built an argv from
-those locals. A `SpreadArgument` therefore reached the expression compiler
-outside a call and was rejected instead of invoking the iterator protocol. The
-wrapper also lacked the shared boundary's explicit abrupt-completion checks
-between the receiver and argument expressions. With that owner absent, a stale
-Array call fails to compile and every Array FlatMap call uses the complete
-argument-list boundary.
+Source indices below the snapshot use live HasProperty, then Get, then Call with
+(value, index, boxed source). Callable Proxies and thisArg use the shared call
+owner. A mapped value passes through the shared IsArray operation. Only Arrays
+flatten, at depth one; their original Proxy receiver is retained for length,
+presence and element access. Holes are skipped without mapper calls. Abrupt
+completion stops later observable work.
 
-The canonical compiler requires argument zero as the mapper, reads argument one
-as optional `thisArg`, and ignores later values after the call boundary has
-evaluated them. Runtime argc remains unrestricted.
+A private append owner checks the maximum safe integer bound before shared
+CreateDataPropertyOrThrow, propagates an abrupt definition, and increments only
+on success. Custom species targets do not receive a synthetic length write.
 
-## Preserved dispatch and algorithm
+The algorithm no longer reconstructs TypedArray private slots or implements its
+own numeric length conversion, Proxy classification or species construction.
+Those operations retain their existing semantic owners. The shared
+ArraySpeciesCreate emitter now serves flatMap, slice and splice; its structural
+census is updated without changing the operation catalog's evidence categories.
 
-`compile_array_prototype_flat_map_builtin` remains the sole standard entry and
-sole Array FlatMap algorithm owner. Its body does not change in this closure.
-It still owns mapper validation, optional `thisArg`, receiver conversion and
-source-length observation, Array species construction, sparse indexed access,
-mapper Call, one-level flattening and target publication.
+## Durable guards and execution evidence
 
-The static branch retains its exact `receiver.kind` or Array heap-shape test.
-Only the true Array arm changes its call boundary. The false arm still performs
-the ordinary Iterator-helper property read and calls `IteratorHelper::FlatMap`.
-The earlier custom Array named-property path and all neighboring receiver
-dispatch remain unchanged.
+The owner structure target pins one dispatcher/algorithm, complete argument
+forwarding, operation order and append ordering. The TypedArray structure target
+forbids private representation bypasses and retains the exact existing
+resizable-buffer fixture matrix. The new `lila-engine` `aot_flat_map` target
+executes observable programs through WasmAot, not an interpreter oracle.
 
-## Durable evidence
-
-`crates/lila-aot-wasm/tests/array_flat_map_algorithm_owner_structure.rs`
-recursively pins:
-
-- the unchanged Array/Iterator classification and both destinations;
-- the Array arm's exact standard builtin selection, label and complete `args`
-  forwarding;
-- absence of the deleted direct owner;
-- one canonical compiler and one standard dispatcher consumer;
-- receiver-before-arguments-before-call ordering in the shared direct-call
-  boundary;
-- mapper and optional-`thisArg` projection; and
-- receiver conversion, length observation, `HasProperty`, indexed `Get` and
-  mapper Call order in the unchanged canonical compiler.
-
-The focused CLI fixture `wasm_array_flat_map_argument_evaluation.js` uses an
-accessor-backed source element. Its mapper, `thisArg`, ignored third argument
-and trailing custom iterable spread record complete left-to-right evaluation
-before the indexed getter and mapper record the start of FlatMap semantics. The
-existing core and Proxy access-count fixtures remain algorithm controls.
-
-Existing FlatMap TypedArray-witness and neighboring Concat structure guards
-bound the canonical compiler, not the deleted wrapper, so this closure changes
-no marker file.
-
-## Verification
-
-On 2026-08-28, the focused recursive owner target passed `4/4`. The exact new
-argument-evaluation CLI witness and the existing core and Proxy access-count
-controls each passed `1/1` against the Wasm backend. The canonical compiler's
-source hash remained
-`009ab7510a4d965f1db3ff83df63ed3b1739ae9c137d878c9148ee68801c5761`, and the
-complete Rust source census contains no `emit_array_flat_map_method_call`.
-Scoped formatting and diff checks passed for this lane, and the shared
-`cargo xc` checkpoint is green. Pinned Proxy access-count, `thisArg`, and
-generic spread controls pass all five generated variants (`5/5`) on Wasm-AOT.
-
-## Nonclaims
-
-This closure does not change the canonical FlatMap algorithm, remove a Test262
-materializer, change a published conformance count or claim the Array subtree
-green. It does not alter Iterator helper dispatch, repair the existing direct
-branch's receiver classification or ordinary property-lookup policy, or
-canonicalize `map`, `concat`, `push` or another method.
+See [the conformance follow-up](../aot-flat-map.md) for commands, evidence layers
+and remaining work. Historical August 28 results described the direct-call
+boundary only; they are not execution evidence for this replacement algorithm.
+This change does not repair neighboring Array methods or the static branch's
+broader property-lookup/classification policy.
