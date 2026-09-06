@@ -32,8 +32,8 @@ jobs:
           text = path.read_text()
           old = 'StandardBuiltinId::ArrayPrototypeFlatMap\\n            | StandardBuiltinId::ArrayPrototypeMap'
           new = 'StandardBuiltinId::ArrayPrototypeFlatMap\\n                | StandardBuiltinId::ArrayPrototypeMap'
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one planner formatting match, found {text.count(old)}')
+          if old not in text:
+              raise SystemExit('planner formatting literal is absent')
           path.write_text(text.replace(old, new, 1))
           PY
       - name: Apply exact current-pin transformations
