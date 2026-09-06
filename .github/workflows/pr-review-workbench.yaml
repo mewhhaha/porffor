@@ -11,6 +11,8 @@ jobs:
   reconcile:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +28,7 @@ jobs:
           pr19=c590ab4835e7a6eb288b7a19dbd2c33560be488c
           pr20=f4030ebaf8273ab25c4e7de6dc9d94061cfc022f
           pr21=affd09b57f03b7eaffacf733adfa11384f7627fb
-          for sha in "$base" "$pr19" "$pr20" "$pr21"; do git fetch --depth=1 origin "$sha"; done
+          for sha in "$base" "$pr19" "$pr20" "$pr21"; do git fetch --depth=8 origin "$sha"; done
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout --detach "$pr19"
@@ -88,7 +90,6 @@ jobs:
           git diff --check
           ./scripts/check-module-boundaries.sh
           ./scripts/check-task-plan.sh
-          ./scripts/check-readme-status-artifacts.sh "$base"
           python3 scripts/tests/test_engine_regression_inventory.py
           for target in typed_array_to_locale_string_witness_structure to_locale_string_invocation_structure array_to_locale_string_observable_structure array_callback_iteration_structure array_flat_map_algorithm_owner_structure array_flat_map_typed_array_witness_structure array_map_algorithm_owner_structure array_filter_algorithm_owner_structure array_every_algorithm_owner_structure array_some_algorithm_owner_structure for_of_string_iterator_protocol_structure direct_sync_for_of_protocol_error_realm_structure plain_async_for_of_await_using_structure synchronous_using_for_of_structure sync_iterator_locals_release_ownership_structure sync_iterator_consumer_capability_structure math_sum_precise_runtime_structure; do
             CARGO_MANIFEST_DIR="$PWD/crates/lila-aot-wasm" rustc --edition=2024 --test "crates/lila-aot-wasm/tests/$target.rs" -o "/tmp/$target"
@@ -98,11 +99,14 @@ jobs:
           tree20=$(git write-tree)
           reviewed20=$(printf 'fix(aot): reconcile locale invocation with shared length and iterator repairs\n' | git commit-tree "$tree20" -p "$pr20" -p "$reviewed21")
           printf 'PR20 %s %s\n' "$reviewed20" "$tree20" | tee -a /tmp/pr-review-evidence/manifest.txt
+          git checkout --detach "$reviewed20"
+          ./scripts/check-readme-status-artifacts.sh "$base"
           git diff --binary "$pr21" "$reviewed21" > /tmp/pr-review-evidence/pr21.patch
           git diff --binary "$pr20" "$reviewed20" > /tmp/pr-review-evidence/pr20.patch
           for revision in "$reviewed21" "$reviewed20"; do
             if git cat-file -e "$revision:.github/workflows/pr-review-workbench.yaml" 2>/dev/null; then exit 1; fi
             if git cat-file -e "$revision:scripts/pr-review-fix.patch.gz" 2>/dev/null; then exit 1; fi
+            if git ls-tree -r --name-only "$revision" | grep -E '(__pycache__|\.pyc$)'; then exit 1; fi
           done
       - name: Publish isolated review candidates for connector inspection
         env:
