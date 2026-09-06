@@ -1,0 +1,24 @@
+name: PR19 repair diagnostics
+on:
+  push:
+    branches: [codex/pr19-ci-repair]
+    paths: [.github/workflows/pr19-ci-repair.yaml]
+permissions:
+  contents: read
+jobs:
+  sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Collect exact source snapshot for repair
+        run: |
+          git rev-parse HEAD
+          tar -czf /tmp/pr19-repair-sources.tar.gz crates scripts docs/rust-rewrite .github/workflows Cargo.toml Cargo.lock rust-toolchain.toml README.md $(find . -name AGENTS.md -not -path './.git/*' -not -path './test262/*')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr19-repair-sources
+          path: /tmp/pr19-repair-sources.tar.gz
+          retention-days: 1
