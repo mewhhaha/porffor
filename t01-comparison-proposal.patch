@@ -1,0 +1,258 @@
+--- a/crates/lila-test262/src/lib.rs
++++ b/crates/lila-test262/src/lib.rs
+@@ -14033,15 +14033,36 @@
+     Ok((artifact, paths))
+ }
+ 
++/// A comparison names two specific runs, not two discovery hints. In particular,
++/// a missing baseline must not resolve to the candidate and manufacture an empty
++/// diff. Keep the shared complete-evidence validation and discovery behavior for
++/// other consumers, but require the requested identity at this boundary.
++fn load_comparison_aggregate_summary(
++    config: &SuiteConfig,
++    snapshot_name: &str,
++    execution_backend: ExecutionBackend,
++) -> Result<VerifiedAggregateSummary, String> {
++    let verified = load_current_aggregate_summary(config, snapshot_name, execution_backend)?;
++    if verified.resolved_snapshot_name != snapshot_name {
++        return Err(format!(
++            "snapshot comparison requires exact snapshot name `{snapshot_name}`; only `{}` resolved; refusing to compare a different snapshot",
++            verified.resolved_snapshot_name
++        ));
++    }
++    Ok(verified)
++}
++
++/// Compare two explicitly named, complete current snapshots.
++/// Unlike status/backlog discovery, comparison never substitutes another name.
+ pub fn compare_snapshots(
+     config: &SuiteConfig,
+     base_snapshot_name: &str,
+     candidate_snapshot_name: &str,
+     execution_backend: ExecutionBackend,
+ ) -> Result<SnapshotComparison, String> {
+-    let base = load_current_aggregate_summary(config, base_snapshot_name, execution_backend)?;
++    let base = load_comparison_aggregate_summary(config, base_snapshot_name, execution_backend)?;
+     let candidate =
+-        load_current_aggregate_summary(config, candidate_snapshot_name, execution_backend)?;
++        load_comparison_aggregate_summary(config, candidate_snapshot_name, execution_backend)?;
+     // Refuse to compare snapshots whose suite pins are not verifiably the
+     // same suite content. Textual pin differences are accepted only when the
+     // git object store proves the vendored suite trees are identical.
+--- a/tasks/01-baseline-and-generated-backlog.md
++++ b/tasks/01-baseline-and-generated-backlog.md
+@@ -99,6 +99,29 @@
+ This does not bind older checkpoints to a compiler or introduce optional
+ snapshot provenance metadata. Current-pin publication and the separately
+ designed mandatory provenance schema remain open.
++
++## Exact comparison inputs — 2026-09-06
++
++`compare-snapshots` now requires both requested snapshot names to match their
++validated aggregate identities. A missing baseline or candidate must not resolve
++to the other run (or a third run) and fabricate a zero-change comparison. The
++shared loader still validates current schema, pins, the complete matrix and node
++evidence; status/backlog discovery retains its existing unique-name fallback.
++Explicitly comparing a snapshot with itself remains supported.
++
++The retained `snapshot_comparison_identity` integration target exercises missing
++inputs, explicit self-comparison, an actual added pass and regression, discovery
++fallback and incomplete/corrupt named candidates. Its compile-negative fixture
++matrices use the Wasm-AOT front end without enabling the oracle; these are harness
++contracts, not pinned real-suite conformance counts. See
++[the comparison contract](../docs/rust-rewrite/test262-snapshot-comparison.md).
++
++Next batch: build and record one unchanged compiler, finish the complete
++current-pin Wasm-AOT matrix through the guarded publication driver, verify and
++publish its canonical artifacts, and generate the failure backlog. Compare only
++explicitly named compatible snapshots; do not invent a missing historical
++baseline. Mandatory cross-invocation compiler provenance still requires its
++separate schema design. T01 and T26 remain open.
+ 
+ ## Objective
+ 
+--- a/tasks/README.md
++++ b/tasks/README.md
+@@ -635,6 +635,22 @@
+ 9. Backend design targets the experimental Wasmtime lower bound from `AGENTS.md` (Wasm GC, typed function references, reference types, `exnref` exception handling). Do not build second object models, closure representations, or exception mechanisms for runtimes that lack these features; reject such runtimes at the boundary.
+ 10. The legacy JavaScript product exists only in Git history at the recovery commit recorded by T28. Do not restore its compiler, runtime, package, publication, benchmark, or playground surfaces. JavaScript remains only as Rust-owned test/conformance data or vendored source.
+ 
++## T01 comparison identity — 2026-09-06
++
++Snapshot comparison now rejects a missing requested name instead of silently
++substituting another complete run and reporting an empty diff. Explicit
++self-comparison, complete-evidence validation and status/backlog discovery remain
++intact. The retained `snapshot_comparison_identity` integration target covers the
++boundary with product-front-end compile-negative fixtures, not real-suite
++conformance evidence. See [T01](01-baseline-and-generated-backlog.md) and the
++[comparison contract](../docs/rust-rewrite/test262-snapshot-comparison.md).
++
++Next: finish the guarded current-pin Wasm-AOT matrix with fixed compiler inputs,
++publish only its verified canonical artifacts, then generate and curate the
++failure backlog. Compare explicitly named compatible runs; mandatory compiler
++provenance is still a separate schema migration. No aggregate status or T26
++closure is claimed by this repair.
++
+ ## How to execute one task
+ 
+ 1. Read this file, the selected task file, `AGENTS.md`, and the touched crate manifests.
+--- a/README.md
++++ b/README.md
+@@ -69,6 +69,11 @@
+ [the publication-driver contract](docs/rust-rewrite/reproducible-publication-driver.md)
+ for resume safeguards and provenance limits. This does not establish a new
+ current-pin baseline or change the generated status block.
++
++`test262 compare-snapshots <base> --snapshot-name <candidate>` requires both
++exact snapshot names. A missing input is an error, not permission to compare
++against a different run. See [the snapshot comparison contract](docs/rust-rewrite/test262-snapshot-comparison.md)
++for commands and evidence requirements.
+ 
+ Array `toLocaleString` now uses shared observable length acquisition for every
+ generic receiver, including TypedArray and arguments length overrides. The
+--- /dev/null
++++ b/docs/rust-rewrite/test262-snapshot-comparison.md
+@@ -0,0 +1,74 @@
++# T01: exact snapshot identity in comparisons
++
++## Contract
++
++A comparison answers what changed between two specific runs. Both names must
++identify complete current aggregate snapshots for the selected backend and
++matrix. A missing baseline, candidate, or both is an error even when the shared
++snapshot discovery code can find exactly one compatible run under another name.
++The diagnostic identifies the requested and resolved names rather than reporting
++an empty diff for two aliases of the same evidence.
++
++The comparison-specific loader first uses the existing complete-evidence loader,
++then checks its resolved identity before permitting comparison. It does not
++introduce another snapshot parser or bypass schema, producer, pin, manifest,
++matrix-completeness or node-evidence validation. An exact but invalid artifact
++continues to fail validation; it is not replaced with another snapshot.
++
++Explicit self-comparison remains valid. Discovery-oriented status and backlog
++commands retain their existing unambiguous fallback and expose the actual
++resolved name. This change is deliberately limited to the comparison consumer.
++
++## Usage
++
++Use names of two real compatible runs already on disk:
++
++```sh
++./target/release/lila test262 compare-snapshots baseline \
++  --snapshot-name candidate \
++  --execution-backend wasm-aot \
++  --suite-root test262/vendor/test262 \
++  --snapshot-dir test262/snapshots
++```
++
++The previous implementation could resolve a nonexistent `baseline` to the sole
++`candidate` aggregate, load that run twice, and print zero added passes,
++regressions and changed hashes while displaying two different requested names.
++The same substitution was possible for an absent candidate or for two missing
++names. Do not infer improvement or stability from a comparison whose requested
++input was never produced.
++
++This repair does not establish compiler provenance for old checkpoints. Preserve
++source-commit and executable-digest logs as described by the
++[publication driver](reproducible-publication-driver.md). Mandatory provenance
++still needs its separately designed Rust snapshot-schema migration.
++
++## Regression validation
++
++```sh
++cargo test --locked -p lila-test262 --test snapshot_comparison_identity
++cargo test --locked -p lila-test262 \
++  --test snapshot_use_structure \
++  --test aggregate_evidence_requirement_structure \
++  --test execution_identity_structure
++cargo fmt --all -- --check
++./scripts/check-task-plan.sh
++./scripts/check-module-boundaries.sh
++```
++
++The eight-test integration target covers missing base/candidate/both names,
++explicit self-comparison, actual pass/regression detection, preserved discovery
++fallback, and incomplete/corrupt named candidates. Fixtures are isolated temporary
++matrices of parse-negative JavaScript; they use the Wasm-AOT front end without
++turning on the spec-exec oracle. Passing and failing totals are asserted before
++testing the comparison result. These are harness contracts, not real Test262
++conformance counts.
++
++The read-only `Snapshot comparison contracts` workflow uses the retained
++complete-inventory executor to require every compiled test to execute exactly
++once without failures, ignores or timeouts. It records the source identity,
++input hashes, inventory and per-test results.
++
++Next: complete the fixed-compiler current-pin Wasm-AOT matrix, publish verified
++canonical artifacts, and generate the failure backlog. T01 and T26 remain open;
++no suite pin, source, exclusion, snapshot schema or published count is changed.
+--- /dev/null
++++ b/.github/workflows/snapshot-comparison.yaml
+@@ -0,0 +1,66 @@
++name: Snapshot comparison contracts
++
++on:
++  pull_request:
++  push:
++    branches:
++      - main
++
++permissions:
++  contents: read
++
++jobs:
++  snapshot-comparison:
++    runs-on: ubuntu-latest
++    timeout-minutes: 30
++    env:
++      CARGO_BUILD_JOBS: 2
++    steps:
++      - uses: actions/checkout@v4
++        with:
++          persist-credentials: false
++      - name: Record inputs and build the comparison contract target
++        shell: bash
++        run: |
++          set -euo pipefail
++          mkdir -p /tmp/snapshot-comparison-evidence
++          git rev-parse HEAD | tee /tmp/snapshot-comparison-evidence/source-commit.txt
++          sha256sum crates/lila-test262/src/lib.rs crates/lila-test262/tests/snapshot_comparison_identity.rs \
++            | tee /tmp/snapshot-comparison-evidence/input-sha256.txt
++          cargo test --locked -p lila-test262 --test snapshot_comparison_identity --no-run --message-format=json \
++            > /tmp/snapshot-comparison-evidence/build.jsonl
++      - name: Execute the complete compiled inventory
++        shell: bash
++        run: |
++          python3 - <<'PY'
++          import json
++          import sys
++          from pathlib import Path
++          sys.path.insert(0, "scripts")
++          from run_engine_regression_inventory import run_inventory
++          evidence = Path("/tmp/snapshot-comparison-evidence")
++          binaries = set()
++          for line in (evidence / "build.jsonl").read_text().splitlines():
++              message = json.loads(line)
++              if (message.get("reason") == "compiler-artifact"
++                      and message["target"]["name"] == "snapshot_comparison_identity"
++                      and message["profile"]["test"] and message.get("executable")):
++                  binaries.add(message["executable"])
++          if len(binaries) != 1:
++              raise SystemExit(f"expected exactly one comparison test executable, found {binaries}")
++          summary = run_inventory(Path(binaries.pop()), evidence, timeout=120)
++          if summary["passed"] != summary["total"]:
++              raise SystemExit("comparison contract inventory failed")
++          PY
++      - name: Retain snapshot evidence and execution identity contracts
++        run: >-
++          cargo test --locked -p lila-test262
++          --test snapshot_use_structure
++          --test aggregate_evidence_requirement_structure
++          --test execution_identity_structure
++      - uses: actions/upload-artifact@v4
++        if: always()
++        with:
++          name: snapshot-comparison-contracts
++          path: /tmp/snapshot-comparison-evidence
++          if-no-files-found: error
