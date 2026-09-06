@@ -1,0 +1,23 @@
+name: Callback source review
+on:
+  push:
+    branches: [codex/array-callback-prepare]
+    paths: [.github/workflows/callback-source-review.yaml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 436527ccf2d2c2e27c994b15fac9ed86ec0b765b
+          persist-credentials: false
+      - name: Archive exact compiler and regression sources
+        run: git archive --format=tar.gz --output=/tmp/callback-review-source.tar.gz HEAD crates/lila-aot-wasm/src crates/lila-aot-wasm/tests crates/lila-engine/tests scripts docs/rust-rewrite/contracts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exact-callback-review-source
+          path: /tmp/callback-review-source.tar.gz
+          retention-days: 7
