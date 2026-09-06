@@ -17,19 +17,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Validate the cross-realm repair and preserve concurrent iterator changes
+      - name: Reconcile and validate the complete indexed-read realm contract
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr-review-evidence
           gzip -dc scripts/pr-review-realm.patch.gz > /tmp/indexed-realm-fix.patch
           echo '86f3f0bdfc74fb43e05f7b2037952dbc6b356247ab31edde4c42b69a919fc57c  /tmp/indexed-realm-fix.patch' | sha256sum -c -
+          cp /tmp/indexed-realm-fix.patch /tmp/pr-review-evidence/
           base=abdcf56f1bd88d5debbb1d8c291f2e7213f77371
-          original20=f4030ebaf8273ab25c4e7de6dc9d94061cfc022f
+          current20=2c5e139394abea434a23616ba817bceb7d632e37
           candidate20=e684ad95a7b8ffdc9e433b1d65672fb69ceed52d
           previous21=05cbd9927e05362904a9dd2845757ae50cfb3191
           current21=acdd0d1aba6e53b9ed65ed42d16bfe953b454221
-          for sha in "$base" "$original20" "$candidate20" "$previous21" "$current21"; do git fetch --depth=12 origin "$sha"; done
+          main=fe83b71f7cc67c1acbd2f3193568c3f36b584621
+          for sha in "$base" "$current20" "$candidate20" "$previous21" "$current21" "$main"; do git fetch --depth=16 origin "$sha"; done
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout --detach "$candidate20"
@@ -39,8 +41,28 @@ jobs:
           git add -A
           before_format=$(git write-tree)
           test "$before_format" = c7ebaddb380b8fec9b3559356ce7e235bf174359
+          python3 - <<'PY'
+          from pathlib import Path
+          def replace(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              assert s.count(old) == 1, (path, old, s.count(old))
+              p.write_text(s.replace(old, new, 1))
+          replace('crates/lila-aot-wasm/tests/object_read_proxy_realm_structure.rs',
+              '.matches("RuntimeHelperId::ObjectRead | RuntimeHelperId::ObjectReadProxy")',
+              '.chars().filter(|ch| !ch.is_whitespace()).collect::<String>().matches(concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|", "RuntimeHelperId::IndexedElementRead=>Self::ObjectReadHelperArgument,"))')
+          replace('crates/lila-aot-wasm/tests/object_read_realm_projection_capability_structure.rs',
+              '"RuntimeHelperId::ObjectRead,RuntimeHelperId::ObjectReadProxy]);"',
+              '"RuntimeHelperId::ObjectRead,RuntimeHelperId::ObjectReadProxy,",\n            "RuntimeHelperId::IndexedElementRead]);"')
+          replace('crates/lila-aot-wasm/tests/proxy_execution_realm_structure.rs',
+              'concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy=>{",)',
+              'concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|", "RuntimeHelperId::IndexedElementRead=>")')
+          PY
           cargo fmt --all
-          git diff "$before_format" > /tmp/pr-review-evidence/format.patch
+          git diff "$before_format" > /tmp/pr-review-evidence/format-and-guard.patch
+          git diff --binary "$base" > /tmp/pr-review-evidence/candidate.patch
+          git add -A
+          git write-tree > /tmp/pr-review-evidence/candidate-tree.txt
           cargo fmt --all -- --check
           git diff --check
           ./scripts/check-module-boundaries.sh
@@ -52,11 +74,11 @@ jobs:
           done
           git add -A
           tree=$(git write-tree)
-          reviewed=$(printf 'fix(aot): reconcile locale invocation and preserve indexed read error realms\n' | git commit-tree "$tree" -p "$original20" -p "$current21")
+          reviewed=$(printf 'fix(aot): reconcile locale invocation and preserve indexed read error realms\n' | git commit-tree "$tree" -p "$current20" -p "$current21" -p "$main")
           printf 'PR20 %s %s\n' "$reviewed" "$tree" | tee /tmp/pr-review-evidence/manifest.txt
           git checkout --detach "$reviewed"
           ./scripts/check-readme-status-artifacts.sh "$base"
-          git diff --binary "$original20" "$reviewed" > /tmp/pr-review-evidence/pr20.patch
+          git diff --binary "$current20" "$reviewed" > /tmp/pr-review-evidence/pr20.patch
           for path in .github/workflows/pr-review-workbench.yaml scripts/pr-review-fix.patch.gz scripts/pr-review-realm.patch.gz; do
             if git cat-file -e "$reviewed:$path" 2>/dev/null; then exit 1; fi
           done
