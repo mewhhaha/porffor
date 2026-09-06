@@ -1,0 +1,38 @@
+name: PR review workbench
+on:
+  push:
+    branches: [codex/pr-review-workbench-20260906]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export exact base and proposal patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=abdcf56f1bd88d5debbb1d8c291f2e7213f77371
+          mkdir -p /tmp/pr-review-source
+          for sha in "$base" c590ab4835e7a6eb288b7a19dbd2c33560be488c f4030ebaf8273ab25c4e7de6dc9d94061cfc022f affd09b57f03b7eaffacf733adfa11384f7627fb; do
+            git fetch --depth=1 origin "$sha"
+            git show -s --format='%H %T %s' "$sha" >> /tmp/pr-review-source/manifest.txt
+          done
+          git archive "$base" | gzip > /tmp/pr-review-source/base.tar.gz
+          git diff --binary "$base" c590ab4835e7a6eb288b7a19dbd2c33560be488c > /tmp/pr-review-source/pr19.patch
+          git diff --binary "$base" f4030ebaf8273ab25c4e7de6dc9d94061cfc022f > /tmp/pr-review-source/pr20.patch
+          git diff --binary "$base" affd09b57f03b7eaffacf733adfa11384f7627fb > /tmp/pr-review-source/pr21.patch
+          cp "$(rustup which rustfmt)" /tmp/pr-review-source/rustfmt
+          git checkout --detach f4030ebaf8273ab25c4e7de6dc9d94061cfc022f
+          cargo fmt --all
+          git diff > /tmp/pr-review-source/pr20-format.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-review-pinned-source
+          path: /tmp/pr-review-source
+          retention-days: 2
+          compression-level: 1
