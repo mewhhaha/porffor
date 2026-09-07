@@ -29,7 +29,7 @@ line number is from `git rev-parse --short HEAD` = `5bb66a35a` on branch
 none was inferred from a grep count.
 
 Three conventions, following the house style of
-`Reference Records: one record, a carried [[Strict]], and a write that consumes it.md`
+`reference-records-single-owner-contract.md`
 and `Numeric conversion codomains ....md`:
 
 - **Invariants** are numbered `I1..I15`. §2 assigns each one either a Rust

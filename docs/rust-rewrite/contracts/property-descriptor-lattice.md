@@ -5,7 +5,7 @@ write. The full contract — measurement table, spec basis, invariant index
 I1–I15, ledger LN1–LN10, mistake-class table, retrofit map, deviations, dry-run
 corpus and acceptance criteria — is:
 
-> `docs/rust-rewrite/contracts/The Property Descriptor lattice: one closed 6.2.6 type and one derived ValidateAndApplyPropertyDescriptor, replacing a raw u64 bitfield re-derived at eight sites.md`
+> `docs/rust-rewrite/contracts/property-descriptor-closed-domain-proposal.md`
 
 Read that document before touching anything in this area. In particular read its
 **§5.2**: the obvious fix to the `data: None` + `data_present_local: Some(..)`

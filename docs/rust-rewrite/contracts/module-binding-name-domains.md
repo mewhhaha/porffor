@@ -17,7 +17,7 @@ Owned files:
 - `crates/lila-ir/src/lib.rs` (only the `pub use modules::{…}` block at
   lines 76–83 and the `mod`/`pub use` lines for the new module)
 - `crates/lila-ir/src/modules/{mod,record,link,graph,namespace,source,dynamic,early}.rs`
-- `docs/rust-rewrite/contracts/Module binding-name domains: [[LocalName]] vs [[ExportName]] vs merged storage name.md` (this file)
+- `docs/rust-rewrite/contracts/module-binding-name-domains.md` (this file)
 
 The area brief names this file `docs/rust-rewrite/contracts/module-binding-names.md`.
 That path exists as a three-line pointer to this document; this document is

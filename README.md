@@ -7059,6 +7059,38 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 
 Source and project status: <https://github.com/mewhhaha/porffor>.
 
+## Product artifact execution checks
+
+`cargo test --locked -p lila-aot-wasm --test product_artifact` validates emitted Wasm and checks the evaluator boundary. `cargo test --locked -p lila-cli --test product_artifact_execution -- --test-threads=1` executes the same shared program inventory through the real product CLI, requires exact program output and the Wasm-AOT completion record, and bounds each child process. Its negative controls reject wrong results, extra output, unsuccessful processes, missing completion records and oracle fallback. These focused regressions are not a complete Test262 baseline or a conformance percentage.
+
+## Repository path portability
+
+Run `python3 scripts/check-repository-paths.py` before adding or renaming tracked files. The gate checks the complete Git index for Windows-invalid components and case/Unicode path collisions; it does not modify files or omit vendored paths. Run its failure controls with `python3 -m unittest discover -s scripts/tests -p test_repository_paths.py -v`. The Repository portability workflow also performs a real Windows checkout.
+
+## Resuming a low-memory publication session
+
+`scripts/publish-real-status-low-ram.sh` records a durable manifest for each
+snapshot family under `SNAPSHOT_DIR/.publication-provenance/`. It verifies the
+observed checkout commit/tree, actual compiler and driver source bytes, exact
+executable bytes, complete suite/harness bytes, backend, concurrency, isolation,
+and selected runtime/locale settings before each CLI invocation. Matching runs
+reuse that manifest without rewriting it. Incompatible inputs, a lost or corrupt
+manifest, and legacy results without a manifest fail closed: retain those results
+and choose a fresh snapshot name rather than relabeling them. A per-family POSIX
+lock prevents concurrent publishers; the supervised child retains the lock and
+receives termination signals. Changing only `MAX_MATRIX_NODES` or `README_PATH`
+does not change the execution identity. `ISOLATE_CASES` now explicitly controls
+inherited case-runner flags in both modes.
+
+This requires Python 3 and POSIX `fcntl` in addition to the existing Bash/Git
+requirements. It records observed inputs, **not proof that the executable was
+built from that checkout**. It does not retrofit identity into native snapshot
+schemas or make direct CLI checkpoint reuse safe across builds; those native
+schema/build-attestation requirements remain open. No Test262 result or generated
+status percentage is changed by this guard. Run the full real-process driver
+contract suite with `python3 scripts/test_publish_real_status_low_ram.py`; its
+fake CLI validates publication orchestration, not JavaScript conformance.
+
 ## Shortcut accounting
 
 [Current shortcut accounting](test262/backlog/current-shortcut-status.md) is generated from the classified source audit, including input hashes and semantic-only removal ownership. Run `bash scripts/audit-test262-shortcuts.sh --check`, then `python3 scripts/generate-shortcut-status.py` to regenerate it, or add `--check` to reject a stale report. These are observations, not test passes or a completion percentage. The Rust publisher remains the only owner of the generated conformance block.

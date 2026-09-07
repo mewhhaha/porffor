@@ -4,7 +4,7 @@ The contract for the area *Environment Record binding lifecycle: TDZ as a
 per-binding typestate on `BindingInfo`, replacing the parallel string-set stack
 and the storage-name prefix* lives at:
 
-`docs/rust-rewrite/contracts/Environment Record binding lifecycle: TDZ as a per-binding typestate on BindingInfo, replacing the parallel string-set stack and the storage-name prefix.md`
+`docs/rust-rewrite/contracts/environment-record-binding-lifecycle.md`
 
 This file exists because the area brief names `environment-record-tdz.md` in its
 `files_owned` list while the campaign's file-naming convention for contracts uses
