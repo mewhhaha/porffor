@@ -1,6 +1,6 @@
 name: Cancel pinned obsolete review runs
 
-# Operational cleanup on a non-PR branch only. No code is checked out or run.
+# Operational cleanup on a non-PR branch only. No repository code is checked out.
 # Never treat this workflow as a validation result for any pull request.
 on:
   push:
@@ -8,6 +8,7 @@ on:
     paths: [.github/workflows/review-cancel-obsolete-runs.yaml]
 
 permissions:
+  contents: read
   actions: write
 
 jobs:
