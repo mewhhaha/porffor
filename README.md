@@ -7058,3 +7058,7 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 `lila` means `purple` in Swedish.
 
 Source and project status: <https://github.com/mewhhaha/porffor>.
+
+## Product artifact execution checks
+
+`cargo test --locked -p lila-aot-wasm --test product_artifact` validates emitted Wasm and checks the evaluator boundary. `cargo test --locked -p lila-cli --test product_artifact_execution -- --test-threads=1` executes the same shared program inventory through the real product CLI, requires exact program output and the Wasm-AOT completion record, and bounds each child process. Its negative controls reject wrong results, extra output, unsuccessful processes, missing completion records and oracle fallback. These focused regressions are not a complete Test262 baseline or a conformance percentage.

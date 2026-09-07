@@ -61,12 +61,23 @@ fn execution_matches(success: bool, stdout: &str, expected_stdout: &str) -> bool
 
 #[test]
 fn representative_artifacts_execute_with_the_expected_transcripts() {
-    assert!(!product_programs::CASES.is_empty(), "fixture inventory must not be empty");
+    assert!(
+        !product_programs::CASES.is_empty(),
+        "fixture inventory must not be empty"
+    );
     let directory = Directory::new();
     let mut names = BTreeSet::new();
     for fixture in product_programs::CASES {
-        assert!(names.insert(fixture.name), "duplicate fixture {}", fixture.name);
-        assert!(!fixture.source.is_empty(), "{}: source is empty", fixture.name);
+        assert!(
+            names.insert(fixture.name),
+            "duplicate fixture {}",
+            fixture.name
+        );
+        assert!(
+            !fixture.source.is_empty(),
+            "{}: source is empty",
+            fixture.name
+        );
         let source = directory.0.join(format!("{}.js", fixture.name));
         let stdout_path = directory.0.join(format!("{}.stdout", fixture.name));
         let stderr_path = directory.0.join(format!("{}.stderr", fixture.name));
@@ -115,7 +126,10 @@ fn execution_gate_rejects_wrong_results_extra_output_and_oracle_fallback() {
         valid.replace("WasmAot", "SpecExec"),
         valid.replace("undefined(undefined)", "number(9)"),
     ] {
-        assert!(!execution_matches(true, &invalid, expected), "accepted {invalid:?}");
+        assert!(
+            !execution_matches(true, &invalid, expected),
+            "accepted {invalid:?}"
+        );
     }
     assert!(!execution_matches(false, &valid, expected));
     assert!(!execution_matches(true, WASM_COMPLETION, ""));
