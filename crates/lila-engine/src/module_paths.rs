@@ -1,18 +1,14 @@
-//! Shared filesystem identity for module entry and dependency paths.
+//! Shared lexical identity for module entry and dependency paths.
 
 use std::path::{Component, Path, PathBuf};
 
-/// Resolve an existing path physically before applying lexical normalization.
+/// Fold dot components before the caller resolves filesystem symlinks.
 ///
-/// Collapsing `link/..` first can select an entirely different JavaScript
-/// module: the parent belongs to the symlink's target, not its spelling.
-/// Keep the existing lexical fallback for virtual/missing path components.
-/// The caller still owns root confinement and file-existence checks.
+/// This preserves the loader's existing specifier policy: `link/../dep.js`
+/// names the lexical parent's dependency, not the symlink target's parent.
+/// Normalization performs no IO and works for missing/virtual components.
+/// The caller still canonicalizes the result and checks root confinement.
 pub(crate) fn normalize(path: &Path) -> PathBuf {
-    if let Ok(resolved) = path.canonicalize() {
-        return resolved;
-    }
-
     let mut out = PathBuf::new();
     let mut floor = 0usize;
     for component in path.components() {
@@ -62,19 +58,20 @@ mod tests {
     }
 
     #[test]
-    fn existing_files_have_their_canonical_identity() {
+    fn existing_files_do_not_change_lexical_normalization() {
         let fixture = Fixture::new();
         let file = fixture.0.join("entry.js");
+        let before = normalize(&file);
         fs::write(&file, "export const value = 1;").unwrap();
-        assert_eq!(normalize(&file), file.canonicalize().unwrap());
+        assert_eq!(normalize(&file), before);
+        assert_eq!(before, file);
     }
 
     #[test]
-    fn missing_components_keep_the_lexical_fallback() {
+    fn missing_components_are_normalized_without_filesystem_lookups() {
         let fixture = Fixture::new();
-        let root = fixture.0.canonicalize().unwrap();
-        let virtual_path = root.join("missing").join("..").join("entry.js");
-        assert_eq!(normalize(&virtual_path), root.join("entry.js"));
+        let virtual_path = fixture.0.join("missing").join("..").join("entry.js");
+        assert_eq!(normalize(&virtual_path), fixture.0.join("entry.js"));
     }
 
     #[test]
@@ -96,58 +93,52 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn symlink_parent_selects_the_target_parent_not_the_lexical_parent() {
+    fn lexical_parent_precedes_symlink_resolution() {
         let fixture = Fixture::new();
         fs::create_dir_all(fixture.0.join("real/nested")).unwrap();
-        let intended = fixture.0.join("real/dep.js");
-        let decoy = fixture.0.join("dep.js");
-        fs::write(&intended, "export const selected = 'intended';").unwrap();
-        fs::write(&decoy, "export const selected = 'decoy';").unwrap();
+        let lexical = fixture.0.join("dep.js");
+        let physical = fixture.0.join("real/dep.js");
+        fs::write(&lexical, "export const selected = 'lexical';").unwrap();
+        fs::write(&physical, "export const selected = 'physical';").unwrap();
         std::os::unix::fs::symlink(
             fixture.0.join("real/nested"),
             fixture.0.join("link"),
         )
         .unwrap();
-        let resolved = normalize(&fixture.0.join("link/../dep.js"));
-        assert_eq!(resolved, intended.canonicalize().unwrap());
-        assert_ne!(resolved, decoy.canonicalize().unwrap());
+        let request = fixture.0.join("link/../dep.js");
+        let selected = normalize(&request).canonicalize().unwrap();
+        assert_eq!(selected, lexical.canonicalize().unwrap());
+        assert_ne!(selected, request.canonicalize().unwrap());
     }
 
     #[cfg(unix)]
     #[test]
-    fn physically_outside_paths_remain_visible_to_the_confinement_check() {
+    fn surviving_symlinks_are_still_resolved_before_confinement() {
         let fixture = Fixture::new();
         fs::create_dir(fixture.0.join("root")).unwrap();
-        fs::create_dir_all(fixture.0.join("outside/nested")).unwrap();
+        fs::create_dir(fixture.0.join("outside")).unwrap();
         fs::write(fixture.0.join("outside/dep.js"), "outside").unwrap();
-        fs::write(fixture.0.join("root/dep.js"), "inside decoy").unwrap();
         std::os::unix::fs::symlink(
-            fixture.0.join("outside/nested"),
+            fixture.0.join("outside"),
             fixture.0.join("root/link"),
         )
         .unwrap();
-        let resolved = normalize(&fixture.0.join("root/link/../dep.js"));
-        assert!(!resolved.starts_with(fixture.0.join("root").canonicalize().unwrap()));
+        let selected = normalize(&fixture.0.join("root/link/dep.js"))
+            .canonicalize()
+            .unwrap();
+        assert!(!selected.starts_with(fixture.0.join("root").canonicalize().unwrap()));
         assert_eq!(
-            resolved,
+            selected,
             fixture.0.join("outside/dep.js").canonicalize().unwrap()
         );
     }
 
-    #[cfg(unix)]
     #[test]
-    fn aliased_entry_and_dependency_paths_share_one_identity() {
+    fn entry_and_dependency_spellings_share_one_lexical_identity() {
         let fixture = Fixture::new();
-        fs::create_dir_all(fixture.0.join("real/nested")).unwrap();
-        fs::write(fixture.0.join("real/entry.js"), "export const value = 1;").unwrap();
-        std::os::unix::fs::symlink(
-            fixture.0.join("real/nested"),
-            fixture.0.join("link"),
-        )
-        .unwrap();
         assert_eq!(
-            normalize(&fixture.0.join("link/../entry.js")),
-            normalize(&fixture.0.join("real/entry.js"))
+            normalize(&fixture.0.join("sub/../entry.js")),
+            normalize(&fixture.0.join("./entry.js"))
         );
     }
 }

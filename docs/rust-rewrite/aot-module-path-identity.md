@@ -1,19 +1,22 @@
-# Physical module path identity
+# Module path identity policy
 
-Entry canonicalization and dependency resolution now consume one shared path
-normalizer. Existing paths are canonicalized before any lexical dot-component
-folding. A request such as `link/../dep.js` must name the parent of the symlink's
-target; folding `link/..` first can select a different JavaScript module or hide
-an outside-root physical target behind an inside-root decoy.
+Entry canonicalization and dependency resolution now consume one independently
+testable lexical normalizer. Its behavior is unchanged: first fold dot
+components, then let the caller canonicalize filesystem symlinks and enforce
+root confinement. In particular, `link/../dep.js` names the lexical parent's
+file, even when `link` points to a directory with a different physical parent.
 
-The existing lexical fallback remains for virtual or missing path components.
-The caller still checks confinement and file existence. This change does not
-provide package resolution, URL-based imports, or race-free filesystem isolation.
+Physical-first normalization is not a semantics-neutral cleanup. URL-style
+module resolution folds relative dot segments before resolving a file's real
+path; Node documents this order in ESM_RESOLVE. Lila does not claim complete
+Node resolution support, but this change preserves its existing ordering rather
+than silently substituting operating-system path traversal semantics.
 
-Six focused tests cover ordinary canonical identity, missing-component fallback,
-absolute-root preservation, symlink-parent selection, outside-root physical
-identity and entry/dependency aliases. The exact consumed module can be tested
-without compiling Wasmtime or the IR; the full loader cohort checks integration.
+Six focused tests cover independence from file existence, missing components,
+absolute-root preservation, lexical-versus-physical parents, surviving outside
+symlinks and shared entry/dependency spellings. The exact consumed module can be
+tested without compiling Wasmtime or the IR, and the full loader cohort checks
+integration. No parser/interpreter is introduced.
 
 ```sh
 rustc --edition=2021 --test crates/lila-engine/src/module_paths.rs -o /tmp/lila-module-path-tests
@@ -21,4 +24,8 @@ rustc --edition=2021 --test crates/lila-engine/src/module_paths.rs -o /tmp/lila-
 cargo test --locked -p lila-engine --lib module_loader::
 ```
 
-No Test262 aggregate or execution denominator is changed.
+Reference: https://nodejs.org/api/esm.html#resolution-algorithm-specification
+
+This is a regression-protection and test-isolation change, not newly implemented
+JavaScript syntax or a new Test262 result. File-URL percent encoding and stronger
+handle-relative filesystem isolation remain separate work.

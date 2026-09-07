@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           rustc --edition=2021 --test crates/lila-engine/src/module_paths.rs -o /tmp/lila-module-path-tests
           /tmp/lila-module-path-tests --list | tee /tmp/module-path-inventory.txt
-          grep -Fxq 'tests::symlink_parent_selects_the_target_parent_not_the_lexical_parent: test' /tmp/module-path-inventory.txt
+          grep -Fxq 'tests::lexical_parent_precedes_symlink_resolution: test' /tmp/module-path-inventory.txt
           /tmp/lila-module-path-tests
       - uses: Swatinem/rust-cache@v2
         with:
