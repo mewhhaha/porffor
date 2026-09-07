@@ -14,10 +14,24 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Generate the report and remove stale current summaries
+      - name: Generate accounting outside the closed numbered-task inventory
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/generate-shortcut-status.py')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              "Path('tasks/current-shortcut-status.md')": "Path('test262/backlog/current-shortcut-status.md')",
+              '[T01](01-baseline-and-generated-backlog.md)': '[T01](../../tasks/01-baseline-and-generated-backlog.md)',
+              '[T26](26-zero-failure-conformance-closure.md)': '[T26](../../tasks/26-zero-failure-conformance-closure.md)',
+          }
+          for before, after in replacements.items():
+              assert text.count(before) == 1, before
+              text = text.replace(before, after)
+          path.write_text(text, encoding='utf-8')
+          PY
           python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v
           bash scripts/audit-test262-shortcuts.sh --check
           python3 scripts/generate-shortcut-status.py
@@ -27,7 +41,7 @@ jobs:
           text = index.read_text(encoding='utf-8')
           heading = '## Current status snapshot — 2026-08-31'
           assert text.count(heading) == 1
-          text = text.replace(heading, '## Current shortcut accounting\n\n[The generated report](current-shortcut-status.md) derives current classification\ncounts and semantic removal-task totals from the canonical audit inputs. It is\nnot a full-suite result or a completion percentage.\n\n## Dated task snapshot — 2026-08-31')
+          text = text.replace(heading, '## Current shortcut accounting\n\n[The generated report](../test262/backlog/current-shortcut-status.md) derives current classification\ncounts and semantic removal-task totals from the canonical audit inputs. It is\nnot a full-suite result or a completion percentage.\n\n## Dated task snapshot — 2026-08-31')
           start = text.index('The current working tree passes the task-plan, module-boundary, host-ABI,')
           end = text.index('The final twelve T18 semantic observations are gone,', start)
           text = text[:start] + 'The dated task table and implementation evidence below are historical checkpoints,\nnot a claim that current CI is green. Use the generated accounting report for\ncurrent shortcut counts and the complete pinned aggregate for conformance.\n\n## Dated implementation evidence\n\n' + text[end:]
@@ -36,12 +50,12 @@ jobs:
           text = gate.read_text(encoding='utf-8')
           start = text.index('The shortcut audit is green as an exact-drift contract over 389 classified')
           end = text.index('The generated current-pin backlog is absent,', start)
-          text = text[:start] + 'Current shortcut counts and semantic removal-task totals are generated in\n[current shortcut accounting](current-shortcut-status.md), with input hashes\nand a CI freshness check. A green source audit proves classification/selector\nconsistency, not the absence of semantic shortcuts, and does not satisfy the\nfinal integrity criterion. ' + text[end:]
+          text = text[:start] + 'Current shortcut counts and semantic removal-task totals are generated in\n[current shortcut accounting](../test262/backlog/current-shortcut-status.md), with input hashes\nand a CI freshness check. A green source audit proves classification/selector\nconsistency, not the absence of semantic shortcuts, and does not satisfy the\nfinal integrity criterion. ' + text[end:]
           gate.write_text(text, encoding='utf-8')
           readme = Path('README.md')
           text = readme.read_text(encoding='utf-8')
           assert text.startswith('# Lila\n')
-          note = '\nCurrent classified shortcut accounting is generated in [the task report](tasks/current-shortcut-status.md). Regenerate it with `python3 scripts/generate-shortcut-status.py` after the canonical shortcut audit, and verify it with `--check`. This accounting is not a Test262 pass rate or project completion percentage.\n'
+          note = '\nCurrent classified shortcut accounting is generated in [the accounting report](test262/backlog/current-shortcut-status.md). Regenerate it with `python3 scripts/generate-shortcut-status.py` after the canonical shortcut audit, and verify it with `--check`. This accounting is not a Test262 pass rate or project completion percentage.\n'
           text = text.replace('# Lila\n', '# Lila\n' + note, 1)
           readme.write_text(text, encoding='utf-8')
           PY
@@ -52,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add tasks/current-shortcut-status.md tasks/README.md tasks/26-zero-failure-conformance-closure.md README.md
+          git add scripts/generate-shortcut-status.py test262/backlog/current-shortcut-status.md tasks/README.md tasks/26-zero-failure-conformance-closure.md README.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'docs: replace stale current shortcut summaries with generated accounting'
