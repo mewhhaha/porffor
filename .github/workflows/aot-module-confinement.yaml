@@ -1,0 +1,43 @@
+name: AOT module load confinement
+
+on:
+  pull_request:
+    paths:
+      - 'crates/lila-engine/**'
+      - 'Cargo.lock'
+      - '.github/workflows/aot-module-confinement.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/lila-engine/**'
+      - 'Cargo.lock'
+      - '.github/workflows/aot-module-confinement.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aot-module-confinement-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  confinement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: aot-correctness
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Verify regression inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p lila-engine --lib module_loader::confinement_tests:: -- --list | tee /tmp/module-tests.txt
+          grep -Fq 'module_loader::confinement_tests::host_loaded_entry_cannot_bypass_the_root: test' /tmp/module-tests.txt
+      - name: Run module loader regressions
+        run: cargo test --locked -p lila-engine --lib module_loader::

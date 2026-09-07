@@ -315,7 +315,10 @@ impl HostModuleLoader for FilesystemModuleLoader {
     }
 
     fn load(&self, key: &ModuleKey) -> Result<LoadedModule, ModuleLoadError> {
-        let path = PathBuf::from(key.as_str());
+        // Entry loads and public trait calls need not pass through resolve.
+        // Revalidate the path here as well: an earlier resolution is not an
+        // enduring authority to read a path that now points outside the root.
+        let path = self.confine(key.as_str(), Path::new(key.as_str()))?;
         let text = std::fs::read_to_string(&path).map_err(|error| ModuleLoadError::Io {
             key: key.clone(),
             message: error.to_string(),
@@ -835,3 +838,7 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/module_load_confinement.rs"]
+mod confinement_tests;
