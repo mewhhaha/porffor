@@ -18,11 +18,11 @@
 //! matching, complete extension handling, and the other data-backed Intl
 //! services remain open.
 //!
-//! One known deviation: the `Intl.Locale` constructor accepts but **ignores**
-//! its `options` argument, so `new Intl.Locale("en", { region: "US" })` yields
-//! `"en"` rather than `"en-US"`. Ignoring is the narrower wrong answer than
-//! rejecting, because `undefined` and `{}` — the only options values the rest
-//! of this slice can honour — then behave exactly as the spec requires.
+//! `Intl.Locale` applies its `language`, `script` and `region` options in
+//! observable order, including object coercion, inherited/Proxy reads and
+//! abrupt completion. It retains variants, extensions and private use while
+//! replacing those fields. Provider aliases, the `variants` option and the
+//! Unicode-extension options remain separate, unfinished work.
 //!
 //! Strings are UTF-8 byte spans in linear memory and a well-formed language tag
 //! is ASCII, so every structural pass below is a plain byte loop. That pass
@@ -35,6 +35,7 @@ use crate::objects::TaggedLocals;
 use lila_intl::{IntlHostCallOutcome, IntlHostOp, MAX_INTL_IDENTIFIER_BYTES};
 
 mod construction_lifecycle;
+mod language_options;
 
 mod canonical_locale_tag_invocation {
     pub(in crate::builtins) struct CanonicalLocaleTagInputPayloadLocal(u32);
@@ -1585,6 +1586,8 @@ impl<'a> FunctionBuilder<'a> {
         let region_payload_local = self.reserve_temp_local();
         let base_name_payload_local = self.reserve_temp_local();
         let ok_local = self.reserve_temp_local();
+        let options_payload_local = self.reserve_temp_local();
+        let options_tag_local = self.reserve_temp_local();
 
         self.compile_new_target_to_locals(
             new_target_payload_local,
@@ -1606,7 +1609,7 @@ impl<'a> FunctionBuilder<'a> {
 
         // `OrdinaryCreateFromConstructor` precedes the tag type check and
         // `ToString`. The reserved object cannot escape if either tag work or
-        // the future ordered options pass completes abruptly.
+        // the ordered options pass completes abruptly.
         let reserved_object = self.emit_reserve_intl_locale_object(function)?;
 
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
@@ -1615,6 +1618,12 @@ impl<'a> FunctionBuilder<'a> {
             argument_tag_local,
             input_payload_local,
             "Intl.Locale tag must be a string or an object",
+            function,
+        )?;
+        // CoerceOptionsToObject precedes language-tag syntax validation.
+        // In particular, a null options argument wins over a malformed tag.
+        let options = self.emit_intl_locale_coerce_options(
+            TaggedLocals::new(options_payload_local, options_tag_local),
             function,
         )?;
         self.emit_intl_canonicalize_locale_tag(
@@ -1641,6 +1650,16 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
+        self.emit_intl_locale_language_options(
+            options,
+            tag_payload_local,
+            language_payload_local,
+            script_payload_local,
+            region_payload_local,
+            base_name_payload_local,
+            function,
+        )?;
+
         let initialized_object = self.emit_initialize_intl_locale_object(
             reserved_object,
             tag_payload_local,
@@ -1652,6 +1671,8 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_publish_intl_locale_object(initialized_object, function);
 
+        self.release_temp_local(options_tag_local);
+        self.release_temp_local(options_payload_local);
         self.release_temp_local(ok_local);
         self.release_temp_local(base_name_payload_local);
         self.release_temp_local(region_payload_local);

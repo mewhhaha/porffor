@@ -4,6 +4,13 @@ Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, lib
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
+The direct Wasm `Intl.Locale` constructor now has an ordered core-options
+lowering for `language`, `script` and `region`, preserving the remaining tag
+and rebuilding its represented slots together. Rust/Wasm verification of
+this change remains pending; see [the core-options follow-up](docs/rust-rewrite/aot-intl-locale-options.md)
+for the regression target and remaining Intl work. Published conformance
+counts are unchanged.
+
 The public project and all current Rust packages, commands, environment
 variables, cache paths, diagnostics and host ABI names use the Lila identity.
 The GitHub repository URL and current DNS name retain their external locators
