@@ -106,7 +106,11 @@ fn insert_atomic(path: &Path, value: &[u8], next: &AtomicU64) -> io::Result<()> 
         let mut temp_name: OsString = path.file_name().unwrap_or_default().to_os_string();
         temp_name.push(format!(".tmp-{}-{suffix}", std::process::id()));
         let temp = path.with_file_name(temp_name);
-        match fs::OpenOptions::new().write(true).create_new(true).open(&temp) {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+        {
             Ok(file) => break (temp, file),
             // A stale file from a reused PID, or a pre-existing symlink, is
             // never opened or truncated. Reserve another name instead.

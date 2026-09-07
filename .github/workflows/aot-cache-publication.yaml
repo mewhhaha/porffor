@@ -40,4 +40,5 @@ jobs:
           cargo test --locked -p lila-engine --lib cache::atomic_tests:: -- --list | tee /tmp/cache-tests.txt
           grep -Fq 'cache::atomic_tests::distinct_cache_instances_publish_complete_entries: test' /tmp/cache-tests.txt
       - name: Run all cache regressions
-        run: cargo test --locked -p lila-engine --lib cache::
+        run: >-
+          cargo test --locked -p lila-engine --lib cache::

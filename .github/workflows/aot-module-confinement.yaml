@@ -40,4 +40,5 @@ jobs:
           cargo test --locked -p lila-engine --lib module_loader::confinement_tests:: -- --list | tee /tmp/module-tests.txt
           grep -Fq 'module_loader::confinement_tests::host_loaded_entry_cannot_bypass_the_root: test' /tmp/module-tests.txt
       - name: Run module loader regressions
-        run: cargo test --locked -p lila-engine --lib module_loader::
+        run: >-
+          cargo test --locked -p lila-engine --lib module_loader::
