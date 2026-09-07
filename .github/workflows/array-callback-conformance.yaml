@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: array-callback-conformance-${{ github.ref }}
+  group: array-callback-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -142,7 +142,8 @@ jobs:
           set -euo pipefail
           cargo build --locked -p lila-cli
           git rev-parse HEAD > target/debug/callback-source-sha.txt
-          tar -czf /tmp/callback-test262-cli.tar.gz -C target/debug lila callback-source-sha.txt
+          (cd target/debug && sha256sum lila > callback-binary-sha256.txt)
+          tar -czf /tmp/callback-test262-cli.tar.gz -C target/debug lila callback-source-sha.txt callback-binary-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
           name: array-callback-test262-cli
@@ -178,6 +179,9 @@ jobs:
           mkdir -p target/debug
           tar -xzf /tmp/callback-cli-artifact/callback-test262-cli.tar.gz -C target/debug
           test "$(cat target/debug/callback-source-sha.txt)" = "$(git rev-parse HEAD)"
+          (cd target/debug && sha256sum --check callback-binary-sha256.txt)
+      - name: Verify exact-denominator and failure-bucket controls
+        run: python3 -m unittest discover -s scripts/tests -p test_test262_shard_report.py -v
       - name: Execute a complete disjoint share of the pinned real subtree
         shell: bash
         env:
@@ -187,8 +191,7 @@ jobs:
           set -euo pipefail
           ./target/debug/lila test262 list "built-ins/Array/prototype/$ARRAY_METHOD/" | tee /tmp/callback-inventory.txt
           ./target/debug/lila test262 shard "$ARRAY_SHARD/4" "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/callback-test262 --snapshot-name "$ARRAY_METHOD-ci-$ARRAY_SHARD" 2>&1 | tee /tmp/callback-test262.txt
-          grep -Fx "shard: $ARRAY_SHARD/4" /tmp/callback-test262.txt
-          grep -Eq '^total: [1-9][0-9]*$' /tmp/callback-test262.txt
+          python3 scripts/check-test262-shard-report.py --inventory /tmp/callback-inventory.txt --report /tmp/callback-test262.txt --shard "$ARRAY_SHARD/4"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -198,4 +201,5 @@ jobs:
             /tmp/callback-test262.txt
             /tmp/callback-test262
             target/debug/callback-source-sha.txt
+            target/debug/callback-binary-sha256.txt
           retention-days: 7
