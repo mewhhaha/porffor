@@ -40,4 +40,5 @@ jobs:
         with:
           shared-key: aot-correctness
       - name: Test module loader integration
-        run: cargo test --locked -p lila-engine --lib module_loader::
+        run: >-
+          cargo test --locked -p lila-engine --lib module_loader::

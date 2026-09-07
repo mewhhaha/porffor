@@ -78,11 +78,10 @@ jobs:
           python3 scripts/check-repository-paths.py
           cargo fmt --all
           cargo fmt --all -- --check
-      - name: Remove preparation workflow and commit only on the review branch
+      - name: Commit preparation only to the review branch
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/review-prepare-portability.yaml
           git add --update
           git diff --cached --stat
           git config user.name 'github-actions[bot]'
