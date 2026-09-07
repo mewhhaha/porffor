@@ -1,0 +1,52 @@
+name: AOT product artifact validation
+
+on:
+  pull_request:
+    paths:
+      - 'crates/lila-aot-wasm/**'
+      - 'crates/lila-front/**'
+      - 'crates/lila-ir/**'
+      - 'crates/lila-runtime/**'
+      - 'crates/lila-intl/**'
+      - 'Cargo.lock'
+      - '.github/workflows/aot-product-validation.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/lila-aot-wasm/**'
+      - 'crates/lila-front/**'
+      - 'crates/lila-ir/**'
+      - 'crates/lila-runtime/**'
+      - 'crates/lila-intl/**'
+      - 'Cargo.lock'
+      - '.github/workflows/aot-product-validation.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aot-product-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: aot-product-validation
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Verify positive and negative controls are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p lila-aot-wasm --test product_artifact -- --list | tee /tmp/artifact-tests.txt
+          grep -Fxq 'validator_rejects_a_parseable_function_result_type_mismatch: test' /tmp/artifact-tests.txt
+          grep -Fxq 'representative_language_families_produce_valid_aot_artifacts: test' /tmp/artifact-tests.txt
+      - name: Validate emitted product artifacts
+        run: cargo test --locked -p lila-aot-wasm --test product_artifact
