@@ -86,7 +86,10 @@ fn fixed_entry_is_the_only_owner_and_removed_wrapper_cannot_be_called() {
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
         &mut rust_source,
     );
-    assert_eq!(rust_source.matches("emit_array_find_method_call").count(), 0);
+    assert_eq!(
+        rust_source.matches("emit_array_find_method_call").count(),
+        0
+    );
     assert_eq!(
         rust_source
             .matches("fn compile_array_prototype_find_builtin(")

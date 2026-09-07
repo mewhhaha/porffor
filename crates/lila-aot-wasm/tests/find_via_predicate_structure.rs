@@ -48,7 +48,10 @@ fn closed_find_policy_has_one_private_owner_and_eight_fixed_entries() {
     assert_eq!(ARRAY.matches("\nmod find_via_predicate;\n").count(), 1);
     assert!(!ARRAY.contains("FindViaPredicateKind"));
     for (name, variants) in [
-        ("FindViaPredicateKind", "Find,FindIndex,FindLast,FindLastIndex,"),
+        (
+            "FindViaPredicateKind",
+            "Find,FindIndex,FindLast,FindLastIndex,",
+        ),
         ("FindDirection", "Ascending,Descending,"),
         ("FindProjection", "Value,Index,"),
     ] {
@@ -188,7 +191,10 @@ fn both_loops_get_then_call_without_skipping_holes_or_leaking_scratch_results() 
             ],
         );
         assert_eq!(entry.matches("emit_initialize_find_result(").count(), 1);
-        assert_eq!(entry.matches("emit_call_validated_find_predicate(").count(), 1);
+        assert_eq!(
+            entry.matches("emit_call_validated_find_predicate(").count(),
+            1
+        );
         assert_eq!(
             entry
                 .matches("emit_typed_array_or_object_index_read_from_locals(")
@@ -234,7 +240,8 @@ fn predicate_witness_is_borrowed_by_call_and_released_only_by_loop_owner() {
         ],
     );
     assert_eq!(
-        FIND.matches("self.release_find_predicate(predicate);").count(),
+        FIND.matches("self.release_find_predicate(predicate);")
+            .count(),
         2
     );
     let release = bounded(

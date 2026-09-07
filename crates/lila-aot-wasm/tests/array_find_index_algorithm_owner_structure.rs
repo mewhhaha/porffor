@@ -105,9 +105,8 @@ fn fixed_entry_is_the_only_owner_and_removed_wrapper_cannot_be_called() {
         "    pub(in crate::builtins) fn compile_array_prototype_find_index_builtin(",
         "\n    }",
     );
-    assert!(
-        fixed.contains("self.compile_array_find_with_kind(function, FindViaPredicateKind::FindIndex)")
-    );
+    assert!(fixed
+        .contains("self.compile_array_find_with_kind(function, FindViaPredicateKind::FindIndex)"));
 }
 
 #[test]
