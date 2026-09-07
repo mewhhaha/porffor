@@ -5,17 +5,16 @@ const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const FIND_SOURCE: &str = include_str!("../src/builtins/array/find_via_predicate.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
-const FIND_STRUCTURE_GUARD: &str = include_str!("find_via_predicate_structure.rs");
 const ARRAY_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/array.rs");
 const FIND_FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_array_find_core.js");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
         .split_once(start)
-        .unwrap_or_else(|| panic!("missing start marker `{start}`"))
+        .unwrap_or_else(|| panic!("missing start: {start}"))
         .1
         .split_once(end)
-        .unwrap_or_else(|| panic!("missing end marker `{end}` after `{start}`"))
+        .unwrap_or_else(|| panic!("missing end: {end}"))
         .0
 }
 
@@ -24,14 +23,13 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
     let later_offset = source.find(later).expect("later operation");
     assert!(
         earlier_offset < later_offset,
-        "`{earlier}` must precede `{later}`"
+        "{earlier} must precede {later}"
     );
 }
 
 fn collect_rust_source(path: &Path, source: &mut String) {
     for directory_entry in fs::read_dir(path).expect("Rust source directory") {
-        let directory_entry = directory_entry.expect("Rust source directory entry");
-        let child_path = directory_entry.path();
+        let child_path = directory_entry.expect("Rust source directory entry").path();
         if child_path.is_dir() {
             collect_rust_source(&child_path, source);
         } else if child_path
@@ -45,7 +43,7 @@ fn collect_rust_source(path: &Path, source: &mut String) {
 }
 
 #[test]
-fn array_find_arm_delegates_without_changing_typed_array_or_iterator_dispatch() {
+fn direct_dispatch_retains_receiver_specific_alternatives() {
     let direct = bounded(
         FUNCTIONS_SOURCE,
         "        if matches!(key, PropertyKeyIr::StaticString(name) if name == IteratorHelper::Find.property_name())",
@@ -58,15 +56,14 @@ fn array_find_arm_delegates_without_changing_typed_array_or_iterator_dispatch() 
         "let receiver_has_array_find =",
         "if receiver_is_iterator {",
         "if receiver_has_typed_array_find {",
-        "StandardBuiltinId::TypedArrayPrototypeFind,",
         "if receiver_is_array || receiver_has_array_find {",
-        "StandardBuiltinId::ArrayPrototypeFind,",
         "if receiver_needs_dynamic_helper_dispatch(receiver) {",
+        "StandardBuiltinId::TypedArrayPrototypeFind,",
+        "\"TypedArray.prototype.find\",",
+        "StandardBuiltinId::ArrayPrototypeFind,",
+        "\"Array.prototype.find\",",
     ] {
-        assert!(
-            direct.contains(marker),
-            "missing dispatch marker `{marker}`"
-        );
+        assert!(direct.contains(marker), "missing dispatch marker: {marker}");
     }
     assert_eq!(
         direct
@@ -80,48 +77,22 @@ fn array_find_arm_delegates_without_changing_typed_array_or_iterator_dispatch() 
             .count(),
         2
     );
-
-    let array_arm = bounded(
-        direct,
-        "            if receiver_is_array || receiver_has_array_find {",
-        "            // Every receiver-specific alternative has been ruled out above",
-    );
-    for marker in [
-        "StandardBuiltinId::ArrayPrototypeFind,",
-        "\"Array.prototype.find\",",
-        "                    receiver,",
-        "                    args,",
-        "                    payload_local,",
-        "                    tag_local,",
-    ] {
-        assert!(
-            array_arm.contains(marker),
-            "missing Array arm marker `{marker}`"
-        );
-    }
-    assert!(!array_arm.contains("emit_array_find_method_call"));
 }
 
 #[test]
-fn removed_array_find_wrapper_cannot_be_called() {
+fn fixed_entry_is_the_only_owner_and_removed_wrapper_cannot_be_called() {
     let mut rust_source = String::new();
     collect_rust_source(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
         &mut rust_source,
     );
-
-    assert_eq!(
-        rust_source.matches("emit_array_find_method_call").count(),
-        0
-    );
+    assert_eq!(rust_source.matches("emit_array_find_method_call").count(), 0);
     assert_eq!(
         rust_source
             .matches("fn compile_array_prototype_find_builtin(")
             .count(),
         1
     );
-    assert!(!FIND_STRUCTURE_GUARD.contains("emit_array_find_method_call"));
-
     let standard = bounded(
         STANDARD_SOURCE,
         "            StandardBuiltinId::ArrayPrototypeFind => {",
@@ -129,16 +100,23 @@ fn removed_array_find_wrapper_cannot_be_called() {
     );
     assert_eq!(
         standard
-            .matches(
-                "self.compile_array_prototype_find_builtin(function, FindViaPredicateKind::Find)?;"
-            )
+            .matches("self.compile_array_prototype_find_builtin(function)?;")
             .count(),
         1
+    );
+    assert!(!standard.contains("FindViaPredicateKind"));
+    let fixed = bounded(
+        FIND_SOURCE,
+        "    pub(in crate::builtins) fn compile_array_prototype_find_builtin(",
+        "\n    }",
+    );
+    assert!(
+        fixed.contains("self.compile_array_find_with_kind(function, FindViaPredicateKind::Find)")
     );
 }
 
 #[test]
-fn shared_call_boundary_and_canonical_find_compiler_own_order() {
+fn shared_call_boundary_and_canonical_compiler_own_observable_order() {
     let direct_call = bounded(
         ARRAY_SOURCE,
         "    pub(crate) fn emit_array_direct_builtin_method_call(",
@@ -160,15 +138,13 @@ fn shared_call_boundary_and_canonical_find_compiler_own_order() {
     ] {
         assert_before(direct_call, earlier, later);
     }
-
-    let canonical = bounded(
-        FIND_SOURCE,
-        "    pub(crate) fn compile_array_prototype_find_builtin(",
-        "\n}\n",
-    );
+    let canonical = FIND_SOURCE
+        .split_once("    fn compile_array_find_with_kind(")
+        .expect("generic compiler")
+        .1;
     for (earlier, later) in [
         (
-            "self.emit_array_iteration_to_object(",
+            "self.emit_array_like_length_snapshot(",
             "self.emit_validate_find_predicate(",
         ),
         (
@@ -177,10 +153,14 @@ fn shared_call_boundary_and_canonical_find_compiler_own_order() {
         ),
         (
             "self.emit_builtin_arg_to_locals(1,",
-            "self.emit_array_index_get_with_prototype(",
+            "self.emit_initialize_find_index(&direction,",
         ),
         (
-            "self.emit_array_index_get_with_prototype(",
+            "self.emit_initialize_find_index(&direction,",
+            "self.emit_typed_array_or_object_index_read_from_locals(",
+        ),
+        (
+            "self.emit_typed_array_or_object_index_read_from_locals(",
             "self.emit_call_validated_find_predicate(",
         ),
         (
@@ -191,13 +171,17 @@ fn shared_call_boundary_and_canonical_find_compiler_own_order() {
             "self.compile_truthy_tagged_i32(",
             "self.emit_project_find_match(",
         ),
+        (
+            "self.emit_project_find_match(",
+            "self.emit_advance_find_index(&direction,",
+        ),
     ] {
         assert_before(canonical, earlier, later);
     }
 }
 
 #[test]
-fn focused_find_control_covers_sparse_typed_array_and_proxy_callbacks() {
+fn retained_cli_fixture_covers_generic_and_proxy_callbacks() {
     for marker in [
         "sparse.find(function ()",
         "Array.prototype.find.call(fixedBytes",
@@ -209,7 +193,7 @@ fn focused_find_control_covers_sparse_typed_array_and_proxy_callbacks() {
     ] {
         assert!(
             FIND_FIXTURE.contains(marker),
-            "missing Find marker `{marker}`"
+            "missing fixture marker: {marker}"
         );
     }
     assert!(ARRAY_CLI_TESTS
