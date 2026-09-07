@@ -7058,3 +7058,7 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 `lila` means `purple` in Swedish.
 
 Source and project status: <https://github.com/mewhhaha/porffor>.
+
+## Real shard evidence validation
+
+The Array callback workflow binds its shared CLI artifact to the checked-out commit and verifies the executable SHA-256 before execution. Every real subtree shard must report the exact execution count derived from the native modulo partition, the Wasm-AOT backend, all executions passing, and zero in every failure bucket. `python3 scripts/check-test262-shard-report.py --inventory <list-output> --report <shard-output> --shard <index/count>` checks that contract without rewriting evidence. Run its failure controls with `python3 -m unittest discover -s scripts/tests -p test_test262_shard_report.py -v`. The Rust runner still owns the complete execution-ID manifest checks; this textual report gate supplements them and does not establish full-suite conformance or raw-source shortcut closure.
