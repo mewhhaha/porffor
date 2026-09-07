@@ -1,0 +1,24 @@
+name: Current shortcut accounting
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  accounting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test derived accounting and its failure controls
+        run: python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v
+      - name: Check source observations against the canonical ledger
+        run: bash scripts/audit-test262-shortcuts.sh --check
+      - name: Verify the generated current report
+        run: python3 scripts/generate-shortcut-status.py --check
