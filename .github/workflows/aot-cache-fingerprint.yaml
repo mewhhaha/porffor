@@ -1,0 +1,41 @@
+name: AOT compiler cache identity
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'vendor/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/aot-cache-fingerprint.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'vendor/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/aot-cache-fingerprint.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aot-cache-fingerprint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fingerprint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: aot-correctness
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run compiler fingerprint regressions
+        run: cargo test --locked -p lila-engine --test compiler_fingerprint
