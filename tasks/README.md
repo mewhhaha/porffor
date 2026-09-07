@@ -24,7 +24,13 @@ never a silent fallback, never part of an emitted artifact, and never a source
 of published conformance numbers. Wherever a task mentions running spec-exec,
 that run is oracle triage; the Wasm-AOT run is the requirement.
 
-## Current status snapshot — 2026-08-31
+## Current shortcut accounting
+
+[The generated report](../test262/backlog/current-shortcut-status.md) derives current classification
+counts and semantic removal-task totals from the canonical audit inputs. It is
+not a full-suite result or a completion percentage.
+
+## Dated task snapshot — 2026-08-31
 
 | State | Tasks | Repository evidence |
 |---|---|---|
@@ -33,20 +39,11 @@ that run is oracle triage; the Wasm-AOT run is the requirement.
 | Policy, typed accounting and no-source eval implemented; textual static subsets open | T13 | Generic runtime dynamic source stays explicit Wasm-AOT unsupported; no-argument and proven non-String `%eval%` execute without crossing that boundary, while String-capable eval, all Function-family constructors and realm `evalScript` retain closed compiler diagnostics and sound textual subsets remain open |
 | Blocked final gate | T26 | The current pinned real Wasm-AOT aggregate is not green or fully republished |
 
-The current working tree passes the task-plan, module-boundary, host-ABI,
-interpreter-dependency and Test262 shortcut audits. The shortcut audit now pins
-an exact 186-entry token-aware generated inventory: 32 legitimate harness
-adaptations, 105 diagnostic instrumentation sites and 49 semantic shortcuts.
-The removal-task summary assigns 35 entries to T03 and leaves T17 at 80. The
-T03 removal bucket contains 32 legitimate adaptations, two diagnostic guards
-and one semantic shortcut. Every entry has a closed classification, reason and
-concrete owner/removal task; none uses the old aggregate `T26-unclassified`
-owner. The scanner covers multiline expressions, same-line multiplicity, exact
-rewrite calls, source contract guards and normalized `match`/`matches!`
-selector tables. Audit green
-therefore means “no selector drift,” not “no shortcuts.” Do not close a
-semantic task from focused green leaves while that task's full-tree and
-materialization-removal criteria remain unmet.
+The dated task table and implementation evidence below are historical checkpoints,
+not a claim that current CI is green. Use the generated accounting report for
+current shortcut counts and the complete pinned aggregate for conformance.
+
+## Dated implementation evidence
 
 The final twelve T18 semantic observations are gone, leaving T18 with zero
 shortcut ownership. Its five physical String cases retain their exact vendored

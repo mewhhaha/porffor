@@ -17,7 +17,7 @@ REASONS = {
 LEDGER = Path('test262/backlog/shortcut-allowlist.tsv')
 INVENTORY = Path('test262/backlog/shortcut-inventory.md')
 SOURCE = Path('crates/lila-test262/src/lib.rs')
-OUTPUT = Path('tasks/current-shortcut-status.md')
+OUTPUT = Path('test262/backlog/current-shortcut-status.md')
 KEY = re.compile(r'(path-rewrite-entrypoint|direct-path-predicate|source-text-predicate|harness-helper-reduction)/[A-Za-z0-9_]+/[0-9]{3}')
 
 
@@ -98,8 +98,8 @@ def render(root: Path) -> str:
                   'The generator alone cross-checks the committed ledger and inventory; it does',
                   'not replace the Rust selector scanner or verify every recorded classification.', '',
                   'Full-suite evidence and native snapshot provenance remain governed by',
-                  '[T01](01-baseline-and-generated-backlog.md) and',
-                  '[T26](26-zero-failure-conformance-closure.md). Only the Rust publisher owns',
+                  '[T01](../../tasks/01-baseline-and-generated-backlog.md) and',
+                  '[T26](../../tasks/26-zero-failure-conformance-closure.md). Only the Rust publisher owns',
                   'canonical Test262 result counts and the generated README conformance block.', ''])
     return '\n'.join(lines)
 

@@ -1,5 +1,7 @@
 # Lila
 
+Current classified shortcut accounting is generated in [the accounting report](test262/backlog/current-shortcut-status.md). Regenerate it with `python3 scripts/generate-shortcut-status.py` after the canonical shortcut audit, and verify it with `--check`. This accounting is not a Test262 pass rate or project completion percentage.
+
 Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, library,
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
