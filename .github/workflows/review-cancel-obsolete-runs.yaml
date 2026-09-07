@@ -1,0 +1,75 @@
+name: Cancel pinned obsolete review runs
+
+# Operational cleanup on a non-PR branch only. No code is checked out or run.
+# Never treat this workflow as a validation result for any pull request.
+on:
+  push:
+    branches: [review/stack-preparation-20260907]
+    paths: [.github/workflows/review-cancel-obsolete-runs.yaml]
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Cancel only obsolete heads whose replacement is already recorded
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            if (repo.owner !== 'mewhhaha' || repo.repo !== 'porffor' ||
+                context.ref !== 'refs/heads/review/stack-preparation-20260907') {
+              throw new Error('Unexpected repository or operational branch');
+            }
+            const obsolete = [
+              ['c5e543eb3d6e7a55a90043667ee8f8ca3406751c', 'review/02-repository-portability', 'pull_request', 'c3bfad3cde35f765d1370291821ffa595efac048'],
+              ['cead53c8dcd14ab247412d796254a1b23889b6f0', 'review/05-publication-provenance', 'pull_request', '777ab51ed512901ba9d995a59c8c3a75f2084cb9'],
+              ['ed02c338b2f1d300c91f35a31a561124fcc22175', 'review/06-generated-shortcut-status', 'pull_request', '2c5f4bae5b1e78bf53994389d0a1cad43e00235f'],
+              ['74bdf7e1def3284dcdb0fde50567b2ad3f7de0c4', 'review/06-generated-shortcut-status', 'pull_request', '2c5f4bae5b1e78bf53994389d0a1cad43e00235f'],
+              ['07d0f9a7ed0afc6b47029162e18c339b7becc972', 'review/07-exact-shard-evidence', 'pull_request', 'be39c0aa0865c2d434a93bf30d86097004573038'],
+              ['9fb9b7b090e3d3869eaba584657763c2dd15cdda', 'review/07-exact-shard-evidence', 'pull_request', 'be39c0aa0865c2d434a93bf30d86097004573038'],
+              ['8ddf1a8f0ea8d79b0bbdbe902cffd8be01374b59', 'main', 'push', '270cbad0b4dcaa9ba21fa7425cdcd71b1fda5be6'],
+            ];
+            const neverCancel = new Set([
+              '6a64ccf935aa9bef89179dc2f95ee70c700ab4f5',
+              'abd2db0cec74057153f0d47d482354beccedcbb4',
+              ...obsolete.map(entry => entry[3]),
+            ]);
+            const outcomes = [];
+            for (const [sha, branch, event, replacement] of obsolete) {
+              if (neverCancel.has(sha)) throw new Error('Protected head in cancellation inventory');
+              // Require the replacement still to be the actual branch head.
+              // A concurrent user update stops cleanup, rather than broadening it.
+              const current = await github.rest.git.getRef({...repo, ref: `heads/${branch}`});
+              if (current.data.object.sha !== replacement) {
+                throw new Error(`Branch ${branch} moved; refusing cleanup`);
+              }
+              const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo,
+                {...repo, head_sha: sha, event, per_page: 100});
+              for (const run of runs) {
+                if (run.head_sha !== sha || run.head_branch !== branch || run.event !== event ||
+                    neverCancel.has(run.head_sha) || run.id === context.runId) {
+                  throw new Error(`Unexpected workflow identity ${run.id}`);
+                }
+                if (run.status === 'completed') continue;
+                const latest = (await github.rest.actions.getWorkflowRun({...repo, run_id: run.id})).data;
+                if (latest.head_sha !== sha || latest.head_branch !== branch || latest.event !== event) {
+                  throw new Error(`Workflow identity changed: ${run.id}`);
+                }
+                if (latest.status === 'completed') continue;
+                try {
+                  await github.rest.actions.cancelWorkflowRun({...repo, run_id: run.id});
+                  outcomes.push({run_id: run.id, sha, replacement, workflow: run.name, outcome: 'cancellation requested'});
+                } catch (error) {
+                  if (error.status !== 409) throw error;
+                  outcomes.push({run_id: run.id, sha, replacement, workflow: run.name, outcome: 'already finishing'});
+                }
+              }
+            }
+            core.info(JSON.stringify(outcomes, null, 2));
+            await core.summary.addHeading('Obsolete-run cleanup only')
+              .addRaw('Current PR heads and the current main revision are protected. This is not test evidence.\n')
+              .addCodeBlock(JSON.stringify(outcomes, null, 2), 'json').write();
