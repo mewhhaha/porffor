@@ -1,0 +1,128 @@
+name: Prepare reviewed integration trees
+
+on:
+  push:
+    branches: [review/stack-preparation-20260907]
+    paths: [.github/workflows/review-stack-preparation.yaml]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare immutable trees without updating any PR or main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import subprocess
+
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+
+          def run(*args):
+              subprocess.run(['git', *args], check=True)
+
+          common = '746e77eec2d0e82bcfa5717faab5f5cfb671b520'
+          formatting = '6a64ccf935aa9bef89179dc2f95ee70c700ab4f5'
+          inputs = [
+              (36, 'review/04-product-execution', 'abd2db0cec74057153f0d47d482354beccedcbb4'),
+              (37, 'review/02-repository-portability', 'c5e543eb3d6e7a55a90043667ee8f8ca3406751c'),
+              (38, 'review/05-publication-provenance', 'cead53c8dcd14ab247412d796254a1b23889b6f0'),
+              (39, 'review/06-generated-shortcut-status', '74bdf7e1def3284dcdb0fde50567b2ad3f7de0c4'),
+              (40, 'review/07-exact-shard-evidence', '9fb9b7b090e3d3869eaba584657763c2dd15cdda'),
+          ]
+          for number, branch, sha in inputs:
+              run('fetch', '--no-tags', 'origin', f'refs/heads/{branch}:refs/remotes/origin/{branch}')
+              assert git('rev-parse', f'refs/remotes/origin/{branch}').decode().strip() == sha, f'PR {number} moved; stop'
+          assert git('rev-parse', common + '^{tree}') == git('rev-parse', formatting + '^{tree}'), 'Unexpected formatting base'
+          base_readme = git('show', common + ':README.md')
+          tails = {}
+          ownership = {}
+          all_paths = set()
+          for number, branch, sha in inputs:
+              text = git('show', sha + ':README.md')
+              assert text.startswith(base_readme), f'PR {number} edits existing README content; manual review required'
+              tail = text[len(base_readme):]
+              assert tail.startswith(b'\n## ') and len(tail) < 20000, f'Unexpected README appendix in PR {number}'
+              tails[number] = tail
+              paths = {p.decode() for p in git('diff', '--name-only', '--no-renames', '-z', common, sha).split(b'\0') if p}
+              paths.discard('README.md')
+              assert not paths & all_paths, f'Overlapping non-README changes: {paths & all_paths}'
+              assert not any(p.startswith(('.review/', '.github/workflows/review-')) for p in paths), 'Temporary preparation content in a PR'
+              all_paths.update(paths)
+              ownership[number] = paths
+          run('config', 'user.name', 'github-actions[bot]')
+          run('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+          run('checkout', '--detach', inputs[0][2])
+          expected_readme = base_readme + tails[36]
+          owners = {path: inputs[0][2] for path in ownership[36]}
+          prepared = []
+          for number, branch, sha in inputs[1:]:
+              result = subprocess.run(['git', 'merge', '--no-commit', '--no-ff', sha])
+              conflicts = {p.decode() for p in git('diff', '--name-only', '--diff-filter=U', '-z').split(b'\0') if p}
+              assert result.returncode in (0, 1), f'Git merge failed for PR {number}'
+              assert conflicts <= {'README.md'}, f'Unexpected conflicts: {conflicts}'
+              assert result.returncode == 0 or conflicts, 'Non-conflict merge failure'
+              expected_readme += tails[number]
+              Path('README.md').write_bytes(expected_readme)
+              run('add', '--', 'README.md')
+              assert not git('ls-files', '--unmerged'), 'Unresolved merge entries'
+              run('diff', '--cached', '--check')
+              run('diff', '--exit-code')
+              tree = git('write-tree').decode().strip()
+              owners.update({path: sha for path in ownership[number]})
+              for path, owner in owners.items():
+                  assert git('ls-tree', '-z', tree, '--', path) == git('ls-tree', '-z', owner, '--', path), f'Lost file contents or mode: {path}'
+              assert git('show', tree + ':README.md') == expected_readme
+              run('commit', '-m', f'Preparation only: preserve reviewed PR {number} and its predecessors')
+              prepared.append({'number': number, 'branch': branch, 'original_head': sha,
+                               'tree': tree, 'scratch_commit': git('rev-parse', 'HEAD').decode().strip()})
+          # The old callback jobs must remain byte-for-byte intact. Only the
+          # product identity and exact shard-summary gate are new in PR 40.
+          original = git('show', common + ':.github/workflows/array-callback-conformance.yaml').decode()
+          current = Path('.github/workflows/array-callback-conformance.yaml').read_text()
+          for first, last in [('  regressions:\n', '  cli-regressions:\n'),
+                              ('  cli-regressions:\n', '  build-test262-cli:\n')]:
+              assert original.split(first, 1)[1].split(last, 1)[0] == current.split(first, 1)[1].split(last, 1)[0], first
+          output = Path('/tmp/review-stack-evidence')
+          output.mkdir()
+          (output / 'prepared-trees.json').write_text(json.dumps(prepared, indent=2) + '\n')
+          (output / 'README.md').write_bytes(expected_readme)
+          print('PREPARED_TREES=' + json.dumps(prepared, separators=(',', ':')), flush=True)
+          PY
+      - name: Check all combined tooling contracts and source invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p test_repository_paths.py -v
+          python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v
+          python3 -m unittest discover -s scripts/tests -p test_test262_shard_report.py -v
+          python3 scripts/test_publish_real_status_low_ram.py
+          python3 scripts/check-repository-paths.py
+          bash scripts/audit-test262-shortcuts.sh --check
+          python3 scripts/generate-shortcut-status.py --check
+          bash scripts/check-task-plan.sh
+          cargo fmt --all -- --check
+          git diff --exit-code
+      - name: Retain prepared objects on a non-PR branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin HEAD:refs/heads/review/integration-objects-20260907
+          git archive --format=tar HEAD | gzip > /tmp/review-stack-evidence/combined-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reviewed-stack-preparation
+          path: /tmp/review-stack-evidence
+          retention-days: 1
+          if-no-files-found: warn
