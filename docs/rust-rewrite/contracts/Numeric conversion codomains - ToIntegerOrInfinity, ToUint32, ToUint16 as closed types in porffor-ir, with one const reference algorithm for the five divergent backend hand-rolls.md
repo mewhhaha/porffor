@@ -15,7 +15,7 @@ line number is from `git rev-parse --short HEAD` = `091487732` on branch
 inferred from a grep count.
 
 Three conventions, following the house style of
-`Reference Records: one record, a carried [[Strict]], and a write that consumes it.md`:
+`reference-records-single-owner-contract.md`:
 
 - **Invariants** are numbered `I1..I12`. §2 assigns each one either a Rust
   construct or a ledger row. There is no third option.
