@@ -7058,3 +7058,27 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 `lila` means `purple` in Swedish.
 
 Source and project status: <https://github.com/mewhhaha/porffor>.
+
+## Resuming a low-memory publication session
+
+`scripts/publish-real-status-low-ram.sh` records a durable manifest for each
+snapshot family under `SNAPSHOT_DIR/.publication-provenance/`. It verifies the
+observed checkout commit/tree, actual compiler and driver source bytes, exact
+executable bytes, complete suite/harness bytes, backend, concurrency, isolation,
+and selected runtime/locale settings before each CLI invocation. Matching runs
+reuse that manifest without rewriting it. Incompatible inputs, a lost or corrupt
+manifest, and legacy results without a manifest fail closed: retain those results
+and choose a fresh snapshot name rather than relabeling them. A per-family POSIX
+lock prevents concurrent publishers; the supervised child retains the lock and
+receives termination signals. Changing only `MAX_MATRIX_NODES` or `README_PATH`
+does not change the execution identity. `ISOLATE_CASES` now explicitly controls
+inherited case-runner flags in both modes.
+
+This requires Python 3 and POSIX `fcntl` in addition to the existing Bash/Git
+requirements. It records observed inputs, **not proof that the executable was
+built from that checkout**. It does not retrofit identity into native snapshot
+schemas or make direct CLI checkpoint reuse safe across builds; those native
+schema/build-attestation requirements remain open. No Test262 result or generated
+status percentage is changed by this guard. Run the full real-process driver
+contract suite with `python3 scripts/test_publish_real_status_low_ram.py`; its
+fake CLI validates publication orchestration, not JavaScript conformance.

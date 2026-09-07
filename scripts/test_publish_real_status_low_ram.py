@@ -2,6 +2,7 @@
 """Publication-driver contracts. The fake CLI is not product conformance evidence."""
 
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -28,7 +29,7 @@ index = state.get(command, 0)
 state[command] = index + 1
 state_path.write_text(json.dumps(state))
 with (root / "calls.jsonl").open("a") as log:
-    log.write(json.dumps({"args": sys.argv[1:], "isolation": os.environ.get("LILA_TEST262_FORCE_CASE_RUNNER")}) + "\n")
+    log.write(json.dumps({"args": sys.argv[1:], "isolation": os.environ.get("LILA_TEST262_FORCE_CASE_RUNNER"), "disable_child": os.environ.get("LILA_TEST262_DISABLE_CASE_RUNNER")}) + "\n")
 if index > 3:
     print("fake CLI safety limit: wrapper kept retrying", file=sys.stderr)
     sys.exit(86)
@@ -39,6 +40,13 @@ if mutation.get("command") == command:
             binary.write("\n# changed executable\n")
     elif mutation["kind"] == "permission":
         Path(__file__).chmod(0o644)
+    elif mutation["kind"] == "suite":
+        (root / "suite root/test/fixture.js").write_text("changed suite input\n")
+    elif mutation["kind"] == "source-bytes":
+        with (root / "repo/scripts/publish-real-status-low-ram.sh").open("a") as source:
+            source.write("\n# changed source bytes without moving HEAD\n")
+    elif mutation["kind"] == "manifest":
+        Path(os.environ["LILA_PUBLICATION_MANIFEST"]).unlink()
     elif mutation["kind"] == "source":
         subprocess.run(["git", "-C", str(root / "repo"), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "move source"], check=True)
 if command == "progress-status":
@@ -65,6 +73,11 @@ class PublicationDriverTests(unittest.TestCase):
         self.script = self.repo / "scripts" / WRAPPER.name
         self.script.parent.mkdir(parents=True)
         shutil.copyfile(WRAPPER, self.script)
+        shutil.copyfile(WRAPPER.with_name("publication-session.py"), self.script.with_name("publication-session.py"))
+        (self.script.parent / "lib").mkdir()
+        shutil.copyfile(WRAPPER.parent / "lib/publish-real-status-driver.sh", self.script.parent / "lib/publish-real-status-driver.sh")
+        (self.root / "suite root/test").mkdir(parents=True)
+        (self.root / "suite root/test/fixture.js").write_text("/* fake CLI fixture; not conformance evidence */\n")
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
         subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
@@ -278,6 +291,150 @@ class PublicationDriverTests(unittest.TestCase):
     def test_source_commit_change_prevents_publication(self):
         result = self.run_driver([{"completed": 1, "total": 1}], mutation={"command": "progress-status", "kind": "source"})
         self.assert_failure(result, "source commit changed during publication")
+
+
+    def manifest_path(self):
+        key = hashlib.sha256(b"baseline with spaces").hexdigest()
+        return self.root / "snapshots/.publication-provenance" / (key + ".json")
+
+    def establish_manifest(self):
+        result = self.run_driver([{"completed": 1, "total": 1}])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return self.manifest_path().read_bytes()
+
+    def test_matching_session_reuses_manifest_without_rewriting_it(self):
+        original = self.establish_manifest()
+        result = self.run_driver([{"completed": 1, "total": 1}])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.manifest_path().read_bytes(), original)
+
+    def test_manifest_records_inputs_not_a_build_attestation(self):
+        self.establish_manifest()
+        manifest = json.loads(self.manifest_path().read_text())
+        self.assertEqual(manifest["schema_version"], 1)
+        identity = manifest["identity"]
+        self.assertEqual(identity["checkout_commit"], self.source)
+        self.assertEqual(identity["executable_sha256"], self.digest)
+        self.assertGreater(identity["source_input_files"], 0)
+        self.assertEqual(identity["suite_files"], 1)
+        self.assertEqual(len(identity["source_inputs_sha256"]), 64)
+        self.assertEqual(len(identity["suite_sha256"]), 64)
+        self.assertEqual(identity["snapshot_name"], "baseline with spaces")
+        self.assertNotIn("built_from_commit", identity)
+
+    def test_different_executable_cannot_resume_an_existing_family(self):
+        original = self.establish_manifest()
+        with self.binary.open("a") as binary:
+            binary.write("\n# different build\n")
+        result = self.run_driver([])
+        self.assert_failure(result, "provenance mismatch for executable_sha256")
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.manifest_path().read_bytes(), original)
+
+    def test_different_checkout_cannot_resume_an_existing_family(self):
+        original = self.establish_manifest()
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "different checkout"], check=True)
+        result = self.run_driver([])
+        self.assert_failure(result, "provenance mismatch for checkout_commit")
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.manifest_path().read_bytes(), original)
+
+    def test_uncommitted_source_change_cannot_resume_an_existing_family(self):
+        original = self.establish_manifest()
+        with self.script.open("a") as source:
+            source.write("\n# same HEAD, different source\n")
+        result = self.run_driver([])
+        self.assert_failure(result, "provenance mismatch for source_inputs_sha256")
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.manifest_path().read_bytes(), original)
+
+    def test_modified_suite_cannot_resume_an_existing_family(self):
+        original = self.establish_manifest()
+        (self.root / "suite root/test/fixture.js").write_text("different suite bytes\n")
+        result = self.run_driver([])
+        self.assert_failure(result, "provenance mismatch for suite_sha256")
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.manifest_path().read_bytes(), original)
+
+    def test_runtime_resource_and_locale_changes_are_not_mixed(self):
+        original = self.establish_manifest()
+        for environment, field in [({"THREADS": "2"}, "threads"), ({"JOBS": "2"}, "jobs"),
+                                   ({"ISOLATE_CASES": "0"}, "isolate_cases"), ({"TZ": "Etc/GMT+7"}, "environment")]:
+            with self.subTest(environment=environment):
+                result = self.run_driver([], env=environment)
+                self.assert_failure(result, "publication provenance mismatch")
+                self.assertIn(field, result.stderr)
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(self.manifest_path().read_bytes(), original)
+
+    def test_legacy_results_without_manifest_are_never_adopted(self):
+        directory = self.root / "snapshots"
+        directory.mkdir()
+        existing = directory / "baseline with spaces-123.json"
+        existing.write_bytes(b"legacy evidence must remain unchanged\n")
+        result = self.run_driver([])
+        self.assert_failure(result, "existing results have no publication provenance")
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(existing.read_bytes(), b"legacy evidence must remain unchanged\n")
+        self.assertFalse(self.manifest_path().exists())
+
+    def test_corrupt_or_unknown_manifest_never_gets_replaced(self):
+        original = self.establish_manifest()
+        value = json.loads(original)
+        for payload in (b"null", b"{", b'{"schema_version":1,"schema_version":1,"identity":{}}',
+                        json.dumps({**value, "schema_version": True}).encode(),
+                        json.dumps({**value, "schema_version": 99}).encode(),
+                        json.dumps({**value, "extra": 0}).encode()):
+            with self.subTest(payload=payload[:60]):
+                self.manifest_path().write_bytes(payload)
+                result = self.run_driver([])
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(self.manifest_path().read_bytes(), payload)
+        self.manifest_path().write_bytes(original)
+
+    def test_boolean_cannot_impersonate_an_integer_identity_field(self):
+        self.establish_manifest()
+        value = json.loads(self.manifest_path().read_text())
+        value["identity"]["threads"] = True
+        self.manifest_path().write_text(json.dumps(value))
+        result = self.run_driver([])
+        self.assert_failure(result, "provenance mismatch for threads")
+        self.assertEqual(self.calls(), [])
+
+    def test_concurrent_session_cannot_enter_a_locked_family(self):
+        self.establish_manifest()
+        with self.manifest_path().with_suffix(".lock").open("a+b") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.run_driver([])
+            self.assert_failure(result, "already locked by another session")
+            self.assertEqual(self.calls(), [])
+        result = self.run_driver([{"completed": 1, "total": 1}])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_suite_change_during_session_prevents_publication(self):
+        result = self.run_driver([{"completed": 1, "total": 1}], mutation={"command": "progress-status", "kind": "suite"})
+        self.assert_failure(result, "provenance mismatch for suite_sha256")
+
+    def test_source_byte_change_during_session_prevents_publication(self):
+        result = self.run_driver([{"completed": 1, "total": 1}], mutation={"command": "progress-status", "kind": "source-bytes"})
+        self.assert_failure(result, "provenance mismatch for source_inputs_sha256")
+
+    def test_lost_manifest_during_session_is_not_recreated(self):
+        result = self.run_driver([{"completed": 1, "total": 1}], mutation={"command": "progress-status", "kind": "manifest"})
+        self.assert_failure(result, "cannot read publication manifest")
+        self.assertFalse(self.manifest_path().exists())
+
+    def test_disabled_isolation_clears_an_inherited_force_flag(self):
+        result = self.run_driver([{"completed": 1, "total": 1}], env={"ISOLATE_CASES": "0", "LILA_TEST262_FORCE_CASE_RUNNER": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(all(call["isolation"] is None for call in self.calls()))
+
+    def test_enabled_isolation_clears_the_child_recursion_guard(self):
+        result = self.run_driver([{"completed": 1, "total": 1}], env={"ISOLATE_CASES": "1", "LILA_TEST262_DISABLE_CASE_RUNNER": "0"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(all(call["isolation"] == "1" and call["disable_child"] is None for call in self.calls()))
+
 
 
 if __name__ == "__main__":
