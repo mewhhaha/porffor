@@ -10,6 +10,9 @@ use lila_front::{parse, ParseOptions};
 use lila_ir::lower;
 use wasmparser::{Operator, Parser, Payload, TypeRef, Validator, WasmFeatures};
 
+#[path = "fixtures/product_programs.rs"]
+mod product_programs;
+
 const WORKER_STACK_BYTES: usize = 64 * 1024 * 1024;
 const SOURCE_MARKER: &str = "LILA_SOURCE_MUST_NOT_FEED_A_RUNTIME_EVALUATOR_8A8D20E9";
 const VALUE_MARKER: f64 = 424_242.0;
@@ -136,30 +139,15 @@ fn product_wasm_contains_compiled_semantics_without_a_source_evaluator() {
 
 #[test]
 fn representative_language_families_produce_valid_aot_artifacts() {
-    for (name, source) in [
-        (
-            "loop-branches",
-            "let total = 0; for (let i = 0; i < 10; i++) { if (i === 3) continue; if (i === 8) break; total += i; } print(total);",
-        ),
-        (
-            "closure-capture",
-            "function makeAdder(x) { return function(y) { return x + y; }; } const add = makeAdder(4); print(add(5));",
-        ),
-        (
-            "abrupt-completion",
-            "function checked() { try { throw 7; } catch (value) { return value + 1; } finally { print('done'); } } print(checked());",
-        ),
-        (
-            "heap-aggregates",
-            "const values = [1, 2, 3]; const record = { items: values }; print(record.items[1]);",
-        ),
-        (
-            "bigint-and-strings",
-            "const value = 12345678901234567890n + 1n; print(String(value)); print('x😀'.length);",
-        ),
-    ] {
-        let bytes = emit_program(name, source.to_owned());
-        assert_product_artifact(name, &bytes, None);
+    assert!(!product_programs::CASES.is_empty());
+    for fixture in product_programs::CASES {
+        assert!(
+            !fixture.expected_stdout.is_empty(),
+            "{}: a product fixture must declare its execution expectation",
+            fixture.name
+        );
+        let bytes = emit_program(fixture.name, fixture.source.to_owned());
+        assert_product_artifact(fixture.name, &bytes, None);
     }
 }
 

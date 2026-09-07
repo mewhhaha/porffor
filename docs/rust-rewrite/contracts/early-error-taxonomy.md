@@ -257,7 +257,7 @@ T07 now classifies the one exact rejection Boa produces when a class static
 block's statement list has `ContainsArguments`. The normative extension is the
 top amendment in:
 
-`docs/rust-rewrite/contracts/Early-error taxonomy: one closed EarlyErrorCode domain and one fragment table, not two that have already drifted.md`
+`docs/rust-rewrite/contracts/early-error-closed-domain-proposal.md`
 
 At that extension's checkpoint the domain had **23** variants and the one
 parse-failure table had **21** rows. Source witnesses preserve the lexical
@@ -330,7 +330,7 @@ to the single-table design, not as current implementation requirements.
 The contract for the area *Early-error taxonomy: one closed `EarlyErrorCode`
 domain and one fragment table, not two that have already drifted* lives at:
 
-`docs/rust-rewrite/contracts/Early-error taxonomy: one closed EarlyErrorCode domain and one fragment table, not two that have already drifted.md`
+`docs/rust-rewrite/contracts/early-error-closed-domain-proposal.md`
 
 This file exists because the area brief names `early-error-taxonomy.md` in its
 `files_owned` list while the campaign's file-naming convention for contracts uses

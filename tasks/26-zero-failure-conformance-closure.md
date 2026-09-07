@@ -16,11 +16,11 @@ centralized Cargo/Test262 verification lease. The committed pre-version-7 fake
 snapshots are path-only historical evidence, not current version-7 proof. The
 README explicitly states that the current pinned real Wasm-AOT aggregate is not
 green and has not been fully republished.
-The shortcut audit is green as an exact-drift contract over 389 classified
-observations: 35 legitimate harness adaptations, 113 diagnostic instrumentation
-sites and 241 semantic shortcuts. Audit green therefore does not satisfy the
-final integrity criterion. The generated current-pin backlog is absent, and
-several architecture/feature lanes retain explicit unsupported cases. Formal
+The current shortcut classifications and semantic removal-task counts are
+[generated from canonical audit inputs](../test262/backlog/current-shortcut-status.md).
+A green exact-drift audit does not satisfy the zero-shortcut integrity gate.
+The generated current-pin failure backlog is still absent, and several
+architecture/feature lanes retain explicit unsupported cases. Formal
 closure entry criteria are therefore not met.
 
 Alternate-name aggregate resolution now carries its evidence depth through the

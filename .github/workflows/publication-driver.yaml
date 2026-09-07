@@ -23,9 +23,12 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/publication-driver-evidence
           git rev-parse HEAD | tee /tmp/publication-driver-evidence/source-commit.txt
-          sha256sum scripts/publish-real-status-low-ram.sh scripts/test_publish_real_status_low_ram.py \
+          sha256sum scripts/publish-real-status-low-ram.sh scripts/publication-session.py \
+            scripts/lib/publish-real-status-driver.sh scripts/test_publish_real_status_low_ram.py \
             | tee /tmp/publication-driver-evidence/input-sha256.txt
           bash -n scripts/publish-real-status-low-ram.sh
+          bash -n scripts/lib/publish-real-status-driver.sh
+          python3 -m py_compile scripts/publication-session.py
           python3 scripts/test_publish_real_status_low_ram.py 2>&1 \
             | tee /tmp/publication-driver-evidence/contracts.log
       - uses: actions/upload-artifact@v4
