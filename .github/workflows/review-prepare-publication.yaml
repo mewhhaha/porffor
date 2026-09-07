@@ -1,0 +1,73 @@
+name: Prepare publication provenance review
+
+on:
+  push:
+    branches: [review/05-publication-provenance]
+    paths: [.github/workflows/review-prepare-publication.yaml]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply the exact locally validated patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, gzip, hashlib
+          from pathlib import Path
+          import subprocess
+          transport = Path('.review/publication-session.patch.gz')
+          encoded = base64.b64encode(transport.read_bytes()).decode('ascii')
+          # Correct transport transcription only; the decoded patch must match
+          # the full SHA-256 of the locally tested source before it can run.
+          for before, after in [
+              ('Do7hPcPa', 'Do7hTcPa'),
+              ('KC7Xra9ozrCZXUF', 'KC7Xra9grrCZXUF'),
+              ('D1we7cwf/sPD', 'D1we7uwf/sPD'),
+              ('NcBXrbOmGCDNFD', 'NcBXrbOm+CDNFD'),
+          ]:
+              if encoded.count(before) != 1:
+                  raise SystemExit('Unexpected patch transport; refusing to apply')
+              encoded = encoded.replace(before, after)
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          expected = '65bd29554320cf70e83a0235494461cc805a80c15bba1900a129169442e804a4'
+          assert hashlib.sha256(patch).hexdigest() == expected, 'Patch integrity mismatch'
+          destination = Path('/tmp/publication-session.patch')
+          destination.write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', str(destination)], check=True)
+          subprocess.run(['git', 'apply', str(destination)], check=True)
+          print('Applied locally validated patch:', expected)
+          PY
+      - name: Run all publication driver contracts without skipping existing controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/publish-real-status-low-ram.sh
+          bash -n scripts/lib/publish-real-status-driver.sh
+          python3 -m py_compile scripts/publication-session.py
+          python3 scripts/test_publish_real_status_low_ram.py 2>&1 | tee /tmp/publication-contracts.log
+      - name: Commit only source, tests and documentation on the review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add scripts/publication-session.py scripts/lib/publish-real-status-driver.sh \
+            scripts/publish-real-status-low-ram.sh scripts/test_publish_real_status_low_ram.py README.md
+          git rm .review/publication-session.patch.gz
+          git diff --cached --check
+          git diff --cached --stat
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: bind publication sessions to immutable observed input manifests'
+          git push origin HEAD:refs/heads/review/05-publication-provenance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: publication-session-preparation-contracts
+          path: /tmp/publication-contracts.log
+          if-no-files-found: warn
