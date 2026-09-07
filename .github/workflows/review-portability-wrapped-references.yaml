@@ -1,0 +1,41 @@
+name: Repair wrapped portability references
+
+on:
+  push:
+    branches: [review/02b-portability-reference-finish]
+    paths: [.github/workflows/review-portability-wrapped-references.yaml]
+
+permissions:
+  contents: write
+
+jobs:
+  references:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve source semantics while fixing both wrapped document references
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('crates/lila-ir/src')
+          for filename, marker in [('binding_names.rs', '//!'), ('names.rs', '//')]:
+              path = root / filename
+              text = path.read_text(encoding='utf-8')
+              old = 'docs/rust-rewrite/contracts/Module binding-name domains: [[LocalName]] vs\n' + marker + ' [[ExportName]] vs merged storage name.md'
+              new = 'docs/rust-rewrite/contracts/module-binding-name-domains.md'
+              assert text.count(old) == 1, f'Unexpected wrapped reference in {path}'
+              path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          cargo fmt --all -- --check
+          python3 -m unittest discover -s scripts/tests -p test_repository_paths.py -v
+          python3 scripts/check-repository-paths.py
+          git diff --check
+          git add crates/lila-ir/src/binding_names.rs crates/lila-ir/src/names.rs
+          git diff --cached --stat
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: update wrapped references to the portable module contract'
+          git push origin HEAD:refs/heads/review/02b-portability-reference-finish
