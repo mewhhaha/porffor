@@ -1,0 +1,43 @@
+name: Prepare shard summary review branch
+
+on:
+  push:
+    branches: [review/06-shard-summary]
+    paths: [.github/workflows/review-prepare-shard-summary.yaml]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/06-shard-summary
+      - name: Document the strict report contract outside generated status blocks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          readme = Path('README.md')
+          text = readme.read_text(encoding='utf-8')
+          heading = '\n## Real Test262 shard summaries\n'
+          if heading in text:
+              raise SystemExit('Shard-summary instructions already exist')
+          text += heading + '\nThe Array callback workflow requires each real shard to report the expected nonempty selected count, every execution passing, zero failures in every declared bucket, and the requested Wasm-AOT backend and shard. `scripts/check-test262-shard-summary.py` checks the CLI text contract; the Rust runner remains responsible for validating the complete selected execution-ID set and writing snapshots. The `test262 list` display is truncated after 50 IDs and is not an exhaustive execution manifest. Run the report failure controls with `python3 -m unittest discover -s scripts/tests -p test_test262_shard_summary.py -v`. No JSON snapshot parser or alternate conformance denominator is introduced.\n'
+          readme.write_text(text, encoding='utf-8')
+          PY
+          python3 -m unittest discover -s scripts/tests -p test_test262_shard_summary.py -v
+      - name: Commit documentation only on this review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add README.md
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: explain complete passing shard summary checks'
+          git push origin HEAD:refs/heads/review/06-shard-summary

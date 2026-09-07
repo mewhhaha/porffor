@@ -46,8 +46,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The original substring filter array:: also selects typed_array::.
-        # Run both disjoint namespaces instead of timing out their combined job.
         family: [array, typed_array]
     env:
       CARGO_BUILD_JOBS: 2
@@ -136,6 +134,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Test complete-summary and non-success controls
+        run: python3 -m unittest discover -s scripts/tests -p test_test262_shard_summary.py -v
       - name: Build once for every pinned real subtree shard
         shell: bash
         run: |
@@ -158,8 +158,8 @@ jobs:
       fail-fast: false
       matrix:
         method: [map, filter, every, some]
-        # The CLI selector is one-based. All four disjoint shares run; this is
-        # not a subset/skip list. A whole subtree exceeded the old job limit.
+        # All four disjoint shares run. The Rust runner validates the exact
+        # selected execution-ID set before persisting its completed snapshot.
         shard: [1, 2, 3, 4]
     env:
       LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
@@ -187,8 +187,7 @@ jobs:
           set -euo pipefail
           ./target/debug/lila test262 list "built-ins/Array/prototype/$ARRAY_METHOD/" | tee /tmp/callback-inventory.txt
           ./target/debug/lila test262 shard "$ARRAY_SHARD/4" "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/callback-test262 --snapshot-name "$ARRAY_METHOD-ci-$ARRAY_SHARD" 2>&1 | tee /tmp/callback-test262.txt
-          grep -Fx "shard: $ARRAY_SHARD/4" /tmp/callback-test262.txt
-          grep -Eq '^total: [1-9][0-9]*$' /tmp/callback-test262.txt
+          python3 scripts/check-test262-shard-summary.py --report /tmp/callback-test262.txt --inventory /tmp/callback-inventory.txt --shard-index "$ARRAY_SHARD" --shard-count 4
       - uses: actions/upload-artifact@v4
         if: always()
         with:
