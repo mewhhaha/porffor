@@ -1,0 +1,34 @@
+name: Supersede pre-integration review runs
+
+# Temporary operational workflow on a non-PR branch. These four PR heads are
+# about to be replaced by conflict-checked integration commits. Cancel only
+# their obsolete heavy runs; never PR 34/36 or main. This is not test evidence.
+on:
+  push:
+    branches: [review/stack-preparation-20260907]
+    paths: [.github/workflows/review-supersede-preintegration.yaml]
+
+permissions: {}
+
+jobs:
+  supersede:
+    name: Supersede ${{ matrix.group }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - array-callback-conformance-refs/pull/37/merge
+          - array-callback-conformance-refs/pull/38/merge
+          - array-callback-conformance-refs/pull/39/merge
+          - array-callback-40
+          - aot-control-flow-refs/pull/38/merge
+          - aot-control-flow-refs/pull/39/merge
+          - aot-control-flow-refs/pull/40/merge
+    concurrency:
+      group: ${{ matrix.group }}
+      cancel-in-progress: true
+    steps:
+      - name: Record cancellation only, not a passing validation result
+        run: echo 'Superseded pre-integration work only. Every final PR head must rerun its actual test gates and pass before merge.'
