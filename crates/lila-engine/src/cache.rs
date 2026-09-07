@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::ffi::OsString;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -92,6 +92,40 @@ const FUNCTION_CACHE_FORMAT: &str = "cranelift-functions-v1";
 const MODULE_CACHE_DIR: &str = "wasmtime-modules-v1";
 const PROGRAM_CACHE_DIR: &str = "program-wasm-v1";
 
+// A process can own several cache instances for the same directory. Their
+// temporary-file identities must not restart at zero independently.
+static NEXT_CACHE_TEMP: AtomicU64 = AtomicU64::new(0);
+
+fn insert_atomic(path: &Path, value: &[u8], next: &AtomicU64) -> io::Result<()> {
+    let (temp, mut file) = loop {
+        let suffix = next
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map_err(|_| io::Error::other("cache temporary-file identity space exhausted"))?;
+        let mut temp_name: OsString = path.file_name().unwrap_or_default().to_os_string();
+        temp_name.push(format!(".tmp-{}-{suffix}", std::process::id()));
+        let temp = path.with_file_name(temp_name);
+        match fs::OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Ok(file) => break (temp, file),
+            // A stale file from a reused PID, or a pre-existing symlink, is
+            // never opened or truncated. Reserve another name instead.
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    };
+    let written = file.write_all(value);
+    // Close before rename/removal, including on Windows. Publication is one
+    // rename only after every byte has been written to our exclusively owned
+    // temporary file. Cache entries do not promise power-loss durability.
+    drop(file);
+    let result = written.and_then(|()| fs::rename(&temp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheDirectoryStatus {
     pub path: PathBuf,
@@ -125,7 +159,6 @@ pub(crate) struct FunctionCache {
     hits: AtomicU64,
     misses: AtomicU64,
     prune_lock: Mutex<()>,
-    temp_counter: AtomicU64,
 }
 
 impl FunctionCache {
@@ -139,7 +172,6 @@ impl FunctionCache {
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             prune_lock: Mutex::new(()),
-            temp_counter: AtomicU64::new(0),
         };
         cache.prune_if_needed()?;
         Ok(cache)
@@ -153,21 +185,6 @@ impl FunctionCache {
             name.push(HEX[(byte & 0x0f) as usize] as char);
         }
         self.directory.join(name)
-    }
-
-    fn insert_atomic(&self, path: &Path, value: &[u8]) -> io::Result<()> {
-        let suffix = self.temp_counter.fetch_add(1, Ordering::Relaxed);
-        let mut temp_name: OsString = path.file_name().unwrap_or_default().to_os_string();
-        temp_name.push(format!(".tmp-{}-{suffix}", std::process::id()));
-        let temp = path.with_file_name(temp_name);
-        fs::write(&temp, value)?;
-        match fs::rename(&temp, path) {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                let _ = fs::remove_file(&temp);
-                Err(err)
-            }
-        }
     }
 
     fn prune_if_needed(&self) -> io::Result<()> {
@@ -235,7 +252,7 @@ impl CacheStore for FunctionCache {
     fn insert(&self, key: &[u8], value: Vec<u8>) -> bool {
         let path = self.entry_path(key);
         let old_len = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
-        if self.insert_atomic(&path, &value).is_err() {
+        if insert_atomic(&path, &value, &NEXT_CACHE_TEMP).is_err() {
             return false;
         }
         let new_len = value.len() as u64;
@@ -646,3 +663,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/cache_atomic.rs"]
+mod atomic_tests;
