@@ -7058,3 +7058,7 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 `lila` means `purple` in Swedish.
 
 Source and project status: <https://github.com/mewhhaha/porffor>.
+
+## Real Test262 shard summaries
+
+The Array callback workflow requires each real shard to report the expected nonempty selected count, every execution passing, zero failures in every declared bucket, and the requested Wasm-AOT backend and shard. `scripts/check-test262-shard-summary.py` checks the CLI text contract; the Rust runner remains responsible for validating the complete selected execution-ID set and writing snapshots. The `test262 list` display is truncated after 50 IDs and is not an exhaustive execution manifest. Run the report failure controls with `python3 -m unittest discover -s scripts/tests -p test_test262_shard_summary.py -v`. No JSON snapshot parser or alternate conformance denominator is introduced.
