@@ -1,0 +1,72 @@
+name: Prepare generated shortcut status review
+
+on:
+  push:
+    branches: [review/06-generated-shortcut-status]
+    paths: [.github/workflows/review-prepare-shortcut-status.yaml]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify canonical audit and generate the current report
+        run: |
+          python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v
+          bash scripts/audit-test262-shortcuts.sh --check
+          python3 scripts/generate-shortcut-status.py
+          python3 scripts/generate-shortcut-status.py --check
+      - name: Replace stale current counts with one generated source of truth
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          index = Path('tasks/README.md')
+          text = index.read_text()
+          start = 'The current working tree passes the task-plan, module-boundary, host-ABI,\n'
+          end = 'The final twelve T18 semantic observations are gone, leaving T18 with zero\n'
+          assert text.count(start) == text.count(end) == 1
+          first, remainder = text.split(start, 1)
+          removed, rest = remainder.split(end, 1)
+          assert '49 semantic shortcuts' in removed and len(removed) < 1500
+          replacement = ('Current shortcut counts and semantic-only removal ownership are derived in\n'
+                         '[the generated accounting report](../test262/backlog/current-shortcut-status.md).\n'
+                         'Run the source-level audit and generator checks before using that report.\n'
+                         'Audit green means no selector drift, not zero shortcuts or full conformance.\n'
+                         'Each observation retains a closed classification, reason and concrete\n'
+                         'owner/removal task. Do not close a semantic task from focused green leaves\n'
+                         'while its full-tree and materialization-removal criteria remain unmet.\n\n')
+          index.write_text(first + replacement + end + rest)
+          closure = Path('tasks/26-zero-failure-conformance-closure.md')
+          text = closure.read_text()
+          start = 'The shortcut audit is green as an exact-drift contract over 389 classified\n'
+          end = 'closure entry criteria are therefore not met.\n'
+          assert text.count(start) == text.count(end) == 1
+          first, remainder = text.split(start, 1)
+          removed, rest = remainder.split(end, 1)
+          assert '241 semantic shortcuts' in removed and len(removed) < 900
+          replacement = ('The current shortcut classifications and semantic removal-task counts are\n'
+                         '[generated from canonical audit inputs](../test262/backlog/current-shortcut-status.md).\n'
+                         'A green exact-drift audit does not satisfy the zero-shortcut integrity gate.\n'
+                         'The generated current-pin failure backlog is still absent, and several\n'
+                         'architecture/feature lanes retain explicit unsupported cases. Formal\n')
+          closure.write_text(first + replacement + end + rest)
+          readme = Path('README.md')
+          text = readme.read_text()
+          heading = '\n## Shortcut accounting\n'
+          assert heading not in text
+          readme.write_text(text + heading + '\n[Current shortcut accounting](test262/backlog/current-shortcut-status.md) is generated from the classified source audit, including input hashes and semantic-only removal ownership. Run `bash scripts/audit-test262-shortcuts.sh --check`, then `python3 scripts/generate-shortcut-status.py` to regenerate it, or add `--check` to reject a stale report. These are observations, not test passes or a completion percentage. The Rust publisher remains the only owner of the generated conformance block.\n')
+          PY
+          bash scripts/check-task-plan.sh
+          git add README.md tasks/README.md tasks/26-zero-failure-conformance-closure.md test262/backlog/current-shortcut-status.md
+          git diff --cached --check
+          git diff --cached --stat
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: derive current shortcut accounting and remove stale current counts'
+          git push origin HEAD:refs/heads/review/06-generated-shortcut-status

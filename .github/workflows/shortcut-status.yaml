@@ -1,0 +1,27 @@
+name: Generated shortcut status
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shortcut-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run generator failure controls
+        run: python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v
+      - name: Verify canonical source observations before trusting the derived report
+        run: bash scripts/audit-test262-shortcuts.sh --check
+      - name: Reject stale generated accounting
+        run: python3 scripts/generate-shortcut-status.py --check
