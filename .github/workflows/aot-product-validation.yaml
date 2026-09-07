@@ -8,7 +8,12 @@ on:
       - 'crates/lila-ir/**'
       - 'crates/lila-runtime/**'
       - 'crates/lila-intl/**'
+      - 'crates/lila-engine/**'
+      - 'crates/lila-cli/**'
+      - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/**'
+      - 'rust-toolchain*'
       - '.github/workflows/aot-product-validation.yaml'
   push:
     branches: [main]
@@ -18,7 +23,12 @@ on:
       - 'crates/lila-ir/**'
       - 'crates/lila-runtime/**'
       - 'crates/lila-intl/**'
+      - 'crates/lila-engine/**'
+      - 'crates/lila-cli/**'
+      - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/**'
+      - 'rust-toolchain*'
       - '.github/workflows/aot-product-validation.yaml'
 
 permissions:
@@ -48,5 +58,10 @@ jobs:
           cargo test --locked -p lila-aot-wasm --test product_artifact -- --list | tee /tmp/artifact-tests.txt
           grep -Fxq 'validator_rejects_a_parseable_function_result_type_mismatch: test' /tmp/artifact-tests.txt
           grep -Fxq 'representative_language_families_produce_valid_aot_artifacts: test' /tmp/artifact-tests.txt
+          cargo test --locked -p lila-cli --test product_artifact_execution -- --list | tee /tmp/execution-tests.txt
+          grep -Fxq 'representative_artifacts_execute_with_the_expected_transcripts: test' /tmp/execution-tests.txt
+          grep -Fxq 'execution_gate_rejects_wrong_results_extra_output_and_oracle_fallback: test' /tmp/execution-tests.txt
       - name: Validate emitted product artifacts
         run: cargo test --locked -p lila-aot-wasm --test product_artifact
+      - name: Execute the shared fixtures through the real Wasm-AOT CLI
+        run: cargo test --locked -p lila-cli --test product_artifact_execution -- --test-threads=1
