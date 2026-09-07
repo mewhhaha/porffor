@@ -50,8 +50,7 @@ pub const MODULE_ANONYMOUS_DEFAULT_LOCAL_NAME: &str = "*default*";
 // one `format!` for the whole crate, a closed role set, and const assertions
 // tying the two length budgets to the constants `modules::source` and
 // `modules::record` actually match on. See
-// `docs/rust-rewrite/contracts/Module binding-name domains: [[LocalName]] vs
-// [[ExportName]] vs merged storage name.md`.
+// `docs/rust-rewrite/contracts/module-binding-name-domains.md`.
 //
 // No `FunctionId` is module-qualified anywhere, which is why the three
 // `FunctionId` helpers had no callers: `modules::link` merges unit bodies on
