@@ -7058,3 +7058,7 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 `lila` means `purple` in Swedish.
 
 Source and project status: <https://github.com/mewhhaha/porffor>.
+
+## Shortcut accounting
+
+[Current shortcut accounting](test262/backlog/current-shortcut-status.md) is generated from the classified source audit, including input hashes and semantic-only removal ownership. Run `bash scripts/audit-test262-shortcuts.sh --check`, then `python3 scripts/generate-shortcut-status.py` to regenerate it, or add `--check` to reject a stale report. These are observations, not test passes or a completion percentage. The Rust publisher remains the only owner of the generated conformance block.
