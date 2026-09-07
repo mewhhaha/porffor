@@ -7058,3 +7058,7 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 `lila` means `purple` in Swedish.
 
 Source and project status: <https://github.com/mewhhaha/porffor>.
+
+## Repository path portability
+
+Run `python3 scripts/check-repository-paths.py` before adding or renaming tracked files. The gate checks the complete Git index for Windows-invalid components and case/Unicode path collisions; it does not modify files or omit vendored paths. Run its failure controls with `python3 -m unittest discover -s scripts/tests -p test_repository_paths.py -v`. The Repository portability workflow also performs a real Windows checkout.

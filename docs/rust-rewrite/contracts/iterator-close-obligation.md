@@ -2,7 +2,7 @@
 
 The contract lives in one document:
 
-**[IteratorClose as an obligation stated where the iterator is acquired: witness coverage for the four uncovered IR constructs, plus a consumer for the catalog's unread abrupt column](./IteratorClose%20as%20an%20obligation%20stated%20where%20the%20iterator%20is%20acquired%3A%20witness%20coverage%20for%20the%20four%20uncovered%20IR%20constructs%2C%20plus%20a%20consumer%20for%20the%20catalog%27s%20unread%20abrupt%20column.md)**
+**[IteratorClose as an obligation stated where the iterator is acquired: witness coverage for the four uncovered IR constructs, plus a consumer for the catalog's unread abrupt column](./iterator-close-obligation-catalog.md)**
 
 It extends round 1's
 [Spec-operation catalog evidence and the iterator-protocol obligation witness](./Spec-operation%20catalog%20evidence%20and%20the%20iterator-protocol%20obligation%20witness.md)
