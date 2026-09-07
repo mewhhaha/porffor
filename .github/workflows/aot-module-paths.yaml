@@ -1,0 +1,43 @@
+name: AOT module path identity
+
+on:
+  pull_request:
+    paths:
+      - 'crates/lila-engine/**'
+      - '.github/workflows/aot-module-paths.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/lila-engine/**'
+      - '.github/workflows/aot-module-paths.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aot-module-paths-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test the consumed path normalizer without building the compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --edition=2021 --test crates/lila-engine/src/module_paths.rs -o /tmp/lila-module-path-tests
+          /tmp/lila-module-path-tests --list | tee /tmp/module-path-inventory.txt
+          grep -Fxq 'tests::lexical_parent_precedes_symlink_resolution: test' /tmp/module-path-inventory.txt
+          /tmp/lila-module-path-tests
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: aot-correctness
+      - name: Test module loader integration
+        run: cargo test --locked -p lila-engine --lib module_loader::

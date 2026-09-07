@@ -9,11 +9,15 @@
 //! as any other embedder would.
 
 use std::collections::BTreeMap;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use lila_front::{ParsedModule, ParsedScript};
 use lila_ir::{ModuleGraphSources, ModuleSourceIr};
 pub use lila_ir::{ModuleKey, ModuleRequestKeyIr};
+
+#[path = "module_paths.rs"]
+mod module_paths;
+use module_paths::normalize;
 
 /// What a successful load produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,34 +234,6 @@ impl FilesystemModuleLoader {
             reason: format!("resolves outside module root {}", self.root.display()),
         })
     }
-}
-
-/// Removes `.` and `..` components lexically, so a specifier cannot climb out
-/// of the root through a path that does not exist yet.
-///
-/// `..` never pops the root itself: `/a/../../etc` normalizes to `/etc`, an
-/// absolute path that the confinement check rejects, and not to the relative
-/// `etc` that would silently be re-anchored at the working directory.
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    let mut floor = 0usize;
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if out.components().count() > floor {
-                    out.pop();
-                }
-            }
-            other => {
-                out.push(other.as_os_str());
-                if matches!(other, Component::RootDir | Component::Prefix(_)) {
-                    floor = out.components().count();
-                }
-            }
-        }
-    }
-    out
 }
 
 impl HostModuleLoader for FilesystemModuleLoader {
