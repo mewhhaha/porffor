@@ -1,0 +1,43 @@
+name: Generated shortcut status
+
+on:
+  pull_request:
+    paths:
+      - 'crates/lila-test262/src/lib.rs'
+      - 'test262/backlog/shortcut-*'
+      - 'scripts/audit-test262-shortcuts*'
+      - 'scripts/update-shortcut-status.py'
+      - 'scripts/tests/test_shortcut_status.py'
+      - 'tasks/README.md'
+      - 'tasks/26-zero-failure-conformance-closure.md'
+      - '.github/workflows/shortcut-status.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/lila-test262/src/lib.rs'
+      - 'test262/backlog/shortcut-*'
+      - 'scripts/audit-test262-shortcuts*'
+      - 'scripts/update-shortcut-status.py'
+      - 'scripts/tests/test_shortcut_status.py'
+      - 'tasks/README.md'
+      - 'tasks/26-zero-failure-conformance-closure.md'
+      - '.github/workflows/shortcut-status.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test summary accounting and failed-audit controls
+        run: python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v
+      - name: Validate both summaries against the source-checked ledger
+        run: python3 scripts/update-shortcut-status.py --check

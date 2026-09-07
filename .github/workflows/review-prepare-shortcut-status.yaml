@@ -1,0 +1,73 @@
+name: Prepare shortcut status review branch
+
+on:
+  push:
+    branches: [review/05-shortcut-status]
+    paths: [.github/workflows/review-prepare-shortcut-status.yaml]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/05-shortcut-status
+      - name: Replace stale prose counts with generated summary boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          expected = {
+              'tasks/README.md': 'dc71844ac0bc0ef2338f07fbc34dbc06d5ff7854',
+              'tasks/26-zero-failure-conformance-closure.md': 'fb1b3f885dee28e7c39393b0ca4ee40dd3917fcb',
+          }
+          for name, expected_blob in expected.items():
+              raw = Path(name).read_bytes()
+              actual = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+              if actual != expected_blob:
+                  raise SystemExit(f'{name} changed unexpectedly: {actual}')
+          block = '<!-- shortcut-status:start -->\n<!-- shortcut-status:end -->\n\n'
+          index = Path('tasks/README.md')
+          text = index.read_text(encoding='utf-8')
+          start = text.index('The current working tree passes the task-plan, module-boundary, host-ABI,')
+          end = text.index('The final twelve T18 semantic observations are gone,', start)
+          context = 'Every inventory entry has a closed classification, reason and concrete owner/removal task. Do not close a semantic task from focused green leaves while that task\'s full-tree and materialization-removal criteria remain unmet.\n\n'
+          index.write_text(text[:start] + block + context + text[end:], encoding='utf-8')
+          closure = Path('tasks/26-zero-failure-conformance-closure.md')
+          text = closure.read_text(encoding='utf-8')
+          start = text.index('The shortcut audit is green as an exact-drift contract over 389 classified')
+          end = text.index('The generated current-pin backlog is absent,', start)
+          closure.write_text(text[:start] + '\n' + block + text[end:], encoding='utf-8')
+          readme = Path('README.md')
+          text = readme.read_text(encoding='utf-8')
+          heading = '\n## Generated shortcut status\n'
+          if heading in text:
+              raise SystemExit('Shortcut-status instructions already exist')
+          text += heading + '\nAfter updating and validating the shortcut ledger/inventory, run `python3 scripts/update-shortcut-status.py --write` to refresh the task-index and T26 summaries. `--check` is read-only and fails on drift; both modes first run the actual source/ledger fingerprint audit, with no bypass flag. Unit and failed-audit controls run with `python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v`. These observation counts never substitute for a complete current-pin Wasm-AOT result.\n'
+          readme.write_text(text, encoding='utf-8')
+          PY
+      - name: Test and regenerate from the actual audited ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p test_shortcut_status.py -v
+          python3 scripts/update-shortcut-status.py --write
+          python3 scripts/update-shortcut-status.py --check
+          ./scripts/check-task-plan.sh
+          cargo fmt --all -- --check
+      - name: Commit generated documentation only to the review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add --update
+          git diff --cached --stat
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: derive task and closure shortcut counts from the audited ledger'
+          git push origin HEAD:refs/heads/review/05-shortcut-status
