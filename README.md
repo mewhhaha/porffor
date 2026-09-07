@@ -7090,3 +7090,7 @@ schema/build-attestation requirements remain open. No Test262 result or generate
 status percentage is changed by this guard. Run the full real-process driver
 contract suite with `python3 scripts/test_publish_real_status_low_ram.py`; its
 fake CLI validates publication orchestration, not JavaScript conformance.
+
+## Shortcut accounting
+
+[Current shortcut accounting](test262/backlog/current-shortcut-status.md) is generated from the classified source audit, including input hashes and semantic-only removal ownership. Run `bash scripts/audit-test262-shortcuts.sh --check`, then `python3 scripts/generate-shortcut-status.py` to regenerate it, or add `--check` to reject a stale report. These are observations, not test passes or a completion percentage. The Rust publisher remains the only owner of the generated conformance block.
