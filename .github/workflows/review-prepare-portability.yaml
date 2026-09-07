@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: review/02-repository-portability
-      - name: Update references to the renamed document
+      - name: Rename the complete nonportable document inventory and update references
         shell: bash
         run: |
           set -euo pipefail
@@ -24,9 +24,26 @@ jobs:
           from pathlib import Path
           import subprocess
           from urllib.parse import quote
-          old = 'Early-error taxonomy: one closed EarlyErrorCode domain and one fragment table, not two that have already drifted.md'
-          new = 'early-error-taxonomy.md'
-          pairs = [(old, new), (quote(old), quote(new)), (quote(old, safe=':'), quote(new))]
+          renames = {
+              'Early-error taxonomy: one closed EarlyErrorCode domain and one fragment table, not two that have already drifted.md': 'early-error-taxonomy.md',
+              "IteratorClose as an obligation stated where the iterator is acquired: witness coverage for the four uncovered IR constructs, plus a consumer for the catalog's unread abrupt column.md": 'iterator-close-obligation-catalog.md',
+              'Environment Record binding lifecycle: TDZ as a per-binding typestate on BindingInfo, replacing the parallel string-set stack and the storage-name prefix.md': 'environment-record-binding-lifecycle.md',
+              'Module binding-name domains: [[LocalName]] vs [[ExportName]] vs merged storage name.md': 'module-binding-name-domains.md',
+              'Reference Records: one record, a carried [[Strict]], and a write that consumes it.md': 'reference-records-single-owner-contract.md',
+              'The Property Descriptor lattice: one closed 6.2.6 type and one derived ValidateAndApplyPropertyDescriptor, replacing a raw u64 bitfield re-derived at eight sites.md': 'property-descriptor-lattice.md',
+          }
+          contracts = Path('docs/rust-rewrite/contracts')
+          for old, new in renames.items():
+              source, destination = contracts / old, contracts / new
+              if source.exists():
+                  if destination.exists():
+                      raise SystemExit(f'Refusing to overwrite {destination}')
+                  subprocess.run(['git', 'mv', '--', str(source), str(destination)], check=True)
+              elif not destination.exists():
+                  raise SystemExit(f'Missing both sides of rename: {old}')
+          pairs = []
+          for old, new in renames.items():
+              pairs.extend([(old, new), (quote(old), quote(new)), (quote(old, safe=':'), quote(new))])
           paths = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
           roots = {'crates', 'docs', 'scripts', 'tasks', '.github'}
           extensions = {'.md', '.rs', '.sh', '.py', '.yaml', '.yml', '.toml'}
@@ -70,11 +87,13 @@ jobs:
           git diff --cached --stat
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'docs: update references to portable early-error contract filename'
+          git commit -m 'docs: make all six contract filenames portable and update references'
           git push origin HEAD:refs/heads/review/02-repository-portability
       - name: Retain tracked source for this review session
+        if: always()
         run: git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/porffor-review-source.tar.gz"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: porffor-review-source
           path: ${{ runner.temp }}/porffor-review-source.tar.gz
