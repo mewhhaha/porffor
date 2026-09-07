@@ -1,0 +1,82 @@
+name: Prepare portability review branch
+
+on:
+  push:
+    branches: [review/02-repository-portability]
+    paths: [.github/workflows/review-prepare-portability.yaml]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: review/02-repository-portability
+      - name: Update references to the renamed document
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          from urllib.parse import quote
+          old = 'Early-error taxonomy: one closed EarlyErrorCode domain and one fragment table, not two that have already drifted.md'
+          new = 'early-error-taxonomy.md'
+          pairs = [(old, new), (quote(old), quote(new)), (quote(old, safe=':'), quote(new))]
+          paths = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
+          roots = {'crates', 'docs', 'scripts', 'tasks', '.github'}
+          extensions = {'.md', '.rs', '.sh', '.py', '.yaml', '.yml', '.toml'}
+          for raw in paths:
+              if not raw:
+                  continue
+              path = Path(raw.decode('utf-8'))
+              if path == Path('.github/workflows/review-prepare-portability.yaml'):
+                  continue
+              if path.parts[0] not in roots and path.name not in {'README.md', 'CONTRIBUTING.md'}:
+                  continue
+              if path.suffix not in extensions:
+                  continue
+              text = path.read_text(encoding='utf-8')
+              changed = text
+              for before, after in pairs:
+                  changed = changed.replace(before, after)
+              if changed != text:
+                  path.write_text(changed, encoding='utf-8')
+                  print(f'Updated reference: {path}')
+          readme = Path('README.md')
+          text = readme.read_text(encoding='utf-8')
+          heading = '\n## Repository path portability\n'
+          if heading in text:
+              raise SystemExit('Portability instructions already exist; review before appending')
+          text += heading + '\nRun `python3 scripts/check-repository-paths.py` before adding or renaming tracked files. The gate checks the complete Git index for Windows-invalid components and case/Unicode path collisions; it does not modify files or omit vendored paths. Run its failure controls with `python3 -m unittest discover -s scripts/tests -p test_repository_paths.py -v`. The Repository portability workflow also performs a real Windows checkout.\n'
+          readme.write_text(text, encoding='utf-8')
+          PY
+      - name: Verify the checker and the complete index
+        run: |
+          python3 -m unittest discover -s scripts/tests -p test_repository_paths.py -v
+          python3 scripts/check-repository-paths.py
+          cargo fmt --all
+          cargo fmt --all -- --check
+      - name: Remove preparation workflow and commit only on the review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/review-prepare-portability.yaml
+          git add --update
+          git diff --cached --stat
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: update references to portable early-error contract filename'
+          git push origin HEAD:refs/heads/review/02-repository-portability
+      - name: Retain tracked source for this review session
+        run: git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/porffor-review-source.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: porffor-review-source
+          path: ${{ runner.temp }}/porffor-review-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
