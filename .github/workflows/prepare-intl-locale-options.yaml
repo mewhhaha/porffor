@@ -1,0 +1,99 @@
+name: Prepare Intl.Locale implementation branch
+
+# One-time transfer of the reviewed patch through the connected GitHub account.
+# This job can update only the named feature branch. It removes this workflow
+# before publishing the implementation; it does not modify main or merge a PR.
+on:
+  push:
+    branches:
+      - codex/intl-locale-core-options
+    paths:
+      - .github/workflows/prepare-intl-locale-options.yaml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prepare-intl-locale-core-options
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'mewhhaha/porffor' && github.ref == 'refs/heads/codex/intl-locale-core-options'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/intl-locale-core-options
+          fetch-depth: 2
+
+      - name: Apply the checksum-verified implementation patch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = c5115bf03ba3fdec1a8eb9b3436a939431b2ca1f
+          test "$(git diff --name-only HEAD^ HEAD)" = .github/workflows/prepare-intl-locale-options.yaml
+          test -z "$(git status --porcelain)"
+          gh api repos/mewhhaha/porffor/git/blobs/a2013b67625a8a97994f1d6d5486ed7f1f2b826a --jq .content | base64 --decode | gzip --decompress > "$RUNNER_TEMP/intl-locale-options.patch"
+          echo "b8431a002a2228da838d5fd58917207d9381bbbf2e18ac599f395b96ed15d858  $RUNNER_TEMP/intl-locale-options.patch" | sha256sum --check
+          git apply --check "$RUNNER_TEMP/intl-locale-options.patch"
+          git apply "$RUNNER_TEMP/intl-locale-options.patch"
+
+      - name: Wire focused Wasm regressions and correct the evidence note
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          doc = Path('docs/rust-rewrite/aot-intl-locale-options.md')
+          text = doc.read_text()
+          old = 'The authoring environment had no Rust toolchain, no runnable repository\ncheckout and no GitHub write action.'
+          assert text.count(old) == 1
+          text = text.replace(old, 'The authoring environment had no local Rust toolchain or runnable repository\ncheckout. The GitHub connector was subsequently used to publish the branch.')
+          doc.write_text(text)
+          workflow = Path('.github/workflows/aot-regressions.yaml')
+          text = workflow.read_text()
+          marker = '\n  aot-backend:\n'
+          assert text.count(marker) == 1
+          step = '\n      - name: Execute Intl.Locale core options through Wasmtime\n        if: ${{ !cancelled() }}\n        timeout-minutes: 15\n        run: cargo test --locked -p lila-engine --test aot_intl_locale_options -- --test-threads=1\n'
+          workflow.write_text(text.replace(marker, step + marker))
+          PY
+
+      - name: Format Rust and verify the exact change boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          git rm .github/workflows/prepare-intl-locale-options.yaml
+          git add README.md crates/lila-aot-wasm/src/builtins/intl.rs crates/lila-aot-wasm/src/builtins/intl/language_options.rs crates/lila-engine/tests/aot_intl_locale_options.rs docs/rust-rewrite/aot-intl-locale-options.md .github/workflows/aot-regressions.yaml
+          git diff --cached --check
+          python3 - <<'PY'
+          import subprocess
+          expected = {
+              '.github/workflows/aot-regressions.yaml',
+              'README.md',
+              'crates/lila-aot-wasm/src/builtins/intl.rs',
+              'crates/lila-aot-wasm/src/builtins/intl/language_options.rs',
+              'crates/lila-engine/tests/aot_intl_locale_options.rs',
+              'docs/rust-rewrite/aot-intl-locale-options.md',
+          }
+          actual = set(subprocess.check_output(['git', 'diff', '--cached', '--name-only', 'c5115bf03ba3fdec1a8eb9b3436a939431b2ca1f'], text=True).splitlines())
+          assert actual == expected, (actual, expected)
+          subprocess.run(['git', 'diff', '--exit-code'], check=True)
+          assert not subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard'], text=True).strip()
+          PY
+          git diff --cached --stat c5115bf03ba3fdec1a8eb9b3436a939431b2ca1f
+
+      - name: Publish only the feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(intl): lower Locale language, script and region options to Wasm'
+          git push origin HEAD:refs/heads/codex/intl-locale-core-options
+          printf 'Published implementation commit: %s\nRust formatting and complete-checkout patch checks passed.\nRust/Wasm execution and Test262 remain unverified.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
