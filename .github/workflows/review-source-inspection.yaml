@@ -1,0 +1,34 @@
+name: Export tracked review source
+
+on:
+  push:
+    branches: [review/02-repository-portability]
+    paths: [.github/workflows/review-source-inspection.yaml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked source without Git credentials or untracked files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
+          git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/porffor-review-source.tar.gz"
+          shasum -a 256 "$RUNNER_TEMP/porffor-review-source.tar.gz" > "$RUNNER_TEMP/source-sha256.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: porffor-review-source-inspection
+          path: |
+            ${{ runner.temp }}/porffor-review-source.tar.gz
+            ${{ runner.temp }}/source-commit.txt
+            ${{ runner.temp }}/source-sha256.txt
+          if-no-files-found: error
+          retention-days: 1
