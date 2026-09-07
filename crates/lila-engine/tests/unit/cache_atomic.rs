@@ -96,5 +96,8 @@ fn preexisting_temporary_symlinks_are_not_followed() {
     std::os::unix::fs::symlink(&sentinel, &link).unwrap();
     insert_atomic(&directory.0.join("entry"), b"new", &AtomicU64::new(0)).unwrap();
     assert_eq!(fs::read(&sentinel).unwrap(), b"unchanged");
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
 }

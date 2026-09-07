@@ -101,8 +101,8 @@ fn assert_product_artifact(name: &str, bytes: &[u8], expected_value: Option<f64>
                         }
                         Operator::I64Const { value } => {
                             if let Some(expected) = expected_value {
-                                saw_compiled_value |= value == expected.to_bits() as i64
-                                    || value == expected as i64;
+                                saw_compiled_value |=
+                                    value == expected.to_bits() as i64 || value == expected as i64;
                             }
                         }
                         _ => {}

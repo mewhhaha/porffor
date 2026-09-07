@@ -100,11 +100,7 @@ mod tests {
         let physical = fixture.0.join("real/dep.js");
         fs::write(&lexical, "export const selected = 'lexical';").unwrap();
         fs::write(&physical, "export const selected = 'physical';").unwrap();
-        std::os::unix::fs::symlink(
-            fixture.0.join("real/nested"),
-            fixture.0.join("link"),
-        )
-        .unwrap();
+        std::os::unix::fs::symlink(fixture.0.join("real/nested"), fixture.0.join("link")).unwrap();
         let request = fixture.0.join("link/../dep.js");
         let selected = normalize(&request).canonicalize().unwrap();
         assert_eq!(selected, lexical.canonicalize().unwrap());
@@ -118,11 +114,7 @@ mod tests {
         fs::create_dir(fixture.0.join("root")).unwrap();
         fs::create_dir(fixture.0.join("outside")).unwrap();
         fs::write(fixture.0.join("outside/dep.js"), "outside").unwrap();
-        std::os::unix::fs::symlink(
-            fixture.0.join("outside"),
-            fixture.0.join("root/link"),
-        )
-        .unwrap();
+        std::os::unix::fs::symlink(fixture.0.join("outside"), fixture.0.join("root/link")).unwrap();
         let selected = normalize(&fixture.0.join("root/link/dep.js"))
             .canonicalize()
             .unwrap();
