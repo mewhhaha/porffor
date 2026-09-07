@@ -3,7 +3,7 @@
 The contract for the area *Reference Records: one record, a carried
 `[[Strict]]`, and a write that consumes it* lives at:
 
-`docs/rust-rewrite/contracts/Reference Records: one record, a carried [[Strict]], and a write that consumes it.md`
+`docs/rust-rewrite/contracts/reference-records-single-owner-contract.md`
 
 This file exists because the area brief names `reference-records.md` in its
 `files_owned` list while the campaign's file-naming convention for contracts

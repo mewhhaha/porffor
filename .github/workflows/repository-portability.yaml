@@ -1,0 +1,29 @@
+name: Repository portability
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  paths:
+    name: Repository paths (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test the path checker including failure controls
+        run: python -m unittest discover -s scripts/tests -p test_repository_paths.py -v
+      - name: Check every tracked repository path
+        run: python scripts/check-repository-paths.py

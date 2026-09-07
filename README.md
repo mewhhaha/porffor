@@ -7059,6 +7059,14 @@ host ABI contract in `test262/backlog/host-abi.tsv`.
 
 Source and project status: <https://github.com/mewhhaha/porffor>.
 
+## Product artifact execution checks
+
+`cargo test --locked -p lila-aot-wasm --test product_artifact` validates emitted Wasm and checks the evaluator boundary. `cargo test --locked -p lila-cli --test product_artifact_execution -- --test-threads=1` executes the same shared program inventory through the real product CLI, requires exact program output and the Wasm-AOT completion record, and bounds each child process. Its negative controls reject wrong results, extra output, unsuccessful processes, missing completion records and oracle fallback. These focused regressions are not a complete Test262 baseline or a conformance percentage.
+
+## Repository path portability
+
+Run `python3 scripts/check-repository-paths.py` before adding or renaming tracked files. The gate checks the complete Git index for Windows-invalid components and case/Unicode path collisions; it does not modify files or omit vendored paths. Run its failure controls with `python3 -m unittest discover -s scripts/tests -p test_repository_paths.py -v`. The Repository portability workflow also performs a real Windows checkout.
+
 ## Resuming a low-memory publication session
 
 `scripts/publish-real-status-low-ram.sh` records a durable manifest for each
