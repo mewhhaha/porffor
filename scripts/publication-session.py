@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind low-memory publication sessions to immutable, fail-closed run manifests.
+"""Bind low-memory publication sessions to immutable identities and durable progress.
 
 This records the observed checkout, source bytes and executable bytes. It is
 not a build attestation and does not retrofit provenance into native snapshots.
@@ -13,6 +13,8 @@ import fcntl
 import hashlib
 import json
 import os
+import re
+from dataclasses import dataclass
 from pathlib import Path
 import signal
 import stat
@@ -21,7 +23,8 @@ import sys
 import tempfile
 from collections.abc import Iterator, Mapping
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+MAX_MATRIX_COUNT = 10**18 - 1
 SOURCE_FILES = ("Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml")
 SOURCE_DIRECTORIES = (".cargo", "crates", "vendor", "scripts")
 IGNORED_DIRECTORIES = frozenset({".git", "target", "__pycache__"})
@@ -42,6 +45,50 @@ IDENTITY_KEYS = frozenset({
 
 class ProvenanceError(Exception):
     """An absent, incompatible or unverifiable publication identity."""
+
+
+@dataclass(frozen=True)
+class MatrixProgress:
+    """A checked matrix observation, not evidence of passing test executions."""
+
+    completed: int
+    total: int
+
+    def __post_init__(self) -> None:
+        if type(self.completed) is not int or type(self.total) is not int:
+            raise ProvenanceError("matrix progress counts must be integers, not booleans")
+        if not 0 <= self.completed <= MAX_MATRIX_COUNT:
+            raise ProvenanceError("invalid matrix progress: completed count")
+        if not 1 <= self.total <= MAX_MATRIX_COUNT:
+            raise ProvenanceError("invalid matrix progress: total must be positive and bounded")
+        if self.completed > self.total:
+            raise ProvenanceError("invalid matrix progress: completed exceeds total")
+
+    def as_dict(self) -> dict[str, int]:
+        return {"completed": self.completed, "total": self.total}
+
+    @classmethod
+    def from_dict(cls, value: object) -> MatrixProgress:
+        if not isinstance(value, dict) or set(value) != {"completed", "total"}:
+            raise ProvenanceError("invalid publication manifest progress")
+        return cls(value["completed"], value["total"])
+
+
+def parse_matrix_progress(text: str) -> MatrixProgress:
+    fields: dict[str, int] = {}
+    names = {"matrix_nodes_completed": "completed", "matrix_nodes_total": "total"}
+    for line in text.splitlines():
+        key, separator, value = line.partition(": ")
+        if key not in names:
+            continue
+        if key in fields:
+            raise ProvenanceError(f"duplicate matrix progress field: {key}")
+        if not separator or not re.fullmatch(r"0|[1-9][0-9]{0,17}", value):
+            raise ProvenanceError(f"invalid matrix progress field: {key}")
+        fields[key] = int(value)
+    if set(fields) != set(names):
+        raise ProvenanceError("invalid matrix progress: expected exactly one completed and total field")
+    return MatrixProgress(fields["matrix_nodes_completed"], fields["matrix_nodes_total"])
 
 
 def _git(root: Path, *arguments: str) -> str:
@@ -156,21 +203,32 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict:
     return output
 
 
-def read_manifest(path: Path) -> dict:
+def _read_manifest_document(path: Path) -> dict:
     if path.is_symlink():
         raise ProvenanceError(f"publication manifest must not be a symlink: {path}")
     try:
         value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ProvenanceError(f"cannot read publication manifest {path}: {error}") from error
-    if not isinstance(value, dict) or set(value) != {"schema_version", "identity"}:
+    if not isinstance(value, dict) or "schema_version" not in value:
         raise ProvenanceError(f"invalid publication manifest envelope: {path}")
     if type(value["schema_version"]) is not int or value["schema_version"] != SCHEMA_VERSION:
-        raise ProvenanceError(f"unsupported publication manifest schema: {path}")
+        raise ProvenanceError(
+            f"unsupported publication manifest schema: {path}; "
+            "retain the existing results and use a fresh snapshot name"
+        )
+    if set(value) != {"schema_version", "identity", "progress"}:
+        raise ProvenanceError(f"invalid publication manifest envelope: {path}")
     identity = value["identity"]
     if not isinstance(identity, dict) or set(identity) != IDENTITY_KEYS:
         raise ProvenanceError(f"invalid publication manifest identity: {path}")
-    return identity
+    if value["progress"] is not None:
+        MatrixProgress.from_dict(value["progress"])
+    return value
+
+
+def read_manifest(path: Path) -> dict:
+    return _read_manifest_document(path)["identity"]
 
 
 def require_identity(path: Path, expected: dict) -> None:
@@ -186,15 +244,71 @@ def require_identity(path: Path, expected: dict) -> None:
         )
 
 
+def family_result_names(identity: dict) -> list[str]:
+    name = identity["snapshot_name"]
+    return sorted(
+        file.name for file in Path(identity["snapshot_directory"]).iterdir()
+        if file.suffix in {".json", ".txt", ".jsonl"}
+        and (file.stem == name or file.name.startswith(name + "-"))
+    )
+
+
+def require_fresh_matrix(path: Path) -> None:
+    document = _read_manifest_document(path)
+    if document["progress"] is not None:
+        raise ProvenanceError("matrix checkpoint is unavailable after previously recorded progress")
+    if family_result_names(document["identity"]):
+        raise ProvenanceError("matrix checkpoint is unavailable for a family with existing results")
+
+
+def _replace_manifest(path: Path, document: dict) -> None:
+    # Keep identity and its high-water mark in ONE document. Two independently
+    # replaced sidecars would permit a crash to lose the last observed count.
+    descriptor, temporary = tempfile.mkstemp(prefix=".manifest-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump(document, output, indent=2, sort_keys=True)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def record_matrix_progress(path: Path, current: MatrixProgress, *, after_report: bool) -> None:
+    # The supervisor retains the family lock. A distinct observation lock also
+    # serializes direct invocations of this read/modify/write CLI operation.
+    with family_lock(path.with_suffix(".progress.lock")):
+        document = _read_manifest_document(path)
+        previous = (MatrixProgress.from_dict(document["progress"])
+                    if document["progress"] is not None else None)
+        if previous is not None:
+            if current.total != previous.total:
+                raise ProvenanceError("matrix total changed from the recorded publication denominator")
+            if current.completed < previous.completed:
+                raise ProvenanceError("matrix progress regressed below the recorded high-water mark")
+        minimum = previous.completed if previous is not None else 0
+        if after_report and current.completed <= minimum:
+            raise ProvenanceError("report-all did not advance completed matrix nodes")
+        if current == previous:
+            return
+        document["progress"] = current.as_dict()
+        _replace_manifest(path, document)
+
+
 def claim_manifest(path: Path, identity: dict) -> None:
     if path.exists() or path.is_symlink():
         if path.is_symlink():
             raise ProvenanceError(f"publication manifest must not be a symlink: {path}")
         require_identity(path, identity)
         return
-    prefix = identity["snapshot_name"] + "-"
-    existing = sorted(file.name for file in Path(identity["snapshot_directory"]).iterdir()
-                      if file.name.startswith(prefix) and file.suffix in {".json", ".txt", ".jsonl"})
+    existing = family_result_names(identity)
     if existing:
         raise ProvenanceError(
             "existing results have no publication provenance; refusing to adopt them: "
@@ -203,7 +317,8 @@ def claim_manifest(path: Path, identity: dict) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=".manifest-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            json.dump({"schema_version": SCHEMA_VERSION, "identity": identity}, output, indent=2, sort_keys=True)
+            json.dump({"schema_version": SCHEMA_VERSION, "identity": identity, "progress": None},
+                      output, indent=2, sort_keys=True)
             output.write("\n")
             output.flush()
             os.fsync(output.fileno())
@@ -258,18 +373,27 @@ def run_session(environment: dict[str, str]) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("run", "verify"))
+    parser.add_argument("operation", choices=("run", "verify", "record-progress", "require-fresh"))
     parser.add_argument("manifest", nargs="?", type=Path)
+    parser.add_argument("--after-report", action="store_true")
     args = parser.parse_args()
     try:
-        if args.operation == "verify":
+        if args.after_report and args.operation != "record-progress":
+            raise ProvenanceError("--after-report requires record-progress")
+        if args.operation != "run":
             if args.manifest is None:
-                raise ProvenanceError("verify requires a publication manifest")
+                raise ProvenanceError(f"{args.operation} requires a publication manifest")
             identity = capture_identity(os.environ)
             expected_path, _ = manifest_paths(identity)
             if args.manifest.resolve() != expected_path.resolve():
                 raise ProvenanceError("publication manifest does not belong to this snapshot family")
             require_identity(args.manifest, identity)
+            if args.operation == "require-fresh":
+                require_fresh_matrix(args.manifest)
+            elif args.operation == "record-progress":
+                progress = parse_matrix_progress(sys.stdin.read())
+                record_matrix_progress(args.manifest, progress, after_report=args.after_report)
+                print(f"{progress.completed}:{progress.total}")
             return 0
         if args.manifest is not None:
             raise ProvenanceError("run does not accept an existing manifest override")

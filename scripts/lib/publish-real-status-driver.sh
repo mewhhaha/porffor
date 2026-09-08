@@ -72,6 +72,7 @@ verify_compiler() {
 
 matrix_progress() {
   local progress fields status
+  local -a progress_command
   verify_compiler
   if progress="$(
     "$LILA_BIN" test262 progress-status \
@@ -86,41 +87,32 @@ matrix_progress() {
     # A fresh run may not have a checkpoint yet. Bootstrap only once; after a
     # successful report-all, losing progress is an error, never an empty matrix.
     [[ "$REPORT_RAN" == 0 ]] || fail "progress-status failed after report-all (exit $status)"
+    python3 "$REPO_ROOT/scripts/publication-session.py" require-fresh "$LILA_PUBLICATION_MANIFEST"
     echo "progress-status unavailable before first report-all (exit $status); attempting initial checkpoint" >&2
     MATRIX_COMPLETED=0
     MATRIX_TOTAL=""
     return
   fi
 
-  if ! fields="$(awk -F ': ' '
-    $1 == "matrix_nodes_completed" { completed = $2; completed_fields++; if (NF != 2) invalid = 1 }
-    $1 == "matrix_nodes_total" { total = $2; total_fields++; if (NF != 2) invalid = 1 }
-    END {
-      if (invalid || completed_fields != 1 || total_fields != 1) exit 1
-      printf "%s:%s\n", completed, total
-    }
-  ' <<<"$progress")"; then
-    fail "invalid matrix progress: expected exactly one completed and total field"
+  progress_command=(python3 "$REPO_ROOT/scripts/publication-session.py"
+    record-progress "$LILA_PUBLICATION_MANIFEST")
+  if [[ "$REPORT_RAN" == 1 ]]; then
+    progress_command+=(--after-report)
+  fi
+  # Persist the observation BEFORE deciding to resume or publish. This also
+  # checks observations made by earlier invocations of this snapshot family.
+  if ! fields="$("${progress_command[@]}" <<<"$progress")"; then
+    fail "invalid or inconsistent matrix progress"
   fi
   MATRIX_COMPLETED="${fields%%:*}"
   MATRIX_TOTAL="${fields#*:}"
-  [[ "$MATRIX_COMPLETED" =~ ^(0|[1-9][0-9]{0,17})$ ]] || fail "invalid matrix progress: completed count"
-  positive_integer "$MATRIX_TOTAL" || fail "invalid matrix progress: total must be positive"
-  (( MATRIX_COMPLETED <= MATRIX_TOTAL )) || fail "invalid matrix progress: completed exceeds total"
 }
 
 while true; do
-  previous_completed="$MATRIX_COMPLETED"
-  previous_total="$MATRIX_TOTAL"
   matrix_progress
   completed="$MATRIX_COMPLETED"
   total="$MATRIX_TOTAL"
   echo "matrix_progress: ${completed}/${total:-unknown}"
-
-  if [[ "$REPORT_RAN" == 1 ]]; then
-    [[ -z "$previous_total" || "$total" == "$previous_total" ]] || fail "matrix total changed after report-all"
-    (( completed > previous_completed )) || fail "report-all did not advance completed matrix nodes"
-  fi
 
   if [[ -n "$total" && "$completed" == "$total" ]]; then
     cmd=(
