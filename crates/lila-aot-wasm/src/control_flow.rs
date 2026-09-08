@@ -5284,14 +5284,14 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Resolve a compiler-private activation binding from the environment that
+    /// Resolve an activation binding from the environment that
     /// is current at this source point.
     ///
     /// `owned_env_slot` is relative to the activation root. A materialized
     /// source environment may sit above that root, so spelling `hops: 0` at a
-    /// consumer can silently redirect the capability into an unrelated source
+    /// consumer can silently redirect the slot into an unrelated source
     /// binding with the same slot index.
-    fn activation_owned_binding_storage(&self, name: &str) -> Option<BindingStorage> {
+    pub(crate) fn activation_owned_binding_storage(&self, name: &str) -> Option<BindingStorage> {
         self.owned_env_slot(name)
             .map(|slot| BindingStorage::EnvSlot {
                 slot,

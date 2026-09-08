@@ -31,7 +31,13 @@ jobs:
         run: >-
           cargo test --locked -p lila-ir
           --test async_for_of_activation --test empty_function_and_erased_eval
+          --test generator_branch_lexicals
           -- --test-threads=1
+
+      - name: Validate async-generator loop continuation ranges
+        run: >-
+          cargo test --locked -p lila-aot-wasm --lib
+          emit::async_generator_dispatcher_tests -- --test-threads=1
 
       - name: Execute repaired compiler paths through Wasmtime
         run: >-

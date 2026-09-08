@@ -12,8 +12,9 @@ use crate::objects::{
     PreventExtensionsTraversalTargetLocals,
 };
 use lila_ir::{
-    AsyncDisposableScopeExecutionIr, FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr,
-    StandardBuiltinId, SyncDisposableScopeExecutionIr, ValueKind,
+    direct_await_sequence_resume_state, AsyncDisposableScopeExecutionIr, AwaitSequenceError,
+    FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId,
+    SyncDisposableScopeExecutionIr, ValueKind,
 };
 // `CodeSection` is deliberately absent from this list. Every code-section entry
 // now goes through `ModuleCode::push(EmittedFunction)`, which cannot be called
@@ -34,6 +35,8 @@ use lila_intl::{embedded_locale_data_identity, INTL_ARTIFACT_IDENTITY_CUSTOM_SEC
 
 mod completion_exit;
 pub(crate) use completion_exit::CompletionExit;
+#[cfg(test)]
+mod async_generator_dispatcher_tests;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ControlFrameKind {
@@ -1034,43 +1037,60 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             exit_state,
             ..
         } => {
-            let (suspend_state, suspension_resume_state) = match suspension_statement.as_ref() {
+            let contains_suspension = |statement: &StatementIr| {
+                async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
+                    || async_generator_contains_suspension(
+                        statement,
+                        AsyncGeneratorSuspension::Yield,
+                    )
+            };
+            if before_suspension.iter().any(contains_suspension) {
+                return Some("resumable loops with a suspending prelude");
+            }
+            let final_resume_state = match suspension_statement.as_ref() {
                 StatementIr::GeneratorYield {
                     form,
                     suspend_state,
                     resume_state,
                     ..
-                } => match form {
-                    YieldForm::Plain => (suspend_state, resume_state),
-                    YieldForm::Delegate(_) => {
-                        return Some("resumable loops with delegated yield");
+                } => {
+                    match form {
+                        YieldForm::Plain => {}
+                        YieldForm::Delegate(_) => {
+                            return Some("resumable loops with delegated yield");
+                        }
+                    }
+                    if suspend_state != entry_state {
+                        return Some("resumable loops with non-linear suspension states");
+                    }
+                    if after_suspension.iter().any(contains_suspension) {
+                        return Some("resumable yield loops containing multiple suspensions");
+                    }
+                    *resume_state
+                }
+                StatementIr::AsyncAwait { .. } => match direct_await_sequence_resume_state(
+                    suspension_statement,
+                    after_suspension,
+                    *entry_state,
+                ) {
+                    Ok(final_resume_state) => final_resume_state,
+                    Err(AwaitSequenceError::FirstAwaitRequired) => {
+                        unreachable!("the loop's first suspension is an await")
+                    }
+                    Err(AwaitSequenceError::NestedSuspension) => {
+                        return Some("resumable await loops containing nested suspensions");
+                    }
+                    Err(AwaitSequenceError::StateMismatch { .. }) => {
+                        return Some("resumable loops with non-linear suspension states");
                     }
                 },
-                StatementIr::AsyncAwait {
-                    suspend_state,
-                    resume_state,
-                    ..
-                } => (suspend_state, resume_state),
-                _ => return Some("resumable loops without one direct suspension"),
+                _ => return Some("resumable loops without a direct suspension"),
             };
-            if suspend_state != entry_state || suspension_resume_state != resume_state {
+            if final_resume_state != *resume_state {
                 return Some("resumable loops with non-linear suspension states");
-            };
+            }
             if exit_state != resume_state {
                 return Some("resumable loops with an unplanned exit state");
-            }
-            if before_suspension
-                .iter()
-                .chain(after_suspension)
-                .any(|statement| {
-                    async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
-                        || async_generator_contains_suspension(
-                            statement,
-                            AsyncGeneratorSuspension::Yield,
-                        )
-                })
-            {
-                return Some("resumable loops containing multiple suspensions");
             }
             std::iter::once(suspension_statement.as_ref())
                 .chain(before_suspension)

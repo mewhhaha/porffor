@@ -1381,12 +1381,14 @@ fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
     };
     let mut yield_count = 0usize;
     let mut has_declaration = false;
+    let mut declarations_are_supported = true;
     for item in statements {
         let StatementListItem::Statement(statement) = item else {
             if contains(item, ContainsSymbol::YieldExpression) {
                 return None;
             }
             has_declaration = true;
+            declarations_are_supported &= generator_loop_body_declaration_is_supported(item);
             continue;
         };
         match statement.as_ref() {
@@ -1402,7 +1404,17 @@ fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
             _ => {}
         }
     }
-    (yield_count <= 1 && !(has_declaration && yield_count == 1)).then_some(yield_count)
+    if yield_count == 0 {
+        return Some(0);
+    }
+    if yield_count != 1
+        || has_declaration
+            && (!declarations_are_supported
+                || generator_loop_has_unsupported_construct(branch, true))
+    {
+        return None;
+    }
+    Some(1)
 }
 
 /// One suspension position per loop iteration, optionally guarded by an `if`.

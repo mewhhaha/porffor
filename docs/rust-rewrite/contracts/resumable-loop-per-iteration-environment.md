@@ -40,6 +40,13 @@ This prevents three false states: a captured binding cannot silently select
 storage-only, the iterator roles cannot be transposed raw strings, and a body
 split cannot disagree with the resume-state order while still producing IR.
 
+The direct await sequence validator is also the async-generator dispatch
+preflight's authority for resumable await loops. Dispatch compares the final
+validated continuation with the loop's resume state; it does not equate that
+state with the first await's continuation. A suspending prelude, nested
+suspension region, discontinuous state sequence, or unmatched exit remains a
+rejection. The separate single-yield loop checks retain their existing scope.
+
 ## Runtime lifecycle
 
 The backend follows this order for `FreshPerIteration`:
@@ -64,6 +71,14 @@ The backend follows this order for `FreshPerIteration`:
 
 Closures keep references to their iteration records after loop execution has
 restored the parent. The next entered iteration allocates a different record.
+
+Uncaptured body bindings remain in the resumable activation. If their backend
+storage is first registered after entering an iteration or nested lexical
+environment, its slot address must include the current distance to that
+activation. Lexical and dynamic binding allocation share
+`activation_owned_binding_storage`; they must not use an activation slot index
+with zero hops from a child record. Captured bindings already registered by
+the lexical environment retain that record's own slots.
 
 ## Observable witness
 

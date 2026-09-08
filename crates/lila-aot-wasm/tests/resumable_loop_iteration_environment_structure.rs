@@ -19,6 +19,30 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 }
 
 #[test]
+fn activation_binding_allocation_uses_the_current_environment_distance() {
+    for (start, end) in [
+        (
+            "pub(crate) fn allocate_binding(",
+            "pub(crate) fn lookup_binding(",
+        ),
+        (
+            "pub(crate) fn allocate_dynamic_binding_storage(",
+            "pub(crate) fn initialize_arguments_binding(",
+        ),
+    ] {
+        let allocate = bounded(ENVIRONMENTS_SOURCE, start, end);
+        assert!(allocate.contains(".activation_owned_binding_storage("));
+        assert!(!allocate.contains("hops: 0"));
+    }
+    let resolve = bounded(
+        CONTROL_FLOW_SOURCE,
+        "pub(crate) fn activation_owned_binding_storage(",
+        "fn initialize_async_disposable_resource_bindings(",
+    );
+    assert!(resolve.contains("hops: self.environment_depth"));
+}
+
+#[test]
 fn resumable_loop_environment_domain_and_activation_offsets_are_exhaustive() {
     let body = bounded(
         CONTROL_FLOW_SOURCE,

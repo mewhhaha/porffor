@@ -132,6 +132,21 @@ async function collect() {
   }
   print(values.join(','));
   print(callbacks.length + ':' + callbacks[0]() + ',' + callbacks[1]());
+  const nested = [];
+  {
+    let outer = 17;
+    nested.push(() => outer);
+    {
+      let inner = 'inner';
+      nested.push(() => inner);
+      let retained = 'saved';
+      const marker = {};
+      try { throw marker; }
+      catch (error) {
+        print(retained + ':' + (error === marker) + ':' + nested[0]() + ':' + nested[1]());
+      }
+    }
+  }
 }
 collect().catch(function(error) { print('rejected:' + error); });
 void 0;
@@ -140,6 +155,7 @@ void 0;
             "2:before0,middle0,after0,before1,middle1,after1",
             "before3,middle6,after3,before7,middle14,after7",
             "2:3,7",
+            "saved:true:17:inner",
         ],
     );
 }

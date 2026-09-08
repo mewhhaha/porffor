@@ -2659,8 +2659,9 @@ pub(crate) enum AsyncFunctionForOfIteratorPlanError {
     },
 }
 
+/// Invalid suspension shape or continuation order in a direct await sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AwaitSequenceError {
+pub enum AwaitSequenceError {
     FirstAwaitRequired,
     NestedSuspension,
     StateMismatch {
@@ -2672,7 +2673,8 @@ pub(crate) enum AwaitSequenceError {
 
 /// Validate a nonempty sequence of direct awaits separated by eager statements,
 /// and return the final continuation state owned by the sequence.
-pub(crate) fn direct_await_sequence_resume_state(
+/// Shared by loop lowering and async-generator emission preflight.
+pub fn direct_await_sequence_resume_state(
     first: &StatementIr,
     after: &[StatementIr],
     entry_state: u32,

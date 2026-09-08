@@ -242,7 +242,7 @@ fn closed_plan_couples_the_iterator_record_body_split_states_and_environments() 
     );
     let sequence_errors = bounded(
         IR_SOURCE,
-        "pub(crate) enum AwaitSequenceError {",
+        "pub enum AwaitSequenceError {",
         "/// Validate a nonempty sequence of direct awaits",
     );
     assert_eq!(
@@ -252,7 +252,7 @@ fn closed_plan_couples_the_iterator_record_body_split_states_and_environments() 
     );
     let sequence = bounded(
         IR_SOURCE,
-        "pub(crate) fn direct_await_sequence_resume_state(",
+        "pub fn direct_await_sequence_resume_state(",
         "fn duplicate_async_function_for_of_name(",
     );
     positions_in_order(

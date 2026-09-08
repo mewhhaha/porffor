@@ -11,14 +11,18 @@ repair branch uses a separate worktree and bounded verification service.
 
 - Suspend-owned physical bindings include uncaptured block and loop bindings;
   captured Environment Records remain the sole owner of captured cells.
+  Activation slots are addressed through the current scope depth, so creating a
+  captured child environment cannot redirect other suspended locals into it.
 - Synchronous generator loops retain their continuation state and can advance
   through iterations whose single conditional yield is not taken.
   Local bindings are registered before resumed reads are emitted, while runtime
   initialization remains confined to fresh iteration or branch entry.
+  Eager branch-local let/const declarations retain distinct activation slots.
 - Async loops retain each sequential direct await's continuation state. Later
   resumptions skip earlier effects and keep the iteration environment and
   Iterator Record until the body completes. Nested suspension shapes remain
-  separately validated.
+  separately validated. Async-generator preflight uses the same state-sequence
+  validator as IR lowering.
 - Promise capability creation requires an explicit executor Realm context.
   Await rejection retains its intrinsic Promise context instead of treating
   an ordinary lexical environment as a builtin function object.
