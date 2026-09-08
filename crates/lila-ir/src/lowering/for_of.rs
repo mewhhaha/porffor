@@ -33,10 +33,10 @@ impl<'a> ScriptLowerer<'a> {
             );
             return ForOfLoweringIr::no_iteration();
         };
-        let Some((before_suspension, suspension_statement, after_suspension)) =
-            Self::split_resumable_loop_body(body)
+        let Some((before_suspension, suspension_statement, after_suspension, _)) =
+            Self::split_resumable_loop_body(body, false)
         else {
-            self.unsupported("async for-of body did not lower to one direct await");
+            self.unsupported("async for-of body did not lower to a direct await sequence");
             return ForOfLoweringIr::no_iteration();
         };
         let record = IteratorRecordIr::new(
@@ -54,18 +54,21 @@ impl<'a> ScriptLowerer<'a> {
             entry_state,
         ) {
             Ok(plan) => plan,
-            Err(AsyncFunctionForOfIteratorPlanError::AwaitStatementRequired)
-            | Err(AsyncFunctionForOfIteratorPlanError::AdditionalDirectSuspension) => {
-                self.unsupported("async for-of body did not lower to one direct await");
+            Err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence(
+                AwaitSequenceError::FirstAwaitRequired | AwaitSequenceError::NestedSuspension,
+            )) => {
+                self.unsupported("async for-of body did not lower to a direct await sequence");
                 return ForOfLoweringIr::no_iteration();
             }
-            Err(AsyncFunctionForOfIteratorPlanError::AwaitStateMismatch {
-                entry_state,
-                suspend_state,
-                resume_state,
-            }) => {
+            Err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence(
+                AwaitSequenceError::StateMismatch {
+                    expected_suspend_state,
+                    suspend_state,
+                    resume_state,
+                },
+            )) => {
                 self.unsupported(&format!(
-                    "async for-of await state mismatch: entry {entry_state}, suspend \
+                    "async for-of await state mismatch: expected {expected_suspend_state}, suspend \
                      {suspend_state}, resume {resume_state}"
                 ));
                 return ForOfLoweringIr::no_iteration();

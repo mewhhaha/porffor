@@ -1086,7 +1086,8 @@ mod tests {
                 Some(builtin),
                 "{function_id}"
             );
-            assert!(!builtin.as_str().is_empty());
+            // Internal closures may be anonymous; their callable identity is not.
+            assert!(!function_id.is_empty());
         }
     }
 

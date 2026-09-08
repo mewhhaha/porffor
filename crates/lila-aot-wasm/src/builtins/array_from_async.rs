@@ -185,7 +185,16 @@ impl<'a> FunctionBuilder<'a> {
         let constructor_tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        let executor_realm_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(realm.realm_local));
+        function.instruction(&Instruction::LocalSet(executor_realm_local));
+        let executor_context = self
+            .emit_promise_internal_function_materialization_context_from_realm(
+                executor_realm_local,
+                function,
+            );
         let result = self.emit_new_promise_capability(
+            &executor_context,
             realm.constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -193,6 +202,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         );
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.release_temp_local(constructor_tag_local);
         result
     }

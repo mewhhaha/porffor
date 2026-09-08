@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use lila_engine::{
     compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions, Engine,
     EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, RealmBuilder, RunOptions,
+    WasmExecutionFailureKind,
 };
 use lila_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind, TaskId, UnsupportedFeature};
 use serde::ser::SerializeMap;
@@ -9428,6 +9429,16 @@ pub fn classify_failure(
     let detail = detail.into();
     let outcome = classify_failure_outcome(kind, &detail);
     let origin = classify_failure_origin(&detail);
+    classify_failure_with_outcome(test_id, kind, outcome, origin, detail)
+}
+
+fn classify_failure_with_outcome(
+    test_id: TestExecutionId,
+    kind: FailureKind,
+    outcome: OutcomeKind,
+    origin: FailureOrigin,
+    detail: String,
+) -> FailureRecord {
     let detail = format!("[origin:{}] {detail}", origin.as_str());
     FailureRecord {
         test_path: test_id.path().to_string(),
@@ -10907,11 +10918,7 @@ fn run_one_case_with_wasm_aot_execution(
                         return Ok(());
                     }
                     if !compile_only_negative {
-                        return Err(classify_failure(
-                            case.execution_id.clone(),
-                            classify_engine_error(&err),
-                            err.to_string(),
-                        ));
+                        return Err(classify_engine_failure(case.execution_id.clone(), &err));
                     }
                     let detail = compile_negative_error_detail(&err);
                     return Err(classify_failure(
@@ -11019,6 +11026,44 @@ fn run_one_case_with_wasm_aot_execution(
             engine.run_script(&materialized.source, compile_options, run_options)
         };
 
+        if let Some(lines) = &async_output {
+            let lines = lines
+                .lock()
+                .expect("Test262 output capture lock should not be poisoned");
+            let failures = lines
+                .iter()
+                .filter(|line| line.starts_with("Test262:AsyncTestFailure:"))
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            if !failures.is_empty() {
+                let mut detail = failures.join("; ");
+                let outcome = match &run_result {
+                    Ok(_) => OutcomeKind::Bug,
+                    Err(err) => {
+                        let execution_failure =
+                            classify_engine_failure(case.execution_id.clone(), err);
+                        detail.push_str("; ");
+                        detail.push_str(err.message());
+                        match execution_failure.outcome {
+                            OutcomeKind::Crash => OutcomeKind::Crash,
+                            OutcomeKind::Bug
+                            | OutcomeKind::NotImplemented
+                            | OutcomeKind::Success => OutcomeKind::Bug,
+                        }
+                    }
+                };
+                // Reported async failures survive even when the engine later
+                // rejects execution or throws the expected negative exception.
+                return Err(classify_failure_with_outcome(
+                    case.execution_id.clone(),
+                    FailureKind::Runtime,
+                    outcome,
+                    FailureOrigin::Unknown,
+                    detail,
+                ));
+            }
+        }
+
         if let Some(negative) = &case.negative {
             let negative_kind = classify_negative_phase(negative);
             return match run_result {
@@ -11037,34 +11082,58 @@ fn run_one_case_with_wasm_aot_execution(
                     if !compile_only_negative
                         && (err.parse_diagnostic().is_some() || err.ir_diagnostic().is_some())
                     {
-                        return Err(classify_failure(
-                            case.execution_id.clone(),
-                            classify_engine_error(&err),
-                            err.to_string(),
-                        ));
+                        return Err(classify_engine_failure(case.execution_id.clone(), &err));
                     }
-                    // Backend/unsupported/host errors are not the expected
-                    // runtime exception, even if their diagnostic text happens
-                    // to contain a broad error name such as `Error`.
-                    if !compile_only_negative && classify_engine_error(&err) != FailureKind::Runtime
+                    // Only the root JavaScript throw can satisfy a Wasm
+                    // runtime negative; worker failures and host traps cannot
+                    // acquire that meaning from an error name in their text.
+                    if !compile_only_negative
+                        && !is_runtime_negative_exception(&err, execution_backend)
                     {
-                        return Err(classify_failure(
-                            case.execution_id.clone(),
-                            classify_engine_error(&err),
-                            err.to_string(),
-                        ));
+                        return Err(classify_engine_failure(case.execution_id.clone(), &err));
                     }
                     let detail = err.message().to_string();
-                    if negative.error_type.is_empty() || detail.contains(&negative.error_type) {
+                    let type_matches = negative.error_type.is_empty()
+                        || match execution_backend {
+                            ExecutionBackend::WasmAot => {
+                                err.wasm_javascript_exception_constructor_name()
+                                    == Some(negative.error_type.as_str())
+                            }
+                            ExecutionBackend::SpecExec => detail.contains(&negative.error_type),
+                        };
+                    if type_matches {
                         Ok(())
                     } else {
-                        Err(classify_failure(
+                        let (outcome, origin, mismatch) = match execution_backend {
+                            ExecutionBackend::WasmAot => (
+                                OutcomeKind::Bug,
+                                FailureOrigin::Unknown,
+                                format!(
+                                    "negative test error mismatch: expected {}, got constructor {}: {}",
+                                    negative.error_type,
+                                    err.wasm_javascript_exception_constructor_name()
+                                        .unwrap_or("<unavailable>"),
+                                    detail
+                                ),
+                            ),
+                            ExecutionBackend::SpecExec => {
+                                let mismatch = format!(
+                                    "negative test error mismatch: expected {}, got {}",
+                                    negative.error_type, detail
+                                );
+                                (
+                                    classify_failure_outcome(negative_kind, &mismatch),
+                                    classify_failure_origin(&mismatch),
+                                    mismatch,
+                                )
+                            }
+                        };
+                        Err(classify_failure_with_outcome(
                             case.execution_id.clone(),
                             negative_kind,
-                            format!(
-                                "negative test error mismatch: expected {}, got {}",
-                                negative.error_type, detail
-                            ),
+                            outcome,
+                            origin,
+                            mismatch,
                         ))
                     }
                 }
@@ -11077,16 +11146,6 @@ fn run_one_case_with_wasm_aot_execution(
                     let lines = lines
                         .lock()
                         .expect("Test262 output capture lock should not be poisoned");
-                    if let Some(failure) = lines
-                        .iter()
-                        .find(|line| line.starts_with("Test262:AsyncTestFailure:"))
-                    {
-                        return Err(classify_failure(
-                            case.execution_id.clone(),
-                            FailureKind::Runtime,
-                            failure.clone(),
-                        ));
-                    }
                     let completions = lines
                         .iter()
                         .filter(|line| line.as_str() == "Test262:AsyncTestComplete")
@@ -11110,11 +11169,7 @@ fn run_one_case_with_wasm_aot_execution(
                 }
                 Ok(())
             }
-            Err(err) => Err(classify_failure(
-                case.execution_id.clone(),
-                classify_engine_error(&err),
-                err.to_string(),
-            )),
+            Err(err) => Err(classify_engine_failure(case.execution_id.clone(), &err)),
         }
     })();
 
@@ -11565,7 +11620,46 @@ fn aggregate_snapshot(
     }
 }
 
+fn is_runtime_negative_exception(err: &EngineError, backend: ExecutionBackend) -> bool {
+    match backend {
+        ExecutionBackend::WasmAot => {
+            err.wasm_execution_failure_kind() == Some(WasmExecutionFailureKind::JavaScriptException)
+        }
+        ExecutionBackend::SpecExec => classify_engine_error(err) == FailureKind::Runtime,
+    }
+}
+
+fn classify_engine_failure(test_id: TestExecutionId, err: &EngineError) -> FailureRecord {
+    let kind = classify_engine_error(err);
+    let outcome = match err.wasm_execution_failure_kind() {
+        Some(WasmExecutionFailureKind::DynamicSource) => OutcomeKind::NotImplemented,
+        Some(WasmExecutionFailureKind::Trap | WasmExecutionFailureKind::Timeout) => {
+            OutcomeKind::Crash
+        }
+        Some(
+            WasmExecutionFailureKind::JavaScriptException
+            | WasmExecutionFailureKind::ConcurrentFailure,
+        ) => OutcomeKind::Bug,
+        None => classify_failure_outcome(kind, err.message()),
+    };
+    let origin = if err.wasm_execution_failure_kind().is_some() {
+        FailureOrigin::Unknown
+    } else {
+        classify_failure_origin(err.message())
+    };
+    classify_failure_with_outcome(test_id, kind, outcome, origin, err.to_string())
+}
+
 fn classify_engine_error(err: &EngineError) -> FailureKind {
+    if let Some(kind) = err.wasm_execution_failure_kind() {
+        return match kind {
+            WasmExecutionFailureKind::DynamicSource => FailureKind::Unsupported,
+            WasmExecutionFailureKind::JavaScriptException
+            | WasmExecutionFailureKind::ConcurrentFailure
+            | WasmExecutionFailureKind::Trap
+            | WasmExecutionFailureKind::Timeout => FailureKind::Runtime,
+        };
+    }
     if let Some(feature) = err
         .ir_diagnostic()
         .and_then(|diagnostic| diagnostic.unsupported_feature())
@@ -17766,6 +17860,65 @@ print('Test262:AsyncTestComplete');
         assert_eq!(failure.kind, FailureKind::HostHarness);
         assert!(failure.detail.contains("exactly once"));
         assert!(failure.detail.contains("observed 2"));
+    }
+
+    #[test]
+    fn wasm_aot_retains_async_done_failures_alongside_execution_failures() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let preludes = async_done_preludes();
+        for (path, source, negative_error, outcome, execution_detail, timeout_ms) in [
+            (
+                "harness/wasm-async-done-runtime-capability.js",
+                "var holder = { invoke: eval }; \
+                 var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1');",
+                None,
+                OutcomeKind::Bug,
+                "dynamic-source",
+                60_000,
+            ),
+            (
+                "harness/wasm-async-done-runtime-negative.js",
+                "throw new TypeError('execution marker');",
+                Some("TypeError"),
+                OutcomeKind::Bug,
+                "execution marker",
+                60_000,
+            ),
+            (
+                "harness/wasm-async-done-runtime-timeout.js",
+                "while (true) {}",
+                None,
+                OutcomeKind::Crash,
+                "timeout exceeded",
+                1_000,
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.flags.insert("async".to_string());
+            case.original_source = Arc::from(format!(
+                "$DONE('ICU runtime TypeError done marker'); {source}"
+            ));
+            case.negative = negative_error.map(|error_type| {
+                Arc::new(NegativeExpectation {
+                    phase: NegativePhase::Runtime,
+                    error_type: error_type.to_string(),
+                })
+            });
+            let result = run_one_case(&case, &preludes, timeout_ms, ExecutionBackend::WasmAot);
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("{path} must retain its async failure");
+            };
+            assert_eq!(failure.kind, FailureKind::Runtime, "{path}: {failure:?}");
+            assert_eq!(failure.outcome, outcome, "{path}: {failure:?}");
+            assert_eq!(
+                failure.origin,
+                FailureOrigin::Unknown,
+                "{path}: {failure:?}"
+            );
+            for expected in ["Test262:AsyncTestFailure:", "done marker", execution_detail] {
+                assert!(failure.detail.contains(expected), "{path}: {failure:?}");
+            }
+        }
     }
 
     #[test]
@@ -37356,6 +37509,172 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "// eval(); Function() in a comment\nvar C = function Functionish() {};".to_string(),
         );
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
+    }
+
+    #[test]
+    fn runtime_dynamic_source_cannot_pass_by_catching_or_matching_a_js_error() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let preludes = PreludeStore::default();
+        for expected_error in [None, Some(""), Some("Error"), Some("TypeError")] {
+            let path = "language/runtime-dynamic-source.js";
+            let mut case = synthetic_case(path);
+            case.execution_id = TestExecutionId::new(path, TestExecutionMode::RawScript);
+            case.flags.insert("raw".to_string());
+            let call = if expected_error.is_none() {
+                "try { holder.invoke('1'); } catch (error) {}"
+            } else {
+                "holder.invoke('1');"
+            };
+            case.original_source = Arc::from(format!(
+                "var holder = {{ invoke: eval }}; \
+                 var hook = new Proxy(function() {{}}, {{}}); hook(); {call}"
+            ));
+            case.negative = expected_error.map(|error_type| {
+                Arc::new(NegativeExpectation {
+                    phase: NegativePhase::Runtime,
+                    error_type: error_type.to_string(),
+                })
+            });
+            let result = run_one_case(&case, &preludes, 60_000, ExecutionBackend::WasmAot);
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("runtime dynamic source must remain non-passing: {expected_error:?}");
+            };
+            assert_eq!(failure.kind, FailureKind::Unsupported, "{failure:?}");
+            assert_eq!(failure.outcome, OutcomeKind::NotImplemented, "{failure:?}");
+            assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
+        }
+    }
+
+    #[test]
+    fn agent_failures_never_satisfy_expected_root_runtime_exceptions() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let preludes = real_wasm_aot_host_only_preludes();
+        let eval_worker = "var holder = { invoke: eval }; \
+            var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1');";
+        let function_worker = "var holder = { invoke: Function }; \
+            var hook = new Proxy(function() {}, {}); hook(); holder.invoke('return 1');";
+        for (source, kind, outcome) in [
+            (
+                format!(
+                    "$262.agent.start({eval_worker:?}); $262.agent.start({function_worker:?});"
+                ),
+                FailureKind::Unsupported,
+                OutcomeKind::NotImplemented,
+            ),
+            (
+                format!("$262.agent.start({eval_worker:?}); $262.agent.start(\"eval('1');\");"),
+                FailureKind::Unsupported,
+                OutcomeKind::NotImplemented,
+            ),
+            (
+                format!("$262.agent.start({eval_worker:?}); throw new TypeError('root marker');"),
+                FailureKind::Runtime,
+                OutcomeKind::Bug,
+            ),
+            (
+                "$262.agent.start(\"throw new TypeError('worker marker');\");".to_string(),
+                FailureKind::Runtime,
+                OutcomeKind::Bug,
+            ),
+        ] {
+            for expected in ["", "TypeError"] {
+                let mut case = synthetic_case("language/runtime-agent-failures.js");
+                case.original_source = Arc::from(source.as_str());
+                case.negative = Some(Arc::new(NegativeExpectation {
+                    phase: NegativePhase::Runtime,
+                    error_type: expected.to_string(),
+                }));
+                let result = run_one_case(&case, &preludes, 60_000, ExecutionBackend::WasmAot);
+                let TestStatus::Failed(failure) = result.status else {
+                    panic!("agent failure passed expected {expected:?}: {source}");
+                };
+                assert_eq!(failure.kind, kind, "{failure:?}");
+                assert_eq!(failure.outcome, outcome, "{failure:?}");
+                assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn typed_root_runtime_exception_still_satisfies_negative_expectations() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let mut case = synthetic_case("language/runtime-root-negative.js");
+        case.execution_id = TestExecutionId::new(
+            "language/runtime-root-negative.js",
+            TestExecutionMode::RawScript,
+        );
+        case.flags.insert("raw".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
+            phase: NegativePhase::Runtime,
+            error_type: "TypeError".to_string(),
+        }));
+        for source in [
+            "throw new TypeError('root marker');",
+            "var error = new TypeError('root marker'); error.name = 'RangeError'; throw error;",
+            "function TypeError() {} throw new TypeError();",
+            "null.property;",
+        ] {
+            case.original_source = Arc::from(source);
+            let result = run_one_case(
+                &case,
+                &PreludeStore::default(),
+                60_000,
+                ExecutionBackend::WasmAot,
+            );
+            assert!(
+                matches!(result.status, TestStatus::Passed),
+                "{source}: {:?}",
+                result.status
+            );
+        }
+    }
+
+    #[test]
+    fn typed_runtime_negative_ignores_error_names_in_messages_and_primitives() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let mut case = synthetic_case("language/runtime-negative-constructor-name.js");
+        case.execution_id = TestExecutionId::new(
+            "language/runtime-negative-constructor-name.js",
+            TestExecutionMode::RawScript,
+        );
+        case.flags.insert("raw".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
+            phase: NegativePhase::Runtime,
+            error_type: "TypeError".to_string(),
+        }));
+        for source in [
+            "throw new RangeError('TypeError ICU runtime');",
+            "throw new RangeError('TypeError: unsupported in lila wasm-aot');",
+            "throw 'TypeError';",
+            "var error = new RangeError('root marker'); error.name = 'TypeError'; throw error;",
+            "var error = []; error.constructor = RangeError; \
+             Object.setPrototypeOf(error, { constructor: TypeError }); throw error;",
+            "function fail() { arguments.constructor = RangeError; \
+             Object.setPrototypeOf(arguments, { constructor: TypeError }); \
+             throw arguments; } fail();",
+        ] {
+            case.original_source = Arc::from(source);
+            let result = run_one_case(
+                &case,
+                &PreludeStore::default(),
+                60_000,
+                ExecutionBackend::WasmAot,
+            );
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("the wrong exception satisfied expected TypeError: {source}");
+            };
+            assert_eq!(failure.kind, FailureKind::Runtime, "{source}: {failure:?}");
+            assert_eq!(failure.outcome, OutcomeKind::Bug, "{source}: {failure:?}");
+            assert_eq!(
+                failure.origin,
+                FailureOrigin::Unknown,
+                "{source}: {failure:?}"
+            );
+            assert!(
+                failure.detail.contains("negative test error mismatch"),
+                "the fixture must reach the runtime constructor-name comparison: {source}: {failure:?}"
+            );
+        }
     }
 
     #[test]

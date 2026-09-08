@@ -23,6 +23,7 @@ pub(crate) const RESULT_TAG_EXPORT: &str = "result_tag";
 pub(crate) const COMPLETION_KIND_EXPORT: &str = "completion_kind";
 pub(crate) const COMPLETION_AUX_EXPORT: &str = "completion_aux";
 pub(crate) const THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
+pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_EXPORT: &str = "throw_error_constructor_name";
 /// Companion export to `THROW_ERROR_NAME_EXPORT`. The host reads both at an
 /// uncaught throw so a failure detail can name the defect
 /// (`TypeError: RegExp.prototype.exec unsupported pattern`) instead of printing
@@ -43,6 +44,7 @@ pub(crate) const HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
 pub(crate) const HOST_IMPORT_AGENT_CALL: &str = "agent_call";
 pub(crate) const HOST_IMPORT_INTL_CALL: &str = "intl_call";
 pub(crate) const HOST_IMPORT_RANDOM_F64: &str = "random_f64";
+pub(crate) const HOST_IMPORT_REJECT_DYNAMIC_SOURCE: &str = "reject_dynamic_source";
 
 pub(crate) const RESULT_TAG_GLOBAL_INDEX: u32 = 0;
 pub(crate) const COMPLETION_KIND_GLOBAL_INDEX: u32 = 1;
@@ -206,16 +208,18 @@ pub(crate) const ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 137;
 // The constructor-only synchronous pair is likewise append-only.
 pub(crate) const DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX: u32 = 138;
 pub(crate) const DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 139;
+pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX: u32 = 140;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
 ///
-/// A module compiled without a heap emits four globals, so both throw-diagnostic
+/// A module compiled without a heap emits four globals, so its throw-metadata
 /// exports land on the same i64 slot and clobber each other. That is
-/// unobservable rather than merely tolerated: the host reads either global only
+/// unobservable rather than merely tolerated: the host reads these globals only
 /// when the completion value is a heap object (`Object`/`Array`/`Function`/
 /// `Arguments`), and a module with no heap cannot produce one.
 pub(crate) const THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
+pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
 pub(crate) const HEAP_ALLOC_TYPE_INDEX: u32 = 2;
 pub(crate) const OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX: u32 = 3;
@@ -228,6 +232,8 @@ pub(crate) const HOST_NUMBER_POW_IMPORT_TYPE_INDEX: u32 = 9;
 pub(crate) const HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX: u32 = 10;
 pub(crate) const HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX: u32 = 11;
 pub(crate) const HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX: u32 = 12;
+pub(crate) const HOST_REJECT_DYNAMIC_SOURCE_IMPORT_TYPE_INDEX: u32 =
+    HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX;
 pub(crate) const HOST_AGENT_CALL_IMPORT_TYPE_INDEX: u32 = 13;
 // The two host calls deliberately share the existing `(i64, i64, i64) -> i64`
 // Wasm signature while retaining distinct semantic names and typed Rust wire
@@ -813,6 +819,10 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
     GlobalIndexSlot {
         name: "DisposableStack",
         index: DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "throw_error_constructor_name_heap",
+        index: THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX,
     },
 ];
 
@@ -1823,6 +1833,14 @@ pub(crate) const fn throw_error_message_global_index(uses_heap: bool) -> u32 {
     }
 }
 
+pub(crate) const fn throw_error_constructor_name_global_index(uses_heap: bool) -> u32 {
+    if uses_heap {
+        THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX
+    } else {
+        THROW_ERROR_CONSTRUCTOR_NAME_NO_HEAP_GLOBAL_INDEX
+    }
+}
+
 pub(crate) fn standard_builtin_function_global_index(builtin: StandardBuiltinId) -> Option<u32> {
     match builtin {
         StandardBuiltinId::FunctionPrototype => Some(FUNCTION_PROTOTYPE_GLOBAL_INDEX),
@@ -2018,7 +2036,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX as usize + 1,
+            THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX as usize + 1,
             "the fixed scalar registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
         );
@@ -2036,6 +2054,10 @@ mod tests {
             DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX
                 > ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX,
             "the DisposableStack pair is append-only so existing global indices stay stable"
+        );
+        assert_eq!(
+            THROW_ERROR_CONSTRUCTOR_NAME_NO_HEAP_GLOBAL_INDEX, HEAP_PTR_GLOBAL_INDEX,
+            "a heap-less module cannot throw an object whose constructor name needs reading"
         );
     }
 

@@ -1,6 +1,6 @@
 # Async-generator request Promise Realm
 
-Status: implemented and focused-runtime-verified on 2026-08-26.
+Status: implemented; extended to foreign AsyncIterator asyncDispose during the observed-failure repair batch.
 
 ## Ownership boundary
 
@@ -17,7 +17,8 @@ same method-defining Realm.
 ## Catalog
 
 The Realm intrinsic record stores a traced canonical `%Promise%` constructor
-at offset 416 and occupies 424 bytes. Entry bootstrap writes the initialized
+at offset 416. The record now occupies 432 bytes, including the following
+`%AsyncDisposableStack.prototype%` slot. Entry bootstrap writes the initialized
 Promise constructor global. Created bootstrap writes the exact constructor
 local that it later publishes as the Realm's `Promise` global. Realm record
 allocation zeroes the slot with every other intrinsic entry before either
@@ -31,9 +32,11 @@ an acceptable substitute: both properties are mutable and observable.
 `CurrentFunctionRealmIntrinsicPromiseConstructor` is opaque, non-`Copy` and
 must-use. Its only factory follows the executing function object's defining
 Realm to the Realm intrinsic record and loads the required Promise constructor
-slot. Missing function, Realm, intrinsic record or constructor is an internal
-invariant failure. The factory has no entry-global or dynamic current-Realm
-fallback.
+slot through `PromiseInternalFunctionMaterializationContext`. That established
+authority maps the builtin ABI's zero environment to the canonical entry Realm
+and a nonzero environment to the actual function's defining Realm. It never
+reads a mutable JavaScript Promise property or the dynamic current Realm.
+Missing Realm, intrinsic record or constructor is an internal invariant failure.
 
 The private
 `builtins/promise/current_function_realm_intrinsic_promise_capability.rs`
@@ -43,24 +46,28 @@ request dispatcher can only pass its inferred value between those child-owned
 methods. Raw constructor-payload construction and projection are therefore not
 available to adjacent Promise algorithms or other builtin families.
 
-The proof can only be consumed by the request-specific intrinsic capability
-operation. That operation supplies the Function representation tag, invokes
+The proof can only be consumed by the intrinsic capability operation shared
+by async-generator requests, AsyncIterator asyncDispose and AsyncDisposableStack
+disposal. That operation supplies the Function representation tag, invokes
 the generic `NewPromiseCapability` implementation, and releases the tag and
 constructor local in reverse reservation order. The general capability API
 remains available for species and other arbitrary constructor inputs.
 
-The constructor local is reserved before the factory's Realm and intrinsics
-temporaries. Those temporaries are released intrinsics-first and Realm-second.
+The constructor local is reserved before the factory's Realm materialization
+context and intrinsics temporary. Those are released intrinsics-first and
+context-second.
 The consuming operation then reserves and releases its tag before releasing the
 constructor proof. Rust emission errors are retained until those outer locals
 have been released.
 
 Entry bootstrap self-backs each request method's environment handle with its
 own function identity before publishing it on `%AsyncGeneratorPrototype%`.
-That identity is the call ABI's proof carrier for the factory above. Generic
-builtin publication leaves the environment handle empty and is therefore not
-valid for these three methods; a missing carrier traps at the factory's first
-precondition rather than selecting another Realm.
+That identity is the call ABI's proof carrier for the factory above. Entry
+builtin publication may also use the established zero environment, which names
+the entry Realm; created-realm methods always carry their actual function
+identity. AsyncIterator asyncDispose uses this same authority for both its
+result Promise and the internal await capability, including absent return
+methods, fulfillment, synchronous throw and invalid-receiver rejection.
 
 ## Request record
 
@@ -101,11 +108,13 @@ entry Promise prototype for valid and invalid requests and the entry TypeError
 prototype for invalid receiver rejection. The fixture drains its finite chain
 without polling, Atomics or `waitAsync`.
 
-Created-Realm async-generator methods are not currently reachable from the
-Wasm-AOT host surface because created-Realm generator/async/async-generator
-function materialization remains unsupported. The source contract is therefore
-load-bearing for created-method catalog selection; the runtime fixture proves
-that a created Promise-job Realm cannot replace an entry-defined method Realm.
+Created-Realm async-generator methods are now reachable through zero-argument
+Function-family construction and constructor prototype fallback. The
+`aot_created_realm_dynamic_functions` engine regression checks foreign
+AsyncIterator asyncDispose Promise and TypeError ownership, synchronous and
+asynchronous completion, and poisoned entry/foreign JavaScript Promise globals.
+The existing runtime fixture independently checks that a Promise-job Realm
+cannot replace an entry-defined method Realm.
 
 ```sh
 cargo test -p lila-aot-wasm --test async_generator_request_promise_realm_structure --quiet

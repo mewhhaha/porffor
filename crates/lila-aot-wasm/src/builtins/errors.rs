@@ -1296,6 +1296,67 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Test262 compares the final thrown value's constructor name. Capture it
+    /// after jobs and finalizers, independently of the diagnostic `.name`.
+    /// Reflection here must not invoke accessors or Proxy traps.
+    pub(crate) fn emit_capture_final_throw_constructor_name(&mut self, function: &mut Function) {
+        let constructor_payload_local = self.reserve_temp_local();
+        let constructor_tag_local = self.reserve_temp_local();
+        let name_payload_local = self.reserve_temp_local();
+        let name_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::GlobalSet(
+            throw_error_constructor_name_global_index(self.uses_heap),
+        ));
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
+        function.instruction(&Instruction::I64Eq);
+        self.emit_is_heap_object_like_tag_i32(self.result_tag_local, function);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_data_property_read_no_call(
+            self.result_local,
+            self.result_tag_local,
+            key_local,
+            constructor_payload_local,
+            constructor_tag_local,
+            function,
+        );
+        self.emit_is_heap_object_like_tag_i32(constructor_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("name")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_data_property_read_no_call(
+            constructor_payload_local,
+            constructor_tag_local,
+            key_local,
+            name_payload_local,
+            name_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(name_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(name_payload_local));
+        function.instruction(&Instruction::GlobalSet(
+            throw_error_constructor_name_global_index(self.uses_heap),
+        ));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(key_local);
+        self.release_temp_local(name_tag_local);
+        self.release_temp_local(name_payload_local);
+        self.release_temp_local(constructor_tag_local);
+        self.release_temp_local(constructor_payload_local);
+    }
+
     pub(crate) fn emit_aggregate_error_iterable_to_list_payload(
         &mut self,
         input_payload_local: u32,

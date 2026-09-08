@@ -14,8 +14,10 @@ primitive String, and `%eval%` called with no arguments returns `undefined`.
 Those branches are ordinary builtin execution, not dynamic-source support, and
 are admitted by the closed proof below.
 
-This contract does not implement that static subset. It makes the current gap
-compiler-visible without inferring support from test paths or source snippets.
+Nonempty textual sources still require those compilation seams. Calls to any
+Function-family constructor with no arguments have known empty parameter and
+body lists and use real compiled empty functions, preserving the selected
+constructor realm, execution protocol and `newTarget` prototype lookup.
 
 ## Closed domain
 
@@ -39,17 +41,72 @@ plus a caller eval environment. `UnsupportedFeature::DynamicSource` is carried
 by `IrDiagnostic`; consumers classify the typed value and do not parse its
 display text.
 
-`DynamicSourceIntrinsic` is the closed identity catalog for dynamic-source
-operations that are callable compiler intrinsics but are not executable AOT
-builtins. It maps the four Function-family constructors and realm
-`evalScript` to stable function IDs. The ordinary Function row reuses
-`StandardBuiltinId::FunctionConstructor`; the three derived rows and realm
-evaluation are compiler-only identities. They acquire no Wasm emitter: every
-known call or construction candidate first produces
-`UnsupportedFeature::DynamicSource`, and a program with that diagnostic is
-rejected before backend planning. The bounded `Function.prototype.call`
-forwarding slice described below carries the underlying identity. Other
-forwarding callables remain explicit accounting debt.
+`DynamicSourceIntrinsic` is the closed identity catalog for the four
+Function-family constructors and realm `evalScript`. Ordinary Function uses
+`StandardBuiltinId::FunctionConstructor`; derived constructors use internal
+`HostBuiltinId` metadata with their actual emitted constructor bodies. They are
+not additional globals. Known calls first pass the shared lowering capability
+classifier, which admits proven no-source behavior and diagnoses textual gaps.
+
+`DynamicSourceRuntimeOperation` records an actual intrinsic selected during
+execution when static target provenance was unavailable. It is separate from
+`DynamicSourceGap`: runtime identity alone does not prove direct-eval syntax,
+source constancy, or a particular missing lexical environment. Its explicit
+numeric ABI is `Eval=0`, `RealmEvalScript=1`, and ordinary/generator/async/async-
+generator Function construction `=2/3/4/5`.
+
+The mandatory `lila_host.reject_dynamic_source(i64) -> ()` import receives only
+that operation code. The Wasmtime binding validates it and returns a typed host
+error. Engine execution extracts this error before generic trap formatting;
+Test262 classifies the typed reason as Unsupported before JavaScript negative
+expectations. `EngineError::runtime_dynamic_source_operations()` returns every
+distinct rejection retained from the root and its workers. A nonempty execution
+failure aggregate keeps each original error, including its compile diagnostics;
+worker failures stay owned until joined even after their broadcast channel closes.
+An aggregate consisting only of typed source capability gaps remains Unsupported,
+including a worker-start compilation diagnostic combined with another worker's
+runtime rejection. A compile diagnostic does not fabricate a runtime operation.
+
+`WasmExecutionFailureKind` separates a root JavaScript exception from dynamic
+source rejection, concurrent failures, Wasm traps and execution timeouts. A
+runtime-negative Wasm test must observe the root JavaScript exception. Aggregates
+containing real failures remain Bug or Crash even when their detail also contains
+an unsupported source operation. Root and worker failures are combined after the
+root completion is decoded, so neither result hides the other. Spec-exec oracle
+classification and compile-negative parse/early diagnostics retain their existing
+behavior. JavaScript `catch`, Promise rejection handling and worker report
+serialization cannot convert the capability failure into a JavaScript error or
+a passing test. The import neither receives nor compiles source.
+
+Structured observation keeps a root JavaScript throw as an `ObservedCompletion`
+when its workers succeed. If workers also fail, the finalizer retains that throw
+as a typed JavaScript cause alongside the worker errors. It uses only the existing
+type-level observation note and does not inspect error properties or constructor
+metadata in structured mode. A normal structured completion adds no failure cause.
+
+Runtime-negative error types compare exactly with
+`EngineError::wasm_javascript_exception_constructor_name()`, projected from the
+separate `throw_error_constructor_name` Wasm export. Test262's
+`INTERPRETING.md` defines `negative.type` as the thrown exception's constructor
+name. Diagnostic `.name`, message text, primitive string throws and names in
+worker failures cannot satisfy this comparison. The constructor name is captured
+once from the final root value after the job checkpoint, so a caught throw in a
+finalizer or Promise job cannot replace its authority. This is a data-property
+observation of `constructor.name`, not an intrinsic constructor identity check.
+Accessors and Proxy traps are not invoked for metadata: if observation would
+require user code, the constructor name remains unavailable and a named runtime
+negative fails with that evidence. A constructor-name mismatch is a Bug even when
+the JavaScript error's message contains unsupported-capability wording.
+
+Created realms initialize their own GeneratorFunction, AsyncFunction and
+AsyncGeneratorFunction constructor/prototype pairs, Generator and AsyncGenerator
+instance prototypes, and AsyncIterator prototype in the canonical realm record.
+All callable methods use `RealmFunctionMaterializationContext`; creating a realm
+does not temporarily replace the entry realm's intrinsic globals. Each derived
+Function prototype inherits that realm's callable `%Function.prototype%`, as
+specified by [ECMA-262 27.4.3](https://tc39.es/ecma262/2025/multipage/control-abstraction-objects.html#sec-properties-of-asyncgeneratorfunction-prototype-object).
+The entry realm's former AsyncGeneratorFunction prototype parent has been
+corrected to the same graph.
 
 ## Product-path invariants
 
@@ -71,9 +128,13 @@ forwarding callables remain explicit accounting debt.
    require separate parser goals before any subset can be enabled.
 5. The typed diagnostic is a compiler gap. It has no early-error code or native
    error type and cannot satisfy a negative Test262 expectation.
-6. The existing zero-argument Function-constructor shortcut is not static
-   compilation: it manufactures the wrong callable. It is rejected through the
-   same typed boundary until the real target-realm path exists.
+6. A zero-argument Function-family call creates a fresh empty function with the
+   correct ordinary, generator, async or async-generator execution protocol.
+   Its defining realm follows the active constructor; its internal prototype
+   follows `GetPrototypeFromConstructor(newTarget)`. Ordinary empty functions
+   use the existing emitted no-op body, while derived empty bodies enter the
+   normal source-function IR and execution-protocol lowering. Neither route
+   reuses constructor or `%ThrowTypeError%` body metadata.
 7. Generator, async and async-generator function object shapes carry their
    respective constructor identity through the intrinsic prototype's
    `constructor` property. The identity follows aliases and property reads; a
@@ -85,8 +146,9 @@ forwarding callables remain explicit accounting debt.
    admitted by `HostSurfacePolicy::Test262`. Product lowering cannot resolve
    that global, and the harness stores the resolved function value directly on
    `$262`, preserving literal-source proof at its eventual call site. The host
-   body is a defensive throw only; a resolved call is rejected by the compiler
-   diagnostic before backend planning.
+   body rejects through the typed runtime import if a property lookup has
+   erased the static identity. A resolved textual call is diagnosed before
+   backend planning.
 
 The private `DynamicSourceProof` is a non-`Clone`, non-`Copy` two-row authority
 with seven lexical type mentions. Syntax classification produces it once and
@@ -159,8 +221,8 @@ obtained. This is an evaluation-order-preserving direct-eval closure.
 ## Proven no-source `%eval%`
 
 The lowering boundary classifies each resolved dynamic-source call exactly once
-as either `EvalPassThrough(ProvenEvalPassThrough)` or
-`Unsupported(UnsupportedDynamicSourceCall)`. The pass-through proof has private
+as `EvalPassThrough(ProvenEvalPassThrough)`,
+`EmptyFunction(ProvenEmptyFunction)` or `Unsupported(UnsupportedDynamicSourceCall)`. The pass-through proof has private
 constructors and exists only for direct or indirect intrinsic `%eval%` when:
 
 - the call has no spread and no arguments; or
@@ -168,9 +230,10 @@ constructors and exists only for direct or indirect intrinsic `%eval%` when:
   `KindSet` that excludes primitive `String`.
 
 An empty kind set is not evidence. A set containing `String`, any spread,
-realm `evalScript`, and every Function-family identity remain typed gaps. An
-exact multi-target call requires every dynamic-source target to produce the
-pass-through proof.
+realm `evalScript`, and Function-family source arguments remain typed gaps.
+No-argument Function-family candidates instead own `ProvenEmptyFunction`, which
+carries their execution kind. Every retained dynamic-source target must admit
+the call before a multi-target call can proceed.
 
 Target completeness is independent of `heap_shape` and lives in the closed
 `FunctionTargetKnowledge::{Exact, Open}` lattice. `Exact(targets)` states that
@@ -271,16 +334,18 @@ cargo test -p lila-ir --test forwarded_dynamic_source_call -- --test-threads=1
 | Operation | Compiler-owned identity today | Accounting |
 | --- | --- | --- |
 | direct/indirect `%eval%` among known call candidates, spread-free intrinsic `Function.prototype.call` forwarding, plus open direct global references where the intrinsic remains possible | `StandardBuiltinId::EvalFunction` | no-argument/proven non-String pass-through; typed diagnostic whenever String remains possible |
-| ordinary `%Function%` among known call/construct candidates and spread-free intrinsic `Function.prototype.call` forwarding | `StandardBuiltinId::FunctionConstructor` | typed diagnostic |
-| Generator/Async/AsyncGenerator Function constructors among known call/construct candidates and spread-free intrinsic `Function.prototype.call` forwarding | `DynamicSourceIntrinsic::Function(..)` carried by the function prototype shape | typed diagnostic |
+| ordinary `%Function%` among known call/construct candidates and spread-free intrinsic `Function.prototype.call` forwarding | `StandardBuiltinId::FunctionConstructor` | zero arguments create a fresh empty ordinary function; source arguments produce a typed diagnostic |
+| Generator/Async/AsyncGenerator Function constructors among known call/construct candidates and spread-free intrinsic `Function.prototype.call` forwarding | `DynamicSourceIntrinsic::Function(..)` carried by the function prototype shape | zero arguments create a fresh empty function of the selected execution kind; source arguments produce a typed diagnostic |
 | known `$262.evalScript` call candidates | `HostBuiltinId::RealmEvalScript`, mapped to `DynamicSourceIntrinsic::RealmEvalScript` and exposed only by `HostSurfacePolicy::Test262` | typed diagnostic |
 
 There is no lexical Test262 pre-gate for these operations. Unsupported
 accounting begins only after lowering resolves one of the identities above.
 This does not claim static-source support: literal strings still produce
 caller- or target-realm-environment debt, while values that may be primitive
-Strings produce runtime-compilation debt. Only proven no-source `%eval%` calls
-avoid the dynamic-source diagnostic.
+Strings produce runtime-compilation debt. Proven no-source `%eval%` calls and
+zero-argument Function-family construction avoid that diagnostic. Calls whose
+target identity is erased can reach the same intrinsic dynamically; textual
+execution then produces the separate typed runtime-operation failure.
 
 ## Optional-call accounting authority
 
@@ -318,11 +383,12 @@ boundary check and the task-plan check; the compile retains the repository's
 existing warnings.
 
 Beyond the bounded `Function.prototype.call` slice, forwarding builtins and
-wrapper callables are not yet identity-transparent for this accounting
-boundary. Calls that reach dynamic source through `apply`, `Reflect.apply`,
-`Reflect.construct`, bound functions or proxies can still fall through to a
-generic backend diagnostic. Closing those gaps requires typed forwarding
-targets, not source-spelling recognition.
+wrapper callables are not yet identity-transparent for compile-time source
+classification. Calls through `apply`, `Reflect.apply`, `Reflect.construct`,
+bound functions or proxies retain actual runtime target behavior. An intrinsic
+selected there reports the typed runtime operation when compilation would be
+required; a user replacement remains an ordinary callable. Extending static
+specialization still requires typed forwarding target and argument authority.
 
 ## Static-subset prerequisites
 

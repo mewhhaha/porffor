@@ -975,14 +975,17 @@ fn request_writer_initializes_the_closed_kind_before_queue_publication() {
     );
     let capability = unique_position(
         &writer,
-        "self.emit_new_promise_capability(constructor_payload_local,constructor_tag_local,capability_local,promise_payload_local,promise_tag_local,function)?;",
-        "Promise capability creation",
+        "self.emit_new_current_function_realm_intrinsic_promise_capability(constructor,capability_local,promise_payload_local,promise_tag_local,function)?;",
+        "typed intrinsic Promise capability creation",
     );
     assert_eq!(
-        writer.matches("emit_new_promise_capability(").count(),
+        writer
+            .matches("emit_new_current_function_realm_intrinsic_promise_capability(")
+            .count(),
         1,
         "the reviewed capability creation must be the sole call regardless of receiver spelling"
     );
+    assert!(!writer.contains("emit_new_promise_capability("));
     let allocation = unique_position(
         &writer,
         "self.emit_heap_alloc_const(HEAP_ASYNC_GENERATOR_REQUEST_RECORD_SIZE,function)?;",

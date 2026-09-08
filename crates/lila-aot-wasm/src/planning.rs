@@ -5447,6 +5447,7 @@ pub(crate) struct SleepNanosImportFunctionIndex(u32);
 pub(crate) struct AgentCallImportFunctionIndex(u32);
 pub(crate) struct IntlCallImportFunctionIndex(u32);
 pub(crate) struct RandomF64ImportFunctionIndex(u32);
+pub(crate) struct RejectDynamicSourceImportFunctionIndex(u32);
 
 macro_rules! host_import_function_index_role {
     ($role:ident) => {
@@ -5466,6 +5467,7 @@ host_import_function_index_role!(SleepNanosImportFunctionIndex);
 host_import_function_index_role!(AgentCallImportFunctionIndex);
 host_import_function_index_role!(IntlCallImportFunctionIndex);
 host_import_function_index_role!(RandomF64ImportFunctionIndex);
+host_import_function_index_role!(RejectDynamicSourceImportFunctionIndex);
 
 #[must_use]
 pub(crate) struct HostImportFunctionIndices {
@@ -5477,6 +5479,7 @@ pub(crate) struct HostImportFunctionIndices {
     agent_call: Option<AgentCallImportFunctionIndex>,
     intl_call: Option<IntlCallImportFunctionIndex>,
     random_f64: Option<RandomF64ImportFunctionIndex>,
+    reject_dynamic_source: RejectDynamicSourceImportFunctionIndex,
 }
 
 impl HostImportFunctionIndices {
@@ -5490,6 +5493,7 @@ impl HostImportFunctionIndices {
         agent_call: Option<AgentCallImportFunctionIndex>,
         intl_call: Option<IntlCallImportFunctionIndex>,
         random_f64: Option<RandomF64ImportFunctionIndex>,
+        reject_dynamic_source: RejectDynamicSourceImportFunctionIndex,
     ) -> Self {
         Self {
             number_pow,
@@ -5500,6 +5504,7 @@ impl HostImportFunctionIndices {
             agent_call,
             intl_call,
             random_f64,
+            reject_dynamic_source,
         }
     }
 }
@@ -5599,6 +5604,10 @@ impl FunctionMetaRegistry {
             .random_f64
             .as_ref()
             .map(|index| index.0)
+    }
+
+    pub(crate) fn reject_dynamic_source_import_function_index(&self) -> u32 {
+        self.host_import_function_indices.reject_dynamic_source.0
     }
 
     /// Set the recording-suppression flag, returning the previous value so the
@@ -5761,7 +5770,13 @@ pub(crate) fn build_function_metas(
         length_name_configurable: true,
         wasm_index: imported_function_count + 1 + callable_index,
         table_index: callable_index,
-        protocol: FunctionProtocolIr::OrdinaryCallOnly,
+        protocol: if DynamicSourceIntrinsic::from_function_id(&builtin.function_id())
+            .is_some_and(DynamicSourceIntrinsic::constructable)
+        {
+            FunctionProtocolIr::OrdinaryCallAndConstruct
+        } else {
+            FunctionProtocolIr::OrdinaryCallOnly
+        },
         strict: true,
         is_named_expression: false,
         class_element_execution_kind: ClassElementExecutionKind::None,
@@ -6651,8 +6666,13 @@ pub(crate) fn host_builtin_length(builtin: HostBuiltinId) -> u64 {
         HostBuiltinId::AssertThrows => 2,
         HostBuiltinId::IsConstructor => 1,
         HostBuiltinId::CreateRealm => 0,
-        HostBuiltinId::RealmEvalScript => 1,
-        HostBuiltinId::CreateHTMLDDA | HostBuiltinId::HTMLDDA => 0,
+        HostBuiltinId::RealmEvalScript
+        | HostBuiltinId::GeneratorFunctionConstructor
+        | HostBuiltinId::AsyncFunctionConstructor
+        | HostBuiltinId::AsyncGeneratorFunctionConstructor => 1,
+        HostBuiltinId::CreateHTMLDDA
+        | HostBuiltinId::HTMLDDA
+        | HostBuiltinId::AsyncDisposableStackSyncDispose => 0,
         HostBuiltinId::ParseInt => 2,
         HostBuiltinId::ParseFloat => 1,
         HostBuiltinId::DetachArrayBuffer => 1,

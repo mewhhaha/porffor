@@ -2593,13 +2593,7 @@ pub(crate) enum AsyncFunctionForOfIteratorInitializationError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AsyncFunctionForOfIteratorPlanError {
-    AwaitStatementRequired,
-    AdditionalDirectSuspension,
-    AwaitStateMismatch {
-        entry_state: u32,
-        suspend_state: u32,
-        resume_state: u32,
-    },
+    InvalidAwaitSequence(AwaitSequenceError),
     ExitStateOverflow {
         resume_state: u32,
     },
@@ -2663,6 +2657,55 @@ pub(crate) enum AsyncFunctionForOfIteratorPlanError {
     CapturedTdzEnvironment {
         tdz_placeholder_names: Vec<String>,
     },
+}
+
+/// Invalid suspension shape or continuation order in a direct await sequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AwaitSequenceError {
+    FirstAwaitRequired,
+    NestedSuspension,
+    StateMismatch {
+        expected_suspend_state: u32,
+        suspend_state: u32,
+        resume_state: u32,
+    },
+}
+
+/// Validate a nonempty sequence of direct awaits separated by eager statements,
+/// and return the final continuation state owned by the sequence.
+/// Shared by loop lowering and async-generator emission preflight.
+pub fn direct_await_sequence_resume_state(
+    first: &StatementIr,
+    after: &[StatementIr],
+    entry_state: u32,
+) -> Result<u32, AwaitSequenceError> {
+    if !matches!(first, StatementIr::AsyncAwait { .. }) {
+        return Err(AwaitSequenceError::FirstAwaitRequired);
+    }
+    let mut state = entry_state;
+    for statement in std::iter::once(first).chain(after) {
+        match statement {
+            StatementIr::AsyncAwait {
+                suspend_state,
+                resume_state,
+                ..
+            } => {
+                if *suspend_state != state || state.checked_add(1) != Some(*resume_state) {
+                    return Err(AwaitSequenceError::StateMismatch {
+                        expected_suspend_state: state,
+                        suspend_state: *suspend_state,
+                        resume_state: *resume_state,
+                    });
+                }
+                state = *resume_state;
+            }
+            statement if statement_contains_suspension(statement) => {
+                return Err(AwaitSequenceError::NestedSuspension);
+            }
+            _ => {}
+        }
+    }
+    Ok(state)
 }
 
 fn duplicate_async_function_for_of_name(names: &[String]) -> Option<String> {
@@ -2910,7 +2953,7 @@ fn validate_async_function_for_of_initialization(
 /// environment lifecycle as one compiler-owned plan. In particular, this is
 /// not the optional async-protocol plan on [`ForOfIteratorHeadIr`]: it performs
 /// the ordinary synchronous iterator protocol, then suspends only at the
-/// source body's `await`.
+/// source body's direct await sequence.
 #[must_use = "a resumable synchronous for-of plan must be attached to its statement"]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsyncFunctionForOfIteratorPlanIr {
@@ -2938,37 +2981,14 @@ impl AsyncFunctionForOfIteratorPlanIr {
         after_await: Vec<StatementIr>,
         entry_state: u32,
     ) -> Result<Self, AsyncFunctionForOfIteratorPlanError> {
-        if before_await.iter().chain(&after_await).any(|statement| {
-            matches!(
-                statement,
-                StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. }
-            )
-        }) {
-            return Err(AsyncFunctionForOfIteratorPlanError::AdditionalDirectSuspension);
+        if before_await.iter().any(statement_contains_suspension) {
+            return Err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence(
+                AwaitSequenceError::NestedSuspension,
+            ));
         }
-        let StatementIr::AsyncAwait {
-            suspend_state,
-            resume_state,
-            ..
-        } = &await_statement
-        else {
-            return Err(AsyncFunctionForOfIteratorPlanError::AwaitStatementRequired);
-        };
-        let expected_resume_state = entry_state.checked_add(1).ok_or(
-            AsyncFunctionForOfIteratorPlanError::AwaitStateMismatch {
-                entry_state,
-                suspend_state: *suspend_state,
-                resume_state: *resume_state,
-            },
-        )?;
-        if *suspend_state != entry_state || *resume_state != expected_resume_state {
-            return Err(AsyncFunctionForOfIteratorPlanError::AwaitStateMismatch {
-                entry_state,
-                suspend_state: *suspend_state,
-                resume_state: *resume_state,
-            });
-        }
-        let resume_state = *resume_state;
+        let resume_state =
+            direct_await_sequence_resume_state(&await_statement, &after_await, entry_state)
+                .map_err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence)?;
         let exit_state = resume_state
             .checked_add(1)
             .ok_or(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { resume_state })?;
@@ -3311,6 +3331,7 @@ impl AsyncFunctionForOfIteratorPlanIr {
         &self.await_statement
     }
 
+    /// The remaining body, including later direct awaits in this iteration.
     pub fn after_await(&self) -> &[StatementIr] {
         &self.after_await
     }
@@ -3319,6 +3340,7 @@ impl AsyncFunctionForOfIteratorPlanIr {
         self.entry_state
     }
 
+    /// The final resume state in the iteration's direct await sequence.
     pub fn resume_state(&self) -> u32 {
         self.resume_state
     }
@@ -3473,6 +3495,7 @@ pub enum StatementIr {
         suspension_statement: Box<StatementIr>,
         after_suspension: Vec<StatementIr>,
         entry_state: u32,
+        /// The final resume state in the iteration's suspension sequence.
         resume_state: u32,
         exit_state: u32,
     },
@@ -4264,6 +4287,12 @@ pub(crate) fn summarize_block(block: &BlockIr) -> IrBlockSummary {
     }
 }
 
+pub(crate) fn statement_contains_suspension(statement: &StatementIr) -> bool {
+    let mut counts = IrSummaryCounts::default();
+    counts.visit_statement(statement);
+    counts.suspensions != 0
+}
+
 impl ProgramIr {
     /// The first diagnostic that prevents this program from reaching Wasm
     /// emission.
@@ -4432,6 +4461,7 @@ impl ProgramIr {
 
 #[derive(Default)]
 struct IrSummaryCounts {
+    suspensions: usize,
     statements: usize,
     functions: usize,
     nested_functions: usize,
@@ -4579,6 +4609,26 @@ impl IrSummaryCounts {
 
     fn visit_statement(&mut self, statement: &StatementIr) {
         self.statements += 1;
+        if matches!(
+            statement,
+            StatementIr::GeneratorYield { .. }
+                | StatementIr::AsyncDisposableScope { .. }
+                | StatementIr::GeneratorLoop { .. }
+                | StatementIr::GeneratorIf { .. }
+                | StatementIr::ForOfIterator {
+                    head: ForOfIteratorHeadIr::Assignment {
+                        async_plan: Some(_),
+                        ..
+                    } | ForOfIteratorHeadIr::AsyncDisposable(_),
+                    ..
+                }
+                | StatementIr::For {
+                    init: Some(ForInitIr::AsyncDisposable(_)),
+                    ..
+                }
+        ) {
+            self.suspensions += 1;
+        }
         match statement {
             StatementIr::Empty | StatementIr::AnnexBFunctionCopy { .. } => {}
             StatementIr::ModuleUnitOnce { block, .. } => self.visit_block(block),
@@ -4642,7 +4692,10 @@ impl IrSummaryCounts {
                 }
                 self.visit_expr(value);
             }
-            StatementIr::AsyncAwait { value, .. } => self.visit_expr(value),
+            StatementIr::AsyncAwait { value, .. } => {
+                self.suspensions += 1;
+                self.visit_expr(value);
+            }
             StatementIr::Block(block) => {
                 self.blocks += 1;
                 self.visit_block(block);

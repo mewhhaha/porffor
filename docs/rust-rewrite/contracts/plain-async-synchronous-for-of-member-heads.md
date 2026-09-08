@@ -2,9 +2,9 @@
 
 ## Boundary
 
-A synchronous `for-of` with one direct body `await` in a plain async function
-admits static, computed, and private member-reference heads. The yielded value
-first enters the activation-owned `$forof.access` binding. The existing
+A synchronous `for-of` with sequential direct body awaits in a plain async
+function admits static, computed, and private member-reference heads. The
+yielded value first enters the activation-owned `$forof.access` binding. The existing
 per-iteration prefix then evaluates the member Reference and performs its
 `PropertyWrite` or `PrivateWrite` before the body suspension.
 
@@ -49,7 +49,7 @@ later nonlexical-pattern checkpoint supersedes that historical limit for
 assignment patterns and `var` binding patterns, and the lexical-pattern
 checkpoint supersedes it for `let` and `const` patterns. Resource heads,
 `super` References, suspension inside the member base or key, direct `break`
-or `continue`, multiple or nested body suspensions, the older single-name
+or `continue`, nested body suspensions, the older single-name
 captured head TDZ, suspending iterables, async-generator owners, and `for
 await` remain nonclaims. No pinned Test262 leaf combines a member-reference
 head with this directly awaiting plain-async body shape, so the fixture is

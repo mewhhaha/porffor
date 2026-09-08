@@ -64,7 +64,7 @@ fn wasm_execution_mode_is_the_exact_private_no_capability_domain() {
     assert_eq!(production.matches("WasmExecutionMode").count(), 14);
     assert_eq!(ENGINE_SOURCE.matches("WasmExecutionMode").count(), 16);
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(count_in_rust_sources(&source_root, "WasmExecutionMode"), 16);
+    assert_eq!(count_in_rust_sources(&source_root, "WasmExecutionMode"), 17);
     for forbidden in [
         "pub enum WasmExecutionMode",
         "impl WasmExecutionMode",

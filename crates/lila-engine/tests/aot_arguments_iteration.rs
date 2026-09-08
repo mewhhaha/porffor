@@ -102,6 +102,101 @@ mapped(1, 2, 3) === "1:8:" && unmapped(1, 2, 3) === "1:2:";
 }
 
 #[test]
+fn arguments_index_reads_preserve_own_properties_and_inherited_receivers() {
+    assert_wasm_true(
+        r#"
+function mapped(a, b, c) {
+  return { source: arguments, set(value) { b = value; } };
+}
+function unmapped(a, b, c) {
+  "use strict";
+  return { source: arguments, set(value) { b = value; } };
+}
+var factories = [mapped, unmapped];
+var ok = true;
+for (var m = 0; m < factories.length; m++) {
+  var state = factories[m](1, 2, 3);
+  var source = state.source;
+  var receiver = source;
+  var reads = 0;
+  var proto = Object.create(Object.getPrototypeOf(source));
+  Object.defineProperty(proto, '1', { get() {
+    reads++;
+    if (this !== receiver) throw "wrong inherited receiver";
+    return 9;
+  } });
+  Object.defineProperty(proto, '3', { get() {
+    if (this !== source) throw "wrong extended receiver";
+    return 13;
+  } });
+  Object.setPrototypeOf(source, proto);
+  state.set(7);
+  var expected = m === 0 ? 7 : 2;
+  var key = '1';
+  ok = ok && source[1] === expected && source[key] === expected &&
+    Reflect.get(source, key) === expected && reads === 0;
+  delete source[1];
+  state.set(11);
+  ok = ok && source[1] === 9 && source[key] === 9 &&
+    Reflect.get(source, key) === 9 && reads === 3;
+  receiver = {};
+  ok = ok && Reflect.get(source, key, receiver) === 9 && reads === 4;
+  receiver = source;
+  Object.defineProperty(source, key, { value: undefined, configurable: true });
+  ok = ok && source[1] === undefined && Reflect.get(source, key) === undefined && reads === 4;
+  var ownReads = 0;
+  Object.defineProperty(source, key, { configurable: true, get() {
+    ownReads++;
+    if (this !== source) throw "wrong own receiver";
+    return undefined;
+  } });
+  ok = ok && source[1] === undefined && Reflect.get(source, key) === undefined &&
+    ownReads === 2 && reads === 4;
+  delete source[1];
+  source.length = 4;
+  var values = '';
+  for (var value of source) values += value + ':';
+  ok = ok && values === '1:9:3:13:' && reads === 5;
+}
+ok;
+"#,
+    );
+}
+
+#[test]
+fn inherited_arguments_index_getters_preserve_thrown_values() {
+    assert_wasm_true(
+        r#"
+function mapped(a, b) { return arguments; }
+function unmapped(a, b) { "use strict"; return arguments; }
+var factories = [mapped, unmapped];
+var ok = true;
+for (var m = 0; m < factories.length; m++) {
+  var source = factories[m](1, 2);
+  delete source[1];
+  var marker = {};
+  var reads = 0;
+  var proto = Object.create(Object.getPrototypeOf(source));
+  Object.defineProperty(proto, '1', { get() {
+    reads++;
+    if (this !== source) throw "wrong receiver";
+    throw marker;
+  } });
+  Object.setPrototypeOf(source, proto);
+  var caught = 0;
+  try { source[1]; } catch (error) { if (error === marker) caught++; }
+  try { Reflect.get(source, '1'); } catch (error) { if (error === marker) caught++; }
+  var visited = '';
+  try { for (var value of source) visited += value; }
+  catch (error) { if (error === marker) caught++; }
+  ok = ok && caught === 3 && reads === 3 && visited === '1';
+}
+ok;
+"#,
+    );
+}
+
+#[test]
 fn adjacent_consumers_keep_arguments_values_and_exhaustion() {
     assert_wasm_true(
         r#"

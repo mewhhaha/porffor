@@ -55,8 +55,8 @@ impl HostSurfacePolicy {
         HostBuiltinId::from_global_name(name).filter(|builtin| self.allows(*builtin))
     }
 
-    /// Resolves host callables whose invocation must be rejected as dynamic
-    /// source during lowering rather than reach their defensive host body.
+    /// Resolves host callables requiring dynamic-source capability accounting
+    /// when lowering retains their identity.
     pub fn resolve_dynamic_source_intrinsic(self, name: &str) -> Option<DynamicSourceIntrinsic> {
         self.resolve_global(name)
             .and_then(|builtin| DynamicSourceIntrinsic::from_function_id(&builtin.function_id()))
@@ -69,8 +69,15 @@ mod tests {
 
     #[test]
     fn policy_is_the_authority_for_test262_globals() {
-        assert_eq!(HostBuiltinId::ALL.len(), 19);
+        assert_eq!(HostBuiltinId::ALL.len(), 23);
         assert_eq!(HostBuiltinId::global_builtins().count(), 18);
+        assert_eq!(
+            HostBuiltinId::ALL
+                .iter()
+                .filter(|builtin| builtin.global_name().is_none())
+                .count(),
+            5,
+        );
         for builtin in [
             HostBuiltinId::Print,
             HostBuiltinId::Gc,
@@ -94,7 +101,21 @@ mod tests {
             HostSurfacePolicy::Test262.resolve_global(HostBuiltinId::CreateRealm.as_str()),
             Some(HostBuiltinId::CreateRealm)
         );
-        assert!(!HostSurfacePolicy::Test262.allows(HostBuiltinId::HTMLDDA));
+        for builtin in [
+            HostBuiltinId::HTMLDDA,
+            HostBuiltinId::GeneratorFunctionConstructor,
+            HostBuiltinId::AsyncFunctionConstructor,
+            HostBuiltinId::AsyncGeneratorFunctionConstructor,
+            HostBuiltinId::AsyncDisposableStackSyncDispose,
+        ] {
+            assert!(!HostSurfacePolicy::Test262.allows(builtin));
+            assert!(HostSurfacePolicy::Product
+                .resolve_global(builtin.as_str())
+                .is_none());
+            assert!(HostSurfacePolicy::Test262
+                .resolve_global(builtin.as_str())
+                .is_none());
+        }
 
         let realm_eval = DynamicSourceIntrinsic::RealmEvalScript;
         let name = HostBuiltinId::RealmEvalScript

@@ -65,6 +65,9 @@ fn concat_spreadable_uses_only_the_ordinary_array_named_property_owner() {
         "emit_array_is_concat_spreadable_read",
         "emit_array_is_concat_spreadable_write",
         "emit_array_is_concat_spreadable_slot_write",
+        "HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE",
+        "emit_arguments_is_concat_spreadable_read",
+        "emit_arguments_is_concat_spreadable_write",
     ] {
         assert_eq!(
             rust_source.matches(removed_owner).count(),
@@ -101,12 +104,7 @@ fn concat_spreadable_uses_only_the_ordinary_array_named_property_owner() {
         "self.emit_propagate_throw_from_locals_if_needed(",
     );
     assert_eq!(spreadable_read.matches("self.emit_object_read(").count(), 1);
-    assert_eq!(
-        spreadable_read
-            .matches("self.emit_arguments_is_concat_spreadable_read(")
-            .count(),
-        1
-    );
+    assert!(!spreadable_read.contains("Instruction::If("));
 
     for owner in [
         "emit_array_define_named_accessor_descriptor(",

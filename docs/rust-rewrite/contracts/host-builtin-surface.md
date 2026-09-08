@@ -38,10 +38,10 @@ The current classification is:
 | ECMAScript global | every realm | `parseInt`, `parseFloat` |
 | product extension | entry realm only | `print`, `gc` |
 | Test262 capability | entry realm only | all globally named `__lila*` rows |
-| internal callable | no global scope | `IsHTMLDDA` |
+| internal callable | no global scope | `IsHTMLDDA`, the three derived Function constructors, the synchronous disposal wrapper |
 
-There are 19 catalog rows: 18 globally named callables and the one internal
-`IsHTMLDDA` callable. `RealmEvalScript` is a Test262-only global whose call is
+There are 23 catalog rows: 18 globally named callables and five internal
+callables. `RealmEvalScript` is a Test262-only global whose call is
 classified by the compiler as dynamic-source debt; its defensive AOT body is
 not product support for source evaluation.
 

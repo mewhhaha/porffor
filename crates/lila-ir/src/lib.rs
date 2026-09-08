@@ -94,7 +94,7 @@ pub use diagnostics::{
 };
 pub use dynamic_source::{
     DynamicFunctionKind, DynamicSourceGap, DynamicSourceIntrinsic, DynamicSourceKind,
-    DynamicSourceRequirement,
+    DynamicSourceRequirement, DynamicSourceRuntimeOperation,
 };
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use function_protocol::FunctionProtocolIr;
@@ -8587,6 +8587,141 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn async_loops_own_every_direct_await_continuation_and_the_final_exit() {
+        for (source, expected_exit_state) in [
+            (
+                "async function sequence() { for (let i = 0; i < 2; i++) { await 0; await 1; } }",
+                3,
+            ),
+            (
+                "async function sequence() { let i = 0; while (i++ < 2) { await 0; await 1; } }",
+                3,
+            ),
+            (
+                "async function sequence() { for (const value of [0, 1]) { await 0; await 1; } }",
+                3,
+            ),
+            (
+                "async function* sequence() { for (let i = 0; i < 2; i++) { await 0; await 1; } }",
+                2,
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let function = program
+                .script
+                .as_ref()
+                .expect("script ir should exist")
+                .functions
+                .iter()
+                .find(|function| function.name == "sequence")
+                .expect("async function should be collected");
+            let (first_await, trailing, entry_state, resume_state, exit_state) = function
+                .body
+                .statements
+                .iter()
+                .find_map(|statement| match statement {
+                    StatementIr::GeneratorLoop {
+                        suspension_statement,
+                        after_suspension,
+                        entry_state,
+                        resume_state,
+                        exit_state,
+                        ..
+                    } => Some((
+                        suspension_statement.as_ref(),
+                        after_suspension.as_slice(),
+                        *entry_state,
+                        *resume_state,
+                        *exit_state,
+                    )),
+                    StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some((
+                        plan.await_statement(),
+                        plan.after_await(),
+                        plan.entry_state(),
+                        plan.resume_state(),
+                        plan.exit_state(),
+                    )),
+                    _ => None,
+                })
+                .expect("loop should own a resumable iteration plan");
+            let continuations = std::iter::once(first_await)
+                .chain(trailing)
+                .filter_map(|statement| match statement {
+                    StatementIr::AsyncAwait {
+                        suspend_state,
+                        resume_state,
+                        ..
+                    } => Some((*suspend_state, *resume_state)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(continuations, [(0, 1), (1, 2)], "{source}");
+            assert_eq!(
+                (entry_state, resume_state, exit_state),
+                (0, 2, expected_exit_state),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn direct_await_sequences_reject_discontinuous_states_and_nested_suspensions() {
+        let program = lower_script("async function sequence() { await 0; await 1; }");
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .unwrap()
+            .functions
+            .iter()
+            .find(|function| function.name == "sequence")
+            .unwrap();
+        let [first, second] = function.body.statements.as_slice() else {
+            panic!("expected two direct awaits: {:?}", function.body.statements);
+        };
+        assert_eq!(
+            direct_await_sequence_resume_state(first, &[second.clone()], 0),
+            Ok(2)
+        );
+        assert_eq!(
+            direct_await_sequence_resume_state(&StatementIr::Empty, &[], 0),
+            Err(AwaitSequenceError::FirstAwaitRequired)
+        );
+        assert_eq!(
+            direct_await_sequence_resume_state(
+                first,
+                &[StatementIr::LexicalBlock(vec![second.clone()])],
+                0
+            ),
+            Err(AwaitSequenceError::NestedSuspension)
+        );
+        let mut discontinuous = second.clone();
+        let StatementIr::AsyncAwait {
+            suspend_state,
+            resume_state,
+            ..
+        } = &mut discontinuous
+        else {
+            panic!("the second statement must be an await");
+        };
+        *suspend_state = 2;
+        *resume_state = 3;
+        assert_eq!(
+            direct_await_sequence_resume_state(first, &[discontinuous], 0),
+            Err(AwaitSequenceError::StateMismatch {
+                expected_suspend_state: 1,
+                suspend_state: 2,
+                resume_state: 3,
+            })
+        );
+    }
+
+    #[test]
     fn rejects_async_loop_awaits_with_no_resumable_shape() {
         // These used to compile to a loop that ran its body once and
         // then reused the first resumed value for every later iteration. This
@@ -8595,15 +8730,15 @@ target[Symbol.iterator];"#,
         for (source, message) in [
             (
                 "(async function(){ for (let i = 0; i < 2; i++) { try { await 0; } catch (e) {} } })();",
-                "async loop body did not lower to one direct await",
+                "async loop body did not lower to a direct await sequence",
             ),
             (
                 "(async function(){ for (let i = 0; i < 2; i++) { await 0; break; } })();",
                 "async loop with await requires an eager loop head without break or continue",
             ),
             (
-                "(async function(){ for (let i = 0; i < 2; i++) { await 0; await 1; } })();",
-                "async loop body did not lower to one direct await",
+                "(async function(){ for (let i = 0; i < 2; i++) { await 0; try { await 1; } catch (e) {} } })();",
+                "async loop body did not lower to a direct await sequence",
             ),
             (
                 "(async function(){ let n = 0; do { n++; await 0; } while (n < 2); })();",
@@ -8633,38 +8768,11 @@ target[Symbol.iterator];"#,
 
     /// A refused generator declaration must say what about it was refused.
     ///
-    /// The arm this pins used to report `"function or class declaration"` for
-    /// every generator with no linear suspension plan — wrong about the
-    /// declaration kind *and* about the reason, and it collapsed the whole
-    /// family into one `detail_hash`. Measured before the change, on the first
-    /// source below, `lila run --execution-backend wasm` printed exactly
-    /// `unsupported in lila wasm-aot first slice: function or class
-    /// declaration`.
-    ///
-    /// This is a diagnostic test, not an acceptance test: all three sources are
-    /// still refused, and `linear_generator_plan` is still `.ok()` over the same
-    /// walk. The final assertion is the one that would catch a regression to the
-    /// old wording.
+    /// Unsupported suspension shapes need distinct reasons. Conditional loop
+    /// yields are now supported and covered by the engine's generator-loop tests.
     #[test]
     fn a_refused_generator_declaration_reports_its_yield_shape() {
         for (source, message) in [
-            // The `annexB` `invalidControls` shape, reduced: the third loop's
-            // yield sits inside an `if`. This is
-            // `RegExp-control-escape-russian-letter.js` and
-            // `RegExp-invalid-control-escape-character-class.js`.
-            (
-                "function* invalidControls() {\
-                   for (var a = 0x41; a <= 0x43; a++) { yield String.fromCharCode(a); }\
-                   for (a = 0; a <= 0x10; a++) {\
-                     let letter = String.fromCharCode(a);\
-                     if (letter.length > 0) { yield letter; }\
-                   }\
-                 }\
-                 invalidControls();",
-                "a loop body whose yield is nested inside another statement",
-            ),
-            // A different family, so the test cannot pass by reporting one
-            // message for everything.
             (
                 "function* g() { for (var i = 0; i < 3; i++) { yield i; break; } } g();",
                 "a loop carrying `break`, `continue` or a capturing nested function",
@@ -8756,7 +8864,6 @@ target[Symbol.iterator];"#,
         for source in [
             "async function* stream() { for (;;) { await 0; break; } }",
             "async function* stream() { for (let i = 0; i < 2; i++) { await 0; continue; } }",
-            "async function* stream() { for (let i = 0; i < 2; i++) { await 0; await 1; } }",
             "async function* stream() { for (let i = 0; i < 2; await 0) {} }",
         ] {
             let program = lower_script(source);
@@ -8764,7 +8871,7 @@ target[Symbol.iterator];"#,
             assert!(
                 program.diagnostics.iter().any(|diagnostic| diagnostic
                     .message
-                    .contains("resumable async loop requires one direct body await")),
+                    .contains("resumable async loop requires a direct await sequence")),
                 "{source}: {:?}",
                 program.diagnostics
             );
@@ -10508,17 +10615,65 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
-    fn rejects_generator_suspensions_without_a_structured_resume_plan() {
-        for source in [
-            "function* nestedOperand() { return 1 + (yield 2); }",
+    fn generator_branch_lexical_declaration_has_a_structured_resume_plan() {
+        let program = lower_script(
             "function* scopedBranch(flag) { if (flag) { let value = 1; yield value; } }",
-        ] {
-            let program = lower_script(source);
-            assert!(
-                !program.is_wasm_supported(),
-                "source should be rejected: {source}"
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "scopedBranch")
+            .expect("generator should be registered");
+        let [StatementIr::GeneratorIf {
+            then_before_yield,
+            then_yield_statement: Some(yield_statement),
+            entry_state: 0,
+            then_resume_state: Some(1),
+            else_resume_state: None,
+            exit_state: 2,
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "expected a resumable lexical branch: {:?}",
+                function.body.statements
             );
-        }
+        };
+        let [StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name,
+            ..
+        }] = then_before_yield.as_slice()
+        else {
+            panic!("expected the branch's lexical declaration: {then_before_yield:?}");
+        };
+        assert!(matches!(
+            yield_statement.as_ref(),
+            StatementIr::GeneratorYield {
+                value: TypedExpr { expr: ExprIr::Identifier(yielded_name), .. },
+                suspend_state: 0,
+                resume_state: 1,
+                ..
+            } if yielded_name == name
+        ));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == *name));
+    }
+
+    #[test]
+    fn rejects_generator_suspensions_without_a_structured_resume_plan() {
+        let source = "function* nestedOperand() { return 1 + (yield 2); }";
+        let program = lower_script(source);
+        assert!(
+            !program.is_wasm_supported(),
+            "source should be rejected: {source}"
+        );
     }
 
     #[test]
@@ -15000,12 +15155,6 @@ new Target([]);
             (
                 "Function('value', String('return value'));",
                 DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "new Function();",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
                     DynamicFunctionKind::Ordinary,
                 )),
             ),

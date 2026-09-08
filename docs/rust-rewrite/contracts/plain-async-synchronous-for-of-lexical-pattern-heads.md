@@ -2,9 +2,9 @@
 
 ## Boundary
 
-A synchronous `for-of` with one direct body `await` in a plain async function
-admits `let` and `const` array or object binding patterns. The admitted forms
-include nested patterns, non-suspending defaults, rest elements and
+A synchronous `for-of` with sequential direct body awaits in a plain async
+function admits `let` and `const` array or object binding patterns. The admitted
+forms include nested patterns, non-suspending defaults, rest elements and
 properties, and empty array or object patterns.
 
 `AsyncFunctionForOfIteratorPlanIr` receives a closed head witness and derives
@@ -102,6 +102,6 @@ Test262 numerator or denominator.
 ## Nonclaims
 
 Resource patterns, suspension in the iterable or pattern, direct `break` or
-`continue`, multiple or nested body suspensions, async-generator owners, and
+`continue`, nested body suspensions, async-generator owners, and
 `for await` remain outside this boundary. Body-local declaration shapes and
 the inner array-destructuring protocol-error Realm policy are separate work.

@@ -34,8 +34,8 @@ also groups legitimate adaptations and diagnostic observations by task.
 | Input | SHA-256 |
 | --- | --- |
 | `test262/backlog/shortcut-allowlist.tsv` | `b4984db6dcd222ce85affb2737ffcfe90864afd3bb6b6440efa997d8c9763105` |
-| `test262/backlog/shortcut-inventory.md` | `3815ce0506d5c3bf604740ea006549827f37b143a0e274a881f6d1a6df1fdcfa` |
-| `crates/lila-test262/src/lib.rs` | `4a61a5f53e108108f9741691881985ec5bce0117c007c0a0a35a41cf6190d4f5` |
+| `test262/backlog/shortcut-inventory.md` | `f80fd5bfcd737b77d7207b59521696bc7a9deee06bc4878172915a3321a118f0` |
+| `crates/lila-test262/src/lib.rs` | `671ea03f3e16648cdd1a03749186dc9724c526c8fa4c7adcd4654ee00fab1a79` |
 
 Run `bash scripts/audit-test262-shortcuts.sh --check` before regenerating this
 report. CI runs that source-level audit as well as `--check` on this generator.

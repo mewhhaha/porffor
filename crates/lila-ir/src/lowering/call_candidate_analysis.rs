@@ -105,6 +105,9 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
+                Some(ResolvedDynamicSourceCall::EmptyFunction(proof)) => {
+                    pass_through_results.insert(function_id.clone(), proof.into_result_info());
+                }
                 Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
                     if matches!(source, CallCandidateSource::AlreadyAccounted) {
                         pass_through_results.insert(function_id.clone(), ValueInfo::undefined());
@@ -474,6 +477,7 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(_)) => {
                     unreachable!("the intrinsic eval function is not constructable")
                 }
+                Some(ResolvedDynamicSourceCall::EmptyFunction(_)) => {}
                 Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
                     self.record_unsupported_dynamic_source(unsupported);
                     rejected_dynamic_source = true;

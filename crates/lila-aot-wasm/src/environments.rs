@@ -468,8 +468,8 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn allocate_dynamic_binding_storage(&mut self, name: &str) -> BindingStorage {
-        if let Some(slot) = self.owned_env_slot(name) {
-            BindingStorage::EnvSlot { slot, hops: 0 }
+        if let Some(storage) = self.activation_owned_binding_storage(name) {
+            storage
         } else {
             let payload_local = self.next_binding_local;
             let tag_local = self.next_binding_local + 1;
@@ -903,14 +903,9 @@ impl<'a> FunctionBuilder<'a> {
         kind: ValueKind,
     ) -> BindingStorage {
         let storage = match mode {
-            BindingMode::Let | BindingMode::Const if self.owned_env_slot(&name).is_some() => {
-                BindingStorage::EnvSlot {
-                    slot: self
-                        .owned_env_slot(&name)
-                        .expect("owned env slot should exist"),
-                    hops: 0,
-                }
-            }
+            BindingMode::Let | BindingMode::Const if self.owned_env_slot(&name).is_some() => self
+                .activation_owned_binding_storage(&name)
+                .expect("owned env slot should exist"),
             BindingMode::Let => {
                 let tag_local = self.next_binding_local;
                 let payload_local = self.next_binding_local + 1;

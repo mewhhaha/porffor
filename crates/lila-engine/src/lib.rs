@@ -8,8 +8,8 @@ use lila_intl::{
 };
 use lila_ir::{
     lower_module_graph_with_host_surface_policy, lower_script_graph_with_host_surface_policy,
-    lower_with_host_surface_policy, source_writes_dynamic_import, CompletionKindIr, IrDiagnostic,
-    ProgramIr, ValueKind,
+    lower_with_host_surface_policy, source_writes_dynamic_import, CompletionKindIr,
+    DynamicSourceRuntimeOperation, IrDiagnostic, ProgramIr, ValueKind,
 };
 use lila_runtime::AgentHostOperation;
 use sha2::{Digest, Sha256};
@@ -28,7 +28,12 @@ use std::io::Read;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+#[cfg(test)]
+mod agent_failure_tests;
 mod cache;
+mod execution_failure;
+pub use execution_failure::WasmExecutionFailureKind;
+use execution_failure::{finish_wasm_execution, EngineExecutionFailure};
 mod module_loader;
 mod wasmtime_policy;
 
@@ -45,6 +50,7 @@ const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
 const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
 const WASM_THROW_ERROR_MESSAGE_EXPORT: &str = "throw_error_message";
+const WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT: &str = "throw_error_constructor_name";
 const WASM_HOST_IMPORT_NAMESPACE: &str = "lila_host";
 const WASM_HOST_IMPORT_AGENT_CAN_SUSPEND: &str = "agent_can_suspend";
 const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
@@ -58,6 +64,7 @@ const WASM_HOST_IMPORT_RANDOM_F64: &str = "random_f64";
 const WASM_HOST_IMPORT_WALL_CLOCK_MILLIS: &str = "wall_clock_millis";
 const WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS: &str = "monotonic_clock_nanos";
 const WASM_HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
+const WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE: &str = "reject_dynamic_source";
 /// Default bound on [`memory_wasm_modules`], **in entries and in nothing else**.
 ///
 /// # This is the in-process retention that the disk-cache knobs do not touch
@@ -1271,6 +1278,7 @@ pub struct EngineError {
     ir_diagnostic: Option<IrDiagnostic>,
     intl_artifact_identity_error: Option<IntlArtifactIdentityError>,
     wasmtime_policy: Option<WasmtimeRuntimePolicy>,
+    execution_failure: Option<EngineExecutionFailure>,
 }
 
 /// Closed pre-instantiation failures for the Wasm Intl artifact/provider
@@ -1316,6 +1324,7 @@ impl EngineError {
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
             wasmtime_policy: None,
+            execution_failure: None,
         }
     }
 
@@ -1326,6 +1335,7 @@ impl EngineError {
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
             wasmtime_policy: None,
+            execution_failure: None,
         }
     }
 
@@ -1336,6 +1346,7 @@ impl EngineError {
             ir_diagnostic: Some(diagnostic),
             intl_artifact_identity_error: None,
             wasmtime_policy: None,
+            execution_failure: None,
         }
     }
 
@@ -1356,6 +1367,7 @@ impl EngineError {
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
             wasmtime_policy: Some(err.policy),
+            execution_failure: None,
         }
     }
 
@@ -1366,6 +1378,7 @@ impl EngineError {
             ir_diagnostic: None,
             intl_artifact_identity_error: Some(error),
             wasmtime_policy: None,
+            execution_failure: None,
         }
     }
 
@@ -1417,6 +1430,16 @@ impl core::fmt::Display for EngineError {
 }
 
 impl std::error::Error for EngineError {}
+
+fn wasm_reject_dynamic_source(operation_code: i64) -> wasmtime::Result<()> {
+    let operation =
+        DynamicSourceRuntimeOperation::from_abi_code(operation_code).ok_or_else(|| {
+            wasmtime::Error::msg(format!(
+                "invalid dynamic source host operation code {operation_code}"
+            ))
+        })?;
+    Err(wasmtime::Error::new(operation))
+}
 
 pub struct Engine {
     realm: Realm,
@@ -1935,9 +1958,10 @@ impl WasmAgentGroup {
                                 .map(|value| (*value).to_string())
                         })
                         .unwrap_or_else(|| "non-string panic payload".to_string());
-                    EngineError::new(format!(
-                        "Test262 agent panicked before becoming ready: {message}"
-                    ))
+                    EngineError::from_execution_failure(
+                        EngineExecutionFailure::Trap,
+                        format!("Test262 agent panicked before becoming ready: {message}"),
+                    )
                 }
             };
             if !may_retry_corrupt_cache || !worker_artifact.evict_if_invalid(&error) {
@@ -1964,24 +1988,21 @@ impl WasmAgentGroup {
     }
 
     fn broadcast(&self, broadcast: WasmAgentBroadcast) -> usize {
-        let mut workers = self
+        let workers = self
             .workers
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let mut sent = 0;
-        workers.retain(|worker| {
-            if worker
-                .commands
-                .send(WasmAgentCommand::Broadcast(broadcast))
-                .is_ok()
-            {
-                sent += 1;
-                true
-            } else {
-                false
-            }
-        });
-        sent
+        // Disconnection stops delivery; the join handle must remain owned
+        // until finish observes the worker's completion or failure.
+        workers
+            .iter()
+            .filter(|worker| {
+                worker
+                    .commands
+                    .send(WasmAgentCommand::Broadcast(broadcast))
+                    .is_ok()
+            })
+            .count()
     }
 
     fn finish(&self) -> Result<(), EngineError> {
@@ -2005,7 +2026,7 @@ impl WasmAgentGroup {
         for worker in workers {
             match worker.join.join() {
                 Ok(Ok(())) => {}
-                Ok(Err(error)) => failures.push(error.to_string()),
+                Ok(Err(error)) => failures.push(error),
                 Err(payload) => {
                     let message = payload
                         .downcast_ref::<String>()
@@ -2016,17 +2037,20 @@ impl WasmAgentGroup {
                                 .map(|value| (*value).to_string())
                         })
                         .unwrap_or_else(|| "non-string panic payload".to_string());
-                    failures.push(format!("Test262 agent panicked: {message}"));
+                    failures.push(EngineError::from_execution_failure(
+                        EngineExecutionFailure::Trap,
+                        format!("Test262 agent panicked: {message}"),
+                    ));
                 }
             }
         }
-        if failures.is_empty() {
-            Ok(())
-        } else {
-            Err(EngineError::new(format!(
-                "Test262 agent failed: {}",
-                failures.join("; ")
-            )))
+        let mut failures = failures.into_iter();
+        match failures.next() {
+            None => Ok(()),
+            Some(first) => Err(EngineError::from_execution_failures(
+                first,
+                failures.collect(),
+            )),
         }
     }
 }
@@ -3166,6 +3190,13 @@ impl Engine {
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
+                wasm_reject_dynamic_source,
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_AGENT_CAN_SUSPEND,
                 |caller: WasmtimeCaller<'_, WasmHostState>| -> i32 {
                     i32::from(caller.data().can_block)
@@ -3258,9 +3289,8 @@ impl Engine {
                                     ))
                                 })?;
                             group.start(source).map_err(|err| {
-                                wasmtime::Error::msg(format!(
-                                    "failed to compile or start Test262 agent: {err}"
-                                ))
+                                wasmtime::Error::new(err)
+                                    .context("failed to compile or start Test262 agent")
                             })?;
                             if std::env::var_os("LILA_WASM_TRACE").is_some() {
                                 eprintln!("lila wasm trace: Test262 agent started");
@@ -3597,7 +3627,13 @@ impl Engine {
         }
         let execution_started = std::time::Instant::now();
         let execution_result = main.call(&mut store, ()).map_err(|err| {
-            if is_wasm_epoch_interrupt(&err) {
+            if let Some(operation) = err.downcast_ref::<DynamicSourceRuntimeOperation>() {
+                EngineError::from_runtime_dynamic_source_operation(*operation)
+            } else if let Some(cause) = err.downcast_ref::<EngineError>() {
+                let mut error = cause.clone();
+                error.message = format!("wasmtime host execution failed: {err:#}");
+                error
+            } else if is_wasm_epoch_interrupt(&err) {
                 // Distinguish this from other traps with the same "timeout
                 // exceeded" phrasing the child-process/elapsed-time timeout
                 // path already uses (see
@@ -3605,114 +3641,131 @@ impl Engine {
                 // `run_one_case`), so both paths classify identically as
                 // timeouts downstream (FailureKind::Runtime,
                 // OutcomeKind timeout bucketing, `RunSummary::timeouts`).
-                EngineError::new(format!(
-                    "timeout exceeded after {}ms (wasm epoch interrupt, bound {}ms)",
-                    execution_started.elapsed().as_millis(),
-                    timeout_ms.unwrap_or(0)
-                ))
+                EngineError::from_execution_failure(
+                    EngineExecutionFailure::Timeout,
+                    format!(
+                        "timeout exceeded after {}ms (wasm epoch interrupt, bound {}ms)",
+                        execution_started.elapsed().as_millis(),
+                        timeout_ms.unwrap_or(0)
+                    ),
+                )
             } else {
-                EngineError::new(format!("wasmtime execution trapped: {err:?}"))
+                EngineError::from_execution_failure(
+                    EngineExecutionFailure::Trap,
+                    format!("wasmtime execution trapped: {err:?}"),
+                )
             }
         });
         let agent_result = root_agent_group
             .as_ref()
             .map_or(Ok(()), |group| group.finish());
-        agent_result?;
-        let payload = execution_result?;
-        trace_phase("execution", execution_started);
-        let result_tag = instance
-            .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
-            .ok_or_else(|| EngineError::new("wasmtime export lookup failed: missing result_tag"))?
-            .get(&mut store);
-        let WasmtimeVal::I32(result_tag) = result_tag else {
-            return Err(EngineError::new(
-                "wasm result_tag export had unexpected type",
-            ));
-        };
-        let result_tag = WasmRuntimeValueTag::from_tag(result_tag)
-            .ok_or_else(|| EngineError::new(format!("unknown wasm result tag: {result_tag}")))?;
-        let result_kind = result_tag.value_kind();
-        let completion = instance
-            .get_global(&mut store, WASM_COMPLETION_KIND_EXPORT)
-            .ok_or_else(|| {
-                EngineError::new("wasmtime export lookup failed: missing completion_kind")
-            })?
-            .get(&mut store);
-        let WasmtimeVal::I32(completion_kind) = completion else {
-            return Err(EngineError::new(
-                "wasm completion_kind export had unexpected type",
-            ));
-        };
-        let completion_kind = match i64::from(completion_kind) {
-            kind if kind == CompletionKindIr::Normal.abi_code() => {
-                WasmTopLevelCompletionKind::Normal
-            }
-            kind if kind == CompletionKindIr::Throw.abi_code() => WasmTopLevelCompletionKind::Throw,
-            other => {
-                return Err(EngineError::new(format!(
+        let execution_result = execution_result.and_then(|payload| {
+            trace_phase("execution", execution_started);
+            let result_tag = instance
+                .get_global(&mut store, WASM_RESULT_TAG_EXPORT)
+                .ok_or_else(|| {
+                    EngineError::new("wasmtime export lookup failed: missing result_tag")
+                })?
+                .get(&mut store);
+            let WasmtimeVal::I32(result_tag) = result_tag else {
+                return Err(EngineError::new(
+                    "wasm result_tag export had unexpected type",
+                ));
+            };
+            let result_tag = WasmRuntimeValueTag::from_tag(result_tag).ok_or_else(|| {
+                EngineError::new(format!("unknown wasm result tag: {result_tag}"))
+            })?;
+            let result_kind = result_tag.value_kind();
+            let completion = instance
+                .get_global(&mut store, WASM_COMPLETION_KIND_EXPORT)
+                .ok_or_else(|| {
+                    EngineError::new("wasmtime export lookup failed: missing completion_kind")
+                })?
+                .get(&mut store);
+            let WasmtimeVal::I32(completion_kind) = completion else {
+                return Err(EngineError::new(
+                    "wasm completion_kind export had unexpected type",
+                ));
+            };
+            let completion_kind = match i64::from(completion_kind) {
+                kind if kind == CompletionKindIr::Normal.abi_code() => {
+                    WasmTopLevelCompletionKind::Normal
+                }
+                kind if kind == CompletionKindIr::Throw.abi_code() => {
+                    WasmTopLevelCompletionKind::Throw
+                }
+                other => {
+                    return Err(EngineError::new(format!(
                     "wasm top-level completion used invalid kind {other}; expected normal or throw"
                 )));
-            }
-        };
-        match mode {
-            WasmExecutionMode::Legacy => {
-                // Legacy callers retain the historical human rendering. Keep
-                // all Error-property/global reads and heap-handle formatting
-                // in this mode so structured Object/Symbol observation remains
-                // type-only by construction.
-                let thrown_error = match &completion_kind {
-                    WasmTopLevelCompletionKind::Normal => ThrownErrorText::NONE,
-                    WasmTopLevelCompletionKind::Throw => {
-                        ThrownErrorText::read(&instance, &mut store, result_kind)?
-                    }
-                };
-                let note = render_wasmtime_completion(
-                    result_tag,
-                    payload,
-                    wasmtime_exported_memory(&instance, &mut store),
-                    &mut store,
-                    thrown_error.message(),
-                )?;
-                match &completion_kind {
-                    WasmTopLevelCompletionKind::Normal => {
-                        Ok(WasmExecutionOutcome::Legacy(RunOutcome {
-                            backend_used: ExecutionBackend::WasmAot,
-                            note,
-                        }))
-                    }
-                    WasmTopLevelCompletionKind::Throw => {
-                        let prefix = thrown_error.name_prefix();
-                        Err(EngineError::new(format!("uncaught throw: {prefix}{note}")))
+                }
+            };
+            match mode {
+                WasmExecutionMode::Legacy => {
+                    // Legacy callers retain the historical human rendering. Keep
+                    // all Error-property/global reads and heap-handle formatting
+                    // in this mode so structured Object/Symbol observation remains
+                    // type-only by construction.
+                    let thrown_error = match &completion_kind {
+                        WasmTopLevelCompletionKind::Normal => ThrownErrorText::NONE,
+                        WasmTopLevelCompletionKind::Throw => {
+                            ThrownErrorText::read(&instance, &mut store, result_kind)?
+                        }
+                    };
+                    let note = render_wasmtime_completion(
+                        result_tag,
+                        payload,
+                        wasmtime_exported_memory(&instance, &mut store),
+                        &mut store,
+                        thrown_error.message(),
+                    )?;
+                    match &completion_kind {
+                        WasmTopLevelCompletionKind::Normal => {
+                            Ok(WasmExecutionOutcome::Legacy(RunOutcome {
+                                backend_used: ExecutionBackend::WasmAot,
+                                note,
+                            }))
+                        }
+                        WasmTopLevelCompletionKind::Throw => {
+                            let prefix = thrown_error.name_prefix();
+                            Err(EngineError::from_execution_failure(
+                                EngineExecutionFailure::JavaScriptException {
+                                    constructor_name: thrown_error.constructor_name,
+                                },
+                                format!("uncaught throw: {prefix}{note}"),
+                            ))
+                        }
                     }
                 }
+                WasmExecutionMode::Structured => {
+                    let value = observe_wasmtime_value(
+                        result_tag,
+                        payload,
+                        wasmtime_exported_memory(&instance, &mut store),
+                        &mut store,
+                    )?;
+                    let completion = match completion_kind {
+                        WasmTopLevelCompletionKind::Normal => ObservedCompletion::Normal(value),
+                        WasmTopLevelCompletionKind::Throw => ObservedCompletion::Throw(value),
+                    };
+                    let note = match &completion {
+                        ObservedCompletion::Normal(value) => {
+                            format!("wasm-aot normal completion ({})", value.type_name())
+                        }
+                        ObservedCompletion::Throw(value) => {
+                            format!("uncaught ECMAScript throw ({})", value.type_name())
+                        }
+                    };
+                    Ok(WasmExecutionOutcome::Structured(ObservedRunOutcome {
+                        backend_used: ExecutionBackend::WasmAot,
+                        completion,
+                        output_events: store.data().output_events.take(),
+                        note,
+                    }))
+                }
             }
-            WasmExecutionMode::Structured => {
-                let value = observe_wasmtime_value(
-                    result_tag,
-                    payload,
-                    wasmtime_exported_memory(&instance, &mut store),
-                    &mut store,
-                )?;
-                let completion = match completion_kind {
-                    WasmTopLevelCompletionKind::Normal => ObservedCompletion::Normal(value),
-                    WasmTopLevelCompletionKind::Throw => ObservedCompletion::Throw(value),
-                };
-                let note = match &completion {
-                    ObservedCompletion::Normal(value) => {
-                        format!("wasm-aot normal completion ({})", value.type_name())
-                    }
-                    ObservedCompletion::Throw(value) => {
-                        format!("uncaught ECMAScript throw ({})", value.type_name())
-                    }
-                };
-                Ok(WasmExecutionOutcome::Structured(ObservedRunOutcome {
-                    backend_used: ExecutionBackend::WasmAot,
-                    completion,
-                    output_events: store.data().output_events.take(),
-                    note,
-                }))
-            }
-        }
+        });
+        finish_wasm_execution(execution_result, agent_result)
     }
 }
 
@@ -3998,31 +4051,24 @@ fn read_wasmtime_shared_memory(
 }
 
 /// What an uncaught throw carried out of the module, as the module itself
-/// reported it: the error's `name` and its `message`.
+/// reported it: the error's diagnostic `name`, `message`, and final
+/// `constructor.name` for the conformance consumer.
 ///
-/// Both come from exported globals the emitter sets at every throw site
-/// (`builtins/errors.rs`), and both are `None` for a completion that is not a
-/// throw of a heap object — which is also the only case where either global
-/// could be read at all, since a heap-less module aliases the two exports onto
-/// one slot.
-///
-/// The type exists so the two are read *together*, once, at one place. They
-/// used to be one lonely string read inline at the throw site, and the result
-/// was that `render_wasmtime_completion` had nothing to print for an object
-/// except `handle@{payload}` — a raw linear-memory address that is not stable
-/// across builds (batch 3 measured a fixed set of handles shifting by exactly
-/// +136 bytes between two builds of the same source) and maps to no allocation
-/// site anywhere in this tree. ~2,488 measured Wasm-AOT failures across ~1,743
-/// distinct addresses therefore carried one bit of information between them.
+/// Diagnostic text is published at throw sites; the constructor name is
+/// captured from the final root completion after jobs and finalizers. These
+/// globals are read together only for a thrown heap object: a heap-less module
+/// aliases their exports onto one slot and cannot produce an object completion.
 struct ThrownErrorText {
     name: Option<String>,
     message: Option<String>,
+    constructor_name: Option<String>,
 }
 
 impl ThrownErrorText {
     const NONE: Self = Self {
         name: None,
         message: None,
+        constructor_name: None,
     };
 
     fn read(
@@ -4050,9 +4096,17 @@ impl ThrownErrorText {
             WASM_THROW_ERROR_MESSAGE_EXPORT,
             memory,
         )?;
+        let memory = wasmtime_exported_memory(instance, store);
+        let constructor_name = read_wasmtime_string_payload_global(
+            instance,
+            store,
+            WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
+            memory,
+        )?;
         Ok(Self {
             name: name.filter(|value| !value.is_empty()),
             message: message.filter(|value| !value.is_empty()),
+            constructor_name,
         })
     }
 
@@ -4200,6 +4254,18 @@ var $262 = {
         CompileOptions {
             host_surface_policy: HostSurfacePolicy::Test262,
             ..CompileOptions::default()
+        }
+    }
+
+    #[test]
+    fn invalid_dynamic_source_host_codes_remain_abi_errors() {
+        for code in [-1, 6, i64::MAX] {
+            let error =
+                wasm_reject_dynamic_source(code).expect_err("an invalid host operation must fail");
+            assert!(error
+                .downcast_ref::<DynamicSourceRuntimeOperation>()
+                .is_none());
+            assert!(error.to_string().contains(&code.to_string()));
         }
     }
 
@@ -5565,6 +5631,13 @@ report;
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
+                wasm_reject_dynamic_source,
+            )
+            .expect("dynamic source capability import should link");
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_AGENT_CAN_SUSPEND,
                 |_caller: WasmtimeCaller<'_, WasmHostState>| -> i32 { 1 },
             )
@@ -5889,6 +5962,7 @@ locales.length === 1 && locales[0] === "he-IL";
                 // here makes that a named failure instead of a quiet
                 // regression to `object(handle@N)`.
                 WASM_THROW_ERROR_MESSAGE_EXPORT,
+                WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
             ] {
                 assert!(
                     exports.contains(&export.to_string()),

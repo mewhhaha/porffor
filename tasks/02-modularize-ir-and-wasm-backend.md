@@ -3046,12 +3046,13 @@ byte-for-source identical, but no golden capture was run. Broad workspace,
 policy and Test262 gates remain deferred; no formatting or conformance change
 is claimed for this preparatory ownership move.
 
-The eight optional host import function indices now cross from `emit.rs` into
+The eight optional host import function indices and the required dynamic-source
+rejection index now cross from `emit.rs` into
 `FunctionMetaRegistry` through one non-copyable
 `HostImportFunctionIndices` authority with distinct, non-derived role types.
 The sole producer can no longer transpose two raw `Option<u32>` positions while
-continuing to compile, and the registry stores the authority intact. Its eight
-existing named getters are the only raw-index projections. The robust
+continuing to compile, and the registry stores the authority intact. Its nine
+named getters are the only raw-index projections. The robust
 Rust-lexical `host_import_function_indices_structure` target owns the exact
 domain, recursive census, one complete producer, intact storage, and sole
 projections; the focused verification record and explicit nonclaims live in

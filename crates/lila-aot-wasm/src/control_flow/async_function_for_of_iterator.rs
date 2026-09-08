@@ -43,11 +43,11 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(i64::from(plan.entry_state())));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(i64::from(plan.resume_state())));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
 
         self.push_scope();
@@ -300,9 +300,14 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.compile_statement(plan.await_statement(), function)?;
-        for statement in plan.after_await() {
-            self.compile_statement(statement, function)?;
-        }
+        let first_resume_state = Self::async_statement_exit_state(plan.await_statement())
+            .expect("the async for-of plan owns a direct first await");
+        self.compile_async_statement_sequence(
+            plan.after_await(),
+            first_resume_state,
+            HEAP_ASYNC_RESUME_STATE_OFFSET,
+            function,
+        )?;
         self.finally_stack.pop();
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);

@@ -6071,14 +6071,6 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(array_prototype_tag_local);
                     self.release_temp_local(array_prototype_local);
                 }
-                PropertyKeyIr::StaticString(name) if name == "Symbol.isConcatSpreadable" => {
-                    self.emit_arguments_is_concat_spreadable_read(
-                        target_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    );
-                }
                 PropertyKeyIr::StaticString(name) if static_array_index_name(name).is_some() => {
                     let index_local = self.reserve_temp_local();
                     function.instruction(&Instruction::I64Const(
@@ -6497,26 +6489,6 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::Br(1));
             function.instruction(&Instruction::End);
         }
-
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(key_payload_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.isConcatSpreadable"),
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_arguments_is_concat_spreadable_read(
-            target_payload_local,
-            payload_local,
-            tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Br(1));
-        function.instruction(&Instruction::End);
 
         self.emit_string_index_0_to_4_or_minus_one(key_payload_local, index_local, function);
         function.instruction(&Instruction::LocalGet(key_tag_local));
@@ -7797,14 +7769,6 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     self.release_temp_local(index_local);
-                } else if matches!(key, PropertyKeyIr::StaticString(name) if name == "Symbol.isConcatSpreadable")
-                {
-                    self.emit_arguments_is_concat_spreadable_write(
-                        target_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
                 } else if matches!(
                     key,
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::StringExpr(_)
@@ -10531,10 +10495,7 @@ impl<'a> FunctionBuilder<'a> {
                             }
                         }
                         function.instruction(&Instruction::Else);
-                        // `emit_arguments_read` observes the current mapped
-                        // parameter value. It reaches only the data branch, so
-                        // descriptor observation cannot invoke an accessor.
-                        self.emit_arguments_read(
+                        self.emit_arguments_data_read(
                             target_payload_local,
                             index_local,
                             data_value.0.payload,
@@ -13797,6 +13758,35 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_descriptor_kind_for_index(
+            current_local,
+            index_local,
+            descriptor_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(current_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_data_read(
+            current_local,
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::Else);
         self.emit_array_index_get(
             current_local,
             index_local,
@@ -13807,6 +13797,7 @@ impl<'a> FunctionBuilder<'a> {
             Some(found_local),
             function,
         )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_array_own_named_property_read(
             current_local,
@@ -21495,6 +21486,8 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Exception metadata reads stop at accessors and proxies: following the
+    /// proxy record's stored prototype would invent a property lookup result.
     pub(crate) fn emit_data_property_read_no_call(
         &mut self,
         object_local: u32,
@@ -21523,6 +21516,32 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(current_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(current_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            current_local,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(prototype_local));
+        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(2));
+        function.instruction(&Instruction::End);
+        self.emit_is_array_named_entry_backed_tag_i32(current_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_array_named_prop_read(
+            current_local,
+            key_local,
+            payload_local,
+            tag_local,
+            Some(present_local),
+            function,
+        );
+        function.instruction(&Instruction::Else);
         self.emit_object_own_data_field_read(
             current_local,
             current_tag_local,
@@ -21532,20 +21551,17 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         );
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
+        self.emit_load_prototype_to_current_locals(
             current_local,
-            HEAP_PROTOTYPE_OFFSET,
+            current_tag_local,
             prototype_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::LocalSet(current_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(current_tag_local));
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);

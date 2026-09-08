@@ -1901,8 +1901,8 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Compiles one `StatementIr::GeneratorLoop` for a resumable async body.
     ///
-    /// Each wasm invocation of an async body runs at most one loop iteration:
-    /// the suspension returns to the job queue and the driver re-enters the
+    /// Each wasm invocation runs one segment of a loop iteration:
+    /// each suspension returns to the job queue and the driver re-enters the
     /// function from the top. `resume_state_offset` names the activation slot
     /// holding that state, which differs between a plain async function
     /// (`HEAP_ASYNC_RESUME_STATE_OFFSET`) and an async generator
@@ -1965,11 +1965,11 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(*entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(*resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
 
         function.instruction(&Instruction::LocalGet(state_local));
@@ -1999,9 +1999,14 @@ impl<'a> FunctionBuilder<'a> {
             });
         }
         self.compile_statement(suspension_statement, function)?;
-        for statement in after_suspension {
-            self.compile_statement(statement, function)?;
-        }
+        let first_resume_state = Self::async_statement_exit_state(suspension_statement)
+            .expect("an async loop starts with a direct await");
+        self.compile_async_statement_sequence(
+            after_suspension,
+            first_resume_state,
+            resume_state_offset,
+            function,
+        )?;
         if fresh_iteration_environment.is_some() {
             self.finally_stack.pop();
             self.pop_control(ControlFrameKind::Block);
@@ -3187,6 +3192,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(*entry_state as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
+                self.initialize_direct_lexical_bindings(before_suspension, function);
+                self.initialize_direct_lexical_bindings(after_suspension, function);
                 if let Some(init) = init {
                     self.compile_for_init(init, function)?;
                 }
@@ -3201,45 +3208,38 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 function.instruction(&Instruction::End);
 
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                function.instruction(&Instruction::Loop(BlockType::Empty));
                 if let Some(test) = test {
                     self.compile_truthy_i32(test, function)?;
-                } else {
-                    function.instruction(&Instruction::I32Const(1));
+                    function.instruction(&Instruction::I32Eqz);
+                    function.instruction(&Instruction::BrIf(1));
                 }
-                function.instruction(&Instruction::If(BlockType::Empty));
+                self.initialize_direct_lexical_bindings(before_suspension, function);
+                self.initialize_direct_lexical_bindings(after_suspension, function);
                 for statement in before_suspension {
                     self.compile_statement(statement, function)?;
                 }
-                let StatementIr::GeneratorYield { value, .. } = suspension_statement.as_ref()
-                else {
-                    return Err(EmitError::unsupported(
-                        "generator loop must contain one direct yield",
-                    ));
-                };
-                self.compile_expr_to_locals(
-                    value,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                // A conditional yield can finish an iteration without suspending.
+                // Re-enter the suspension segment only after the next loop test,
+                // preserving the pending resume completion until it is consumed.
                 self.store_i64_const_at_offset(
                     activation_local,
                     HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*resume_state),
+                    u64::from(*entry_state),
                     function,
                 );
-                self.set_completion_kind_with_aux(
-                    CompletionKind::Normal,
-                    i64::from(*resume_state),
-                    function,
-                );
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::Else);
+                self.compile_statement(suspension_statement, function)?;
+                for statement in after_suspension {
+                    self.compile_statement(statement, function)?;
+                }
+                if let Some(update) = update {
+                    self.compile_expr_payload(update, function)?;
+                    function.instruction(&Instruction::Drop);
+                }
+                function.instruction(&Instruction::Br(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::End);
                 self.store_i64_const_at_offset(
                     activation_local,
                     HEAP_GENERATOR_RESUME_STATE_OFFSET,
@@ -3247,7 +3247,6 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
                 self.emit_statement_result(function, ValueKind::Undefined);
-                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
                 self.release_temp_local(state_local);
             }
@@ -3291,54 +3290,16 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 function.instruction(&Instruction::If(BlockType::Empty));
 
-                if let Some(resume_state) = then_resume_state {
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                } else {
-                    function.instruction(&Instruction::I32Const(0));
-                }
+                // Emit declarations before resume reads so both paths use the
+                // same activation slots. Only the selected fresh branch initializes.
+                function.instruction(&Instruction::LocalGet(state_local));
+                function.instruction(&Instruction::I64Const(*entry_state as i64));
+                function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                if let Some(yield_statement) = then_yield_statement {
-                    self.compile_statement(yield_statement, function)?;
-                }
-                for statement in then_after_yield {
-                    self.compile_statement(statement, function)?;
-                }
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*exit_state),
-                    function,
-                );
-                self.emit_statement_result(function, ValueKind::Undefined);
-                function.instruction(&Instruction::Else);
-
-                if let Some(resume_state) = else_resume_state {
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                } else {
-                    function.instruction(&Instruction::I32Const(0));
-                }
-                function.instruction(&Instruction::If(BlockType::Empty));
-                if let Some(yield_statement) = else_yield_statement {
-                    self.compile_statement(yield_statement, function)?;
-                }
-                for statement in else_after_yield {
-                    self.compile_statement(statement, function)?;
-                }
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*exit_state),
-                    function,
-                );
-                self.emit_statement_result(function, ValueKind::Undefined);
-                function.instruction(&Instruction::Else);
-
                 self.compile_truthy_i32(condition, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
+                self.initialize_direct_lexical_bindings(then_before_yield, function);
+                self.initialize_direct_lexical_bindings(then_after_yield, function);
                 for statement in then_before_yield {
                     self.compile_statement(statement, function)?;
                 }
@@ -3383,6 +3344,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_statement_result(function, ValueKind::Undefined);
                 }
                 function.instruction(&Instruction::Else);
+                self.initialize_direct_lexical_bindings(else_before_yield, function);
+                self.initialize_direct_lexical_bindings(else_after_yield, function);
                 for statement in else_before_yield {
                     self.compile_statement(statement, function)?;
                 }
@@ -3427,6 +3390,42 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_statement_result(function, ValueKind::Undefined);
                 }
                 function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                if let Some(resume_state) = then_resume_state {
+                    function.instruction(&Instruction::LocalGet(state_local));
+                    function.instruction(&Instruction::I64Const(*resume_state as i64));
+                    function.instruction(&Instruction::I64Eq);
+                } else {
+                    function.instruction(&Instruction::I32Const(0));
+                }
+                function.instruction(&Instruction::If(BlockType::Empty));
+                if let Some(yield_statement) = then_yield_statement {
+                    self.compile_statement(yield_statement, function)?;
+                }
+                for statement in then_after_yield {
+                    self.compile_statement(statement, function)?;
+                }
+                self.store_i64_const_at_offset(
+                    activation_local,
+                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                    u64::from(*exit_state),
+                    function,
+                );
+                self.emit_statement_result(function, ValueKind::Undefined);
+                function.instruction(&Instruction::Else);
+                if let Some(yield_statement) = else_yield_statement {
+                    self.compile_statement(yield_statement, function)?;
+                }
+                for statement in else_after_yield {
+                    self.compile_statement(statement, function)?;
+                }
+                self.store_i64_const_at_offset(
+                    activation_local,
+                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                    u64::from(*exit_state),
+                    function,
+                );
+                self.emit_statement_result(function, ValueKind::Undefined);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
@@ -5285,14 +5284,14 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Resolve a compiler-private activation binding from the environment that
+    /// Resolve an activation binding from the environment that
     /// is current at this source point.
     ///
     /// `owned_env_slot` is relative to the activation root. A materialized
     /// source environment may sit above that root, so spelling `hops: 0` at a
-    /// consumer can silently redirect the capability into an unrelated source
+    /// consumer can silently redirect the slot into an unrelated source
     /// binding with the same slot index.
-    fn activation_owned_binding_storage(&self, name: &str) -> Option<BindingStorage> {
+    pub(crate) fn activation_owned_binding_storage(&self, name: &str) -> Option<BindingStorage> {
         self.owned_env_slot(name)
             .map(|slot| BindingStorage::EnvSlot {
                 slot,
@@ -9021,8 +9020,50 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(method_payload_local));
         function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
+        // AsyncFromSyncIteratorContinuation closes the sync Iterator Record
+        // directly on a rejected value. Its return result is neither unwrapped
+        // nor awaited, and the original rejection wins over every close error.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(method_payload_local));
+        self.write_binding_from_locals(
+            close_on_rejection_storage,
+            method_payload_local,
+            method_tag_local,
+            function,
+        );
+        self.read_binding_to_locals(
+            iterator_storage,
+            iterator_payload_local,
+            iterator_tag_local,
+            function,
+        )?;
+        self.emit_iterator_close_preserving_current_throw(
+            IteratorCloseOnThrowLocals {
+                iterator_payload_local,
+                iterator_tag_local,
+                key_local,
+                return_payload_local: method_payload_local,
+                return_tag_local: method_tag_local,
+                result_payload_local,
+                result_tag_local,
+                saved_payload_local,
+                saved_tag_local,
+                saved_completion_local,
+                saved_aux_local,
+            },
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.store_i64_const_at_offset(
+            activation_local,
+            resume_state_offset,
+            u64::from(async_plan.exit_state),
+            function,
+        );
+        // This rejection has discharged its own close obligation. Propagate
+        // outside the loop finalizer so it cannot close the iterator twice.
         let outer_finalizer = self.finally_stack.iter().rev().nth(1).copied();
         let surrounding_throw_target =
             match (self.throw_handler_stack.last().copied(), outer_finalizer) {
@@ -9036,9 +9077,6 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             self.emit_return_current_completion(function);
         }
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_dispatch_current_completion(function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         if body_suspends {

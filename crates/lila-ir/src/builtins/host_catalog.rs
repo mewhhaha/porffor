@@ -2,6 +2,14 @@
 // surface. Row order is declaration order and therefore the derived `Ord`
 // contract. Every row must classify its exposure, which determines realm scope.
 use super::*;
+use crate::{
+    DYNAMIC_ASYNC_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+    DYNAMIC_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+    DYNAMIC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+};
+
+const ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_FUNCTION_ID: &str =
+    "lila:async-disposable-stack:sync-dispose";
 
 host_builtin_catalog! {
     Print {
@@ -38,6 +46,26 @@ host_builtin_catalog! {
         name: CREATE_HTMLDDA_NAME,
         function: HOST_CREATE_HTMLDDA_FUNCTION_ID,
         surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    GeneratorFunctionConstructor {
+        name: "GeneratorFunction",
+        function: DYNAMIC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    AsyncFunctionConstructor {
+        name: "AsyncFunction",
+        function: DYNAMIC_ASYNC_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    AsyncGeneratorFunctionConstructor {
+        name: "AsyncGeneratorFunction",
+        function: DYNAMIC_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    AsyncDisposableStackSyncDispose {
+        name: "",
+        function: ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
     }
     HTMLDDA {
         name: "IsHTMLDDA",
@@ -110,6 +138,10 @@ impl HostBuiltinId {
             | Self::AssertThrows
             | Self::IsConstructor
             | Self::RealmEvalScript
+            | Self::GeneratorFunctionConstructor
+            | Self::AsyncFunctionConstructor
+            | Self::AsyncGeneratorFunctionConstructor
+            | Self::AsyncDisposableStackSyncDispose
             | Self::CreateHTMLDDA
             | Self::HTMLDDA
             | Self::ParseInt
@@ -128,7 +160,13 @@ impl HostBuiltinId {
 
     pub const fn may_run_user_code_synchronously(self) -> bool {
         match self {
-            Self::AssertThrows | Self::ParseInt | Self::ParseFloat => true,
+            Self::AssertThrows
+            | Self::ParseInt
+            | Self::ParseFloat
+            | Self::GeneratorFunctionConstructor
+            | Self::AsyncFunctionConstructor
+            | Self::AsyncGeneratorFunctionConstructor
+            | Self::AsyncDisposableStackSyncDispose => true,
             Self::Print
             | Self::Gc
             | Self::IsConstructor

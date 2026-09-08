@@ -17,36 +17,14 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> CurrentFunctionRealmIntrinsicPromiseConstructor {
         let constructor_payload_local = self.reserve_temp_local();
-        let realm_local = self.reserve_temp_local();
+        let realm_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
+        self.emit_load_promise_internal_function_realm_intrinsics(
+            &realm_context,
             intrinsics_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
         self.load_i64_to_local_from_offset(
             intrinsics_local,
             HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
@@ -60,7 +38,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_temp_local(intrinsics_local);
-        self.release_temp_local(realm_local);
+        self.release_promise_internal_function_materialization_context(realm_context);
         CurrentFunctionRealmIntrinsicPromiseConstructor {
             constructor_payload_local,
         }
@@ -77,7 +55,10 @@ impl<'a> FunctionBuilder<'a> {
         let constructor_tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         let result = self.emit_new_promise_capability(
+            &executor_context,
             constructor.constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -85,6 +66,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         );
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.release_temp_local(constructor_tag_local);
         self.release_temp_local(constructor.constructor_payload_local);
         result

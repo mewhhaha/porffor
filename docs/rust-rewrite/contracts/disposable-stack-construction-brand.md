@@ -30,11 +30,12 @@ The supported source-free Wasm-AOT boundary therefore requires:
    and
 6. an initialized pending record with an empty disposal-resource stack.
 
-The cross-realm fallback test whose only new target is constructed by
-`new other.Function()` remains a dynamic-source Wasm-AOT exclusion. This seam
-uses the current intrinsic global for primitive fallback, matching the already
-supported `%AsyncDisposableStack%` boundary without claiming dynamic Function
-construction.
+The cross-realm fallback test uses `new other.Function()` with no source
+arguments, which is now supported. The synchronous constructor still selects
+the entry intrinsic for primitive fallback and lacks created-realm publication;
+this is remaining implementation work, not a dynamic-source policy exclusion.
+The asynchronous stack's completed Realm boundary is described by
+[`async-disposable-stack-created-realm.md`](async-disposable-stack-created-realm.md).
 
 ## Closed pending-record witness
 

@@ -41,13 +41,9 @@ impl DynamicFunctionKind {
     }
 }
 
-/// Closed callable identities whose only current compiler behavior is a typed
-/// dynamic-source rejection.
-///
-/// The derived Function identities are deliberately compiler-only. Realm eval
-/// also maps to a Test262-only host builtin so the harness can store a valid
-/// function object; its defensive body is not a dynamic-source execution path.
-/// In both cases aliases and heap-shape property reads preserve semantics.
+/// Closed dynamic-source intrinsic identities shared by lowering and backend
+/// metadata. Zero-argument Function-family calls have real compiled empty
+/// bodies; textual evaluation without a specialization remains unsupported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DynamicSourceIntrinsic {
     Function(DynamicFunctionKind),
@@ -227,9 +223,89 @@ impl DynamicSourceGap {
     }
 }
 
+/// An intrinsic selected during execution without a compiled source/environment
+/// specialization. This deliberately does not infer direct-eval syntax or
+/// classify source text as runtime-generated from an erased call-site fact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DynamicSourceRuntimeOperation {
+    Eval,
+    RealmEvalScript,
+    Function(DynamicFunctionKind),
+}
+
+impl DynamicSourceRuntimeOperation {
+    pub const fn abi_code(self) -> i64 {
+        match self {
+            Self::Eval => 0,
+            Self::RealmEvalScript => 1,
+            Self::Function(DynamicFunctionKind::Ordinary) => 2,
+            Self::Function(DynamicFunctionKind::Generator) => 3,
+            Self::Function(DynamicFunctionKind::Async) => 4,
+            Self::Function(DynamicFunctionKind::AsyncGenerator) => 5,
+        }
+    }
+
+    pub const fn from_abi_code(code: i64) -> Option<Self> {
+        match code {
+            0 => Some(Self::Eval),
+            1 => Some(Self::RealmEvalScript),
+            2 => Some(Self::Function(DynamicFunctionKind::Ordinary)),
+            3 => Some(Self::Function(DynamicFunctionKind::Generator)),
+            4 => Some(Self::Function(DynamicFunctionKind::Async)),
+            5 => Some(Self::Function(DynamicFunctionKind::AsyncGenerator)),
+            _ => None,
+        }
+    }
+
+    pub const fn operation_name(self) -> &'static str {
+        match self {
+            Self::Eval => "eval",
+            Self::RealmEvalScript => "$262.evalScript",
+            Self::Function(DynamicFunctionKind::Ordinary) => "Function",
+            Self::Function(DynamicFunctionKind::Generator) => "GeneratorFunction",
+            Self::Function(DynamicFunctionKind::Async) => "AsyncFunction",
+            Self::Function(DynamicFunctionKind::AsyncGenerator) => "AsyncGeneratorFunction",
+        }
+    }
+}
+
+impl core::fmt::Display for DynamicSourceRuntimeOperation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "unsupported dynamic-source operation `{}` selected during Wasm execution without a compiled source/environment specialization",
+            self.operation_name(),
+        )
+    }
+}
+
+impl std::error::Error for DynamicSourceRuntimeOperation {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_operation_abi_decodes_only_assigned_codes() {
+        let operations = [
+            DynamicSourceRuntimeOperation::Eval,
+            DynamicSourceRuntimeOperation::RealmEvalScript,
+            DynamicSourceRuntimeOperation::Function(DynamicFunctionKind::Ordinary),
+            DynamicSourceRuntimeOperation::Function(DynamicFunctionKind::Generator),
+            DynamicSourceRuntimeOperation::Function(DynamicFunctionKind::Async),
+            DynamicSourceRuntimeOperation::Function(DynamicFunctionKind::AsyncGenerator),
+        ];
+        for (code, operation) in operations.into_iter().enumerate() {
+            assert_eq!(operation.abi_code(), code as i64);
+            assert_eq!(
+                DynamicSourceRuntimeOperation::from_abi_code(code as i64),
+                Some(operation)
+            );
+        }
+        for code in [i64::MIN, -1, 6, i64::MAX] {
+            assert_eq!(DynamicSourceRuntimeOperation::from_abi_code(code), None);
+        }
+    }
 
     #[test]
     fn dynamic_source_intrinsic_catalog_round_trips_every_identity() {

@@ -4620,6 +4620,20 @@ impl<'a> ScriptLowerer<'a> {
         }))))
     }
 
+    pub(super) fn empty_dynamic_function_info(kind: DynamicFunctionKind) -> ValueInfo {
+        ValueInfo {
+            kind: ValueKind::Function,
+            possible_kinds: KindSet::from_kind(ValueKind::Function),
+            heap_shape: match kind {
+                DynamicFunctionKind::Ordinary => Some(Self::function_heap_shape(true)),
+                DynamicFunctionKind::Generator
+                | DynamicFunctionKind::Async
+                | DynamicFunctionKind::AsyncGenerator => None,
+            },
+            function_targets: FunctionTargetKnowledge::unknown(),
+        }
+    }
+
     pub(super) fn standard_builtin_signature(
         &self,
         builtin: StandardBuiltinId,
@@ -4630,8 +4644,8 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::FunctionConstructor => (
                 ValueKind::Function,
                 KindSet::from_kind(ValueKind::Function),
-                Some(Self::standard_builtin_function_shape(builtin)),
-                Self::standard_builtin_value_info(builtin),
+                Some(Self::function_heap_shape(true)),
+                Self::empty_dynamic_function_info(DynamicFunctionKind::Ordinary),
             ),
             StandardBuiltinId::FunctionPrototype => (
                 ValueKind::Undefined,

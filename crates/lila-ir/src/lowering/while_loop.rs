@@ -31,15 +31,12 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             None
         }) {
-            if let Some((before_suspension, suspension_statement, after_suspension)) =
-                Self::split_resumable_loop_body(body.clone())
+            if let Some((before_suspension, suspension_statement, after_suspension, resume_state)) =
+                Self::split_resumable_loop_body(
+                    body.clone(),
+                    generator_entry_state.is_some() && self.current_resumable_plan.is_none(),
+                )
             {
-                let (StatementIr::GeneratorYield { resume_state, .. }
-                | StatementIr::AsyncAwait { resume_state, .. }) = &suspension_statement
-                else {
-                    unreachable!("while-loop resumable statement must be a yield or await");
-                };
-                let resume_state = *resume_state;
                 let exit_state = if self.current_resumable_plan.is_some() {
                     resume_state
                 } else {
@@ -67,8 +64,14 @@ impl<'a> ScriptLowerer<'a> {
                 );
             }
         }
+        if generator_entry_state.is_some()
+            && contains(while_loop.body(), ContainsSymbol::YieldExpression)
+        {
+            self.unsupported("generator loop body has no reentrant suspension segment");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
         if plain_async_await_loop {
-            self.unsupported("async loop body did not lower to one direct await");
+            self.unsupported("async loop body did not lower to a direct await sequence");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
         (

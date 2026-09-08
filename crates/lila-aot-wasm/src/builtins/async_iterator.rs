@@ -19,8 +19,6 @@ impl<'a> FunctionBuilder<'a> {
                 "unsupported in lila wasm-aot first slice: missing AsyncIterator asyncDispose receiver tag",
             )
         })?;
-        let promise_constructor_payload_local = self.reserve_temp_local();
-        let promise_constructor_tag_local = self.reserve_temp_local();
         let capability_record_local = self.reserve_temp_local();
         let promise_payload_local = self.reserve_temp_local();
         let promise_tag_local = self.reserve_temp_local();
@@ -42,13 +40,9 @@ impl<'a> FunctionBuilder<'a> {
         let rejected_payload_local = self.reserve_temp_local();
         let callback_tag_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(promise_constructor_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(promise_constructor_tag_local));
-        self.emit_new_promise_capability(
-            promise_constructor_payload_local,
-            promise_constructor_tag_local,
+        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(function);
+        self.emit_new_current_function_realm_intrinsic_promise_capability(
+            constructor,
             capability_record_local,
             promise_payload_local,
             promise_tag_local,
@@ -219,9 +213,9 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
 
-        self.emit_new_promise_capability(
-            promise_constructor_payload_local,
-            promise_constructor_tag_local,
+        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(function);
+        self.emit_new_current_function_realm_intrinsic_promise_capability(
+            constructor,
             throwaway_capability_local,
             throwaway_promise_payload_local,
             throwaway_promise_tag_local,
@@ -266,8 +260,6 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             promise_payload_local,
             capability_record_local,
-            promise_constructor_tag_local,
-            promise_constructor_payload_local,
         ] {
             self.release_temp_local(local);
         }

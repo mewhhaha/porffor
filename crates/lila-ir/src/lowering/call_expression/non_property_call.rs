@@ -61,6 +61,9 @@ impl<'a> ScriptLowerer<'a> {
                 let resolved = erased_direct_eval.resolve(this, args, &lowered_args);
                 match resolved {
                     ResolvedDynamicSourceCall::EvalPassThrough(_) => {}
+                    ResolvedDynamicSourceCall::EmptyFunction(_) => {
+                        unreachable!("erased eval cannot resolve to Function construction")
+                    }
                     ResolvedDynamicSourceCall::Unsupported(unsupported) => {
                         this.record_unsupported_dynamic_source(unsupported);
                         return TypedExpr::undefined();

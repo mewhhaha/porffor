@@ -80,19 +80,21 @@ status refresh is claimed by this checkpoint.
 
 ## Plain-async body-`await` checkpoint
 
-The remaining Array index walk is deleted. A synchronous `for-of` with one
-direct body `await` in a plain async function now lowers to
+The remaining Array index walk is deleted. A synchronous `for-of` with a sequence
+of direct body awaits in a plain async function now lowers to
 `StatementIr::AsyncFunctionForOfIterator`. Its required
 `AsyncFunctionForOfIteratorPlanIr` couples these values behind private fields:
 
 - the assignment binding and the activation-owned `IteratorRecordIr`;
 - the head and per-iteration environment lifecycles;
-- the body split before, at, and after the source `await`; and
+- the body split before, at, and after the first source `await`; and
 - strictly ordered entry, resume, and exit states.
 
-The constructor checks that the split statement is `AsyncAwait`, that its
-suspend state equals the plan entry, and that its resume state is the next
-state. It derives the exit state with checked addition. A captured lexical loop
+The constructor checks that the split statement is `AsyncAwait` and that its
+suspend state equals the plan entry. Direct awaits in the continuation must
+form consecutive suspend/resume states; intervening eager statements are
+allowed and nested suspensions are rejected. The plan retains the last resume
+state and derives the exit state with checked addition. A captured lexical loop
 binding becomes `FreshPerIteration`; a captured head TDZ remains rejected.
 
 Lowering no longer asks whether the iterable is an Array. It allocates the
@@ -105,8 +107,10 @@ stepping, value extraction, and close.
 
 The backend acquires `@@iterator` and reads `next` only on the entry path. It
 stores the Iterator Record in the async activation and reloads it after the body
-await instead of restarting iteration. Natural exhaustion does not call
-`return`. An await rejection closes once and keeps the original Throw even if
+await instead of restarting iteration. Every intermediate continuation runs
+only its own statements and retains that record through a later await.
+Natural exhaustion does not call `return`. An await rejection closes once and
+keeps the original Throw even if
 close throws. A Return after the await also closes once, but a close error
 replaces that Return. Abrupt `next`, `done`, or `value` evaluation does not
 close because no loop-body completion owns the iterator yet.
@@ -131,8 +135,8 @@ leaves pass `4/4` Wasm-AOT executions with every failure and non-success bucket
 at zero. The complete 95-file `Array.fromAsync` leaf, semantic golden, and
 published-status refresh were not run.
 
-This form remains limited to a plain async function, one direct body `await`,
-and a simple single-name declaration or bare identifier assignment head.
+This form remains limited to a plain async function, sequential direct body
+awaits, and a simple single-name declaration or bare identifier assignment head.
 Direct `break` and `continue`, pattern and property heads, a captured head TDZ,
 an iterable that suspends, async generators, and `for await` do not use this
 plan.

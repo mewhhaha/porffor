@@ -1,6 +1,6 @@
 # T13 — Dynamic source evaluation: `eval`, `Function` and realm evaluation
 
-**Status:** Policy, typed accounting, no-source `%eval%` and bounded `.call` forwarding implemented; textual static subsets remain
+**Status:** Typed compile/runtime accounting, no-source `%eval%`, zero-argument Function-family construction and bounded `.call` forwarding implemented; nonempty textual static subsets remain
 
 **Parallel group:** Feature lane; architecture decision recorded
 **Depends on:** T03, T06, T08, T09, T12  
@@ -14,8 +14,8 @@ when support would require an interpreter or runtime parser. Resolved ordinary
 `eval` calls that may receive primitive String source and `%Function%` calls
 now carry a closed `UnsupportedFeature` through
 IR diagnostics into conformance accounting. The three derived Function-family
-constructors now have closed compiler-only intrinsic identities carried by
-function prototype shapes, and `$262.evalScript` is a typed host
+constructors have closed intrinsic identities and actual backend bodies,
+carried by function prototype shapes, and `$262.evalScript` is a typed host
 identity admitted solely by the Test262 host-surface policy. Test262 no longer
 infers any dynamic-source result from source spelling. The README reports all
 of these cases separately.
@@ -23,7 +23,9 @@ The spec's pre-source `%eval%` branches are implemented: a no-argument call
 returns `undefined`, and a call whose lowered first-argument kind is nonempty
 and excludes primitive String returns that value unchanged. This is ordinary
 builtin execution, not a textual static subset. Supported statically known
-source subsets have not been implemented. Keep this task focused on capability
+nonempty source subsets have not been implemented. Zero-argument Function-family
+calls compile real empty functions with the selected execution protocol and
+constructor/newTarget realm semantics. Keep this task focused on capability
 reporting and general compilation paths rather than treating the permitted
 unsupported result as a pass.
 
@@ -139,20 +141,29 @@ enum rather than its display string.
 Current compiler producers cover known call/construct candidates for
 direct/indirect `%eval%`, all four Function-family constructors and realm
 `evalScript`, including spread calls, optional calls across those identities and
-zero-argument Function construction. Direct `eval` also retains its typed gap
+textual Function construction. Direct `eval` also retains its typed gap
 when an earlier user-code effect erases the global builtin value fact without
 proving a replacement; the classifier requires both original identifier syntax
-and a lowered direct global reference. The old zero-argument shortcut did not
-compile an empty function; it manufactured a value with Function-constructor
-metadata, so it is now typed unsupported with every other Function-constructor
-call.
+and a lowered direct global reference. The old zero-argument constructor metadata reuse is replaced by fresh empty
+ordinary functions and genuine empty generator/async/async-generator IR bodies.
+Defining realms and observable `newTarget.prototype` lookup are preserved.
+Calls with source arguments retain typed unsupported accounting.
+
+When callable provenance is lost, the exact runtime intrinsic rejects through
+`lila_host.reject_dynamic_source(i64)`. The separate
+`DynamicSourceRuntimeOperation` error survives Wasmtime and Test262 boundaries,
+including agent execution, without becoming a JavaScript throw. User
+replacements and runtime non-String `%eval%` calls keep ordinary behavior. This
+repairs misclassified sentinel throws; it does not turn unsupported executions
+into passes.
 
 Resolved `%eval%` is classified through one private, must-use disposition.
 No-argument calls and no-spread calls whose first argument has a nonempty
 `KindSet` excluding primitive String receive a `ProvenEvalPassThrough` and keep
 their ordinary indirect-call IR. A String-capable or unknown argument, every
-spread, realm `evalScript`, and all Function-family operations retain their
-typed gaps. The pass-through never folds away the call: runtime callee identity
+spread and realm `evalScript` retain their typed gaps. Function-family calls
+with no arguments instead receive `ProvenEmptyFunction`; calls with textual
+source arguments retain their gaps. The pass-through never folds away the call: runtime callee identity
 and evaluation of every argument remain observable. Function-target
 completeness is carried independently of heap shape by the closed
 `FunctionTargetKnowledge::{Exact, Open}` lattice. Joins union the known target
@@ -211,16 +222,16 @@ blocked on the target-realm environment seam rather than synthesized as a
 wrapper. Generic String-capable source remains blocked on runtime compilation;
 proven non-String eval is outside that boundary because it evaluates no source.
 
-`DynamicSourceIntrinsic` is the non-executable catalog behind the remaining
+`DynamicSourceIntrinsic` is the shared catalog behind these callable
 identities. Generator, async and async-generator function object shapes expose
 the right constructor through their intrinsic prototype; aliases therefore
 retain identity without recognizing identifier spelling. The Wasm-AOT Test262
 harness stores the Test262-only realm-eval host builtin directly on
 `$262.evalScript`, so lowering sees the caller's actual argument expressions.
-The compiler-only Function identities have no backend emitter. Realm eval has a
-defensive host body so the always-loaded harness can carry a valid function
-object, but every directly resolved invocation produces the typed diagnostic
-and is rejected before backend planning.
+Derived Function identities now select real constructor bodies, with compiled
+empty functions for no-argument calls. Realm eval has an exact runtime identity
+body that reports a typed host capability failure; directly resolved textual
+invocations still produce the compiler diagnostic before backend planning.
 
 The diagnostic's AOT-known/runtime split is now derived before lowering from a
 private closed source-proof boundary. String literals, no-substitution

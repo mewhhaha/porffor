@@ -1,0 +1,72 @@
+name: Observed Test262 failure regressions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: observed-failures-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check exact execution replay tooling
+        run: python3 -m unittest discover -s scripts/tests -p test_replay_test262_executions.py -v
+
+      - name: Check suspension storage and empty constructor lowering
+        run: >-
+          cargo test --locked -p lila-ir
+          --test async_for_of_activation --test empty_function_and_erased_eval
+          --test generator_branch_lexicals
+          -- --test-threads=1
+
+      - name: Validate async-generator loop continuation ranges
+        run: >-
+          cargo test --locked -p lila-aot-wasm --lib
+          emit::async_generator_dispatcher_tests -- --test-threads=1
+
+      - name: Execute repaired compiler paths through Wasmtime
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_arguments_concat --test aot_async_loop_bindings
+          --test aot_await_rejection_realm --test aot_empty_function
+          --test aot_empty_dynamic_functions --test aot_dynamic_source_capability
+          --test aot_created_realm_dynamic_functions
+          --test aot_async_disposable_stack_realm
+          --test aot_created_realm_async_disposable_stack
+          --test aot_thrown_exception_constructor
+          --test aot_for_await_rejection_close --test aot_generator_loops
+          --test aot_regexp_recompile -- --test-threads=1
+
+      - name: Keep runtime capability failures distinct from JavaScript errors
+        run: >-
+          cargo test --locked -p lila-test262 --lib
+          runtime_dynamic_source_cannot_pass_by_catching_or_matching_a_js_error
+          -- --test-threads=1
+
+      - name: Preserve every root and worker failure
+        run: |
+          cargo test --locked -p lila-engine --lib execution_failure:: -- --test-threads=1
+          cargo test --locked -p lila-engine --lib agent_failure_tests:: -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib agent_failures_never_satisfy_expected_root_runtime_exceptions -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib typed_root_runtime_exception_still_satisfies_negative_expectations -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib typed_runtime_negative_ignores_error_names_in_messages_and_primitives -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib wasm_aot_retains_async_done_failures_alongside_execution_failures -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib wasm_aot_enforces_async_done_output_after_jobs_drain -- --test-threads=1
+
+      - name: Check created-realm disposal ownership
+        run: cargo test --locked -p lila-aot-wasm --test created_realm_async_disposable_stack_structure

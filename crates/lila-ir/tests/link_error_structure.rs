@@ -124,7 +124,14 @@ fn graph_build_early_and_lowering_keep_their_existing_error_roles() {
     );
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ModuleLinkErrorIr").count(), 4);
     assert_eq!(EARLY_SOURCE.matches("ModuleLinkErrorIr").count(), 2);
-    assert_eq!(RECORD_SOURCE.matches("ModuleLinkErrorIr").count(), 1);
+    assert!(!RECORD_SOURCE.contains("ModuleLinkErrorIr"));
+    assert_eq!(
+        RECORD_SOURCE
+            .matches("use super::early::module_early_errors;")
+            .count(),
+        1
+    );
+    assert_eq!(RECORD_SOURCE.matches("module_early_errors(").count(), 1);
     assert_eq!(LOWERING_SOURCE.matches("ModuleLinkErrorIr").count(), 1);
     assert_eq!(
         GRAPH_RESOLUTION_SOURCE

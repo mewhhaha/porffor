@@ -1,6 +1,8 @@
 use super::super::*;
 
 mod constructor;
+mod dynamic_constructor;
+pub(crate) use dynamic_constructor::append_empty_dynamic_function_bodies;
 
 mod function_prototype_receiver {
     use super::*;
@@ -52,6 +54,20 @@ enum FunctionBuiltin {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    pub(crate) fn emit_reject_dynamic_source(
+        &self,
+        operation: lila_ir::DynamicSourceRuntimeOperation,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(operation.abi_code()));
+        function.instruction(&Instruction::Call(
+            self.functions.reject_dynamic_source_import_function_index(),
+        ));
+        // The host rejects with an engine capability error outside JavaScript
+        // completion handling. A host that returns violates this ABI contract.
+        function.instruction(&Instruction::Unreachable);
+    }
+
     pub(super) fn emit_function_constructor_builtin(
         &mut self,
         function: &mut Function,

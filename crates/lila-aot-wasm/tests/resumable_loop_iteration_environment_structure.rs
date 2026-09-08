@@ -19,6 +19,30 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 }
 
 #[test]
+fn activation_binding_allocation_uses_the_current_environment_distance() {
+    for (start, end) in [
+        (
+            "pub(crate) fn allocate_binding(",
+            "pub(crate) fn lookup_binding(",
+        ),
+        (
+            "pub(crate) fn allocate_dynamic_binding_storage(",
+            "pub(crate) fn initialize_arguments_binding(",
+        ),
+    ] {
+        let allocate = bounded(ENVIRONMENTS_SOURCE, start, end);
+        assert!(allocate.contains(".activation_owned_binding_storage("));
+        assert!(!allocate.contains("hops: 0"));
+    }
+    let resolve = bounded(
+        CONTROL_FLOW_SOURCE,
+        "pub(crate) fn activation_owned_binding_storage(",
+        "fn initialize_async_disposable_resource_bindings(",
+    );
+    assert!(resolve.contains("hops: self.environment_depth"));
+}
+
+#[test]
 fn resumable_loop_environment_domain_and_activation_offsets_are_exhaustive() {
     let body = bounded(
         CONTROL_FLOW_SOURCE,
@@ -51,16 +75,16 @@ fn resumable_loop_environment_domain_and_activation_offsets_are_exhaustive() {
 }
 
 #[test]
-fn async_generator_classic_for_registers_activation_owned_lexicals_before_resume_state() {
+fn async_generator_classic_for_registers_activation_owned_lexicals_before_loop_plan() {
     let loop_split = bounded(
         FOR_LOOP_LOWERING_SOURCE,
-        "                if let Some((before_suspension, suspension_statement, after_suspension)) =",
-        "                    let exit_state = if self.current_resumable_plan.is_some() {",
+        "Self::split_resumable_loop_body(",
+        "StatementIr::GeneratorLoop {",
     );
     let activation_ownership = bounded(
         loop_split,
         "                    if self.current_resumable_plan.is_some() {",
-        "                    let resume_state = match &suspension_statement {",
+        "                    let exit_state = if self.current_resumable_plan.is_some() {",
     );
 
     for initializer in [
@@ -93,7 +117,7 @@ fn async_generator_classic_for_registers_activation_owned_lexicals_before_resume
     assert_before(
         loop_split,
         "self.add_suspension_owned_binding(name.clone());",
-        "let resume_state = match &suspension_statement",
+        "let exit_state = if self.current_resumable_plan.is_some()",
     );
 }
 
@@ -132,6 +156,21 @@ fn resume_attaches_the_saved_record_then_restores_parent_before_update() {
         resume,
         "environment_depth: self.environment_depth",
         "self.compile_statement(suspension_statement, function)?",
+    );
+    assert_before(
+        resume,
+        "self.compile_statement(suspension_statement, function)?",
+        "Self::async_statement_exit_state(suspension_statement)",
+    );
+    assert_before(
+        resume,
+        "Self::async_statement_exit_state(suspension_statement)",
+        "self.compile_async_statement_sequence(",
+    );
+    assert_before(
+        resume,
+        "self.compile_async_statement_sequence(",
+        "self.emit_leave_lexical_environment(function);",
     );
     assert_before(
         resume,
@@ -220,4 +259,53 @@ fn successful_test_allocates_and_saves_before_binding_initialization() {
         cleanup.contains("activation_environment_offset"),
         "the parent must be published after the single cleanup leave"
     );
+}
+
+#[test]
+fn synchronous_generator_lexicals_are_registered_before_resume_paths() {
+    let loop_body = bounded(
+        CONTROL_FLOW_SOURCE,
+        "EmitError::unsupported(\"generator loop requires the function call ABI\")",
+        "            StatementIr::GeneratorIf {",
+    );
+    for declarations in ["before_suspension", "after_suspension"] {
+        assert_before(
+            loop_body,
+            &format!("self.initialize_direct_lexical_bindings({declarations}, function);"),
+            "self.compile_statement(suspension_statement, function)?;",
+        );
+    }
+    let loop_resume = bounded(
+        loop_body,
+        "                function.instruction(&Instruction::Else);",
+        "                function.instruction(&Instruction::Block(BlockType::Empty));",
+    );
+    assert!(!loop_resume.contains("initialize_direct_lexical_bindings"));
+
+    let branch = bounded(
+        CONTROL_FLOW_SOURCE,
+        "EmitError::unsupported(\"generator branch requires the function call ABI\")",
+        "            StatementIr::Var(declarators) => {",
+    );
+    for selected in ["then", "else"] {
+        for declarations in ["before_yield", "after_yield"] {
+            assert_before(
+                branch,
+                &format!(
+                    "self.initialize_direct_lexical_bindings({selected}_{declarations}, function);"
+                ),
+                "self.compile_statement(yield_statement, function)?;",
+            );
+        }
+    }
+    assert_before(
+        branch,
+        "self.compile_truthy_i32(condition, function)?;",
+        "self.initialize_direct_lexical_bindings(then_before_yield, function);",
+    );
+    let resume = branch
+        .split_once("self.compile_statement(yield_statement, function)?;")
+        .expect("branch resume")
+        .1;
+    assert!(!resume.contains("initialize_direct_lexical_bindings"));
 }

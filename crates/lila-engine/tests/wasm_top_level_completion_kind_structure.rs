@@ -266,7 +266,7 @@ fn raw_completion_kind_is_parsed_once_before_three_exhaustive_consumers() {
     assert_eq!(
         execution
             .matches(
-                "kindifkind==CompletionKindIr::Throw.abi_code()=>WasmTopLevelCompletionKind::Throw"
+                "kindifkind==CompletionKindIr::Throw.abi_code()=>{WasmTopLevelCompletionKind::Throw}"
             )
             .count(),
         1

@@ -24,8 +24,6 @@ use std::sync::OnceLock;
 pub(crate) const REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION: u64 =
     (1_u64 << 32) | u32::from_le_bytes(*b"NRGT") as u64;
 
-pub(crate) const REALM_EVAL_SCRIPT_ESCAPE_MESSAGE: &str =
-    "$262.evalScript dynamic source evaluation escaped typed lowering";
 pub(crate) const UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE: &str =
     "unhandled rejection diagnostic ToString threw";
 
@@ -73,7 +71,6 @@ pub(crate) const UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE: &str =
 /// is a compile error. That is a refactor across ~1,120 call sites and does not
 /// belong to this lane; this table is the honest intermediate.
 pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
-    REALM_EVAL_SCRIPT_ESCAPE_MESSAGE,
     "%TypedArray% cannot be called or constructed directly",
     "Atomics.wait cannot suspend the current agent",
     "BigInt division by zero",
@@ -626,7 +623,6 @@ impl StringPool {
             "lastIndex",
             "index",
             "input",
-            "dynamic eval unsupported",
             "$_",
             "lastMatch",
             "$&",
@@ -1371,6 +1367,8 @@ impl StringPool {
             "Symbol.search",
             "Symbol.split",
             "Symbol.toStringTag",
+            "anonymous",
+            "function anonymous(\n) {\n\n}",
             "GeneratorFunction",
             "function GeneratorFunction() { [native code] }",
             "AsyncFunction",
@@ -1646,7 +1644,6 @@ impl StringPool {
             "URI percent escape contains a non-hex digit",
             "ReferenceError",
             "class constructor cannot be invoked without `new`",
-            "dynamic Function constructor unsupported",
             "Math.sumPrecise non-number element",
             "Function.prototype.call receiver is not callable",
             "Function.prototype.apply receiver is not callable",
@@ -1854,7 +1851,12 @@ impl StringPool {
             "baseName",
             "Intl.Locale constructor requires new",
             "Intl.Locale tag must be a string or an object",
+            "Intl.Locale options must not be null",
             "Intl.Locale.prototype method called on incompatible receiver",
+            "Invalid Intl.Locale language option",
+            "Invalid Intl.Locale script option",
+            "Invalid Intl.Locale region option",
+            "Invalid language tag after Intl.Locale options",
             "Intl.getCanonicalLocales argument must be an object",
             "Intl.getCanonicalLocales locale must be a string or an object",
             "Invalid language tag",

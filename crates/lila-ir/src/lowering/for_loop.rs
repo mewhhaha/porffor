@@ -28,7 +28,7 @@ impl<'a> ScriptLowerer<'a> {
                 || loop_head_has_await)
         {
             self.unsupported(
-                "resumable async loop requires one direct body await and an eager loop head without break or continue",
+                "resumable async loop requires a direct await sequence and an eager loop head without break or continue",
             );
             return (StatementIr::Empty, ValueKind::Undefined);
         }
@@ -150,9 +150,15 @@ impl<'a> ScriptLowerer<'a> {
             None
         }) {
             if lexical_environment.is_none() {
-                if let Some((before_suspension, suspension_statement, after_suspension)) =
-                    Self::split_resumable_loop_body(body.clone())
-                {
+                if let Some((
+                    before_suspension,
+                    suspension_statement,
+                    after_suspension,
+                    resume_state,
+                )) = Self::split_resumable_loop_body(
+                    body.clone(),
+                    generator_entry_state.is_some() && self.current_resumable_plan.is_none(),
+                ) {
                     if self.current_resumable_plan.is_some() {
                         match &init {
                             Some(ForInitIr::Lexical { name, .. }) => {
@@ -186,13 +192,6 @@ impl<'a> ScriptLowerer<'a> {
                             }
                         }
                     }
-                    let resume_state = match &suspension_statement {
-                        StatementIr::GeneratorYield { resume_state, .. }
-                        | StatementIr::AsyncAwait { resume_state, .. } => *resume_state,
-                        _ => unreachable!(
-                            "split resumable loop must return an await or yield statement"
-                        ),
-                    };
                     let exit_state = if self.current_resumable_plan.is_some() {
                         resume_state
                     } else {
@@ -221,8 +220,14 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         }
+        if generator_entry_state.is_some()
+            && contains(for_loop.body(), ContainsSymbol::YieldExpression)
+        {
+            self.unsupported("generator loop body has no reentrant suspension segment");
+            return (StatementIr::Empty, ValueKind::Undefined);
+        }
         if resumable_await_loop {
-            self.unsupported("resumable async loop body did not lower to one direct await");
+            self.unsupported("resumable async loop body did not lower to a direct await sequence");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
         if plain_async_await_loop {
@@ -230,7 +235,7 @@ impl<'a> ScriptLowerer<'a> {
             // holding a suspension: the driver re-enters the body from the top,
             // so the loop would restart at iteration zero and never suspend
             // again. A diagnostic is the only safe answer.
-            self.unsupported("async loop body did not lower to one direct await");
+            self.unsupported("async loop body did not lower to a direct await sequence");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
 

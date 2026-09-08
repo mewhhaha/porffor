@@ -258,7 +258,7 @@ fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
 }
 
 #[test]
-fn authority_has_exactly_eight_private_non_derived_roles() {
+fn authority_has_eight_optional_and_one_required_private_non_derived_roles() {
     let lexical_probe = rust_code(
         r###"
         // HostImportFunctionIndices
@@ -291,6 +291,12 @@ fn authority_has_exactly_eight_private_non_derived_roles() {
     }
     assert!(domain
         .normalized
+        .contains("pub(crate)structRejectDynamicSourceImportFunctionIndex(u32);"));
+    assert!(domain
+        .normalized
+        .contains("reject_dynamic_source:RejectDynamicSourceImportFunctionIndex,"));
+    assert!(domain
+        .normalized
         .contains("#[must_use]pub(crate)structHostImportFunctionIndices{"));
     for forbidden in ["derive(", "implClonefor", "implCopyfor"] {
         assert!(
@@ -306,6 +312,10 @@ fn role_and_authority_census_is_closed_over_product_sources() {
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "HostImportFunctionIndices"),
         5
+    );
+    assert_eq!(
+        count_identifier_in_rust_sources(&source_root, "RejectDynamicSourceImportFunctionIndex"),
+        5,
     );
     for (role, _, _, _) in ROLES {
         assert_eq!(
@@ -339,6 +349,8 @@ fn sole_producer_builds_every_typed_role_and_registry_stores_authority_intact() 
             "{role} producer"
         );
     }
+
+    assert_eq!(producer.normalized.matches("RejectDynamicSourceImportFunctionIndex::new(reject_dynamic_source_import_function_index)").count(), 1);
 
     let registry = rust_code(bounded(
         PLANNING_SOURCE,
@@ -383,6 +395,20 @@ fn named_registry_getters_are_the_only_raw_index_projections() {
         );
     }
     assert_eq!(getters.normalized.matches("map(|index|index.0)").count(), 8);
+    assert_eq!(
+        getters
+            .normalized
+            .matches("self.host_import_function_indices.reject_dynamic_source.0")
+            .count(),
+        1
+    );
+    assert_eq!(
+        planning
+            .normalized
+            .matches("pub(crate)fnreject_dynamic_source_import_function_index(&self)->u32{")
+            .count(),
+        1
+    );
 }
 
 #[test]

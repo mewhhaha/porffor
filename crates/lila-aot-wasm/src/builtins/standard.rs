@@ -5187,12 +5187,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(arg_tag_local));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::Else);
-                self.emit_throw_current_function_realm_type_error(
-                    "dynamic eval unsupported",
-                    self.result_local,
-                    self.result_tag_local,
+                self.emit_reject_dynamic_source(
+                    lila_ir::DynamicSourceRuntimeOperation::Eval,
                     function,
-                )?;
+                );
                 function.instruction(&Instruction::End);
 
                 self.release_temp_local(arg_tag_local);

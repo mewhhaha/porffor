@@ -3,12 +3,12 @@ use super::*;
 /// The inseparable Realm-owned fields installed on an escaping Promise
 /// algorithm closure before that function can be exposed to user code.
 ///
-/// The context is deliberately non-`Copy` and private to this module. Its
+/// The context is deliberately non-`Copy`, with private fields. Its
 /// factories prove either the active Promise builtin's defining Realm or the
 /// Promise record's stored Realm, then derive every header field from the same
 /// intrinsic table.
 #[must_use = "Promise internal function Realm context must be explicitly released"]
-pub(super) struct PromiseInternalFunctionMaterializationContext {
+pub(crate) struct PromiseInternalFunctionMaterializationContext {
     realm_local: u32,
     function_prototype_local: u32,
     type_error_prototype_local: u32,
@@ -16,7 +16,7 @@ pub(super) struct PromiseInternalFunctionMaterializationContext {
 }
 
 impl<'a> FunctionBuilder<'a> {
-    pub(super) fn emit_promise_internal_function_materialization_context_from_realm(
+    pub(crate) fn emit_promise_internal_function_materialization_context_from_realm(
         &mut self,
         realm_local: u32,
         function: &mut Function,
@@ -73,7 +73,7 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    pub(super) fn emit_current_function_promise_internal_function_materialization_context(
+    pub(crate) fn emit_current_function_promise_internal_function_materialization_context(
         &mut self,
         function: &mut Function,
     ) -> PromiseInternalFunctionMaterializationContext {
@@ -119,7 +119,7 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    pub(super) fn emit_promise_internal_function_value(
+    pub(crate) fn emit_promise_internal_function_value(
         &mut self,
         meta: &WasmFunctionMeta,
         context: &PromiseInternalFunctionMaterializationContext,
@@ -173,7 +173,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_load_promise_internal_function_context(
+    pub(crate) fn emit_load_promise_internal_function_context(
         &mut self,
         context_local: u32,
         function: &mut Function,
@@ -200,7 +200,7 @@ impl<'a> FunctionBuilder<'a> {
         );
     }
 
-    pub(super) fn release_promise_internal_function_materialization_context(
+    pub(crate) fn release_promise_internal_function_materialization_context(
         &mut self,
         context: PromiseInternalFunctionMaterializationContext,
     ) {

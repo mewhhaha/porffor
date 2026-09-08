@@ -12,8 +12,9 @@ use crate::objects::{
     PreventExtensionsTraversalTargetLocals,
 };
 use lila_ir::{
-    AsyncDisposableScopeExecutionIr, FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr,
-    StandardBuiltinId, SyncDisposableScopeExecutionIr, ValueKind,
+    direct_await_sequence_resume_state, AsyncDisposableScopeExecutionIr, AwaitSequenceError,
+    FunctionExecutionKind, HostBuiltinId, ProgramIr, ScriptIr, StandardBuiltinId,
+    SyncDisposableScopeExecutionIr, ValueKind,
 };
 // `CodeSection` is deliberately absent from this list. Every code-section entry
 // now goes through `ModuleCode::push(EmittedFunction)`, which cannot be called
@@ -34,6 +35,8 @@ use lila_intl::{embedded_locale_data_identity, INTL_ARTIFACT_IDENTITY_CUSTOM_SEC
 
 mod completion_exit;
 pub(crate) use completion_exit::CompletionExit;
+#[cfg(test)]
+mod async_generator_dispatcher_tests;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ControlFrameKind {
@@ -802,6 +805,9 @@ pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
 }
 
 fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
+    let mut prepared_script = script.clone();
+    super::builtins::append_empty_dynamic_function_bodies(&mut prepared_script);
+    let script = &prepared_script;
     for function in script.functions.iter().filter(|function| {
         function.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
     }) {
@@ -1031,43 +1037,60 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             exit_state,
             ..
         } => {
-            let (suspend_state, suspension_resume_state) = match suspension_statement.as_ref() {
+            let contains_suspension = |statement: &StatementIr| {
+                async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
+                    || async_generator_contains_suspension(
+                        statement,
+                        AsyncGeneratorSuspension::Yield,
+                    )
+            };
+            if before_suspension.iter().any(contains_suspension) {
+                return Some("resumable loops with a suspending prelude");
+            }
+            let final_resume_state = match suspension_statement.as_ref() {
                 StatementIr::GeneratorYield {
                     form,
                     suspend_state,
                     resume_state,
                     ..
-                } => match form {
-                    YieldForm::Plain => (suspend_state, resume_state),
-                    YieldForm::Delegate(_) => {
-                        return Some("resumable loops with delegated yield");
+                } => {
+                    match form {
+                        YieldForm::Plain => {}
+                        YieldForm::Delegate(_) => {
+                            return Some("resumable loops with delegated yield");
+                        }
+                    }
+                    if suspend_state != entry_state {
+                        return Some("resumable loops with non-linear suspension states");
+                    }
+                    if after_suspension.iter().any(contains_suspension) {
+                        return Some("resumable yield loops containing multiple suspensions");
+                    }
+                    *resume_state
+                }
+                StatementIr::AsyncAwait { .. } => match direct_await_sequence_resume_state(
+                    suspension_statement,
+                    after_suspension,
+                    *entry_state,
+                ) {
+                    Ok(final_resume_state) => final_resume_state,
+                    Err(AwaitSequenceError::FirstAwaitRequired) => {
+                        unreachable!("the loop's first suspension is an await")
+                    }
+                    Err(AwaitSequenceError::NestedSuspension) => {
+                        return Some("resumable await loops containing nested suspensions");
+                    }
+                    Err(AwaitSequenceError::StateMismatch { .. }) => {
+                        return Some("resumable loops with non-linear suspension states");
                     }
                 },
-                StatementIr::AsyncAwait {
-                    suspend_state,
-                    resume_state,
-                    ..
-                } => (suspend_state, resume_state),
-                _ => return Some("resumable loops without one direct suspension"),
+                _ => return Some("resumable loops without a direct suspension"),
             };
-            if suspend_state != entry_state || suspension_resume_state != resume_state {
+            if final_resume_state != *resume_state {
                 return Some("resumable loops with non-linear suspension states");
-            };
+            }
             if exit_state != resume_state {
                 return Some("resumable loops with an unplanned exit state");
-            }
-            if before_suspension
-                .iter()
-                .chain(after_suspension)
-                .any(|statement| {
-                    async_generator_contains_suspension(statement, AsyncGeneratorSuspension::Await)
-                        || async_generator_contains_suspension(
-                            statement,
-                            AsyncGeneratorSuspension::Yield,
-                        )
-                })
-            {
-                return Some("resumable loops containing multiple suspensions");
             }
             std::iter::once(suspension_statement.as_ref())
                 .chain(before_suspension)
@@ -1410,7 +1433,7 @@ fn emit_script_with_forced_builtins(
             + u32::from(uses_agent_host)
             + u32::from(uses_intl_host),
     );
-    let imported_function_count = 1
+    let reject_dynamic_source_import_function_index = 1
         + u32::from(uses_host_print)
         + u32::from(uses_number_pow_import)
         + u32::from(uses_wall_clock_millis)
@@ -1419,6 +1442,7 @@ fn emit_script_with_forced_builtins(
         + u32::from(uses_agent_host)
         + u32::from(uses_intl_host)
         + u32::from(uses_random_f64);
+    let imported_function_count = reject_dynamic_source_import_function_index + 1;
     let uses_json_stringify =
         compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
     // The Temporal calendar helpers are only *called* from the five types that
@@ -1444,6 +1468,7 @@ fn emit_script_with_forced_builtins(
         agent_call_import_function_index.map(AgentCallImportFunctionIndex::new),
         intl_call_import_function_index.map(IntlCallImportFunctionIndex::new),
         random_f64_import_function_index.map(RandomF64ImportFunctionIndex::new),
+        RejectDynamicSourceImportFunctionIndex::new(reject_dynamic_source_import_function_index),
     );
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
@@ -2517,6 +2542,11 @@ fn emit_script_with_forced_builtins(
         ExportKind::Global,
         throw_error_message_global_index(uses_heap),
     );
+    exports.export(
+        THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
+        ExportKind::Global,
+        throw_error_constructor_name_global_index(uses_heap),
+    );
 
     if uses_heap {
         for helper in RuntimeHelperId::ALL {
@@ -2632,6 +2662,11 @@ fn emit_script_with_forced_builtins(
             wasm_encoder::EntityType::Function(HOST_RANDOM_F64_IMPORT_TYPE_INDEX),
         );
     }
+    imports.import(
+        HOST_IMPORT_MODULE,
+        HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
+        wasm_encoder::EntityType::Function(HOST_REJECT_DYNAMIC_SOURCE_IMPORT_TYPE_INDEX),
+    );
 
     let mut memories = None;
     let mut data = None;
@@ -2743,6 +2778,7 @@ fn emit_script_with_forced_builtins(
         format!("export global: {COMPLETION_AUX_EXPORT}"),
         format!("export global: {THROW_ERROR_NAME_EXPORT}"),
         format!("export global: {THROW_ERROR_MESSAGE_EXPORT}"),
+        format!("export global: {THROW_ERROR_CONSTRUCTOR_NAME_EXPORT}"),
         format!("import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CAN_SUSPEND}"),
     ];
 
@@ -2850,6 +2886,9 @@ fn emit_script_with_forced_builtins(
             "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_RANDOM_F64}"
         ));
     }
+    debug_dump.push(format!(
+        "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_REJECT_DYNAMIC_SOURCE}"
+    ));
 
     if !string_pool.bytes.is_empty() || uses_heap {
         if uses_shared_memory {
@@ -3845,6 +3884,7 @@ impl<'a> FunctionBuilder<'a> {
             // Every job that could still attach a handler has now run, so a
             // promise still marked unhandled really is an unhandled rejection.
             self.emit_report_unhandled_rejection(&mut function)?;
+            self.emit_capture_final_throw_constructor_name(&mut function);
         }
         assert!(
             self.next_binding_local <= self.current_env_local,
@@ -4101,6 +4141,24 @@ impl<'a> FunctionBuilder<'a> {
                 Some(HostBuiltinId::RealmEvalScript) => {
                     self.compile_host_realm_eval_script_builtin(&mut function)?
                 }
+                Some(HostBuiltinId::AsyncDisposableStackSyncDispose) => {
+                    self.emit_async_disposable_stack_sync_dispose(&mut function)?
+                }
+                Some(HostBuiltinId::GeneratorFunctionConstructor) => self
+                    .compile_dynamic_function_constructor_builtin(
+                        DynamicFunctionKind::Generator,
+                        &mut function,
+                    )?,
+                Some(HostBuiltinId::AsyncFunctionConstructor) => self
+                    .compile_dynamic_function_constructor_builtin(
+                        DynamicFunctionKind::Async,
+                        &mut function,
+                    )?,
+                Some(HostBuiltinId::AsyncGeneratorFunctionConstructor) => self
+                    .compile_dynamic_function_constructor_builtin(
+                        DynamicFunctionKind::AsyncGenerator,
+                        &mut function,
+                    )?,
                 Some(HostBuiltinId::CreateHTMLDDA) => {
                     self.compile_host_create_html_dda_builtin(&mut function)?
                 }
