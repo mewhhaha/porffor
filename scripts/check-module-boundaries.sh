@@ -2352,11 +2352,11 @@ async_function_for_of_iterator_owner="$({
     "$wasm_async_function_for_of_iterator"
 })"
 async_function_for_of_iterator_owner_lines="$(printf '%s\n' "$async_function_for_of_iterator_owner" | wc -l | tr -d '[:space:]')"
-if [ "$async_function_for_of_iterator_owner_lines" -ne 416 ]; then
-  fail "$wasm_async_function_for_of_iterator must retain the reviewed 416-line complete owner (found $async_function_for_of_iterator_owner_lines)"
+if [ "$async_function_for_of_iterator_owner_lines" -ne 421 ]; then
+  fail "$wasm_async_function_for_of_iterator must retain the reviewed 421-line complete owner (found $async_function_for_of_iterator_owner_lines)"
 fi
 async_function_for_of_iterator_owner_sha256="$(printf '%s\n' "$async_function_for_of_iterator_owner" | sha256_stream)"
-if [ "$async_function_for_of_iterator_owner_sha256" != 'd722dc0abbfda6aea0f1bec2b8fd15cd40f32c34eb443ac082e62744950dcec5' ]; then
+if [ "$async_function_for_of_iterator_owner_sha256" != 'c1360bb1911b15ec1bf52ec7820774edb1085f460fbb4f0bcc22300abafbf4c0' ]; then
   fail "$wasm_async_function_for_of_iterator complete owner changed from the reviewed synchronous-iterator consumer SHA-256 (found $async_function_for_of_iterator_owner_sha256)"
 fi
 if ! awk '
@@ -2387,7 +2387,7 @@ fi
 # Measured immediately after extraction: 13,220 parent lines and 424 child
 # lines. The margins admit narrow maintenance without letting the owner return
 # to the parent or become another control-flow monolith.
-check_raw_line_budget "$wasm_control_flow" 13281
+check_raw_line_budget "$wasm_control_flow" 13288
 check_raw_line_budget "$wasm_async_function_for_of_iterator" 440
 
 # T05's typed Wasm-GC schema is the sole raw struct-instruction boundary. The

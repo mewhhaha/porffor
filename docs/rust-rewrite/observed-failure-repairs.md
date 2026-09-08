@@ -13,6 +13,12 @@ repair branch uses a separate worktree and bounded verification service.
   captured Environment Records remain the sole owner of captured cells.
 - Synchronous generator loops retain their continuation state and can advance
   through iterations whose single conditional yield is not taken.
+  Local bindings are registered before resumed reads are emitted, while runtime
+  initialization remains confined to fresh iteration or branch entry.
+- Async loops retain each sequential direct await's continuation state. Later
+  resumptions skip earlier effects and keep the iteration environment and
+  Iterator Record until the body completes. Nested suspension shapes remain
+  separately validated.
 - Promise capability creation requires an explicit executor Realm context.
   Await rejection retains its intrinsic Promise context instead of treating
   an ordinary lexical environment as a builtin function object.
@@ -23,6 +29,8 @@ repair branch uses a separate worktree and bounded verification service.
   state. A later failing lastIndex write retains a successfully installed pattern.
 - Arguments @@isConcatSpreadable uses ordinary symbol-property storage and Get;
   the obsolete private Boolean slot and its competing reads/writes are removed.
+  Indexed reads retain mapped own values and traverse the prototype chain when
+  an own index is missing, including inherited getters and their thrown values.
 - Zero-argument Function constructors create distinct functions with an empty
   body and their constructor's Realm/prototype metadata. Generator, async and
   async-generator bodies pass through the ordinary IR and Wasm dispatchers;

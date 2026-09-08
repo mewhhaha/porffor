@@ -4391,7 +4391,7 @@ impl<'a> ScriptLowerer<'a> {
     fn split_resumable_loop_body(
         body: StatementIr,
         conditional_yield: bool,
-    ) -> Option<(Vec<StatementIr>, StatementIr, Vec<StatementIr>)> {
+    ) -> Option<(Vec<StatementIr>, StatementIr, Vec<StatementIr>, u32)> {
         let statements = match body {
             StatementIr::Block(block) if block.lexical_environment.is_none() => block.statements,
             StatementIr::LexicalBlock(statements) => statements,
@@ -4417,13 +4417,45 @@ impl<'a> ScriptLowerer<'a> {
                 )
         };
         let suspension_index = statements.iter().position(is_suspension)?;
-        if statements[suspension_index + 1..].iter().any(is_suspension) {
-            return None;
-        }
         let mut before_suspension = statements;
         let after_suspension = before_suspension.split_off(suspension_index + 1);
         let suspension_statement = before_suspension.pop()?;
-        Some((before_suspension, suspension_statement, after_suspension))
+        let last_resume_state = match &suspension_statement {
+            StatementIr::AsyncAwait { suspend_state, .. } => {
+                if before_suspension.iter().any(statement_contains_suspension) {
+                    return None;
+                }
+                direct_await_sequence_resume_state(
+                    &suspension_statement,
+                    &after_suspension,
+                    *suspend_state,
+                )
+                .ok()?
+            }
+            StatementIr::GeneratorYield { resume_state, .. }
+            | StatementIr::GeneratorIf {
+                then_resume_state: Some(resume_state),
+                else_resume_state: None,
+                ..
+            }
+            | StatementIr::GeneratorIf {
+                then_resume_state: None,
+                else_resume_state: Some(resume_state),
+                ..
+            } => {
+                if after_suspension.iter().any(is_suspension) {
+                    return None;
+                }
+                *resume_state
+            }
+            _ => unreachable!("the split selected a direct suspension"),
+        };
+        Some((
+            before_suspension,
+            suspension_statement,
+            after_suspension,
+            last_resume_state,
+        ))
     }
 
     // `predeclare_block_lexical_bindings`, `predeclare_switch_lexical_bindings`

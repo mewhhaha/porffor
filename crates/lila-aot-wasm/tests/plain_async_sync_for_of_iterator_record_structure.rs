@@ -226,9 +226,10 @@ fn closed_plan_couples_the_iterator_record_body_split_states_and_environments() 
     positions_in_order(
         plan,
         &[
-            "let StatementIr::AsyncAwait",
-            "*suspend_state != entry_state",
-            "*resume_state != expected_resume_state",
+            "before_await.iter().any(statement_contains_suspension)",
+            "AwaitSequenceError::NestedSuspension",
+            "direct_await_sequence_resume_state(&await_statement, &after_await, entry_state)",
+            ".map_err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence)",
             "let exit_state = resume_state",
             ".checked_add(1)",
             "let (value_storage, value_mode, iteration_environment, mut initialization) = match head",
@@ -237,6 +238,36 @@ fn closed_plan_couples_the_iterator_record_body_split_states_and_environments() 
             "AsyncFunctionForOfIteratorPlanError::CapturedTdzEnvironment",
             "initialization.append(&mut before_await)",
             "Ok(Self",
+        ],
+    );
+    let sequence_errors = bounded(
+        IR_SOURCE,
+        "pub(crate) enum AwaitSequenceError {",
+        "/// Validate a nonempty sequence of direct awaits",
+    );
+    assert_eq!(
+        compact(sequence_errors),
+        "FirstAwaitRequired,NestedSuspension,StateMismatch{\
+         expected_suspend_state:u32,suspend_state:u32,resume_state:u32,},}"
+    );
+    let sequence = bounded(
+        IR_SOURCE,
+        "pub(crate) fn direct_await_sequence_resume_state(",
+        "fn duplicate_async_function_for_of_name(",
+    );
+    positions_in_order(
+        sequence,
+        &[
+            "if !matches!(first, StatementIr::AsyncAwait { .. })",
+            "AwaitSequenceError::FirstAwaitRequired",
+            "let mut state = entry_state",
+            "for statement in std::iter::once(first).chain(after)",
+            "*suspend_state != state || state.checked_add(1) != Some(*resume_state)",
+            "AwaitSequenceError::StateMismatch",
+            "state = *resume_state",
+            "statement if statement_contains_suspension(statement)",
+            "AwaitSequenceError::NestedSuspension",
+            "Ok(state)",
         ],
     );
     for accessor in [
@@ -296,7 +327,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
     positions_in_order(
         lowerer,
         &[
-            "Self::split_resumable_loop_body(body)",
+            "Self::split_resumable_loop_body(body, false)",
             "IteratorRecordIr::new(",
             "self.alloc_iterator_slot()",
             "self.alloc_next_method_slot()",
@@ -590,6 +621,22 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
     );
     assert_eq!(emitter.matches("&consumer,").count(), 2);
 
+    let active_states = bounded(
+        emitter,
+        "        function.instruction(&Instruction::LocalGet(state_local));",
+        "        self.push_scope();",
+    );
+    positions_in_order(
+        active_states,
+        &[
+            "plan.entry_state()",
+            "Instruction::I64GeU",
+            "plan.resume_state()",
+            "Instruction::I64LeU",
+            "Instruction::I32And",
+        ],
+    );
+
     let acquisition = bounded(
         emitter,
         "        function.instruction(&Instruction::LocalGet(state_local));\n        function.instruction(&Instruction::I64Const(i64::from(plan.entry_state())));",
@@ -641,7 +688,11 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
             "self.write_binding_from_locals(",
             "for statement in plan.before_await()",
             "self.compile_statement(plan.await_statement(), function)?",
-            "for statement in plan.after_await()",
+            "Self::async_statement_exit_state(plan.await_statement())",
+            "self.compile_async_statement_sequence(",
+            "plan.after_await(),",
+            "first_resume_state,",
+            "HEAP_ASYNC_RESUME_STATE_OFFSET,",
             "self.finally_stack.pop()",
         ],
     );

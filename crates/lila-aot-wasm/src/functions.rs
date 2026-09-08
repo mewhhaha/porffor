@@ -8329,6 +8329,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_arguments_data_read(
             arguments_local,
@@ -8340,14 +8344,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::LocalSet(arguments_tag_local));
-        self.emit_array_index_get(
+        self.emit_array_index_get_with_prototype(
             arguments_local,
             index_local,
             arguments_local,
             arguments_tag_local,
             payload_local,
             tag_local,
-            None,
             function,
         )?;
         function.instruction(&Instruction::End);
@@ -8357,7 +8360,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_arguments_data_read(
+    pub(crate) fn emit_arguments_data_read(
         &mut self,
         arguments_local: u32,
         index_local: u32,

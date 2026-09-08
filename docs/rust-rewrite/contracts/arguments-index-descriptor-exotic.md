@@ -2,7 +2,7 @@
 
 ## Scope
 
-This contract covers an Arguments object's indexed `[[GetOwnProperty]]`,
+This contract covers an Arguments object's indexed `[[Get]]`, `[[GetOwnProperty]]`,
 `[[DefineOwnProperty]]`, `[[Set]]`, and `[[Delete]]` seams. It is the Arguments
 counterpart to the Array-index integration in
 `property-descriptor-lattice.md`; named `length`, `callee`, iterator and
@@ -64,7 +64,16 @@ storage must receive the current ParameterMap value before the mapping is
 detached. Reading the effective current data value before application supplies
 that value without manufacturing a second descriptor classification.
 
-## GetOwnProperty and Set boundaries
+## Get, GetOwnProperty and Set boundaries
+
+Indexed `[[Get]]` uses the mapping-aware own data reader only when an own
+data descriptor is present. A deleted or missing index continues through the
+live prototype chain with the original receiver; a present `undefined` value
+or an own accessor returning `undefined` still shadows inherited properties.
+Direct reads, Array consumers and the ordinary property walk used by
+`Reflect.get` observe the same current ParameterMap value. The ordinary walk
+uses the own data reader rather than re-entering the full indexed `[[Get]]`,
+which would recursively restart prototype traversal.
 
 Indexed `[[GetOwnProperty]]` first chooses the stored data/accessor kind. The
 Arguments tag changes only where a mapped data value comes from; it must not

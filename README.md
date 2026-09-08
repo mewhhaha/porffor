@@ -22,8 +22,9 @@ does not count "compile a JavaScript interpreter or VM to Wasm and feed source
 into it" as success.
 
 The observed-failure repair batch addresses suspended lexical bindings,
-Promise rejection Realm ownership, iterator closing, RegExp recompilation,
-Arguments symbol properties and zero-argument Function-family construction. See
+sequential loop awaits, generator resumption, Promise rejection Realm ownership,
+iterator closing, RegExp recompilation, Arguments symbol and inherited indexed
+properties, and zero-argument Function-family construction. See
 [the repair and verification notes](docs/rust-rewrite/observed-failure-repairs.md)
 for the exact scope and retained dynamic-source limitations. The complete
 baseline running against the earlier compiler is separate evidence.
@@ -1068,7 +1069,7 @@ Recent focused progress through `2026-09-01`:
   [`lila-ir-module-budget-owner-splits.md`](docs/rust-rewrite/contracts/lila-ir-module-budget-owner-splits.md).
 
 - The closed plain-async synchronous `for-of` plan now admits `let` and
-  `const` array and object binding patterns with one direct body `await`.
+  `const` array and object binding patterns with sequential direct body awaits.
   `AsyncFunctionForOfIteratorHeadIr` derives one of exactly three storage
   lifetimes: activation, fresh iteration Environment Record, or an unspellable
   entry local. Lexical patterns use the entry local plus an exact complete set

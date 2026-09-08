@@ -1520,7 +1520,7 @@ pub(crate) fn simple_resumable_await_loop_body_is_supported(body: &Statement) ->
             _ => {}
         }
     }
-    await_count == 1
+    await_count > 0
 }
 
 struct GeneratorLoopShapeVisitor {

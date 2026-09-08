@@ -31,27 +31,12 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             None
         }) {
-            if let Some((before_suspension, suspension_statement, after_suspension)) =
+            if let Some((before_suspension, suspension_statement, after_suspension, resume_state)) =
                 Self::split_resumable_loop_body(
                     body.clone(),
                     generator_entry_state.is_some() && self.current_resumable_plan.is_none(),
                 )
             {
-                let resume_state = match &suspension_statement {
-                    StatementIr::GeneratorYield { resume_state, .. }
-                    | StatementIr::AsyncAwait { resume_state, .. }
-                    | StatementIr::GeneratorIf {
-                        then_resume_state: Some(resume_state),
-                        else_resume_state: None,
-                        ..
-                    }
-                    | StatementIr::GeneratorIf {
-                        then_resume_state: None,
-                        else_resume_state: Some(resume_state),
-                        ..
-                    } => *resume_state,
-                    _ => unreachable!("resumable loop must have one suspension position"),
-                };
                 let exit_state = if self.current_resumable_plan.is_some() {
                     resume_state
                 } else {
@@ -86,7 +71,7 @@ impl<'a> ScriptLowerer<'a> {
             return (StatementIr::Empty, ValueKind::Undefined);
         }
         if plain_async_await_loop {
-            self.unsupported("async loop body did not lower to one direct await");
+            self.unsupported("async loop body did not lower to a direct await sequence");
             return (StatementIr::Empty, ValueKind::Undefined);
         }
         (

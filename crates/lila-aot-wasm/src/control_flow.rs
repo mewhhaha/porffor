@@ -1901,8 +1901,8 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Compiles one `StatementIr::GeneratorLoop` for a resumable async body.
     ///
-    /// Each wasm invocation of an async body runs at most one loop iteration:
-    /// the suspension returns to the job queue and the driver re-enters the
+    /// Each wasm invocation runs one segment of a loop iteration:
+    /// each suspension returns to the job queue and the driver re-enters the
     /// function from the top. `resume_state_offset` names the activation slot
     /// holding that state, which differs between a plain async function
     /// (`HEAP_ASYNC_RESUME_STATE_OFFSET`) and an async generator
@@ -1965,11 +1965,11 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(*entry_state as i64));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::LocalGet(state_local));
         function.instruction(&Instruction::I64Const(*resume_state as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I64LeU);
+        function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
 
         function.instruction(&Instruction::LocalGet(state_local));
@@ -1999,9 +1999,14 @@ impl<'a> FunctionBuilder<'a> {
             });
         }
         self.compile_statement(suspension_statement, function)?;
-        for statement in after_suspension {
-            self.compile_statement(statement, function)?;
-        }
+        let first_resume_state = Self::async_statement_exit_state(suspension_statement)
+            .expect("an async loop starts with a direct await");
+        self.compile_async_statement_sequence(
+            after_suspension,
+            first_resume_state,
+            resume_state_offset,
+            function,
+        )?;
         if fresh_iteration_environment.is_some() {
             self.finally_stack.pop();
             self.pop_control(ControlFrameKind::Block);
@@ -3187,6 +3192,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(*entry_state as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
+                self.initialize_direct_lexical_bindings(before_suspension, function);
+                self.initialize_direct_lexical_bindings(after_suspension, function);
                 if let Some(init) = init {
                     self.compile_for_init(init, function)?;
                 }
@@ -3283,54 +3290,16 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 function.instruction(&Instruction::If(BlockType::Empty));
 
-                if let Some(resume_state) = then_resume_state {
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                } else {
-                    function.instruction(&Instruction::I32Const(0));
-                }
+                // Emit declarations before resume reads so both paths use the
+                // same activation slots. Only the selected fresh branch initializes.
+                function.instruction(&Instruction::LocalGet(state_local));
+                function.instruction(&Instruction::I64Const(*entry_state as i64));
+                function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                if let Some(yield_statement) = then_yield_statement {
-                    self.compile_statement(yield_statement, function)?;
-                }
-                for statement in then_after_yield {
-                    self.compile_statement(statement, function)?;
-                }
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*exit_state),
-                    function,
-                );
-                self.emit_statement_result(function, ValueKind::Undefined);
-                function.instruction(&Instruction::Else);
-
-                if let Some(resume_state) = else_resume_state {
-                    function.instruction(&Instruction::LocalGet(state_local));
-                    function.instruction(&Instruction::I64Const(*resume_state as i64));
-                    function.instruction(&Instruction::I64Eq);
-                } else {
-                    function.instruction(&Instruction::I32Const(0));
-                }
-                function.instruction(&Instruction::If(BlockType::Empty));
-                if let Some(yield_statement) = else_yield_statement {
-                    self.compile_statement(yield_statement, function)?;
-                }
-                for statement in else_after_yield {
-                    self.compile_statement(statement, function)?;
-                }
-                self.store_i64_const_at_offset(
-                    activation_local,
-                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
-                    u64::from(*exit_state),
-                    function,
-                );
-                self.emit_statement_result(function, ValueKind::Undefined);
-                function.instruction(&Instruction::Else);
-
                 self.compile_truthy_i32(condition, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
+                self.initialize_direct_lexical_bindings(then_before_yield, function);
+                self.initialize_direct_lexical_bindings(then_after_yield, function);
                 for statement in then_before_yield {
                     self.compile_statement(statement, function)?;
                 }
@@ -3375,6 +3344,8 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_statement_result(function, ValueKind::Undefined);
                 }
                 function.instruction(&Instruction::Else);
+                self.initialize_direct_lexical_bindings(else_before_yield, function);
+                self.initialize_direct_lexical_bindings(else_after_yield, function);
                 for statement in else_before_yield {
                     self.compile_statement(statement, function)?;
                 }
@@ -3419,6 +3390,42 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_statement_result(function, ValueKind::Undefined);
                 }
                 function.instruction(&Instruction::End);
+                function.instruction(&Instruction::Else);
+                if let Some(resume_state) = then_resume_state {
+                    function.instruction(&Instruction::LocalGet(state_local));
+                    function.instruction(&Instruction::I64Const(*resume_state as i64));
+                    function.instruction(&Instruction::I64Eq);
+                } else {
+                    function.instruction(&Instruction::I32Const(0));
+                }
+                function.instruction(&Instruction::If(BlockType::Empty));
+                if let Some(yield_statement) = then_yield_statement {
+                    self.compile_statement(yield_statement, function)?;
+                }
+                for statement in then_after_yield {
+                    self.compile_statement(statement, function)?;
+                }
+                self.store_i64_const_at_offset(
+                    activation_local,
+                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                    u64::from(*exit_state),
+                    function,
+                );
+                self.emit_statement_result(function, ValueKind::Undefined);
+                function.instruction(&Instruction::Else);
+                if let Some(yield_statement) = else_yield_statement {
+                    self.compile_statement(yield_statement, function)?;
+                }
+                for statement in else_after_yield {
+                    self.compile_statement(statement, function)?;
+                }
+                self.store_i64_const_at_offset(
+                    activation_local,
+                    HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                    u64::from(*exit_state),
+                    function,
+                );
+                self.emit_statement_result(function, ValueKind::Undefined);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);

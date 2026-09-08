@@ -102,3 +102,132 @@ void 0;
         ],
     );
 }
+
+#[test]
+fn async_while_and_for_of_resume_each_await_without_repeating_effects() {
+    assert_wasm_lines(
+        r#"
+async function collect() {
+  let index = 0;
+  const trace = [];
+  while (index < 2) {
+    trace.push('before' + index);
+    await Promise.resolve(index);
+    trace.push('middle' + index);
+    await Promise.resolve(index + 10);
+    trace.push('after' + index);
+    index++;
+  }
+  print(index + ':' + trace.join(','));
+  const callbacks = [];
+  const values = [];
+  for (let value of [3, 7]) {
+    let doubled = value * 2;
+    callbacks.push(() => value);
+    values.push('before' + value);
+    await Promise.resolve(value);
+    values.push('middle' + doubled);
+    await Promise.resolve(doubled);
+    values.push('after' + value);
+  }
+  print(values.join(','));
+  print(callbacks.length + ':' + callbacks[0]() + ',' + callbacks[1]());
+}
+collect().catch(function(error) { print('rejected:' + error); });
+void 0;
+"#,
+        &[
+            "2:before0,middle0,after0,before1,middle1,after1",
+            "before3,middle6,after3,before7,middle14,after7",
+            "2:3,7",
+        ],
+    );
+}
+
+#[test]
+fn async_second_loop_await_rejection_preserves_finally_and_iterator_close() {
+    assert_wasm_lines(
+        r#"
+async function check() {
+  const marker = {};
+  let updates = 0;
+  let caught = false;
+  const trace = [];
+  try {
+    for (let index = 0; index < 2; updates++, index++) {
+      trace.push('before');
+      await Promise.resolve(index);
+      trace.push('middle');
+      await Promise.reject(marker);
+      trace.push('after');
+    }
+  } catch (error) {
+    caught = error === marker;
+  } finally {
+    trace.push('finally');
+  }
+  print('for:' + caught + ':' + updates + ':' + trace.join(','));
+  let nextCalls = 0;
+  let closeCalls = 0;
+  let iteratorCaught = false;
+  const iteratorTrace = [];
+  const iterable = {
+    [Symbol.iterator]() { return this; },
+    next() { nextCalls++; return { value: nextCalls, done: false }; },
+    return() { closeCalls++; return {}; }
+  };
+  try {
+    for (const value of iterable) {
+      iteratorTrace.push('before' + value);
+      await Promise.resolve(value);
+      iteratorTrace.push('middle' + value);
+      await Promise.reject(marker);
+      iteratorTrace.push('after');
+    }
+  } catch (error) {
+    iteratorCaught = error === marker;
+  } finally {
+    iteratorTrace.push('finally');
+  }
+  print('for-of:' + iteratorCaught + ':' + nextCalls + ':' + closeCalls + ':' + iteratorTrace.join(','));
+}
+check().catch(function(error) { print('rejected:' + error); });
+void 0;
+"#,
+        &[
+            "for:true:0:before,middle,finally",
+            "for-of:true:1:1:before1,middle1,finally",
+        ],
+    );
+}
+
+#[test]
+fn async_generator_loop_resumes_multiple_awaits_before_the_following_yield() {
+    assert_wasm_lines(
+        r#"
+async function* sequence() {
+  for (let index = 0; index < 2; index++) {
+    print('before' + index);
+    await Promise.resolve(index);
+    print('middle' + index);
+    await Promise.resolve(index + 10);
+    print('after' + index);
+  }
+  yield 42;
+  return 9;
+}
+async function check() {
+  const iterator = sequence();
+  const first = await iterator.next();
+  print(first.value + ':' + first.done);
+  const last = await iterator.next();
+  print(last.value + ':' + last.done);
+}
+check().catch(function(error) { print('rejected:' + error); });
+void 0;
+"#,
+        &[
+            "before0", "middle0", "after0", "before1", "middle1", "after1", "42:false", "9:true",
+        ],
+    );
+}

@@ -2,10 +2,10 @@
 
 ## Scope
 
-This contract owns a captured lexical binding in synchronous `for-of` when one
-direct body `await` splits an iteration across plain-async invocations. Each
-entered iteration needs a fresh Environment Record, and the active record must
-survive until that iteration resumes.
+This contract owns a captured lexical binding in synchronous `for-of` when a
+sequence of direct body awaits splits an iteration across plain-async
+invocations. Each entered iteration needs a fresh Environment Record, and the
+active record must survive until that iteration resumes.
 
 The loop now performs the synchronous iterator protocol. It does not lower an
 Array to length and index reads, and it does not infer the yielded value from
@@ -20,14 +20,17 @@ the source kind.
   `IteratorRecordIr`;
 - the complete for-in/of head environment;
 - `ResumableLoopIterationEnvironmentIr::{StorageOnly, FreshPerIteration}`;
-- the statements before, at, and after the source `await`; and
+- the statements before the first `await`, that await, and its continuation; and
 - entry, resume, and exit states.
 
-The crate-private constructor accepts only an `AsyncAwait` split whose suspend
-state equals entry and whose resume state equals `entry + 1`. It derives exit
-as `resume + 1` with checked arithmetic. Its closed head input derives one of
-`Activation`, `IterationEnvironment`, or `EntryLocal` storage. A lexical
-pattern additionally proves exact iteration and TDZ name sets and a matching
+The crate-private constructor requires an initial `AsyncAwait` whose suspend
+state equals entry. Every direct await must resume at its suspend state plus
+one, and the next await must suspend at that state. Eager statements may appear
+between awaits; nested suspension is rejected. The plan retains the final
+resume state and derives exit as `resume + 1` with checked arithmetic. Its
+closed head input derives one of `Activation`, `IterationEnvironment`, or
+`EntryLocal` storage. A lexical pattern additionally proves exact iteration and
+TDZ name sets and a matching
 BindingInitialization prefix. When capture analysis supplied an iteration
 environment, construction clones that analyzed layout into
 `FreshPerIteration`. A captured head TDZ on the older storage-only single-name
@@ -50,8 +53,9 @@ The backend follows this order for `FreshPerIteration`:
    the head's parent environment, initializes the loop binding, and publishes
    the active environment to the activation.
 4. It runs the before-await statements and suspends.
-5. On resume, it reattaches the same iteration record, runs the await and
-   after-await continuation, then leaves the record and publishes its parent.
+5. On each resume, it reattaches the same iteration record and runs the next
+   continuation segment. A later await suspends again with that record retained.
+   Completing the body leaves the record and publishes its parent.
 6. Normal completion resets the plan to its entry state for the next iterator
    step. Natural exhaustion reaches exit without reading `return`.
 7. A body Throw or Return leaves the iteration environment before
@@ -87,8 +91,9 @@ assignment head. Later checkpoints admit non-suspending member References,
 assignment patterns, `var` binding patterns, and `let`/`const` binding
 patterns. The lexical-pattern path materializes every BoundName in the fresh
 record, including uncaptured names read directly after resume, and admits its
-pattern-head TDZ because the fresh record is complete. Direct
-`break`/`continue`, resource patterns, suspension in the iterable or pattern,
+pattern-head TDZ because the fresh record is complete. The current plan also
+admits sequential direct body awaits. Direct `break`/`continue`, resource
+patterns, suspension in the iterable or pattern,
 nonlinear body suspension, async generators, and `for await` remain outside
 the plan. See
 [`plain-async-synchronous-for-of-lexical-pattern-heads.md`](./plain-async-synchronous-for-of-lexical-pattern-heads.md).

@@ -10495,10 +10495,7 @@ impl<'a> FunctionBuilder<'a> {
                             }
                         }
                         function.instruction(&Instruction::Else);
-                        // `emit_arguments_read` observes the current mapped
-                        // parameter value. It reaches only the data branch, so
-                        // descriptor observation cannot invoke an accessor.
-                        self.emit_arguments_read(
+                        self.emit_arguments_data_read(
                             target_payload_local,
                             index_local,
                             data_value.0.payload,
@@ -13761,6 +13758,35 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_descriptor_kind_for_index(
+            current_local,
+            index_local,
+            descriptor_kind_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(current_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_data_read(
+            current_local,
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::Else);
         self.emit_array_index_get(
             current_local,
             index_local,
@@ -13771,6 +13797,7 @@ impl<'a> FunctionBuilder<'a> {
             Some(found_local),
             function,
         )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_array_own_named_property_read(
             current_local,

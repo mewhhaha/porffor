@@ -107,6 +107,38 @@ report(iterator.next());
 }
 
 #[test]
+fn generator_branch_lexicals_keep_their_shadowed_slots_across_resume() {
+    assert_generator_trace(
+        r#"
+function* values(chooseLeft) {
+  let value = 99;
+  if (chooseLeft) {
+    const value = 7;
+    yield value;
+    print("left:" + value);
+  } else {
+    let value = 8;
+    yield value;
+    value++;
+    print("right:" + value);
+  }
+  return value;
+}
+function report(result) { print(result.value + ":" + result.done); }
+var left = values(true);
+var right = values(false);
+report(left.next());
+report(right.next());
+report(left.next());
+report(right.next());
+"#,
+        &[
+            "7:false", "8:false", "left:7", "99:true", "right:9", "99:true",
+        ],
+    );
+}
+
+#[test]
 fn conditional_while_generator_consumes_return_and_throw_before_continuing_iteration() {
     assert_generator_trace(
         r#"

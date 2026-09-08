@@ -2,9 +2,9 @@
 
 ## Boundary
 
-A synchronous `for-of` with one direct body `await` in a plain async function
-admits assignment patterns and `var` binding patterns. Array and object forms
-use the ordinary destructuring machinery, including nested patterns,
+A synchronous `for-of` with sequential direct body awaits in a plain async
+function admits assignment patterns and `var` binding patterns. Array and
+object forms use the ordinary destructuring machinery, including nested patterns,
 non-suspending defaults, rest elements and properties, identifier targets,
 and public or private member targets.
 
@@ -70,6 +70,6 @@ fresh per-iteration Environment Record, and TDZ ownership; see
 [`plain-async-synchronous-for-of-lexical-pattern-heads.md`](./plain-async-synchronous-for-of-lexical-pattern-heads.md).
 Resource patterns, a captured TDZ for the older single-name declaration,
 suspension in the iterable or pattern, `super` and dynamic `with` targets,
-direct `break` or `continue`, multiple or nested body suspensions, async
+direct `break` or `continue`, nested body suspensions, async
 generators, and `for await` remain outside this boundary. The inner
 array-destructuring protocol-error Realm policy is a separate migration.
