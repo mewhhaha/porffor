@@ -60,3 +60,65 @@ void 0;
         vec![HostOutputEvent::PrintLine("true".to_string()); 15],
     );
 }
+
+#[test]
+fn foreign_async_dispose_promises_use_the_method_realm_for_every_completion() {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    let source = r#"
+var other = __lilaCreateRealm().global;
+var target = other.Function();
+target.prototype = null;
+var AG = (async function* () {}).constructor;
+var foreignAG = Object.getPrototypeOf(Reflect.construct(AG, [], target)).constructor;
+var asyncIteratorPrototype = Object.getPrototypeOf(foreignAG.prototype.prototype);
+var dispose = asyncIteratorPrototype[Symbol.asyncDispose];
+var ForeignPromise = other.Promise;
+var EntryPromise = Promise;
+other.Promise = function () { throw 'foreign global Promise was read'; };
+globalThis.Promise = function () { throw 'entry global Promise was read'; };
+var marker = {};
+var calls = 0;
+var absent = dispose.call({});
+var asynchronous = dispose.call({
+  return() { calls++; return { then(resolve) { calls++; resolve(19); } }; }
+});
+var rejected = dispose.call({ return() { calls++; throw marker; } });
+var invalid = dispose.call(null);
+print(absent instanceof ForeignPromise && asynchronous instanceof ForeignPromise);
+print(rejected instanceof ForeignPromise && invalid instanceof ForeignPromise);
+print(!(absent instanceof EntryPromise) && Object.getPrototypeOf(asynchronous) === ForeignPromise.prototype);
+EntryPromise.all([
+  absent.then(function (value) { return value === undefined; }),
+  asynchronous.then(function (value) { return value === undefined; }),
+  rejected.then(function () { return false; }, function (error) { return error === marker; }),
+  invalid.then(function () { return false; }, function (error) {
+    return error instanceof other.TypeError && !(error instanceof TypeError);
+  })
+]).then(function (results) {
+  print(results.join(':'));
+  print('calls:' + calls);
+});
+void 0;
+"#;
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .observe_script(
+            source,
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(30_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect("foreign asyncDispose executes in Wasm");
+    assert!(matches!(outcome.completion, ObservedCompletion::Normal(_)));
+    assert_eq!(
+        outcome.output_events,
+        ["true", "true", "true", "true:true:true:true", "calls:3"]
+            .map(|line| HostOutputEvent::PrintLine(line.to_string()))
+            .to_vec(),
+    );
+}

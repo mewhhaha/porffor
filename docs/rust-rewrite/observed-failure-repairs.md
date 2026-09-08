@@ -62,7 +62,9 @@ LILA_MODULE_MEMORY_CACHE_ENTRIES=1 \
   --output-dir target/observed-replay --workers 2
 ```
 
-Use a fresh output directory each time. Each native runner transcript and parsed
+Use a fresh output directory each time. The tool freezes a copy of the compiler
+there before starting any cases, so rebuilding the requested executable cannot
+mix compiler versions within a replay. Each native runner transcript and parsed
 outcome is retained separately; `summary.json` records the executable and input
 list hashes. Missing, partial or inconsistent native reports are infrastructure
 errors. The command exits zero only when every execution passes, one for ordinary

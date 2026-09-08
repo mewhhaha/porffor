@@ -5,6 +5,7 @@ const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const BOOTSTRAP_SOURCE: &str = include_str!("../src/builtins/bootstrap.rs");
 const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
+const ASYNC_ITERATOR_SOURCE: &str = include_str!("../src/builtins/async_iterator.rs");
 const PROMISE_SOURCE: &str = include_str!("../src/builtins/promise.rs");
 const CURRENT_FUNCTION_REALM_INTRINSIC_PROMISE_CAPABILITY_SOURCE: &str =
     include_str!("../src/builtins/promise/current_function_realm_intrinsic_promise_capability.rs");
@@ -161,9 +162,8 @@ fn current_function_constructor_proof_has_one_consuming_capability_api() {
         "pub(crate) fn emit_new_current_function_realm_intrinsic_promise_capability(",
     );
     for marker in [
-        "self.current_env_local",
-        "HEAP_FUNCTION_DEFINING_REALM_OFFSET",
-        "HEAP_REALM_INTRINSICS_OFFSET",
+        "emit_current_function_promise_internal_function_materialization_context(function)",
+        "emit_load_promise_internal_function_realm_intrinsics(",
         "HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET",
         "Instruction::Unreachable",
     ] {
@@ -173,16 +173,18 @@ fn current_function_constructor_proof_has_one_consuming_capability_api() {
     assert!(!factory.contains("PROMISE_CONSTRUCTOR_GLOBAL_INDEX"));
     assert!(
         factory.find("let constructor_payload_local").unwrap()
-            < factory.find("let realm_local").unwrap()
+            < factory.find("let realm_context").unwrap()
     );
     assert!(
-        factory.find("let realm_local").unwrap() < factory.find("let intrinsics_local").unwrap()
+        factory.find("let realm_context").unwrap() < factory.find("let intrinsics_local").unwrap()
     );
     assert!(
         factory
             .find("release_temp_local(intrinsics_local)")
             .unwrap()
-            < factory.find("release_temp_local(realm_local)").unwrap()
+            < factory
+                .find("release_promise_internal_function_materialization_context(realm_context)")
+                .unwrap()
     );
 
     let consumer = between(
@@ -276,6 +278,36 @@ fn all_three_request_methods_use_the_executing_function_realm() {
         );
     }
     assert!(dependency.contains(".insert(StandardBuiltinId::PromiseConstructor)"));
+}
+
+#[test]
+fn async_dispose_uses_the_method_realm_for_result_and_await_capabilities() {
+    let body = between(
+        ASYNC_ITERATOR_SOURCE,
+        "pub(crate) fn emit_async_iterator_prototype_async_dispose(",
+        "pub(crate) fn emit_async_iterator_prototype_async_dispose_fulfilled(",
+    );
+    for method in [
+        "emit_current_function_realm_intrinsic_promise_constructor(",
+        "emit_new_current_function_realm_intrinsic_promise_capability(",
+    ] {
+        assert_eq!(body.matches(method).count(), 2, "{method}");
+    }
+    assert!(!body.contains("PROMISE_CONSTRUCTOR_GLOBAL_INDEX"));
+    assert!(!body.contains("emit_new_promise_capability("));
+    assert!(!body.contains("promise_constructor_tag_local"));
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert_eq!(
+        count_in_rust_sources(&source_root, "self.emit_new_promise_capability("),
+        12
+    );
+    assert_eq!(
+        count_in_rust_sources(
+            &source_root,
+            "self.emit_new_current_function_realm_intrinsic_promise_capability("
+        ),
+        3
+    );
 }
 
 #[test]

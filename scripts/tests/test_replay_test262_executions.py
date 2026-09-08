@@ -1,6 +1,9 @@
 """Failure-only replay must preserve exact identities and reject incomplete reports."""
 
 import importlib.util
+import hashlib
+import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -66,6 +69,38 @@ class ExecutionReplayTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(marker.read_text(), "original result\n")
             self.assertEqual(list(evidence.iterdir()), [marker])
+
+    def test_replay_freezes_its_compiler_and_forces_case_isolation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executions = root / "executions"
+            executions.write_text("sloppy-script:first.js\nstrict-script:second.js\n")
+            binary = root / "fake-compiler"
+            program = (
+                f"#!{sys.executable}\n"
+                "import os\nfrom pathlib import Path\n"
+                "assert os.environ['LILA_TEST262_FORCE_CASE_RUNNER'] == '1'\n"
+                "assert 'LILA_TEST262_DISABLE_CASE_RUNNER' not in os.environ\n"
+                f"Path({str(binary)!r}).write_text('replacement compiler')\n"
+                f"print({report()!r})\n"
+            )
+            binary.write_text(program)
+            binary.chmod(0o755)
+            evidence = root / "evidence"
+            environment = os.environ.copy()
+            environment["LILA_TEST262_DISABLE_CASE_RUNNER"] = "1"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), str(executions), "--binary", str(binary),
+                 "--suite-root", str(root), "--output-dir", str(evidence), "--workers", "1"],
+                capture_output=True, text=True, timeout=10, env=environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text())
+            self.assertEqual(summary["outcomes"]["Success"], 2)
+            self.assertEqual(summary["binary_source"], str(binary))
+            self.assertEqual(summary["binary_sha256"], hashlib.sha256(program.encode()).hexdigest())
+            self.assertEqual(Path(summary["binary"]).read_text(), program)
+            self.assertEqual(binary.read_text(), "replacement compiler")
 
 
 if __name__ == "__main__":

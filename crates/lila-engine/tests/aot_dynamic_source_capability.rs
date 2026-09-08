@@ -1,5 +1,6 @@
 use lila_engine::{
-    CompileOptions, Engine, ExecutionBackend, HostSurfacePolicy, RealmBuilder, RunOptions,
+    CompileOptions, Engine, EngineError, ExecutionBackend, HostSurfacePolicy, RealmBuilder,
+    RunOptions, WasmExecutionFailureKind,
 };
 use lila_ir::{DynamicFunctionKind, DynamicSourceRuntimeOperation};
 
@@ -29,8 +30,8 @@ fn assert_runtime_capability_rejection(
         )
         .expect_err("a dynamic source capability rejection cannot be caught by JavaScript");
     assert_eq!(
-        error.runtime_dynamic_source_operation(),
-        Some(expected),
+        error.runtime_dynamic_source_operations(),
+        vec![expected],
         "{error}"
     );
     assert!(error.parse_diagnostic().is_none(), "{error}");
@@ -118,9 +119,106 @@ fn agent_runtime_capability_failure_keeps_its_typed_reason() {
         )
         .expect_err("the owner must retain a worker's dynamic source capability failure");
     assert_eq!(
-        error.runtime_dynamic_source_operation(),
-        Some(DynamicSourceRuntimeOperation::Eval),
+        error.runtime_dynamic_source_operations(),
+        vec![DynamicSourceRuntimeOperation::Eval],
         "{error}"
     );
     assert!(error.ir_diagnostic().is_none(), "{error}");
+}
+
+fn agent_script_error(source: &str) -> EngineError {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    Engine::new(RealmBuilder::new().build())
+        .run_wasm_aot_script_with_agents(
+            source,
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+            Some(30_000),
+            true,
+            String::new(),
+        )
+        .expect_err("root and worker failures must remain observable")
+}
+
+const EVAL_WORKER: &str = "var holder = { invoke: eval }; \
+    var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1');";
+
+#[test]
+fn multiple_workers_retain_distinct_runtime_capability_reasons() {
+    let function_worker = "var holder = { invoke: Function }; \
+        var hook = new Proxy(function() {}, {}); hook(); holder.invoke('return 1');";
+    let error = agent_script_error(&format!(
+        "__lilaAgentStart({EVAL_WORKER:?}); __lilaAgentStart({function_worker:?});"
+    ));
+    assert_eq!(
+        error.runtime_dynamic_source_operations(),
+        vec![
+            DynamicSourceRuntimeOperation::Eval,
+            DynamicSourceRuntimeOperation::Function(DynamicFunctionKind::Ordinary),
+        ],
+        "{error}"
+    );
+    assert_eq!(
+        error.wasm_execution_failure_kind(),
+        Some(WasmExecutionFailureKind::DynamicSource)
+    );
+}
+
+#[test]
+fn root_js_exception_and_worker_capability_keep_both_failures() {
+    let error = agent_script_error(&format!(
+        "__lilaAgentStart({EVAL_WORKER:?}); throw new TypeError('root marker');"
+    ));
+    assert_eq!(
+        error.wasm_execution_failure_kind(),
+        Some(WasmExecutionFailureKind::ConcurrentFailure)
+    );
+    assert_eq!(
+        error.runtime_dynamic_source_operations(),
+        vec![DynamicSourceRuntimeOperation::Eval]
+    );
+    assert!(error.message().contains("root marker"), "{error}");
+    assert!(error.message().contains("dynamic-source"), "{error}");
+}
+
+#[test]
+fn mixed_worker_exceptions_and_capabilities_are_not_root_js_exceptions() {
+    let error = agent_script_error(&format!(
+        "__lilaAgentStart(\"throw new TypeError('worker marker');\"); __lilaAgentStart({EVAL_WORKER:?});"
+    ));
+    assert_eq!(
+        error.wasm_execution_failure_kind(),
+        Some(WasmExecutionFailureKind::ConcurrentFailure)
+    );
+    assert_eq!(
+        error.runtime_dynamic_source_operations(),
+        vec![DynamicSourceRuntimeOperation::Eval]
+    );
+    assert!(error.message().contains("worker marker"), "{error}");
+}
+
+#[test]
+fn agent_start_retains_compile_diagnostics_before_any_worker_execution() {
+    for (worker, has_parse_diagnostic, has_ir_diagnostic) in
+        [("function {", true, false), ("eval('1');", false, true)]
+    {
+        let error = agent_script_error(&format!("__lilaAgentStart({worker:?});"));
+        assert_eq!(
+            error.parse_diagnostic().is_some(),
+            has_parse_diagnostic,
+            "{error}"
+        );
+        assert_eq!(
+            error.ir_diagnostic().is_some(),
+            has_ir_diagnostic,
+            "{error}"
+        );
+        assert_eq!(error.wasm_execution_failure_kind(), None, "{error}");
+        assert!(
+            error.runtime_dynamic_source_operations().is_empty(),
+            "{error}"
+        );
+    }
 }

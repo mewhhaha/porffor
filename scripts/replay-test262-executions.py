@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 
 
@@ -81,8 +82,21 @@ def main():
     options.suite_root = options.suite_root.resolve(strict=True)
     options.output_dir = options.output_dir.resolve()
     options.output_dir.mkdir(parents=True, exist_ok=False)
-    with options.binary.open("rb") as binary:
-        binary_sha256 = hashlib.file_digest(binary, "sha256").hexdigest()
+    binary_source = options.binary
+    options.binary = options.output_dir / "compiler"
+    binary_digest = hashlib.sha256()
+    # Every case executes this copy, even if another worktree build replaces
+    # the requested executable while the replay is running.
+    with binary_source.open("rb") as source, options.binary.open("xb") as frozen:
+        before = os.fstat(source.fileno())
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            frozen.write(chunk)
+            binary_digest.update(chunk)
+        after = os.fstat(source.fileno())
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise ValueError("compiler executable changed while it was being frozen")
+        os.fchmod(frozen.fileno(), stat.S_IMODE(before.st_mode))
+    binary_sha256 = binary_digest.hexdigest()
     execution_list_sha256 = hashlib.sha256(options.execution_list.read_bytes()).hexdigest()
     results = []
     with ThreadPoolExecutor(max_workers=options.workers) as pool:
@@ -93,7 +107,8 @@ def main():
             print(f"{len(results)}/{len(executions)} {result.get('outcome', 'InfrastructureError')} "
                   f"{result['execution_id']}", flush=True)
     results.sort(key=lambda result: result["execution_id"])
-    summary = {"binary": str(options.binary), "suite_root": str(options.suite_root),
+    summary = {"binary": str(options.binary), "binary_source": str(binary_source),
+               "suite_root": str(options.suite_root),
                "binary_sha256": binary_sha256,
                "execution_list_sha256": execution_list_sha256,
                "execution_list": str(options.execution_list), "total": len(results),
