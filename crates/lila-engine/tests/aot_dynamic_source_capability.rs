@@ -101,6 +101,32 @@ ok && holder.invoke('ordinary') === 'ordinary!';
 }
 
 #[test]
+fn definitely_deleted_eval_throws_reference_error_before_evaluating_arguments() {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_script(
+            r#"
+var calls = 0;
+var referenceErrorBeforeArguments = false;
+delete eval;
+try {
+  eval((calls++, 'source'));
+} catch (error) {
+  referenceErrorBeforeArguments = error instanceof ReferenceError && calls === 0;
+}
+referenceErrorBeforeArguments;
+"#,
+            CompileOptions::default(),
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                ..RunOptions::default()
+            },
+        )
+        .expect("deleted eval is an ordinary unresolvable identifier");
+    assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+}
+
+#[test]
 fn agent_runtime_capability_failure_keeps_its_typed_reason() {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
     let worker = "var holder = { invoke: eval }; \

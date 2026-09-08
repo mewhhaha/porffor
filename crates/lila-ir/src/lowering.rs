@@ -7500,10 +7500,12 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         // Losing proof that a configurable global still exists does not prove
-        // its previous callable disappeared. Keep possible targets for dynamic
-        // source admission while the runtime still performs ResolveBinding.
+        // its previous callable disappeared. A definite deletion does exclude
+        // that previous value until an intervening effect widens the property.
+        // Keep possible targets while runtime still performs ResolveBinding.
         let mut function_targets = self
             .lookup_global_property_info(&name)
+            .filter(|property| property.source != GlobalPropertySource::DefinitelyDeleted)
             .map_or_else(FunctionTargetKnowledge::unknown, |property| {
                 property.value_info.function_targets.clone()
             });

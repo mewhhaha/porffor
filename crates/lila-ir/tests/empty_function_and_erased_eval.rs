@@ -40,6 +40,9 @@ fn possibly_deleted_global_eval_retains_indirect_source_capability() {
     for source in [
         "globalThis.unknownHook(); (0, eval)('source');",
         "globalThis.unknownHook(); var retained = eval; retained('source');",
+        "delete eval; globalThis.unknownHook(); (0, eval)('source');",
+        "delete eval; globalThis.unknownHook(); var retained = eval; retained('source');",
+        "var retained = eval; delete eval; retained('source');",
     ] {
         let parsed = parse(source, ParseOptions::script()).expect("source parses");
         let program = lower(&parsed);
@@ -57,6 +60,31 @@ fn possibly_deleted_global_eval_retains_indirect_source_capability() {
 }
 
 #[test]
+fn definitely_deleted_eval_does_not_retain_the_removed_callable() {
+    for deletion in ["delete eval;", "delete globalThis.eval;"] {
+        for invocation in [
+            "eval('source');",
+            "(0, eval)('source');",
+            "var retained = eval; retained('source');",
+        ] {
+            let source = format!("{deletion} {invocation}");
+            let parsed = parse(&source, ParseOptions::script()).expect("source parses");
+            let program = lower(&parsed);
+            assert!(
+                program.diagnostics.iter().all(|diagnostic| {
+                    !matches!(
+                        diagnostic.unsupported_feature(),
+                        Some(UnsupportedFeature::DynamicSource(_))
+                    )
+                }),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+        }
+    }
+}
+
+#[test]
 fn erased_eval_source_boundaries_preserve_no_source_and_replacement_calls() {
     for source in [
         "globalThis.unknownHook(); (0, eval)(42);",
@@ -69,7 +97,10 @@ fn erased_eval_source_boundaries_preserve_no_source_and_replacement_calls() {
         let program = lower(&parsed);
         assert!(
             program.diagnostics.iter().all(|diagnostic| {
-                !matches!(diagnostic.unsupported_feature(), Some(UnsupportedFeature::DynamicSource(_)))
+                !matches!(
+                    diagnostic.unsupported_feature(),
+                    Some(UnsupportedFeature::DynamicSource(_))
+                )
             }),
             "{source}: {:?}",
             program.diagnostics

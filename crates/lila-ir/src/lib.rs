@@ -8633,38 +8633,11 @@ target[Symbol.iterator];"#,
 
     /// A refused generator declaration must say what about it was refused.
     ///
-    /// The arm this pins used to report `"function or class declaration"` for
-    /// every generator with no linear suspension plan — wrong about the
-    /// declaration kind *and* about the reason, and it collapsed the whole
-    /// family into one `detail_hash`. Measured before the change, on the first
-    /// source below, `lila run --execution-backend wasm` printed exactly
-    /// `unsupported in lila wasm-aot first slice: function or class
-    /// declaration`.
-    ///
-    /// This is a diagnostic test, not an acceptance test: all three sources are
-    /// still refused, and `linear_generator_plan` is still `.ok()` over the same
-    /// walk. The final assertion is the one that would catch a regression to the
-    /// old wording.
+    /// Unsupported suspension shapes need distinct reasons. Conditional loop
+    /// yields are now supported and covered by the engine's generator-loop tests.
     #[test]
     fn a_refused_generator_declaration_reports_its_yield_shape() {
         for (source, message) in [
-            // The `annexB` `invalidControls` shape, reduced: the third loop's
-            // yield sits inside an `if`. This is
-            // `RegExp-control-escape-russian-letter.js` and
-            // `RegExp-invalid-control-escape-character-class.js`.
-            (
-                "function* invalidControls() {\
-                   for (var a = 0x41; a <= 0x43; a++) { yield String.fromCharCode(a); }\
-                   for (a = 0; a <= 0x10; a++) {\
-                     let letter = String.fromCharCode(a);\
-                     if (letter.length > 0) { yield letter; }\
-                   }\
-                 }\
-                 invalidControls();",
-                "a loop body whose yield is nested inside another statement",
-            ),
-            // A different family, so the test cannot pass by reporting one
-            // message for everything.
             (
                 "function* g() { for (var i = 0; i < 3; i++) { yield i; break; } } g();",
                 "a loop carrying `break`, `continue` or a capturing nested function",
