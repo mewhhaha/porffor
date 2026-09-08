@@ -63,6 +63,9 @@ expectations. `EngineError::runtime_dynamic_source_operations()` returns every
 distinct rejection retained from the root and its workers. A nonempty execution
 failure aggregate keeps each original error, including its compile diagnostics;
 worker failures stay owned until joined even after their broadcast channel closes.
+An aggregate consisting only of typed source capability gaps remains Unsupported,
+including a worker-start compilation diagnostic combined with another worker's
+runtime rejection. A compile diagnostic does not fabricate a runtime operation.
 
 `WasmExecutionFailureKind` separates a root JavaScript exception from dynamic
 source rejection, concurrent failures, Wasm traps and execution timeouts. A
