@@ -6670,7 +6670,9 @@ pub(crate) fn host_builtin_length(builtin: HostBuiltinId) -> u64 {
         | HostBuiltinId::GeneratorFunctionConstructor
         | HostBuiltinId::AsyncFunctionConstructor
         | HostBuiltinId::AsyncGeneratorFunctionConstructor => 1,
-        HostBuiltinId::CreateHTMLDDA | HostBuiltinId::HTMLDDA => 0,
+        HostBuiltinId::CreateHTMLDDA
+        | HostBuiltinId::HTMLDDA
+        | HostBuiltinId::AsyncDisposableStackSyncDispose => 0,
         HostBuiltinId::ParseInt => 2,
         HostBuiltinId::ParseFloat => 1,
         HostBuiltinId::DetachArrayBuffer => 1,

@@ -50,6 +50,7 @@ const WASM_RESULT_TAG_EXPORT: &str = "result_tag";
 const WASM_COMPLETION_KIND_EXPORT: &str = "completion_kind";
 const WASM_THROW_ERROR_NAME_EXPORT: &str = "throw_error_name";
 const WASM_THROW_ERROR_MESSAGE_EXPORT: &str = "throw_error_message";
+const WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT: &str = "throw_error_constructor_name";
 const WASM_HOST_IMPORT_NAMESPACE: &str = "lila_host";
 const WASM_HOST_IMPORT_AGENT_CAN_SUSPEND: &str = "agent_can_suspend";
 const WASM_HOST_IMPORT_PRINT_LINE_UTF8: &str = "print_line_utf8";
@@ -3728,7 +3729,9 @@ impl Engine {
                         WasmTopLevelCompletionKind::Throw => {
                             let prefix = thrown_error.name_prefix();
                             Err(EngineError::from_execution_failure(
-                                EngineExecutionFailure::JavaScriptException,
+                                EngineExecutionFailure::JavaScriptException {
+                                    constructor_name: thrown_error.constructor_name,
+                                },
                                 format!("uncaught throw: {prefix}{note}"),
                             ))
                         }
@@ -4048,31 +4051,24 @@ fn read_wasmtime_shared_memory(
 }
 
 /// What an uncaught throw carried out of the module, as the module itself
-/// reported it: the error's `name` and its `message`.
+/// reported it: the error's diagnostic `name`, `message`, and final
+/// `constructor.name` for the conformance consumer.
 ///
-/// Both come from exported globals the emitter sets at every throw site
-/// (`builtins/errors.rs`), and both are `None` for a completion that is not a
-/// throw of a heap object — which is also the only case where either global
-/// could be read at all, since a heap-less module aliases the two exports onto
-/// one slot.
-///
-/// The type exists so the two are read *together*, once, at one place. They
-/// used to be one lonely string read inline at the throw site, and the result
-/// was that `render_wasmtime_completion` had nothing to print for an object
-/// except `handle@{payload}` — a raw linear-memory address that is not stable
-/// across builds (batch 3 measured a fixed set of handles shifting by exactly
-/// +136 bytes between two builds of the same source) and maps to no allocation
-/// site anywhere in this tree. ~2,488 measured Wasm-AOT failures across ~1,743
-/// distinct addresses therefore carried one bit of information between them.
+/// Diagnostic text is published at throw sites; the constructor name is
+/// captured from the final root completion after jobs and finalizers. These
+/// globals are read together only for a thrown heap object: a heap-less module
+/// aliases their exports onto one slot and cannot produce an object completion.
 struct ThrownErrorText {
     name: Option<String>,
     message: Option<String>,
+    constructor_name: Option<String>,
 }
 
 impl ThrownErrorText {
     const NONE: Self = Self {
         name: None,
         message: None,
+        constructor_name: None,
     };
 
     fn read(
@@ -4100,9 +4096,17 @@ impl ThrownErrorText {
             WASM_THROW_ERROR_MESSAGE_EXPORT,
             memory,
         )?;
+        let memory = wasmtime_exported_memory(instance, store);
+        let constructor_name = read_wasmtime_string_payload_global(
+            instance,
+            store,
+            WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
+            memory,
+        )?;
         Ok(Self {
             name: name.filter(|value| !value.is_empty()),
             message: message.filter(|value| !value.is_empty()),
+            constructor_name,
         })
     }
 
@@ -5958,6 +5962,7 @@ locales.length === 1 && locales[0] === "he-IL";
                 // here makes that a named failure instead of a quiet
                 // regression to `object(handle@N)`.
                 WASM_THROW_ERROR_MESSAGE_EXPORT,
+                WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
             ] {
                 assert!(
                     exports.contains(&export.to_string()),

@@ -2838,13 +2838,6 @@ impl<'a> FunctionBuilder<'a> {
             NonArrayRealmIntrinsicSlot::WeakSetPrototype,
             function,
         );
-        // `%AsyncDisposableStack.prototype%` deliberately gets no
-        // `HEAP_REALM_INTRINSICS_*` slot. The only case that could observe one
-        // is `proto-from-ctor-realm.js`, which is a policy case
-        // (`Function constructor dynamic code generation`) and cannot pass on
-        // this backend; the constructor therefore falls back to the current
-        // realm's global (`NewTargetPrototypeFallback::CurrentGlobal`) and the
-        // realm-intrinsics record does not gain an AsyncDisposableStack slot.
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -2853,9 +2846,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
         ));
-        // `%DisposableStack.prototype%` follows the same source-free realm
-        // policy as its async sibling. Dynamic Function construction is the
-        // only pinned test that distinguishes a created-realm slot.
+        self.emit_store_current_realm_global_intrinsic(
+            ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::AsyncDisposableStackPrototype,
+            function,
+        );
+        // DisposableStack still needs a created-realm prototype publication
+        // before its constructor can select a foreign default prototype.
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),

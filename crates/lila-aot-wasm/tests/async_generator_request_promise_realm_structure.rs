@@ -51,7 +51,7 @@ fn count_in_rust_sources(root: &Path, needle: &str) -> usize {
 #[test]
 fn promise_constructor_is_a_traced_realm_intrinsic_in_both_bootstraps() {
     for marker in [
-        "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 424;",
+        "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;",
         "pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET: u64 = 416;",
         "name: \"%Promise%\"",
         "offset: HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET",
@@ -299,14 +299,14 @@ fn async_dispose_uses_the_method_realm_for_result_and_await_capabilities() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "self.emit_new_promise_capability("),
-        12
+        10
     );
     assert_eq!(
         count_in_rust_sources(
             &source_root,
             "self.emit_new_current_function_realm_intrinsic_promise_capability("
         ),
-        3
+        6
     );
 }
 

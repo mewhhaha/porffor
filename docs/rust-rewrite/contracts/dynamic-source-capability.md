@@ -75,6 +75,20 @@ behavior. JavaScript `catch`, Promise rejection handling and worker report
 serialization cannot convert the capability failure into a JavaScript error or
 a passing test. The import neither receives nor compiles source.
 
+Runtime-negative error types compare exactly with
+`EngineError::wasm_javascript_exception_constructor_name()`, projected from the
+separate `throw_error_constructor_name` Wasm export. Test262's
+`INTERPRETING.md` defines `negative.type` as the thrown exception's constructor
+name. Diagnostic `.name`, message text, primitive string throws and names in
+worker failures cannot satisfy this comparison. The constructor name is captured
+once from the final root value after the job checkpoint, so a caught throw in a
+finalizer or Promise job cannot replace its authority. This is a data-property
+observation of `constructor.name`, not an intrinsic constructor identity check.
+Accessors and Proxy traps are not invoked for metadata: if observation would
+require user code, the constructor name remains unavailable and a named runtime
+negative fails with that evidence. A constructor-name mismatch is a Bug even when
+the JavaScript error's message contains unsupported-capability wording.
+
 Created realms initialize their own GeneratorFunction, AsyncFunction and
 AsyncGeneratorFunction constructor/prototype pairs, Generator and AsyncGenerator
 instance prototypes, and AsyncIterator prototype in the canonical realm record.

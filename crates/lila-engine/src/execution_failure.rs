@@ -13,7 +13,7 @@ pub enum WasmExecutionFailureKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum EngineExecutionFailure {
-    JavaScriptException,
+    JavaScriptException { constructor_name: Option<String> },
     DynamicSource(DynamicSourceRuntimeOperation),
     Trap,
     Timeout,
@@ -99,7 +99,7 @@ impl EngineError {
         self.execution_failure
             .as_ref()
             .map(|failure| match failure {
-                EngineExecutionFailure::JavaScriptException => {
+                EngineExecutionFailure::JavaScriptException { .. } => {
                     WasmExecutionFailureKind::JavaScriptException
                 }
                 EngineExecutionFailure::DynamicSource(_) => WasmExecutionFailureKind::DynamicSource,
@@ -107,6 +107,25 @@ impl EngineError {
                 EngineExecutionFailure::Timeout => WasmExecutionFailureKind::Timeout,
                 EngineExecutionFailure::Concurrent(failures) => failures.kind(),
             })
+    }
+
+    /// The final root throw's data-property `constructor.name`, when available
+    /// without invoking user code. This is neither diagnostic `.name` nor an
+    /// intrinsic constructor identity. Primitive throws and worker aggregates
+    /// do not provide an exception constructor name.
+    pub fn wasm_javascript_exception_constructor_name(&self) -> Option<&str> {
+        match &self.execution_failure {
+            Some(EngineExecutionFailure::JavaScriptException { constructor_name }) => {
+                constructor_name.as_deref()
+            }
+            None
+            | Some(
+                EngineExecutionFailure::DynamicSource(_)
+                | EngineExecutionFailure::Trap
+                | EngineExecutionFailure::Timeout
+                | EngineExecutionFailure::Concurrent(_),
+            ) => None,
+        }
     }
 
     /// Every distinct dynamic-source rejection retained from the root and its
@@ -128,7 +147,7 @@ impl EngineError {
                 operations
             }
             Some(
-                EngineExecutionFailure::JavaScriptException
+                EngineExecutionFailure::JavaScriptException { .. }
                 | EngineExecutionFailure::Trap
                 | EngineExecutionFailure::Timeout,
             ) => Vec::new(),
@@ -177,12 +196,14 @@ mod tests {
     #[test]
     fn root_and_worker_failures_survive_in_both_orders_without_becoming_js_exceptions() {
         for reason in [
-            EngineExecutionFailure::JavaScriptException,
+            EngineExecutionFailure::JavaScriptException {
+                constructor_name: None,
+            },
             EngineExecutionFailure::Trap,
             EngineExecutionFailure::Timeout,
         ] {
             let expected = match reason {
-                EngineExecutionFailure::JavaScriptException => {
+                EngineExecutionFailure::JavaScriptException { .. } => {
                     WasmExecutionFailureKind::ConcurrentFailure
                 }
                 EngineExecutionFailure::Trap => WasmExecutionFailureKind::Trap,
@@ -214,7 +235,9 @@ mod tests {
     #[test]
     fn only_an_unaccompanied_root_js_throw_is_a_js_exception() {
         let root = EngineError::from_execution_failure(
-            EngineExecutionFailure::JavaScriptException,
+            EngineExecutionFailure::JavaScriptException {
+                constructor_name: Some("TypeError".to_string()),
+            },
             "uncaught throw: TypeError: root",
         );
         let root_failure =
@@ -222,6 +245,10 @@ mod tests {
         assert_eq!(
             root_failure.wasm_execution_failure_kind(),
             Some(WasmExecutionFailureKind::JavaScriptException)
+        );
+        assert_eq!(
+            root_failure.wasm_javascript_exception_constructor_name(),
+            Some("TypeError")
         );
         let worker_failure = finish_wasm_execution(
             Ok(()),
@@ -231,6 +258,10 @@ mod tests {
         assert_eq!(
             worker_failure.wasm_execution_failure_kind(),
             Some(WasmExecutionFailureKind::ConcurrentFailure)
+        );
+        assert_eq!(
+            worker_failure.wasm_javascript_exception_constructor_name(),
+            None
         );
     }
 }

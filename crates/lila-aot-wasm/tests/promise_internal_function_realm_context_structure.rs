@@ -14,6 +14,8 @@ const PROMISE_KEYED_ELEMENT_PROJECTION_SOURCE: &str =
     include_str!("../src/builtins/promise/promise_keyed_element_projection.rs");
 const PROMISE_RESOLVE_REALM_CONTEXT_SOURCE: &str =
     include_str!("../src/builtins/promise/promise_resolve_realm_context.rs");
+const ASYNC_DISPOSABLE_STACK_SOURCE: &str =
+    include_str!("../src/builtins/async_disposable_stack.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/functions.rs");
 const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_promise_internal_callback_realm.js");
@@ -216,6 +218,21 @@ fn materialization_factories_have_static_realm_authority() {
 
 #[test]
 fn all_escaping_promise_closures_use_the_typed_materializer() {
+    assert_eq!(
+        ASYNC_DISPOSABLE_STACK_SOURCE
+            .matches("emit_promise_internal_function_value(")
+            .count(),
+        2,
+        "disposal callbacks and the synchronous fallback wrapper use their acquisition realm",
+    );
+    assert_eq!(
+        ASYNC_DISPOSABLE_STACK_SOURCE
+            .matches("emit_load_promise_internal_function_context(")
+            .count(),
+        3,
+        "disposal callbacks and the synchronous wrapper read private captured state",
+    );
+    assert!(!ASYNC_DISPOSABLE_STACK_SOURCE.contains("HEAP_FUNCTION_ENV_HANDLE_OFFSET"));
     assert_eq!(
         PROMISE_SOURCE
             .matches("emit_promise_internal_function_value(")

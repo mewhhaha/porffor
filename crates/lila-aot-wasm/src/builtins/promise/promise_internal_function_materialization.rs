@@ -119,7 +119,7 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    pub(super) fn emit_promise_internal_function_value(
+    pub(crate) fn emit_promise_internal_function_value(
         &mut self,
         meta: &WasmFunctionMeta,
         context: &PromiseInternalFunctionMaterializationContext,
@@ -173,7 +173,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_load_promise_internal_function_context(
+    pub(crate) fn emit_load_promise_internal_function_context(
         &mut self,
         context_local: u32,
         function: &mut Function,

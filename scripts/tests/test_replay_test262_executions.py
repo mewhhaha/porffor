@@ -41,16 +41,12 @@ class ExecutionReplayTests(unittest.TestCase):
                 MODULE.native_outcome(transcript, exit_code)
 
     def test_execution_list_keeps_modes_distinct_and_rejects_empty_duplicates_and_filters(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "executions"
-            identities = [f"{mode}:built-ins/Array/case.js" for mode in MODULE.EXECUTION_MODES]
-            path.write_text("# frozen cohort\n\n" + "\n".join(identities) + "\n")
-            self.assertEqual(MODULE.read_executions(path), identities)
-            for invalid in ["# empty\n", identities[0] + "\n" + identities[0],
-                            "built-ins/Array", "invalid:case.js", "module:two paths.js"]:
-                path.write_text(invalid)
-                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                    MODULE.read_executions(path)
+        identities = [f"{mode}:built-ins/Array/case.js" for mode in MODULE.EXECUTION_MODES]
+        self.assertEqual(MODULE.parse_executions("# frozen cohort\n\n" + "\n".join(identities)), identities)
+        for invalid in ["# empty\n", identities[0] + "\n" + identities[0],
+                        "built-ins/Array", "invalid:case.js", "module:two paths.js"]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                MODULE.parse_executions(invalid)
 
     def test_existing_evidence_directory_is_never_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -70,11 +66,12 @@ class ExecutionReplayTests(unittest.TestCase):
             self.assertEqual(marker.read_text(), "original result\n")
             self.assertEqual(list(evidence.iterdir()), [marker])
 
-    def test_replay_freezes_its_compiler_and_forces_case_isolation(self):
+    def test_replay_freezes_its_inputs_and_forces_case_isolation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             executions = root / "executions"
-            executions.write_text("sloppy-script:first.js\nstrict-script:second.js\n")
+            execution_list = "sloppy-script:first.js\nstrict-script:second.js\n"
+            executions.write_text(execution_list)
             binary = root / "fake-compiler"
             program = (
                 f"#!{sys.executable}\n"
@@ -82,6 +79,7 @@ class ExecutionReplayTests(unittest.TestCase):
                 "assert os.environ['LILA_TEST262_FORCE_CASE_RUNNER'] == '1'\n"
                 "assert 'LILA_TEST262_DISABLE_CASE_RUNNER' not in os.environ\n"
                 f"Path({str(binary)!r}).write_text('replacement compiler')\n"
+                f"Path({str(executions)!r}).write_text('replacement executions')\n"
                 f"print({report()!r})\n"
             )
             binary.write_text(program)
@@ -101,6 +99,9 @@ class ExecutionReplayTests(unittest.TestCase):
             self.assertEqual(summary["binary_sha256"], hashlib.sha256(program.encode()).hexdigest())
             self.assertEqual(Path(summary["binary"]).read_text(), program)
             self.assertEqual(binary.read_text(), "replacement compiler")
+            self.assertEqual(summary["execution_list_source"], str(executions))
+            self.assertEqual(Path(summary["execution_list"]).read_text(), execution_list)
+            self.assertEqual(summary["execution_list_sha256"], hashlib.sha256(execution_list.encode()).hexdigest())
 
 
 if __name__ == "__main__":

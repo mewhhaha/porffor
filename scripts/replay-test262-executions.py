@@ -16,8 +16,8 @@ OUTCOMES = ("Success", "NotImplemented", "Crash", "Bug")
 EXECUTION_MODES = ("sloppy-script", "strict-script", "raw-script", "module", "raw-module")
 
 
-def read_executions(path):
-    executions = [line.strip() for line in path.read_text().splitlines()
+def parse_executions(source):
+    executions = [line.strip() for line in source.splitlines()
                   if line.strip() and not line.lstrip().startswith("#")]
     if not executions:
         raise ValueError("execution list is empty")
@@ -77,11 +77,14 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--workers", type=int, choices=range(1, 65), default=2)
     options = parser.parse_args()
-    executions = read_executions(options.execution_list)
+    execution_list_bytes = options.execution_list.read_bytes()
+    executions = parse_executions(execution_list_bytes.decode("utf-8"))
     options.binary = options.binary.resolve(strict=True)
     options.suite_root = options.suite_root.resolve(strict=True)
     options.output_dir = options.output_dir.resolve()
     options.output_dir.mkdir(parents=True, exist_ok=False)
+    frozen_execution_list = options.output_dir / "executions"
+    frozen_execution_list.write_bytes(execution_list_bytes)
     binary_source = options.binary
     options.binary = options.output_dir / "compiler"
     binary_digest = hashlib.sha256()
@@ -97,7 +100,7 @@ def main():
             raise ValueError("compiler executable changed while it was being frozen")
         os.fchmod(frozen.fileno(), stat.S_IMODE(before.st_mode))
     binary_sha256 = binary_digest.hexdigest()
-    execution_list_sha256 = hashlib.sha256(options.execution_list.read_bytes()).hexdigest()
+    execution_list_sha256 = hashlib.sha256(execution_list_bytes).hexdigest()
     results = []
     with ThreadPoolExecutor(max_workers=options.workers) as pool:
         futures = [pool.submit(replay, execution, options) for execution in executions]
@@ -111,7 +114,8 @@ def main():
                "suite_root": str(options.suite_root),
                "binary_sha256": binary_sha256,
                "execution_list_sha256": execution_list_sha256,
-               "execution_list": str(options.execution_list), "total": len(results),
+               "execution_list": str(frozen_execution_list),
+               "execution_list_source": str(options.execution_list.resolve()), "total": len(results),
                "outcomes": {outcome: sum(r.get("outcome") == outcome for r in results)
                             for outcome in OUTCOMES}, "results": results}
     (options.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")

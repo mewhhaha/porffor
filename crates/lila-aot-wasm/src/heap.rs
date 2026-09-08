@@ -277,7 +277,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 312;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 424;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -708,6 +708,7 @@ pub(crate) const HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET: u64 = 392;
 pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET: u64 = 400;
 pub(crate) const HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET: u64 = 408;
 pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET: u64 = 416;
+pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET: u64 = 424;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -3529,6 +3530,13 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%AsyncDisposableStack.prototype%",
+        offset: HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -5542,7 +5550,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 424);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 432);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);
         assert_eq!(
             HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET,
@@ -5559,6 +5567,10 @@ mod tests {
         assert_eq!(HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET, 400);
         assert_eq!(HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET, 408);
         assert_eq!(HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET, 416);
+        assert_eq!(
+            HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
+            424
+        );
         assert_eq!(HEAP_PROMISE_RECORD_SIZE, 72);
         assert_eq!(HEAP_PROMISE_CAPABILITY_RECORD_SIZE, 48);
         assert_eq!(HEAP_PROMISE_REACTION_RECORD_SIZE, 56);
@@ -6259,6 +6271,10 @@ mod tests {
             (
                 "%Promise%",
                 HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
+            ),
+            (
+                "%AsyncDisposableStack.prototype%",
+                HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
             ),
         ] {
             assert!(HEAP_REALM_INTRINSICS_LAYOUT

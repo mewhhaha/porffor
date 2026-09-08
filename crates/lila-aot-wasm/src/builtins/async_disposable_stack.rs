@@ -6,10 +6,10 @@
 //! `HEAP_OBJECT_INTERNAL_BRAND_OFFSET` so every prototype method can reject a
 //! foreign receiver — and after `builtins/async_iterator.rs` for the
 //! promise-returning half: `disposeAsync` parks its walk state on the heap,
-//! hangs that state off two builtin callbacks' `[[Environment]]` slot, and
+//! hangs that state off two builtin callbacks' private closure-context slot, and
 //! re-enters the same emitted walk from either callback.
 //!
-//! Three spec shapes are collapsed on purpose, each because the collapse is
+//! Two spec shapes are collapsed on purpose, each because the collapse is
 //! observationally identical and the alternative is a builtin function object
 //! minted per call:
 //!
@@ -18,12 +18,9 @@
 //!   closure. The disposal walk performs `Call(onDisposeAsync, undefined, « V »)`,
 //!   which is what that closure does.
 //! * `defer(onDisposeAsync)` likewise stores a `DEFER` kind.
-//! * `GetDisposeMethod(V, async-dispose)`'s `@@dispose` fallback stores the
-//!   synchronous method directly rather than the spec's promise-returning
-//!   wrapper. `lower_using_declaration` already took this decision for
-//!   `await using` (see the comment at `lowering.rs`'s
-//!   `add_disposable_resource_statements`): awaiting the synchronous call's own
-//!   result is the same observable sequence.
+//! `GetDisposeMethod(V, async-dispose)` keeps its unobservable `@@dispose`
+//! wrapper: it creates a Promise in the acquisition Realm, discards the
+//! synchronous method's return, and translates a throw into rejection.
 //!
 //! What is *not* collapsed is the `Await` itself. `Dispose` awaits once per
 //! entry even when there is no method to call, which is the whole content of
@@ -37,7 +34,7 @@ use super::super::*;
 use crate::functions::NewTargetPrototypeFallback;
 
 /// The disposal walk's parked state, hung off both settlement callbacks'
-/// `[[Environment]]` slot. It is *not* the `AsyncDisposableStack` record: the
+/// private closure-context slot. It is *not* the `AsyncDisposableStack` record: the
 /// entry pointer and the descending index are snapshotted at `disposeAsync`
 /// time so the walk cannot be perturbed by anything the disposers do to the
 /// stack object.
@@ -54,6 +51,9 @@ const ASYNC_DISPOSABLE_STACK_DISPOSE_INDEX_OFFSET: u64 = 24;
 const ASYNC_DISPOSABLE_STACK_DISPOSE_COMPLETION_KIND_OFFSET: u64 = 32;
 const ASYNC_DISPOSABLE_STACK_DISPOSE_ERROR_TAG_OFFSET: u64 = 40;
 const ASYNC_DISPOSABLE_STACK_DISPOSE_ERROR_PAYLOAD_OFFSET: u64 = 48;
+const ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_CONTEXT_SIZE: u64 = 16;
+const ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_METHOD_PAYLOAD_OFFSET: u64 = 0;
+const ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_METHOD_TAG_OFFSET: u64 = 8;
 
 enum AsyncDisposableStackDisposeCompletionKind {
     Normal,
@@ -101,15 +101,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        // `NewTargetPrototypeFallback::CurrentGlobal` rather than
-        // `RealmIntrinsic`: the only case that can tell the two apart is
-        // `proto-from-ctor-realm.js`, which needs the cross-realm `Function`
-        // constructor and is a declared policy case on this backend. Choosing
-        // the global keeps `%AsyncDisposableStack.prototype%` out of the
-        // realm-intrinsics record.
         self.emit_new_target_prototype_to_locals(
             ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
-            NewTargetPrototypeFallback::CurrentGlobal,
+            NewTargetPrototypeFallback::RealmIntrinsic(
+                HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
+            ),
             prototype_payload_local,
             prototype_tag_local,
             function,
@@ -254,6 +250,48 @@ impl<'a> FunctionBuilder<'a> {
             method_tag_local,
             function,
         )?;
+        function.instruction(&Instruction::LocalGet(method_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let wrapper_meta = self
+            .functions
+            .get(&HostBuiltinId::AsyncDisposableStackSyncDispose.function_id())
+            .cloned()
+            .ok_or_else(|| EmitError::unsupported("missing synchronous disposal wrapper"))?;
+        let method_context_local = self.reserve_temp_local();
+        let wrapper_local = self.reserve_temp_local();
+        self.emit_heap_alloc_const(ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_CONTEXT_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(method_context_local));
+        self.store_i64_local_at_offset(
+            method_context_local,
+            ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_METHOD_PAYLOAD_OFFSET,
+            method_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            method_context_local,
+            ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_METHOD_TAG_OFFSET,
+            method_tag_local,
+            function,
+        );
+        let wrapper_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
+        self.emit_promise_internal_function_value(
+            &wrapper_meta,
+            &wrapper_context,
+            method_context_local,
+            wrapper_local,
+            function,
+        )?;
+        self.release_promise_internal_function_materialization_context(wrapper_context);
+        function.instruction(&Instruction::LocalGet(wrapper_local));
+        function.instruction(&Instruction::LocalSet(method_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(method_tag_local));
+        self.release_temp_local(wrapper_local);
+        self.release_temp_local(method_context_local);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(method_tag_local));
@@ -293,6 +331,88 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(value_tag_local);
         self.release_temp_local(value_payload_local);
         self.release_temp_local(stack_record_local);
+        Ok(())
+    }
+
+    /// The unobservable `GetDisposeMethod` synchronous fallback closure.
+    pub(crate) fn emit_async_disposable_stack_sync_dispose(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let method_context_local = self.reserve_temp_local();
+        let method_payload_local = self.reserve_temp_local();
+        let method_tag_local = self.reserve_temp_local();
+        let receiver_payload_local = self.reserve_temp_local();
+        let receiver_tag_local = self.reserve_temp_local();
+        let capability_record_local = self.reserve_temp_local();
+        let promise_payload_local = self.reserve_temp_local();
+        let promise_tag_local = self.reserve_temp_local();
+        let promise_record_local = self.reserve_temp_local();
+
+        self.emit_load_promise_internal_function_context(method_context_local, function);
+        self.load_i64_to_local_from_offset(
+            method_context_local,
+            ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_METHOD_PAYLOAD_OFFSET,
+            method_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            method_context_local,
+            ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_METHOD_TAG_OFFSET,
+            method_tag_local,
+            function,
+        );
+        self.compile_this_to_locals(receiver_payload_local, receiver_tag_local, function)?;
+        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(function);
+        self.emit_new_current_function_realm_intrinsic_promise_capability(
+            constructor,
+            capability_record_local,
+            promise_payload_local,
+            promise_tag_local,
+            function,
+        )?;
+        self.load_i64_to_local_from_offset(
+            promise_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            promise_record_local,
+            function,
+        );
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            method_payload_local,
+            method_tag_local,
+            receiver_payload_local,
+            receiver_tag_local,
+            &[],
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_async_disposable_stack_reject_current_throw_and_return(
+            promise_record_local,
+            promise_payload_local,
+            promise_tag_local,
+            function,
+        )?;
+        self.emit_async_disposable_stack_settle_undefined(
+            promise_record_local,
+            PromiseSettlement::Fulfill,
+            function,
+        )?;
+        self.emit_async_disposable_stack_return_promise(
+            promise_payload_local,
+            promise_tag_local,
+            function,
+        );
+
+        self.release_temp_local(promise_record_local);
+        self.release_temp_local(promise_tag_local);
+        self.release_temp_local(promise_payload_local);
+        self.release_temp_local(capability_record_local);
+        self.release_temp_local(receiver_tag_local);
+        self.release_temp_local(receiver_payload_local);
+        self.release_temp_local(method_tag_local);
+        self.release_temp_local(method_payload_local);
+        self.release_temp_local(method_context_local);
         Ok(())
     }
 
@@ -428,11 +548,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_async_disposable_stack_record_from_receiver(stack_record_local, function)?;
         self.emit_async_disposable_stack_require_pending(stack_record_local, function)?;
 
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(ASYNC_DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
+        self.emit_alloc_current_function_realm_async_disposable_stack_object(function)?;
         function.instruction(&Instruction::LocalSet(moved_payload_local));
         self.emit_heap_alloc_const(HEAP_ASYNC_DISPOSABLE_STACK_RECORD_SIZE, function)?;
         function.instruction(&Instruction::LocalSet(moved_record_local));
@@ -550,8 +666,6 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let promise_constructor_payload_local = self.reserve_temp_local();
-        let promise_constructor_tag_local = self.reserve_temp_local();
         let capability_record_local = self.reserve_temp_local();
         let promise_payload_local = self.reserve_temp_local();
         let promise_tag_local = self.reserve_temp_local();
@@ -565,22 +679,14 @@ impl<'a> FunctionBuilder<'a> {
         let entries_ptr_local = self.reserve_temp_local();
         let entries_len_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(promise_constructor_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(promise_constructor_tag_local));
-        let executor_context =
-            self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            promise_constructor_payload_local,
-            promise_constructor_tag_local,
+        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(function);
+        self.emit_new_current_function_realm_intrinsic_promise_capability(
+            constructor,
             capability_record_local,
             promise_payload_local,
             promise_tag_local,
             function,
         )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
         self.load_i64_to_local_from_offset(
             promise_payload_local,
             HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
@@ -744,8 +850,6 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             promise_payload_local,
             capability_record_local,
-            promise_constructor_tag_local,
-            promise_constructor_payload_local,
         ] {
             self.release_temp_local(local);
         }
@@ -759,8 +863,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let dispose_state_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::LocalSet(dispose_state_local));
+        self.emit_load_promise_internal_function_context(dispose_state_local, function);
         self.emit_async_disposable_stack_restore_realm_env(dispose_state_local, function);
         self.emit_async_disposable_stack_dispose_step(dispose_state_local, function)?;
         self.emit_async_disposable_stack_return_undefined(function);
@@ -781,8 +884,7 @@ impl<'a> FunctionBuilder<'a> {
         let reason_payload_local = self.reserve_temp_local();
         let reason_tag_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::LocalSet(dispose_state_local));
+        self.emit_load_promise_internal_function_context(dispose_state_local, function);
         self.emit_async_disposable_stack_restore_realm_env(dispose_state_local, function);
         self.emit_builtin_arg_to_locals(0, reason_payload_local, reason_tag_local, function);
         self.emit_async_disposable_stack_record_error(
@@ -830,8 +932,6 @@ impl<'a> FunctionBuilder<'a> {
         let error_tag_local = self.reserve_temp_local();
         let undefined_payload_local = self.reserve_temp_local();
         let undefined_tag_local = self.reserve_temp_local();
-        let promise_constructor_payload_local = self.reserve_temp_local();
-        let promise_constructor_tag_local = self.reserve_temp_local();
         let throwaway_capability_local = self.reserve_temp_local();
         let throwaway_promise_payload_local = self.reserve_temp_local();
         let throwaway_promise_tag_local = self.reserve_temp_local();
@@ -1052,6 +1152,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
+        let callback_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         for (builtin, callback_payload_local) in [
             (
                 StandardBuiltinId::AsyncDisposableStackDisposeAsyncFulfilled,
@@ -1072,31 +1174,23 @@ impl<'a> FunctionBuilder<'a> {
                         builtin.debug_name()
                     ))
                 })?;
-            self.emit_function_value_payload(&callback_meta, function)?;
-            function.instruction(&Instruction::LocalSet(callback_payload_local));
-            self.store_i64_local_at_offset(
-                callback_payload_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            self.emit_promise_internal_function_value(
+                &callback_meta,
+                &callback_context,
                 dispose_state_local,
+                callback_payload_local,
                 function,
-            );
+            )?;
         }
-        function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(promise_constructor_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(promise_constructor_tag_local));
-        let executor_context =
-            self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            promise_constructor_payload_local,
-            promise_constructor_tag_local,
+        self.release_promise_internal_function_materialization_context(callback_context);
+        let constructor = self.emit_current_function_realm_intrinsic_promise_constructor(function);
+        self.emit_new_current_function_realm_intrinsic_promise_capability(
+            constructor,
             throwaway_capability_local,
             throwaway_promise_payload_local,
             throwaway_promise_tag_local,
             function,
         )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(callback_tag_local));
         self.emit_intrinsic_await_with_handlers(
@@ -1170,8 +1264,6 @@ impl<'a> FunctionBuilder<'a> {
             throwaway_promise_tag_local,
             throwaway_promise_payload_local,
             throwaway_capability_local,
-            promise_constructor_tag_local,
-            promise_constructor_payload_local,
             undefined_tag_local,
             undefined_payload_local,
             error_tag_local,
@@ -1246,6 +1338,17 @@ impl<'a> FunctionBuilder<'a> {
             SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
         ));
         function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            self.current_env_local,
+            HEAP_FUNCTION_REALM_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
+            prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
         self.emit_alloc_suppressed_error_instance_from_locals(
             None,
             error_payload_local,

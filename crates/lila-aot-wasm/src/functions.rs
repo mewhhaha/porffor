@@ -8,6 +8,7 @@ mod arguments_index_mapping;
 mod bound_function_allocation;
 mod created_realm_array_prototype;
 mod current_function_realm_array_prototype;
+mod current_function_realm_async_disposable_stack;
 mod function_realm;
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
@@ -116,6 +117,7 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     PromisePrototype,
     FunctionPrototype,
     PromiseConstructor,
+    AsyncDisposableStackPrototype,
     GeneratorFunctionConstructor,
     AsyncFunctionConstructor,
     AsyncGeneratorFunctionConstructor,
@@ -313,6 +315,9 @@ impl NonArrayRealmIntrinsicSlot {
             Self::PromisePrototype => HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
             Self::FunctionPrototype => HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
             Self::PromiseConstructor => HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
+            Self::AsyncDisposableStackPrototype => {
+                HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET
+            }
             Self::GeneratorFunctionConstructor => {
                 HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET
             }

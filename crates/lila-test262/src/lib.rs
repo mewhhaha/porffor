@@ -11054,16 +11054,41 @@ fn run_one_case_with_wasm_aot_execution(
                         return Err(classify_engine_failure(case.execution_id.clone(), &err));
                     }
                     let detail = err.message().to_string();
-                    if negative.error_type.is_empty() || detail.contains(&negative.error_type) {
+                    let type_matches = negative.error_type.is_empty()
+                        || match execution_backend {
+                            ExecutionBackend::WasmAot => {
+                                err.wasm_javascript_exception_constructor_name()
+                                    == Some(negative.error_type.as_str())
+                            }
+                            ExecutionBackend::SpecExec => detail.contains(&negative.error_type),
+                        };
+                    if type_matches {
                         Ok(())
                     } else {
-                        Err(classify_failure(
+                        let (outcome, mismatch) = match execution_backend {
+                            ExecutionBackend::WasmAot => (
+                                OutcomeKind::Bug,
+                                format!(
+                                    "negative test error mismatch: expected {}, got constructor {}: {}",
+                                    negative.error_type,
+                                    err.wasm_javascript_exception_constructor_name()
+                                        .unwrap_or("<unavailable>"),
+                                    detail
+                                ),
+                            ),
+                            ExecutionBackend::SpecExec => {
+                                let mismatch = format!(
+                                    "negative test error mismatch: expected {}, got {}",
+                                    negative.error_type, detail
+                                );
+                                (classify_failure_outcome(negative_kind, &mismatch), mismatch)
+                            }
+                        };
+                        Err(classify_failure_with_outcome(
                             case.execution_id.clone(),
                             negative_kind,
-                            format!(
-                                "negative test error mismatch: expected {}, got {}",
-                                negative.error_type, detail
-                            ),
+                            outcome,
+                            mismatch,
                         ))
                     }
                 }
@@ -37466,28 +37491,74 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[test]
     fn typed_root_runtime_exception_still_satisfies_negative_expectations() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
         let mut case = synthetic_case("language/runtime-root-negative.js");
         case.execution_id = TestExecutionId::new(
             "language/runtime-root-negative.js",
             TestExecutionMode::RawScript,
         );
         case.flags.insert("raw".to_string());
-        case.original_source = Arc::from("throw new TypeError('root marker');");
         case.negative = Some(Arc::new(NegativeExpectation {
             phase: NegativePhase::Runtime,
             error_type: "TypeError".to_string(),
         }));
-        let result = run_one_case(
-            &case,
-            &PreludeStore::default(),
-            60_000,
-            ExecutionBackend::WasmAot,
+        for source in [
+            "throw new TypeError('root marker');",
+            "var error = new TypeError('root marker'); error.name = 'RangeError'; throw error;",
+            "function TypeError() {} throw new TypeError();",
+            "null.property;",
+        ] {
+            case.original_source = Arc::from(source);
+            let result = run_one_case(
+                &case,
+                &PreludeStore::default(),
+                60_000,
+                ExecutionBackend::WasmAot,
+            );
+            assert!(
+                matches!(result.status, TestStatus::Passed),
+                "{source}: {:?}",
+                result.status
+            );
+        }
+    }
+
+    #[test]
+    fn typed_runtime_negative_ignores_error_names_in_messages_and_primitives() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let mut case = synthetic_case("language/runtime-negative-constructor-name.js");
+        case.execution_id = TestExecutionId::new(
+            "language/runtime-negative-constructor-name.js",
+            TestExecutionMode::RawScript,
         );
-        assert!(
-            matches!(result.status, TestStatus::Passed),
-            "{:?}",
-            result.status
-        );
+        case.flags.insert("raw".to_string());
+        case.negative = Some(Arc::new(NegativeExpectation {
+            phase: NegativePhase::Runtime,
+            error_type: "TypeError".to_string(),
+        }));
+        for source in [
+            "throw new RangeError('TypeError');",
+            "throw new RangeError('TypeError: unsupported in lila wasm-aot');",
+            "throw 'TypeError';",
+            "var error = new RangeError('root marker'); error.name = 'TypeError'; throw error;",
+        ] {
+            case.original_source = Arc::from(source);
+            let result = run_one_case(
+                &case,
+                &PreludeStore::default(),
+                60_000,
+                ExecutionBackend::WasmAot,
+            );
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("the wrong exception satisfied expected TypeError: {source}");
+            };
+            assert_eq!(failure.kind, FailureKind::Runtime, "{source}: {failure:?}");
+            assert_eq!(failure.outcome, OutcomeKind::Bug, "{source}: {failure:?}");
+            assert!(
+                failure.detail.contains("negative test error mismatch"),
+                "the fixture must reach the runtime constructor-name comparison: {source}: {failure:?}"
+            );
+        }
     }
 
     #[test]

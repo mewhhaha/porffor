@@ -69,8 +69,15 @@ mod tests {
 
     #[test]
     fn policy_is_the_authority_for_test262_globals() {
-        assert_eq!(HostBuiltinId::ALL.len(), 22);
+        assert_eq!(HostBuiltinId::ALL.len(), 23);
         assert_eq!(HostBuiltinId::global_builtins().count(), 18);
+        assert_eq!(
+            HostBuiltinId::ALL
+                .iter()
+                .filter(|builtin| builtin.global_name().is_none())
+                .count(),
+            5,
+        );
         for builtin in [
             HostBuiltinId::Print,
             HostBuiltinId::Gc,
@@ -99,6 +106,7 @@ mod tests {
             HostBuiltinId::GeneratorFunctionConstructor,
             HostBuiltinId::AsyncFunctionConstructor,
             HostBuiltinId::AsyncGeneratorFunctionConstructor,
+            HostBuiltinId::AsyncDisposableStackSyncDispose,
         ] {
             assert!(!HostSurfacePolicy::Test262.allows(builtin));
             assert!(HostSurfacePolicy::Product

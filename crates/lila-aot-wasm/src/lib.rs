@@ -1664,7 +1664,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 424;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;",
             "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
             "name: \"%Date.prototype%\"",
             "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
@@ -1928,7 +1928,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 424;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;",
             "pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;",
             "pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;",
             "pub(crate) const HEAP_REALM_INTRINSICS_EVAL_ERROR_PROTOTYPE_OFFSET: u64 = 360;",

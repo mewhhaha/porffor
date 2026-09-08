@@ -2,6 +2,14 @@
 // surface. Row order is declaration order and therefore the derived `Ord`
 // contract. Every row must classify its exposure, which determines realm scope.
 use super::*;
+use crate::{
+    DYNAMIC_ASYNC_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+    DYNAMIC_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+    DYNAMIC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+};
+
+const ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_FUNCTION_ID: &str =
+    "lila:async-disposable-stack:sync-dispose";
 
 host_builtin_catalog! {
     Print {
@@ -52,6 +60,11 @@ host_builtin_catalog! {
     AsyncGeneratorFunctionConstructor {
         name: "AsyncGeneratorFunction",
         function: DYNAMIC_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    AsyncDisposableStackSyncDispose {
+        name: "",
+        function: ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_FUNCTION_ID,
         surface: HostBuiltinSurface::InternalCallable,
     }
     HTMLDDA {
@@ -128,6 +141,7 @@ impl HostBuiltinId {
             | Self::GeneratorFunctionConstructor
             | Self::AsyncFunctionConstructor
             | Self::AsyncGeneratorFunctionConstructor
+            | Self::AsyncDisposableStackSyncDispose
             | Self::CreateHTMLDDA
             | Self::HTMLDDA
             | Self::ParseInt
@@ -151,7 +165,8 @@ impl HostBuiltinId {
             | Self::ParseFloat
             | Self::GeneratorFunctionConstructor
             | Self::AsyncFunctionConstructor
-            | Self::AsyncGeneratorFunctionConstructor => true,
+            | Self::AsyncGeneratorFunctionConstructor
+            | Self::AsyncDisposableStackSyncDispose => true,
             Self::Print
             | Self::Gc
             | Self::IsConstructor

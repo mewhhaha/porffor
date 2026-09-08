@@ -21459,6 +21459,8 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Exception metadata reads stop at accessors and proxies: following the
+    /// proxy record's stored prototype would invent a property lookup result.
     pub(crate) fn emit_data_property_read_no_call(
         &mut self,
         object_local: u32,
@@ -21487,6 +21489,21 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(current_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(current_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            current_local,
+            HEAP_OBJECT_BOXED_KIND_OFFSET,
+            prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(prototype_local));
+        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(2));
+        function.instruction(&Instruction::End);
         self.emit_object_own_data_field_read(
             current_local,
             current_tag_local,
@@ -21500,16 +21517,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        self.load_i64_to_local_from_offset(
+        self.emit_load_prototype_to_current_locals(
             current_local,
-            HEAP_PROTOTYPE_OFFSET,
+            current_tag_local,
             prototype_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::LocalSet(current_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(current_tag_local));
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);

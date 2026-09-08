@@ -16,6 +16,7 @@ use lila_ir::{
 };
 use lila_runtime::AgentHostOperation;
 
+mod created_realm_async_disposable_stack_intrinsics;
 mod created_realm_dynamic_function_intrinsics;
 mod created_realm_finalization_registry_intrinsics;
 mod created_realm_iterator_next;
@@ -7498,6 +7499,16 @@ impl<'a> FunctionBuilder<'a> {
             true,
             function,
         )?;
+        let created_realm_async_disposable_stack = self
+            .emit_materialize_created_realm_async_disposable_stack_intrinsics(
+                realm_record,
+                &realm_functions,
+                object_prototype_local,
+                type_error_prototype_local,
+                reference_error_prototype_local,
+                suppressed_error_prototype_local,
+                function,
+            )?;
         let created_realm_finalization_registry = self
             .emit_materialize_created_realm_finalization_registry_intrinsics(
                 realm_record,
@@ -8066,6 +8077,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_publish_created_realm_finalization_registry_intrinsics(
             created_realm_finalization_registry,
+            global_local,
+            function,
+        )?;
+        self.emit_publish_created_realm_async_disposable_stack_intrinsics(
+            created_realm_async_disposable_stack,
             global_local,
             function,
         )?;

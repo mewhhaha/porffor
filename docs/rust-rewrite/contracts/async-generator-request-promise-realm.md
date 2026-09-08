@@ -17,7 +17,8 @@ same method-defining Realm.
 ## Catalog
 
 The Realm intrinsic record stores a traced canonical `%Promise%` constructor
-at offset 416 and occupies 424 bytes. Entry bootstrap writes the initialized
+at offset 416. The record now occupies 432 bytes, including the following
+`%AsyncDisposableStack.prototype%` slot. Entry bootstrap writes the initialized
 Promise constructor global. Created bootstrap writes the exact constructor
 local that it later publishes as the Realm's `Promise` global. Realm record
 allocation zeroes the slot with every other intrinsic entry before either
@@ -46,7 +47,8 @@ methods. Raw constructor-payload construction and projection are therefore not
 available to adjacent Promise algorithms or other builtin families.
 
 The proof can only be consumed by the intrinsic capability operation shared
-by async-generator requests and AsyncIterator asyncDispose. That operation supplies the Function representation tag, invokes
+by async-generator requests, AsyncIterator asyncDispose and AsyncDisposableStack
+disposal. That operation supplies the Function representation tag, invokes
 the generic `NewPromiseCapability` implementation, and releases the tag and
 constructor local in reverse reservation order. The general capability API
 remains available for species and other arbitrary constructor inputs.

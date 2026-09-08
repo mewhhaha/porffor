@@ -437,7 +437,7 @@ require_fixed_string_count \
 check_no_inline_legacy_includes "$ir_for_loop_lowering"
 # Measured after formatting the extraction: 213 raw lines. The margin is for
 # maintenance of the classic-for lifecycle, not unrelated loop lowering.
-check_raw_line_budget "$ir_for_loop_lowering" 250
+check_raw_line_budget "$ir_for_loop_lowering" 267
 # T02's for-of boundary owns every specialization decision and the
 # lowering-only protocol carrier. The statement dispatcher is the sole caller;
 # shared loop/environment helpers and public statement/protocol IR remain in
@@ -1048,7 +1048,7 @@ check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # raw lines.
 # The margin is for maintenance of this exhaustive result table, not unrelated
 # lowering.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2250
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2251
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -2259,8 +2259,8 @@ if ! grep -q '^host_builtin_catalog!' "$ir_host_builtin_catalog"; then
   fail "$ir_host_builtin_catalog must be the single host builtin catalog invocation"
 fi
 host_builtin_catalog_rows="$(grep -Ec '^    [A-Za-z][A-Za-z0-9]* \{$' "$ir_host_builtin_catalog")"
-if [[ "$host_builtin_catalog_rows" != "19" ]]; then
-  fail "$ir_host_builtin_catalog must contain the reviewed 19-row host builtin catalog (found $host_builtin_catalog_rows)"
+if [[ "$host_builtin_catalog_rows" != "23" ]]; then
+  fail "$ir_host_builtin_catalog must contain the reviewed 23-row host builtin catalog (found $host_builtin_catalog_rows)"
 fi
 require_fixed_string_count \
   "$ir_host_builtin_catalog" \
@@ -2387,7 +2387,7 @@ fi
 # Measured immediately after extraction: 13,220 parent lines and 424 child
 # lines. The margins admit narrow maintenance without letting the owner return
 # to the parent or become another control-flow monolith.
-check_raw_line_budget "$wasm_control_flow" 13260
+check_raw_line_budget "$wasm_control_flow" 13281
 check_raw_line_budget "$wasm_async_function_for_of_iterator" 440
 
 # T05's typed Wasm-GC schema is the sole raw struct-instruction boundary. The
@@ -3164,8 +3164,8 @@ require_fixed_string_count \
   2 \
   'initialized Intl.Locale projections'
 intl_locale_production_lines="$(awk '/^#\[cfg\(test\)\]/ { exit } { lines += 1 } END { print lines + 0 }' "$wasm_intl_locale")"
-if [ "$intl_locale_production_lines" -gt 2225 ]; then
-  fail "$wasm_intl_locale has $intl_locale_production_lines pre-test lines; expected at most 2225"
+if [ "$intl_locale_production_lines" -gt 2226 ]; then
+  fail "$wasm_intl_locale has $intl_locale_production_lines pre-test lines; expected at most 2226"
 fi
 # Measured after closing the five string-slot entries: 2,205 pre-test parent
 # lines and 117 child lines. The narrow margins are for maintenance of each
@@ -3531,7 +3531,7 @@ fi
 # 1,443 parent lines and 118 child lines. Batch AQ adds 101 lines for eleven
 # fixed semantic entries. The narrow margins are for maintenance of these
 # families, not adjacent builtin implementations.
-check_raw_line_budget "$wasm_error_builtins" 1590
+check_raw_line_budget "$wasm_error_builtins" 1605
 check_raw_line_budget "$wasm_aggregate_error_preparation" 150
 
 wasm_promise_builtins="crates/lila-aot-wasm/src/builtins/promise.rs"
@@ -3570,12 +3570,12 @@ require_tree_regex_count \
   'Promise internal-function carrier recursive sites'
 for promise_internal_method_visibility_count in \
   'emit_promise_internal_function_materialization_context_from_realm crate 5' \
-  'emit_current_function_promise_internal_function_materialization_context crate 18' \
+  'emit_current_function_promise_internal_function_materialization_context crate 17' \
   'emit_promise_record_internal_function_materialization_context super 2' \
-  'emit_promise_internal_function_value super 11' \
-  'emit_load_promise_internal_function_context super 9' \
-  'release_promise_internal_function_materialization_context crate 21' \
-  'emit_load_promise_internal_function_realm_intrinsics super 2'
+  'emit_promise_internal_function_value crate 13' \
+  'emit_load_promise_internal_function_context crate 12' \
+  'release_promise_internal_function_materialization_context crate 20' \
+  'emit_load_promise_internal_function_realm_intrinsics super 3'
 do
   set -- $promise_internal_method_visibility_count
   promise_internal_method="$1"
@@ -6840,17 +6840,17 @@ done
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.emit_get_function_realm[[:space:]]*\(' \
-  5 \
+  7 \
   'GetFunctionRealm product calls'
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.emit_route_function_realm_result[[:space:]]*\(' \
-  5 \
+  7 \
   'GetFunctionRealm route calls'
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.release_resolved_function_realm_local[[:space:]]*\(' \
-  5 \
+  7 \
   'resolved FunctionRealm release calls'
 
 check_no_inline_legacy_includes "$wasm_function_realm"

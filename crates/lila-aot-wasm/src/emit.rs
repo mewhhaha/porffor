@@ -2522,6 +2522,11 @@ fn emit_script_with_forced_builtins(
         ExportKind::Global,
         throw_error_message_global_index(uses_heap),
     );
+    exports.export(
+        THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
+        ExportKind::Global,
+        throw_error_constructor_name_global_index(uses_heap),
+    );
 
     if uses_heap {
         for helper in RuntimeHelperId::ALL {
@@ -2753,6 +2758,7 @@ fn emit_script_with_forced_builtins(
         format!("export global: {COMPLETION_AUX_EXPORT}"),
         format!("export global: {THROW_ERROR_NAME_EXPORT}"),
         format!("export global: {THROW_ERROR_MESSAGE_EXPORT}"),
+        format!("export global: {THROW_ERROR_CONSTRUCTOR_NAME_EXPORT}"),
         format!("import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_AGENT_CAN_SUSPEND}"),
     ];
 
@@ -3858,6 +3864,7 @@ impl<'a> FunctionBuilder<'a> {
             // Every job that could still attach a handler has now run, so a
             // promise still marked unhandled really is an unhandled rejection.
             self.emit_report_unhandled_rejection(&mut function)?;
+            self.emit_capture_final_throw_constructor_name(&mut function);
         }
         assert!(
             self.next_binding_local <= self.current_env_local,
@@ -4113,6 +4120,9 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 Some(HostBuiltinId::RealmEvalScript) => {
                     self.compile_host_realm_eval_script_builtin(&mut function)?
+                }
+                Some(HostBuiltinId::AsyncDisposableStackSyncDispose) => {
+                    self.emit_async_disposable_stack_sync_dispose(&mut function)?
                 }
                 Some(HostBuiltinId::GeneratorFunctionConstructor) => self
                     .compile_dynamic_function_constructor_builtin(
