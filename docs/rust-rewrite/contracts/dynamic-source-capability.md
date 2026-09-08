@@ -75,6 +75,12 @@ behavior. JavaScript `catch`, Promise rejection handling and worker report
 serialization cannot convert the capability failure into a JavaScript error or
 a passing test. The import neither receives nor compiles source.
 
+Structured observation keeps a root JavaScript throw as an `ObservedCompletion`
+when its workers succeed. If workers also fail, the finalizer retains that throw
+as a typed JavaScript cause alongside the worker errors. It uses only the existing
+type-level observation note and does not inspect error properties or constructor
+metadata in structured mode. A normal structured completion adds no failure cause.
+
 Runtime-negative error types compare exactly with
 `EngineError::wasm_javascript_exception_constructor_name()`, projected from the
 separate `throw_error_constructor_name` Wasm export. Test262's

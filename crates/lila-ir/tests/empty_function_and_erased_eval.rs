@@ -43,6 +43,7 @@ fn possibly_deleted_global_eval_retains_indirect_source_capability() {
         "delete eval; globalThis.unknownHook(); (0, eval)('source');",
         "delete eval; globalThis.unknownHook(); var retained = eval; retained('source');",
         "var retained = eval; delete eval; retained('source');",
+        "globalThis.unknownHook(); delete globalThis.eval; (0, eval)('source');",
     ] {
         let parsed = parse(source, ParseOptions::script()).expect("source parses");
         let program = lower(&parsed);
@@ -90,7 +91,7 @@ fn erased_eval_source_boundaries_preserve_no_source_and_replacement_calls() {
         "globalThis.unknownHook(); (0, eval)(42);",
         "globalThis.unknownHook(); (0, eval)();",
         "globalThis.unknownHook(); eval = function (value) { return value; }; (0, eval)('source');",
-        "globalThis.unknownHook(); delete globalThis.eval; (0, eval)('source');",
+        "delete eval; (0, eval)('source');",
         "function example(eval) { return eval('source'); } example(function (value) { return value; });",
     ] {
         let parsed = parse(source, ParseOptions::script()).expect("source parses");

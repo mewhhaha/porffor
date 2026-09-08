@@ -1,4 +1,4 @@
-use super::{DynamicSourceRuntimeOperation, EngineError};
+use super::{DynamicSourceRuntimeOperation, EngineError, ObservedCompletion, WasmExecutionOutcome};
 
 /// The execution outcome relevant to conformance classification. Only a direct
 /// JavaScript exception from the root can satisfy a runtime-negative test.
@@ -155,13 +155,28 @@ impl EngineError {
     }
 }
 
-pub(super) fn finish_wasm_execution<T>(
-    root: Result<T, EngineError>,
+pub(super) fn finish_wasm_execution(
+    root: Result<WasmExecutionOutcome, EngineError>,
     agents: Result<(), EngineError>,
-) -> Result<T, EngineError> {
+) -> Result<WasmExecutionOutcome, EngineError> {
     match (root, agents) {
         (Ok(result), Ok(())) => Ok(result),
-        (Err(failure), Ok(())) | (Ok(_), Err(failure)) => Err(failure),
+        (Err(failure), Ok(())) => Err(failure),
+        (Ok(result), Err(agents)) => match result {
+            WasmExecutionOutcome::Legacy(_) => Err(agents),
+            WasmExecutionOutcome::Structured(observation) => match observation.completion {
+                ObservedCompletion::Normal(_) => Err(agents),
+                ObservedCompletion::Throw(_) => Err(EngineError::from_execution_failures(
+                    EngineError::from_execution_failure(
+                        EngineExecutionFailure::JavaScriptException {
+                            constructor_name: None,
+                        },
+                        observation.note,
+                    ),
+                    vec![agents],
+                )),
+            },
+        },
         (Err(root), Err(agents)) => Err(EngineError::from_execution_failures(root, vec![agents])),
     }
 }
@@ -219,8 +234,9 @@ mod tests {
                 Vec::new(),
             );
             for (root, workers) in [(real.clone(), capability.clone()), (capability, real)] {
-                let combined = finish_wasm_execution::<()>(Err(root), Err(workers))
-                    .expect_err("both errors must survive");
+                let Err(combined) = finish_wasm_execution(Err(root), Err(workers)) else {
+                    panic!("both errors must survive");
+                };
                 assert_eq!(combined.wasm_execution_failure_kind(), Some(expected));
                 assert_eq!(
                     combined.runtime_dynamic_source_operations(),
@@ -240,8 +256,9 @@ mod tests {
             },
             "uncaught throw: TypeError: root",
         );
-        let root_failure =
-            finish_wasm_execution::<()>(Err(root.clone()), Ok(())).expect_err("root exception");
+        let Err(root_failure) = finish_wasm_execution(Err(root.clone()), Ok(())) else {
+            panic!("root exception must survive");
+        };
         assert_eq!(
             root_failure.wasm_execution_failure_kind(),
             Some(WasmExecutionFailureKind::JavaScriptException)
@@ -250,11 +267,15 @@ mod tests {
             root_failure.wasm_javascript_exception_constructor_name(),
             Some("TypeError")
         );
-        let worker_failure = finish_wasm_execution(
-            Ok(()),
+        let Err(worker_failure) = finish_wasm_execution(
+            Ok(WasmExecutionOutcome::Legacy(crate::RunOutcome {
+                backend_used: crate::ExecutionBackend::WasmAot,
+                note: "normal root completion".to_string(),
+            })),
             Err(EngineError::from_execution_failures(root, Vec::new())),
-        )
-        .expect_err("worker exception");
+        ) else {
+            panic!("worker exception must survive");
+        };
         assert_eq!(
             worker_failure.wasm_execution_failure_kind(),
             Some(WasmExecutionFailureKind::ConcurrentFailure)
@@ -263,5 +284,49 @@ mod tests {
             worker_failure.wasm_javascript_exception_constructor_name(),
             None
         );
+    }
+
+    #[test]
+    fn structured_throws_remain_observations_until_workers_also_fail() {
+        let observed = |completion| {
+            WasmExecutionOutcome::Structured(crate::ObservedRunOutcome {
+                backend_used: crate::ExecutionBackend::WasmAot,
+                completion,
+                output_events: Vec::new(),
+                note: "structured root evidence".to_string(),
+            })
+        };
+        let root_throw = ObservedCompletion::Throw(crate::ObservedJsValue::Object);
+        let outcome = finish_wasm_execution(Ok(observed(root_throw.clone())), Ok(()))
+            .and_then(WasmExecutionOutcome::into_structured)
+            .expect("a root throw alone remains a successful structured observation");
+        assert_eq!(outcome.completion, root_throw);
+
+        for (completion, expected_kind) in [
+            (root_throw, WasmExecutionFailureKind::ConcurrentFailure),
+            (
+                ObservedCompletion::Normal(crate::ObservedJsValue::Undefined),
+                WasmExecutionFailureKind::DynamicSource,
+            ),
+        ] {
+            let Err(failure) = finish_wasm_execution(
+                Ok(observed(completion)),
+                Err(EngineError::from_execution_failures(
+                    rejection(DynamicSourceRuntimeOperation::Eval),
+                    Vec::new(),
+                )),
+            ) else {
+                panic!("worker failure must remain observable");
+            };
+            assert_eq!(failure.wasm_execution_failure_kind(), Some(expected_kind));
+            assert_eq!(
+                failure.runtime_dynamic_source_operations(),
+                vec![DynamicSourceRuntimeOperation::Eval]
+            );
+            assert_eq!(failure.wasm_javascript_exception_constructor_name(), None);
+            if expected_kind == WasmExecutionFailureKind::ConcurrentFailure {
+                assert!(failure.message().contains("structured root evidence"));
+            }
+        }
     }
 }

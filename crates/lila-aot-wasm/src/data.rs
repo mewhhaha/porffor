@@ -1856,6 +1856,7 @@ impl StringPool {
             "Invalid Intl.Locale language option",
             "Invalid Intl.Locale script option",
             "Invalid Intl.Locale region option",
+            "Invalid language tag after Intl.Locale options",
             "Intl.getCanonicalLocales argument must be an object",
             "Intl.getCanonicalLocales locale must be a string or an object",
             "Invalid language tag",

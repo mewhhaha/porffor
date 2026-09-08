@@ -7319,7 +7319,7 @@ impl<'a> ScriptLowerer<'a> {
         let script_global_binding = self.script_global_var_binding_info(name);
         self.record_binding_value_write(name, script_global_binding.as_ref());
         if let Some(info) = self.global_properties.get_mut(name) {
-            if info.configurable {
+            if info.proven_present && info.configurable {
                 info.proven_present = false;
                 info.source = GlobalPropertySource::DefinitelyDeleted;
             }

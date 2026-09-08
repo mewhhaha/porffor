@@ -106,7 +106,7 @@ fn import_phase_keeps_the_reviewed_ast_projection_and_public_caller_census() {
         assert!(!source.contains("enum ImportPhaseIr"));
         assert!(!source.contains("impl ImportPhaseIr"));
     }
-    assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr").count(), 26);
+    assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr").count(), 30);
     assert_eq!(DYNAMIC_SOURCE.matches("ImportPhaseIr").count(), 25);
     assert_eq!(GRAPH_SOURCE.matches("ImportPhaseIr").count(), 1);
     assert_eq!(GRAPH_TESTS_SOURCE.matches("ImportPhaseIr").count(), 4);

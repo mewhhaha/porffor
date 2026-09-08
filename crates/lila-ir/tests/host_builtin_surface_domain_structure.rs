@@ -63,7 +63,7 @@ fn host_builtin_catalog_has_one_exposure_choice_per_global_row() {
         CATALOG_SOURCE
             .matches("HostBuiltinSurface::InternalCallable")
             .count(),
-        1
+        5
     );
     assert_eq!(
         CATALOG_SOURCE

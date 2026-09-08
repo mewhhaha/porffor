@@ -33,8 +33,9 @@ property storage.
 Static and computed Array assignment both call the ordinary object Set owner.
 Static Array reads and concat call ordinary object Get. Object.defineProperty
 routes both accessor and data descriptors through the existing Array named
-descriptor compilers. Arguments objects retain their distinct exotic
-`@@isConcatSpreadable` implementation.
+descriptor compilers. Arguments objects use the same ordinary Get for
+`@@isConcatSpreadable`, backed by their named-property descriptors. Their former
+dedicated Boolean slot and its read/write emitters are deleted.
 
 This routing leaves one representation and one observable order. Adding a new
 dedicated producer or consumer makes the recursive owner test fail, while new
@@ -82,5 +83,6 @@ call. The semantic golden remains deferred.
 
 ## Nonclaims
 
-This seam does not shrink the Array record, move later fields into the padding,
-change Arguments-object storage, or establish complete Array conformance.
+This seam does not shrink the Array or Arguments records, move later fields into
+the padding, or establish complete Array conformance. Arguments indexed storage
+and parameter mapping are unchanged.
