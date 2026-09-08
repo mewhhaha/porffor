@@ -109,6 +109,48 @@ An empty list means there are no failures to replay. Focused replay is the repai
 loop; adjacent passing tests and periodic full baselines are still needed to find
 regressions outside the cohort.
 
+## Remaining implementation plan
+
+T13 owns the remaining textual-source cases. Source known at compilation time
+is implementable without a runtime interpreter; the missing evaluation-unit and
+environment representation is compiler work, not a permanent policy exclusion.
+The existing [precompiled Script contract](contracts/precompiled-realm-scripts.md)
+is a design contract and has no executable registry yet.
+
+1. **Prepare independent source units (T03/T13).** Retain syntax-proven source
+   text and parse it with the ordinary front end under the correct Script,
+   parameter and function-body goals. A closed prepared result distinguishes
+   executable IR from deferred ECMAScript SyntaxError. Compiler bugs remain
+   diagnostics. Preserve argument evaluation and runtime callable identity.
+2. **Compile nonempty static Function bodies (T13).** Lower parameters and bodies
+   through the ordinary Function IR path, allocate a fresh function per call,
+   and preserve constructor/newTarget realms and deferred grammar errors. The
+   observed nonempty Function-family cluster contains twelve ordinary-function
+   HTML-comment grammar executions and two AsyncFunction executions.
+3. **Provide execution global environments (T08/T09/T13).** Created realms need
+   an actual global environment; their current global-environment slot remains
+   zero. Global reads, writes and declaration ownership must select that
+   environment instead of the entry realm's singleton global object. This is a
+   prerequisite for functions or scripts that access foreign global bindings.
+4. **Execute precompiled Script units (T13).** Add repeatable Script thunks and
+   call-time GlobalDeclarationInstantiation. Complete conflict and descriptor
+   checks before mutation, create fresh declared functions on each evaluation,
+   preserve completion values, and restore the caller realm on abrupt exits.
+   Use this path for indirect eval and realm evalScript.
+5. **Connect direct eval to caller environments (T08/T13).** Preserve strictness,
+   lexical/variable/private environments, caller-visible declarations and Annex B
+   rules. A nested ordinary function or source splicing cannot supply these
+   semantics. Verify scope mutation and declaration failures before broad replay.
+6. **Reclassify the remaining source expressions from evidence (T13).** Some
+   current runtime-source diagnostics involve finite tables or generated strings;
+   determine which can gain a general compile-time proof. Truly runtime source
+   compilation remains explicitly unsupported under the artifact contract.
+
+Each step needs focused positive and negative controls, then replay of its exact
+remaining execution IDs. Full conformance claims still require a complete pinned
+suite publication. These steps are outstanding work, not completed repairs in
+this patch.
+
 ## Verification
 
 Centralized compilation and runtime replays are pending. The PR records exact
