@@ -106,7 +106,20 @@ impl EmptyDerivedFunction {
             return_shape: None,
             return_targets: FunctionTargetKnowledge::none(),
             constructor_instance: ValueInfo::undefined(),
-            owned_env_bindings: Vec::new(),
+            // Ordinary lowering owns this invocation state in every resumable
+            // activation, including empty bodies, and assigns slots by name.
+            owned_env_bindings: [
+                LEXICAL_ARGUMENTS_NAME,
+                LEXICAL_NEW_TARGET_NAME,
+                LEXICAL_THIS_NAME,
+            ]
+            .into_iter()
+            .zip(0_u32..)
+            .map(|(name, slot)| OwnedEnvBindingIr {
+                name: name.to_string(),
+                slot,
+            })
+            .collect(),
             captured_bindings: Vec::new(),
         }
     }
@@ -334,8 +347,9 @@ mod tests {
             assert_eq!(generated.return_kind, source_function.return_kind);
             assert_eq!(generated.strict, source_function.strict);
             assert_eq!(
-                generated.owned_env_bindings,
-                source_function.owned_env_bindings
+                generated.owned_env_bindings, source_function.owned_env_bindings,
+                "{:?} activation bindings must match ordinary lowering",
+                generated.protocol
             );
             assert_eq!(
                 generated.captured_bindings,

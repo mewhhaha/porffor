@@ -122,16 +122,16 @@ is a design contract and has no executable registry yet.
    parameter and function-body goals. A closed prepared result distinguishes
    executable IR from deferred ECMAScript SyntaxError. Compiler bugs remain
    diagnostics. Preserve argument evaluation and runtime callable identity.
-2. **Compile nonempty static Function bodies (T13).** Lower parameters and bodies
-   through the ordinary Function IR path, allocate a fresh function per call,
-   and preserve constructor/newTarget realms and deferred grammar errors. The
-   observed nonempty Function-family cluster contains twelve ordinary-function
-   HTML-comment grammar executions and two AsyncFunction executions.
-3. **Provide execution global environments (T08/T09/T13).** Created realms need
+2. **Provide execution global environments (T08/T09/T13).** Created realms need
    an actual global environment; their current global-environment slot remains
    zero. Global reads, writes and declaration ownership must select that
    environment instead of the entry realm's singleton global object. This is a
    prerequisite for functions or scripts that access foreign global bindings.
+3. **Compile nonempty static Function bodies (T13).** Lower parameters and bodies
+   through the ordinary Function IR path, allocate a fresh function per call,
+   and preserve constructor/newTarget realms and deferred grammar errors. The
+   observed nonempty Function-family cluster contains twelve ordinary-function
+   HTML-comment grammar executions and two AsyncFunction executions.
 4. **Execute precompiled Script units (T13).** Add repeatable Script thunks and
    call-time GlobalDeclarationInstantiation. Complete conflict and descriptor
    checks before mutation, create fresh declared functions on each evaluation,

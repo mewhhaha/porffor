@@ -330,7 +330,7 @@ fn contract_and_task_record_move_only_ownership_without_a_conformance_claim() {
         "`4/5/1`",
         "three factories",
         "zero import/re-export paths",
-        "remain deferred to",
+        "Semantic goldens were not",
     ] {
         assert!(TASK.contains(marker), "task marker `{marker}`");
     }
