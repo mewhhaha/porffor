@@ -27,6 +27,14 @@ The [find-family notes](aot-array-find.md) document the compiler contract, 24
 regression programs, verification commands and evidence limitations. Published
 full-suite conformance counts are unchanged.
 
+## Publication Restart Recovery
+
+The low-RAM Wasm-AOT publication driver persists its observed matrix progress
+across restarts, rejecting rollback, changed totals and missing checkpoints for
+families with existing results. Its schema-2 migration and 45 control-flow
+regressions are documented in [the restart-recovery contract](publication-progress-recovery.md).
+This does not add compiler semantics or change the generated conformance status.
+
 ## Hard Invariants
 - Production compile path is `parse -> early errors -> spec IR -> lowering IR -> Wasm codegen`.
 - Hidden debug interpreter is allowed only as non-product engineering tool.
