@@ -1,0 +1,61 @@
+name: Array find observable semantics
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.*'
+      - 'rust-toolchain.toml'
+      - 'scripts/run_engine_regression_inventory.py'
+      - 'scripts/run_aot_unit_shard.py'
+      - '.github/workflows/array-find-conformance.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.*'
+      - 'rust-toolchain.toml'
+      - 'scripts/run_engine_regression_inventory.py'
+      - 'scripts/run_aot_unit_shard.py'
+      - '.github/workflows/array-find-conformance.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: array-find-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  array-find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Check find-family semantic ownership
+        if: ${{ !cancelled() }}
+        run: >-
+          cargo test --locked -p lila-aot-wasm
+          --test find_via_predicate_structure
+          --test array_find_algorithm_owner_structure
+          --test array_find_index_algorithm_owner_structure
+          --test array_find_last_algorithm_owner_structure
+          --test array_find_last_index_algorithm_owner_structure
+      - name: Execute the complete find regression inventory through Wasmtime
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/run_engine_regression_inventory.py aot_array_find
+          --output-dir /tmp/array-find-engine --timeout 600
+      - name: Preserve exact inventory, verdicts and execution logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: array-find-${{ github.sha }}
+          path: /tmp/array-find-engine
+          if-no-files-found: warn

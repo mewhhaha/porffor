@@ -3,10 +3,10 @@
 Big rule first: Lila compiles JavaScript directly to Wasm. Lila does not sneak
 an interpreter into Wasm and call that victory.
 
-## Phase 0 Ground
-- Root `AGENTS.md` freezes rewrite goal and product bans.
-- Rust workspace under `crates/` is new home for library, CLI, runtime semantics, and conformance work.
-- Existing JavaScript implementation stays in tree as reference oracle until Rust path is proven.
+## Project Ground
+- Root `AGENTS.md` freezes the rewrite goal and product bans.
+- The Rust workspace under `crates/` owns the library, CLI, runtime semantics, and conformance tooling.
+- The retired JavaScript implementation exists only in Git history; it is not a development surface or product oracle.
 
 ## Workspace Map
 - `lila-front`: parse and source-unit plumbing.
@@ -18,6 +18,14 @@ an interpreter into Wasm and call that victory.
 - `lila-engine`: public Rust library API.
 - `lila-cli`: clean-break `lila` CLI.
 - `lila-test262`: conformance taxonomy and harness rewrite support.
+
+## Array Find Follow-up
+
+The four generic Array find methods now share observable length acquisition and
+live indexed reads, while strict TypedArray entries retain private validation.
+The [find-family notes](aot-array-find.md) document the compiler contract, 24
+regression programs, verification commands and evidence limitations. Published
+full-suite conformance counts are unchanged.
 
 ## Hard Invariants
 - Production compile path is `parse -> early errors -> spec IR -> lowering IR -> Wasm codegen`.
