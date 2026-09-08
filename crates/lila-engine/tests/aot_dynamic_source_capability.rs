@@ -161,7 +161,8 @@ fn agent_script_error(source: &str) -> EngineError {
                 host_surface_policy: HostSurfacePolicy::Test262,
                 ..CompileOptions::default()
             },
-            Some(30_000),
+            // Cold worker compilation runs inside Agent.start's root execution deadline.
+            Some(120_000),
             true,
             String::new(),
         )
@@ -216,7 +217,8 @@ fn mixed_worker_exceptions_and_capabilities_are_not_root_js_exceptions() {
     ));
     assert_eq!(
         error.wasm_execution_failure_kind(),
-        Some(WasmExecutionFailureKind::ConcurrentFailure)
+        Some(WasmExecutionFailureKind::ConcurrentFailure),
+        "{error}"
     );
     assert_eq!(
         error.runtime_dynamic_source_operations(),

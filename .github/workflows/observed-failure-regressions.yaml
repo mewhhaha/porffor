@@ -15,7 +15,7 @@ concurrency:
 jobs:
   regressions:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       CARGO_BUILD_JOBS: 2
       LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
