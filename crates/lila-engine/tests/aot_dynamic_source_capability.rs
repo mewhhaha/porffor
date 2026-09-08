@@ -194,6 +194,40 @@ fn multiple_workers_retain_distinct_runtime_capability_reasons() {
 }
 
 #[test]
+fn worker_compile_and_runtime_capabilities_remain_unsupported_together() {
+    let error = agent_script_error(&format!(
+        "__lilaAgentStart({EVAL_WORKER:?}); __lilaAgentStart(\"eval('1');\");"
+    ));
+    assert_eq!(
+        error.wasm_execution_failure_kind(),
+        Some(WasmExecutionFailureKind::DynamicSource),
+        "{error}"
+    );
+    assert_eq!(
+        error.runtime_dynamic_source_operations(),
+        vec![DynamicSourceRuntimeOperation::Eval],
+        "{error}"
+    );
+    assert_eq!(error.wasm_javascript_exception_constructor_name(), None);
+    assert!(
+        error
+            .message()
+            .contains("failed to compile or start Test262 agent"),
+        "{error}"
+    );
+    let compile_gap = lila_ir::IrDiagnostic::unsupported_dynamic_source(
+        lila_ir::DynamicSourceGap::aot_known_source(lila_ir::DynamicSourceKind::DirectEval),
+    );
+    assert!(error.message().contains(&compile_gap.message), "{error}");
+    assert!(
+        error
+            .message()
+            .contains(&DynamicSourceRuntimeOperation::Eval.to_string()),
+        "{error}"
+    );
+}
+
+#[test]
 fn root_js_exception_and_worker_capability_keep_both_failures() {
     let error = agent_script_error(&format!(
         "__lilaAgentStart({EVAL_WORKER:?}); throw new TypeError('root marker');"

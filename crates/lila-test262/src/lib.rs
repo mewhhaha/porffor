@@ -37562,6 +37562,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 OutcomeKind::NotImplemented,
             ),
             (
+                format!("$262.agent.start({eval_worker:?}); $262.agent.start(\"eval('1');\");"),
+                FailureKind::Unsupported,
+                OutcomeKind::NotImplemented,
+            ),
+            (
                 format!("$262.agent.start({eval_worker:?}); throw new TypeError('root marker');"),
                 FailureKind::Runtime,
                 OutcomeKind::Bug,

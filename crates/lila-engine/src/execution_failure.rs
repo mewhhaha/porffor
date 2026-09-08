@@ -42,6 +42,12 @@ impl ExecutionFailures {
                     kind = WasmExecutionFailureKind::Timeout;
                 }
                 Some(WasmExecutionFailureKind::DynamicSource) => {}
+                None if matches!(
+                    failure
+                        .ir_diagnostic()
+                        .and_then(lila_ir::IrDiagnostic::unsupported_feature),
+                    Some(lila_ir::UnsupportedFeature::DynamicSource(_))
+                ) => {}
                 Some(
                     WasmExecutionFailureKind::JavaScriptException
                     | WasmExecutionFailureKind::ConcurrentFailure,
@@ -206,6 +212,121 @@ mod tests {
             failures.wasm_execution_failure_kind(),
             Some(WasmExecutionFailureKind::DynamicSource)
         );
+    }
+
+    #[test]
+    fn compile_and_runtime_capabilities_remain_unsupported_in_both_orders() {
+        let compile =
+            EngineError::from_ir_diagnostic(lila_ir::IrDiagnostic::unsupported_dynamic_source(
+                lila_ir::DynamicSourceGap::aot_known_source(lila_ir::DynamicSourceKind::Function(
+                    DynamicFunctionKind::Generator,
+                )),
+            ));
+        assert_eq!(compile.wasm_execution_failure_kind(), None);
+        assert!(compile.runtime_dynamic_source_operations().is_empty());
+        let compile_only = EngineError::from_execution_failures(compile.clone(), Vec::new());
+        assert_eq!(
+            compile_only.wasm_execution_failure_kind(),
+            Some(WasmExecutionFailureKind::DynamicSource)
+        );
+        assert!(compile_only.runtime_dynamic_source_operations().is_empty());
+
+        let runtime = rejection(DynamicSourceRuntimeOperation::Eval);
+        for (root, worker) in [
+            (compile.clone(), runtime.clone()),
+            (runtime, compile.clone()),
+        ] {
+            let workers = EngineError::from_execution_failures(worker, Vec::new());
+            let Err(combined) = finish_wasm_execution(Err(root), Err(workers)) else {
+                panic!("both unsupported failures must survive");
+            };
+            assert_eq!(
+                combined.wasm_execution_failure_kind(),
+                Some(WasmExecutionFailureKind::DynamicSource)
+            );
+            assert_eq!(
+                combined.runtime_dynamic_source_operations(),
+                vec![DynamicSourceRuntimeOperation::Eval]
+            );
+            assert_eq!(combined.wasm_javascript_exception_constructor_name(), None);
+            assert!(combined.message().contains(compile.message()));
+            assert!(combined
+                .message()
+                .contains(&DynamicSourceRuntimeOperation::Eval.to_string()));
+        }
+    }
+
+    #[test]
+    fn compiled_capability_gaps_never_hide_other_failures() {
+        let compile =
+            EngineError::from_ir_diagnostic(lila_ir::IrDiagnostic::unsupported_dynamic_source(
+                lila_ir::DynamicSourceGap::aot_known_source(lila_ir::DynamicSourceKind::Function(
+                    DynamicFunctionKind::Generator,
+                )),
+            ));
+        let capabilities = EngineError::from_execution_failures(
+            compile,
+            vec![rejection(DynamicSourceRuntimeOperation::Eval)],
+        );
+        for (other, expected) in [
+            (
+                EngineError::from_parse_error(lila_front::ParseError::malformed(
+                    "parse marker: unsupported dynamic-source",
+                    None,
+                )),
+                WasmExecutionFailureKind::ConcurrentFailure,
+            ),
+            (
+                EngineError::new("untyped marker: unsupported dynamic-source"),
+                WasmExecutionFailureKind::ConcurrentFailure,
+            ),
+            (
+                EngineError::from_ir_diagnostic(lila_ir::IrDiagnostic::unsupported(
+                    "untyped IR marker: unsupported dynamic-source",
+                )),
+                WasmExecutionFailureKind::ConcurrentFailure,
+            ),
+            (
+                EngineError::from_execution_failure(
+                    EngineExecutionFailure::JavaScriptException {
+                        constructor_name: Some("TypeError".to_string()),
+                    },
+                    "uncaught throw: TypeError: unsupported dynamic-source",
+                ),
+                WasmExecutionFailureKind::ConcurrentFailure,
+            ),
+            (
+                EngineError::from_execution_failure(
+                    EngineExecutionFailure::Trap,
+                    "trap marker: unsupported dynamic-source",
+                ),
+                WasmExecutionFailureKind::Trap,
+            ),
+            (
+                EngineError::from_execution_failure(
+                    EngineExecutionFailure::Timeout,
+                    "timeout marker: unsupported dynamic-source",
+                ),
+                WasmExecutionFailureKind::Timeout,
+            ),
+        ] {
+            for (root, workers) in [
+                (other.clone(), capabilities.clone()),
+                (capabilities.clone(), other.clone()),
+            ] {
+                let Err(combined) = finish_wasm_execution(Err(root), Err(workers)) else {
+                    panic!("a capability gap must not conceal another failure");
+                };
+                assert_eq!(combined.wasm_execution_failure_kind(), Some(expected));
+                assert_eq!(
+                    combined.runtime_dynamic_source_operations(),
+                    vec![DynamicSourceRuntimeOperation::Eval]
+                );
+                assert_eq!(combined.wasm_javascript_exception_constructor_name(), None);
+                assert!(combined.message().contains(other.message()));
+                assert!(combined.message().contains(capabilities.message()));
+            }
+        }
     }
 
     #[test]
