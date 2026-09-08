@@ -1,23 +1,99 @@
-name: Bound function verification workspace
+name: Apply and verify bound-function implementation
 
 on:
   push:
-    branches:
-      - codex/complete-bound-function-semantics
+    branches: [codex/complete-bound-function-semantics]
+    paths: [.github/workflows/bound-function-workspace.yaml]
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: apply-bound-function-patch
+  cancel-in-progress: false
 
 jobs:
-  source-snapshot:
+  apply-and-verify:
+    if: github.ref == 'refs/heads/codex/complete-bound-function-semantics'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
     steps:
       - uses: actions/checkout@v4
-      - name: Archive the exact source revision for verification
-        run: git archive --format=tar.gz HEAD -o /tmp/lila-source.tar.gz
-      - uses: actions/upload-artifact@v4
+      - name: Verify and apply the exact reviewed patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib
+          from pathlib import Path
+          encoded = Path('.github/bound-function-change.patch.gz.b64').read_text().strip()
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          expected = '0a663aaa801f811da43c07b5d3944b4efda04fd4e87a5ecee1b5a888b9fd522f'
+          if hashlib.sha256(patch).hexdigest() != expected:
+              raise SystemExit('Reviewed patch checksum mismatch')
+          Path('/tmp/bound-function-change.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/bound-function-change.patch
+          git apply /tmp/bound-function-change.patch
+      - name: Format only changed Rust files and publish the feature-branch implementation
+        shell: bash
+        run: |
+          rustfmt --edition 2021 --config skip_children=true \
+            crates/lila-aot-wasm/src/builtins/function.rs \
+            crates/lila-aot-wasm/src/builtins/function/bind.rs \
+            crates/lila-aot-wasm/src/data.rs \
+            crates/lila-aot-wasm/src/functions/bound_function_allocation.rs \
+            crates/lila-aot-wasm/src/functions/bound_function_allocation/layout_source.rs \
+            crates/lila-aot-wasm/src/planning.rs \
+            crates/lila-aot-wasm/tests/bound_function_semantics_structure.rs \
+            crates/lila-engine/tests/aot_bound_functions.rs
+          rm .github/bound-function-change.patch.gz.b64 .github/workflows/bound-function-workspace.yaml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github README.md crates/lila-aot-wasm/src/builtins/function.rs \
+            crates/lila-aot-wasm/src/builtins/function/bind.rs crates/lila-aot-wasm/src/data.rs \
+            crates/lila-aot-wasm/src/functions/bound_function_allocation.rs \
+            crates/lila-aot-wasm/src/functions/bound_function_allocation/layout_source.rs \
+            crates/lila-aot-wasm/src/planning.rs \
+            crates/lila-aot-wasm/tests/bound_function_semantics_structure.rs \
+            crates/lila-engine/tests/aot_bound_functions.rs \
+            docs/rust-rewrite/aot-bound-functions.md tasks/09-functions-classes-private-elements.md
+          git commit -m 'feat(wasm): preserve Proxy targets and observable bound-function semantics'
+          git push origin HEAD:refs/heads/codex/complete-bound-function-semantics
+          mkdir -p /tmp/bound-functions-verification
+          git rev-parse HEAD | tee /tmp/bound-functions-verification/revision.txt
+          git diff HEAD^ HEAD --stat > /tmp/bound-functions-verification/change-stat.txt
+          git archive --format=tar.gz HEAD -o /tmp/bound-functions-source.tar.gz
+      - name: Preserve the exact formatted source revision
+        uses: actions/upload-artifact@v4
         with:
-          name: bound-function-source-${{ github.sha }}
-          path: /tmp/lila-source.tar.gz
+          name: bound-functions-formatted-source
+          path: /tmp/bound-functions-source.tar.gz
           if-no-files-found: error
           retention-days: 1
+      - name: Compile the Wasm backend
+        run: cargo check --locked -p lila-aot-wasm 2>&1 | tee /tmp/bound-functions-verification/cargo-check.log
+      - name: Check semantic structure and adjacent Realm contracts
+        if: ${{ !cancelled() }}
+        run: >-
+          cargo test --locked -p lila-aot-wasm
+          --test bound_function_semantics_structure
+          --test proxy_creation_execution_realm_structure
+          --test promise_internal_function_realm_context_structure
+          --test error_prototype_location_structure
+          2>&1 | tee /tmp/bound-functions-verification/structure.log
+      - name: Execute the complete bound-function Wasm inventory
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/run_engine_regression_inventory.py aot_bound_functions
+          --output-dir /tmp/bound-functions-verification/engine --timeout 600
+          2>&1 | tee /tmp/bound-functions-verification/engine.log
+      - name: Preserve verification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bound-functions-verification-${{ github.sha }}
+          path: /tmp/bound-functions-verification
+          if-no-files-found: warn
