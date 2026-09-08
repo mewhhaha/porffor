@@ -27,7 +27,8 @@
 // (`compile_async_generator_delegation`), which is the path the six test262
 // cases use: they all wrap the sync iterable in `async function* () { yield* … }`.
 // The two for-await cases in the same node take the loop path in
-// `compile_async_for_of_iterator`, which closes on its own and passes already.
+// `compile_async_for_of_iterator`; engine regressions in
+// `aot_for_await_rejection_close.rs` cover that driver's close obligation.
 
 const results = [];
 

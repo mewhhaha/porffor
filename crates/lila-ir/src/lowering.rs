@@ -4390,6 +4390,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn split_resumable_loop_body(
         body: StatementIr,
+        conditional_yield: bool,
     ) -> Option<(Vec<StatementIr>, StatementIr, Vec<StatementIr>)> {
         let statements = match body {
             StatementIr::Block(block) if block.lexical_environment.is_none() => block.statements,
@@ -4397,26 +4398,26 @@ impl<'a> ScriptLowerer<'a> {
             statement => vec![statement],
         };
         let statements = flatten_suspending_lexical_blocks(statements);
-        let suspension_index = statements.iter().position(|statement| {
+        let is_suspension = |statement: &StatementIr| {
             matches!(
                 statement,
                 StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. }
-            )
-        })?;
-        if statements[suspension_index + 1..].iter().any(|statement| {
-            matches!(
-                statement,
-                StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. }
-            )
-        }) {
-            return None;
-        }
-        if statements[..suspension_index].iter().any(|statement| {
-            matches!(
-                statement,
-                StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. }
-            )
-        }) {
+            ) || conditional_yield
+                && matches!(
+                    statement,
+                    StatementIr::GeneratorIf {
+                        then_resume_state: Some(_),
+                        else_resume_state: None,
+                        ..
+                    } | StatementIr::GeneratorIf {
+                        then_resume_state: None,
+                        else_resume_state: Some(_),
+                        ..
+                    }
+                )
+        };
+        let suspension_index = statements.iter().position(is_suspension)?;
+        if statements[suspension_index + 1..].iter().any(is_suspension) {
             return None;
         }
         let mut before_suspension = statements;
@@ -7498,12 +7499,21 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
 
+        // Losing proof that a configurable global still exists does not prove
+        // its previous callable disappeared. Keep possible targets for dynamic
+        // source admission while the runtime still performs ResolveBinding.
+        let mut function_targets = self
+            .lookup_global_property_info(&name)
+            .map_or_else(FunctionTargetKnowledge::unknown, |property| {
+                property.value_info.function_targets.clone()
+            });
+        function_targets.widen_for_possible_replacement();
         TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
                 heap_shape: None,
-                function_targets: FunctionTargetKnowledge::unknown(),
+                function_targets,
             },
             ExprIr::GlobalIdentifierRead { name },
         )
@@ -10325,6 +10335,9 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(_)) => {
                     unreachable!("spread arguments cannot prove eval's first value is non-String")
                 }
+                Some(ResolvedDynamicSourceCall::EmptyFunction(_)) => {
+                    unreachable!("spread arguments cannot prove Function has no arguments")
+                }
                 Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
                     self.record_unsupported_dynamic_source(unsupported);
                     return (
@@ -10377,6 +10390,19 @@ impl<'a> ScriptLowerer<'a> {
         ) {
             None => None,
             Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
+            Some(ResolvedDynamicSourceCall::EmptyFunction(proof)) => {
+                if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
+                    self.note_standard_builtin_call(builtin);
+                } else {
+                    self.mark_host_builtin_from_function_id(function_id);
+                }
+                return (
+                    function_id.clone(),
+                    lowered_args,
+                    proof.into_result_info(),
+                    AnalyzedInvocationEffects::already_applied(),
+                );
+            }
             Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
                 self.record_unsupported_dynamic_source(unsupported);
                 return (

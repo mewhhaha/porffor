@@ -39,11 +39,21 @@ impl<'a> ScriptLowerer<'a> {
             if StandardBuiltinId::from_function_id(&function_id).is_none()
                 && DynamicSourceIntrinsic::from_function_id(&function_id).is_some()
             {
-                return self.lower_dynamic_source_construct(&function_id, new_expr.arguments());
+                return self.lower_dynamic_source_construct(
+                    &function_id,
+                    callee,
+                    new_expr.arguments(),
+                );
             }
             if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id) {
-                if builtin == StandardBuiltinId::FunctionConstructor {
-                    return self.lower_dynamic_source_construct(&function_id, new_expr.arguments());
+                if builtin == StandardBuiltinId::FunctionConstructor
+                    && !new_expr.arguments().is_empty()
+                {
+                    return self.lower_dynamic_source_construct(
+                        &function_id,
+                        callee,
+                        new_expr.arguments(),
+                    );
                 }
                 let (args, result, invocation_effects) =
                     if Self::is_typed_array_constructor(builtin) {

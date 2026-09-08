@@ -677,49 +677,7 @@ pub(crate) fn async_generator_resumable_plan(body: &FunctionBody) -> ResumablePl
     collector.states.finish()
 }
 
-/// Why a generator body has no linear suspension plan.
-///
-/// # Why this exists
-///
-/// [`linear_generator_plan`] answered `Option`, and its single consumer in
-/// `lower_declaration` reported the rejection as
-/// `unsupported("function or class declaration")`. That string is wrong twice:
-/// the declaration is a *generator*, not a function or class, and the reason is
-/// the shape of its yields, not the kind of declaration. Every generator this
-/// compiler refuses therefore collapsed into one `detail_hash` shared with
-/// genuinely unrelated declarations, which is the worst possible outcome for a
-/// sweep whose whole purpose is grouping failures into families.
-///
-/// Measured example, and the pair this was written against:
-/// `annexB/built-ins/RegExp/RegExp-control-escape-russian-letter.js` and
-/// `RegExp-invalid-control-escape-character-class.js` both declare
-///
-/// ```ignore
-/// function* invalidControls() {
-///   for (var alpha = 0x0410; alpha <= 0x042F; alpha++) { yield String.fromCharCode(alpha); }
-///   // ... and then a third loop whose yield is nested inside an `if`:
-///   for (alpha = 0x00; alpha <= 0x7F; alpha++) {
-///     let letter = String.fromCharCode(alpha);
-///     if (!letter.match(/[0-9A-Za-z_\$(|)\[\]\/\\^]/)) { yield letter; }
-///   }
-/// }
-/// ```
-///
-/// and both reported `unsupported in lila wasm-aot first slice: function or
-/// class declaration`. The actual refusal is [`Self::LoopBodyYieldNotDirect`],
-/// raised by `simple_generator_loop_body_is_supported` on the third loop: its
-/// body's `if` is a statement that *contains* a yield without *being* one.
-///
-/// # Scope
-///
-/// This is a diagnostic type only. It changes no acceptance decision: the set of
-/// bodies [`linear_generator_plan`] accepts is byte-for-byte the set it accepted
-/// before, because the wrapper is `.ok()` over the same walk. Widening the walk
-/// to count yields per *path* rather than per statement list is filed as a
-/// batch-8 candidate and is deliberately not done here —
-/// `simple_generator_loop_body_is_supported`'s own comment records that
-/// accepting a body whose block carries a lexical environment does not fail
-/// loudly, it produces a loop the generator dispatcher cannot re-enter.
+/// A source suspension shape that the generator state plan cannot represent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GeneratorPlanRejection {
     /// A nested declaration (a function, class or lexical declaration at the top
@@ -741,9 +699,8 @@ pub(crate) enum GeneratorPlanRejection {
     /// A `with` body that is neither a block nor an expression statement and
     /// contains a yield.
     YieldInWithBody,
-    /// A `for`/`while` body that is not exactly one direct `yield` statement —
-    /// most often because the yield sits inside an `if`, a nested block or a
-    /// `try` within the body, or because the body yields more than once.
+    /// A `for`/`while` body that is not one direct yield or a conditional
+    /// containing one direct yield in exactly one branch.
     LoopBodyYieldNotDirect,
     /// A `for`/`while` carrying `break`, `continue`, or a nested function that
     /// would capture a per-iteration binding.
@@ -793,9 +750,8 @@ impl GeneratorPlanRejection {
                 "generator body: a yield in this `with` body shape has no linear suspension plan"
             }
             Self::LoopBodyYieldNotDirect => {
-                "generator body: a loop body whose yield is nested inside another statement \
-                 (an `if`, a block or a `try`), or which yields more than once, has no linear \
-                 suspension plan"
+                "generator body: a loop body requiring multiple suspension positions or an \
+                 unsupported nested yield has no linear suspension plan"
             }
             Self::LoopControlFlow => {
                 "generator body: a loop carrying `break`, `continue` or a capturing nested \
@@ -821,11 +777,6 @@ impl GeneratorPlanRejection {
     }
 }
 
-/// The acceptance answer, unchanged. Every existing caller asks only whether a
-/// plan exists; only `lower_declaration`'s rejection arm needs the reason, and
-/// it calls [`linear_generator_plan_with_reason`] directly. Keeping this a thin
-/// `.ok()` wrapper is what makes "the accepted set did not move" a property of
-/// the code rather than a claim in a note.
 pub(crate) fn linear_generator_plan(body: &FunctionBody) -> Option<GeneratorPlanIr> {
     linear_generator_plan_with_reason(body).ok()
 }
@@ -951,10 +902,6 @@ pub(crate) fn linear_generator_plan_with_reason(
             _ => None,
         };
         if let Some((loop_body, reject_nested_functions, loop_statement)) = loop_shape {
-            // Split into two answers rather than one `||`. This is the arm the
-            // two `annexB` `invalidControls` cases take, and "the loop body's
-            // yield is nested inside an `if`" and "the loop carries a break" are
-            // different families with different fixes.
             if !simple_generator_loop_body_is_supported(loop_body) {
                 return Err(GeneratorPlanRejection::LoopBodyYieldNotDirect);
             }
@@ -1419,7 +1366,12 @@ fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
         Statement::Block(block) => block.statement_list().statements(),
         _ => {
             return match branch {
-                Statement::Expression(Expression::Yield(expression)) if !expression.delegate() => {
+                Statement::Expression(Expression::Yield(expression))
+                    if !expression.delegate()
+                        && !expression.target().is_some_and(|target| {
+                            contains(target, ContainsSymbol::YieldExpression)
+                        }) =>
+                {
                     Some(1)
                 }
                 statement if contains(statement, ContainsSymbol::YieldExpression) => None,
@@ -1438,7 +1390,12 @@ fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
             continue;
         };
         match statement.as_ref() {
-            Statement::Expression(Expression::Yield(expression)) if !expression.delegate() => {
+            Statement::Expression(Expression::Yield(expression))
+                if !expression.delegate()
+                    && !expression.target().is_some_and(|target| {
+                        contains(target, ContainsSymbol::YieldExpression)
+                    }) =>
+            {
                 yield_count += 1;
             }
             statement if contains(statement, ContainsSymbol::YieldExpression) => return None,
@@ -1448,29 +1405,13 @@ fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
     (yield_count <= 1 && !(has_declaration && yield_count == 1)).then_some(yield_count)
 }
 
-/// A generator loop body lowers to
-/// `StatementIr::GeneratorLoop { before_suspension, suspension_statement, after_suspension, .. }`,
-/// where everything ahead of the single direct `yield` lands in
-/// `before_suspension`. A lexical (`let`/`const`) declaration survives that
-/// split unchanged: it lowers to `StatementIr::Lexical` /
-/// `StatementIr::LexicalBlock`, which both generator-loop compilers already
-/// hoist through `initialize_direct_lexical_bindings` before running the
-/// segment. That is the same allowance
-/// [`simple_resumable_await_loop_body_is_supported`] already makes for the
-/// await-loop shape, so `for (...) { let x = f(i); yield x; }` needs no new
-/// backend support — only this predicate stood in the way (ECMA-262 14.7.4 /
-/// 14.3.1: the per-iteration lexical binding is created and initialized on the
-/// iteration that observes it, which is exactly the segment the loop compiler
-/// re-enters on each resume).
-///
-/// Declaration forms with no `StatementIr::Lexical` lowering — function,
-/// generator, async, class, and `using`/`await using` — stay rejected, as does
-/// any declaration whose initializer itself contains a `yield`.
+/// One suspension position per loop iteration, optionally guarded by an `if`.
+/// Captured body bindings still require a resumable lexical environment.
 pub(crate) fn simple_generator_loop_body_is_supported(body: &Statement) -> bool {
     let statements = match body {
         Statement::Block(block) => block.statement_list().statements(),
         _ => {
-            return matches!(body, Statement::Expression(Expression::Yield(expression)) if !expression.delegate());
+            return generator_loop_statement_yield_count(body) == Some(1);
         }
     };
     let mut yield_count = 0usize;
@@ -1483,25 +1424,41 @@ pub(crate) fn simple_generator_loop_body_is_supported(body: &Statement) -> bool 
             has_lexical_declaration = true;
             continue;
         };
-        match statement.as_ref() {
-            Statement::Expression(Expression::Yield(expression)) if !expression.delegate() => {
-                yield_count += 1;
-            }
-            statement if contains(statement, ContainsSymbol::YieldExpression) => return false,
-            _ => {}
-        }
+        let Some(statement_yields) = generator_loop_statement_yield_count(statement) else {
+            return false;
+        };
+        yield_count += statement_yields;
     }
     if yield_count != 1 {
         return false;
     }
-    // A captured lexical binding makes `lower_block` materialize a
-    // `BlockIr::lexical_environment`, and `split_resumable_loop_body` refuses to
-    // split such a block — the loop would then silently fall back to a plain
-    // `StatementIr::For` holding a `GeneratorYield`, which the generator
-    // dispatcher cannot re-enter. Only closures can capture, so rejecting every
-    // nested function-like construct in the body keeps the environment empty and
-    // the split guaranteed.
+    // A captured lexical binding needs an Environment Record that persists
+    // across suspension. This loop form carries uncaptured activation slots.
     !has_lexical_declaration || !generator_loop_has_unsupported_construct(body, true)
+}
+
+fn generator_loop_statement_yield_count(statement: &Statement) -> Option<usize> {
+    match statement {
+        Statement::Expression(Expression::Yield(expression))
+            if !expression.delegate()
+                && !expression
+                    .target()
+                    .is_some_and(|target| contains(target, ContainsSymbol::YieldExpression)) =>
+        {
+            Some(1)
+        }
+        Statement::If(branch) if !contains(branch.cond(), ContainsSymbol::YieldExpression) => {
+            let then_count = simple_generator_if_branch_yield_count(branch.body())?;
+            let else_count = branch
+                .else_node()
+                .map(simple_generator_if_branch_yield_count)
+                .unwrap_or(Some(0))?;
+            let count = then_count + else_count;
+            (count <= 1).then_some(count)
+        }
+        statement if contains(statement, ContainsSymbol::YieldExpression) => None,
+        _ => Some(0),
+    }
 }
 
 fn generator_loop_body_declaration_is_supported(item: &StatementListItem) -> bool {

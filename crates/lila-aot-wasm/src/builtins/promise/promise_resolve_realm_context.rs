@@ -7,6 +7,7 @@ pub(super) struct PromiseResolveOperationRealmContext {
 
 #[must_use = "intrinsic PromiseResolve Realm context must be explicitly released"]
 pub(super) struct IntrinsicPromiseResolveRealmContext {
+    materialization_context: PromiseInternalFunctionMaterializationContext,
     operation: PromiseResolveOperationRealmContext,
     constructor_payload_local: u32,
 }
@@ -71,9 +72,9 @@ impl<'a> FunctionBuilder<'a> {
             .ok_or_else(|| EmitError::unsupported("missing intrinsic Promise.resolve builtin"))?;
         let resolve_function_payload_local = self.reserve_temp_local();
         let constructor_payload_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
         let materialization_context = self
             .emit_promise_resolve_internal_function_materialization_context(authority, function);
+        let intrinsics_local = self.reserve_temp_local();
 
         self.emit_load_promise_internal_function_realm_intrinsics(
             &materialization_context,
@@ -104,10 +105,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        self.release_promise_internal_function_materialization_context(materialization_context);
         self.release_temp_local(intrinsics_local);
         result?;
         Ok(IntrinsicPromiseResolveRealmContext {
+            materialization_context,
             operation: PromiseResolveOperationRealmContext {
                 resolve_function_payload_local,
             },
@@ -153,6 +154,9 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         context: IntrinsicPromiseResolveRealmContext,
     ) {
+        self.release_promise_internal_function_materialization_context(
+            context.materialization_context,
+        );
         self.release_temp_local(context.constructor_payload_local);
         self.release_promise_resolve_operation_realm_context(context.operation);
     }
@@ -193,6 +197,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_new_promise_capability(
+            &resolve_context.materialization_context,
             resolve_context.constructor_payload_local,
             rejected_promise_constructor_tag_local,
             rejected_promise_capability_local,

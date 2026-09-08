@@ -151,7 +151,10 @@ impl<'a> ScriptLowerer<'a> {
         }) {
             if lexical_environment.is_none() {
                 if let Some((before_suspension, suspension_statement, after_suspension)) =
-                    Self::split_resumable_loop_body(body.clone())
+                    Self::split_resumable_loop_body(
+                        body.clone(),
+                        generator_entry_state.is_some() && self.current_resumable_plan.is_none(),
+                    )
                 {
                     if self.current_resumable_plan.is_some() {
                         match &init {
@@ -189,9 +192,19 @@ impl<'a> ScriptLowerer<'a> {
                     let resume_state = match &suspension_statement {
                         StatementIr::GeneratorYield { resume_state, .. }
                         | StatementIr::AsyncAwait { resume_state, .. } => *resume_state,
-                        _ => unreachable!(
-                            "split resumable loop must return an await or yield statement"
-                        ),
+                        StatementIr::GeneratorIf {
+                            then_resume_state: Some(resume_state),
+                            else_resume_state: None,
+                            ..
+                        }
+                        | StatementIr::GeneratorIf {
+                            then_resume_state: None,
+                            else_resume_state: Some(resume_state),
+                            ..
+                        } => *resume_state,
+                        _ => {
+                            unreachable!("split resumable loop must return one suspension position")
+                        }
                     };
                     let exit_state = if self.current_resumable_plan.is_some() {
                         resume_state
@@ -220,6 +233,12 @@ impl<'a> ScriptLowerer<'a> {
                     );
                 }
             }
+        }
+        if generator_entry_state.is_some()
+            && contains(for_loop.body(), ContainsSymbol::YieldExpression)
+        {
+            self.unsupported("generator loop body has no reentrant suspension segment");
+            return (StatementIr::Empty, ValueKind::Undefined);
         }
         if resumable_await_loop {
             self.unsupported("resumable async loop body did not lower to one direct await");

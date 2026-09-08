@@ -8,8 +8,8 @@ use lila_intl::{
 };
 use lila_ir::{
     lower_module_graph_with_host_surface_policy, lower_script_graph_with_host_surface_policy,
-    lower_with_host_surface_policy, source_writes_dynamic_import, CompletionKindIr, IrDiagnostic,
-    ProgramIr, ValueKind,
+    lower_with_host_surface_policy, source_writes_dynamic_import, CompletionKindIr,
+    DynamicSourceRuntimeOperation, IrDiagnostic, ProgramIr, ValueKind,
 };
 use lila_runtime::AgentHostOperation;
 use sha2::{Digest, Sha256};
@@ -58,6 +58,7 @@ const WASM_HOST_IMPORT_RANDOM_F64: &str = "random_f64";
 const WASM_HOST_IMPORT_WALL_CLOCK_MILLIS: &str = "wall_clock_millis";
 const WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS: &str = "monotonic_clock_nanos";
 const WASM_HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
+const WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE: &str = "reject_dynamic_source";
 /// Default bound on [`memory_wasm_modules`], **in entries and in nothing else**.
 ///
 /// # This is the in-process retention that the disk-cache knobs do not touch
@@ -1271,6 +1272,7 @@ pub struct EngineError {
     ir_diagnostic: Option<IrDiagnostic>,
     intl_artifact_identity_error: Option<IntlArtifactIdentityError>,
     wasmtime_policy: Option<WasmtimeRuntimePolicy>,
+    runtime_dynamic_source_operation: Option<DynamicSourceRuntimeOperation>,
 }
 
 /// Closed pre-instantiation failures for the Wasm Intl artifact/provider
@@ -1316,6 +1318,7 @@ impl EngineError {
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
             wasmtime_policy: None,
+            runtime_dynamic_source_operation: None,
         }
     }
 
@@ -1326,6 +1329,7 @@ impl EngineError {
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
             wasmtime_policy: None,
+            runtime_dynamic_source_operation: None,
         }
     }
 
@@ -1336,6 +1340,7 @@ impl EngineError {
             ir_diagnostic: Some(diagnostic),
             intl_artifact_identity_error: None,
             wasmtime_policy: None,
+            runtime_dynamic_source_operation: None,
         }
     }
 
@@ -1356,6 +1361,7 @@ impl EngineError {
             ir_diagnostic: None,
             intl_artifact_identity_error: None,
             wasmtime_policy: Some(err.policy),
+            runtime_dynamic_source_operation: None,
         }
     }
 
@@ -1366,7 +1372,21 @@ impl EngineError {
             ir_diagnostic: None,
             intl_artifact_identity_error: Some(error),
             wasmtime_policy: None,
+            runtime_dynamic_source_operation: None,
         }
+    }
+
+    fn from_runtime_dynamic_source_operation(operation: DynamicSourceRuntimeOperation) -> Self {
+        let mut error = Self::new(operation.to_string());
+        error.runtime_dynamic_source_operation = Some(operation);
+        error
+    }
+
+    /// Unsupported dynamic source generation reached by an executing Wasm
+    /// intrinsic. This is a host capability failure, not a JavaScript throw
+    /// or a compilation diagnostic.
+    pub const fn runtime_dynamic_source_operation(&self) -> Option<DynamicSourceRuntimeOperation> {
+        self.runtime_dynamic_source_operation
     }
 
     pub fn message(&self) -> &str {
@@ -1417,6 +1437,16 @@ impl core::fmt::Display for EngineError {
 }
 
 impl std::error::Error for EngineError {}
+
+fn wasm_reject_dynamic_source(operation_code: i64) -> wasmtime::Result<()> {
+    let operation =
+        DynamicSourceRuntimeOperation::from_abi_code(operation_code).ok_or_else(|| {
+            wasmtime::Error::msg(format!(
+                "invalid dynamic source host operation code {operation_code}"
+            ))
+        })?;
+    Err(wasmtime::Error::new(operation))
+}
 
 pub struct Engine {
     realm: Realm,
@@ -2005,7 +2035,7 @@ impl WasmAgentGroup {
         for worker in workers {
             match worker.join.join() {
                 Ok(Ok(())) => {}
-                Ok(Err(error)) => failures.push(error.to_string()),
+                Ok(Err(error)) => failures.push(error),
                 Err(payload) => {
                     let message = payload
                         .downcast_ref::<String>()
@@ -2016,18 +2046,40 @@ impl WasmAgentGroup {
                                 .map(|value| (*value).to_string())
                         })
                         .unwrap_or_else(|| "non-string panic payload".to_string());
-                    failures.push(format!("Test262 agent panicked: {message}"));
+                    failures.push(EngineError::new(format!(
+                        "Test262 agent panicked: {message}"
+                    )));
                 }
             }
         }
-        if failures.is_empty() {
-            Ok(())
+        let Some(first) = failures.first() else {
+            return Ok(());
+        };
+        let message = format!(
+            "Test262 agent failed: {}",
+            failures
+                .iter()
+                .map(EngineError::message)
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        let mut error = if failures.len() == 1 {
+            first.clone()
         } else {
-            Err(EngineError::new(format!(
-                "Test262 agent failed: {}",
-                failures.join("; ")
-            )))
-        }
+            let mut error = EngineError::new(message.clone());
+            // Preserve a common capability reason without hiding an unrelated
+            // worker failure behind the unsupported classification.
+            error.runtime_dynamic_source_operation = first
+                .runtime_dynamic_source_operation()
+                .filter(|operation| {
+                    failures.iter().all(|failure| {
+                        failure.runtime_dynamic_source_operation() == Some(*operation)
+                    })
+                });
+            error
+        };
+        error.message = message;
+        Err(error)
     }
 }
 
@@ -3166,6 +3218,13 @@ impl Engine {
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
+                wasm_reject_dynamic_source,
+            )
+            .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_AGENT_CAN_SUSPEND,
                 |caller: WasmtimeCaller<'_, WasmHostState>| -> i32 {
                     i32::from(caller.data().can_block)
@@ -3258,9 +3317,8 @@ impl Engine {
                                     ))
                                 })?;
                             group.start(source).map_err(|err| {
-                                wasmtime::Error::msg(format!(
-                                    "failed to compile or start Test262 agent: {err}"
-                                ))
+                                wasmtime::Error::new(err)
+                                    .context("failed to compile or start Test262 agent")
                             })?;
                             if std::env::var_os("LILA_WASM_TRACE").is_some() {
                                 eprintln!("lila wasm trace: Test262 agent started");
@@ -3597,7 +3655,13 @@ impl Engine {
         }
         let execution_started = std::time::Instant::now();
         let execution_result = main.call(&mut store, ()).map_err(|err| {
-            if is_wasm_epoch_interrupt(&err) {
+            if let Some(operation) = err.downcast_ref::<DynamicSourceRuntimeOperation>() {
+                EngineError::from_runtime_dynamic_source_operation(*operation)
+            } else if let Some(cause) = err.downcast_ref::<EngineError>() {
+                let mut error = cause.clone();
+                error.message = format!("wasmtime host execution failed: {err:#}");
+                error
+            } else if is_wasm_epoch_interrupt(&err) {
                 // Distinguish this from other traps with the same "timeout
                 // exceeded" phrasing the child-process/elapsed-time timeout
                 // path already uses (see
@@ -4200,6 +4264,18 @@ var $262 = {
         CompileOptions {
             host_surface_policy: HostSurfacePolicy::Test262,
             ..CompileOptions::default()
+        }
+    }
+
+    #[test]
+    fn invalid_dynamic_source_host_codes_remain_abi_errors() {
+        for code in [-1, 6, i64::MAX] {
+            let error =
+                wasm_reject_dynamic_source(code).expect_err("an invalid host operation must fail");
+            assert!(error
+                .downcast_ref::<DynamicSourceRuntimeOperation>()
+                .is_none());
+            assert!(error.to_string().contains(&code.to_string()));
         }
     }
 
@@ -5562,6 +5638,13 @@ report;
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::new(&wasm_engine);
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
+                wasm_reject_dynamic_source,
+            )
+            .expect("dynamic source capability import should link");
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,

@@ -75,20 +75,21 @@ fn promise_internal_function_context_couples_one_realm_and_its_prototypes() {
     );
     assert!(!PROMISE_SOURCE.contains("pub use self::promise_internal_function_materialization"));
     assert!(PROMISE_INTERNAL_FUNCTION_MATERIALIZATION_SOURCE
-        .contains("pub(super) struct PromiseInternalFunctionMaterializationContext {"));
+        .contains("pub(crate) struct PromiseInternalFunctionMaterializationContext {"));
     for field in [
         "realm_local: u32",
         "function_prototype_local: u32",
         "type_error_prototype_local: u32",
         "range_error_prototype_local: u32",
     ] {
-        assert!(context.contains(field), "missing context field: {field}");
+        assert!(
+            declaration
+                .lines()
+                .any(|line| line.trim() == format!("{field},")),
+            "missing private context field: {field}"
+        );
     }
     assert!(!declaration.contains("derive("));
-    assert!(!declaration.contains("pub realm_local"));
-    assert!(!declaration.contains("pub function_prototype_local"));
-    assert!(!declaration.contains("pub type_error_prototype_local"));
-    assert!(!declaration.contains("pub range_error_prototype_local"));
     for intrinsic in [
         "HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET",
         "HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET",
@@ -110,8 +111,8 @@ fn promise_internal_function_context_couples_one_realm_and_its_prototypes() {
         PROMISE_SOURCE
             .matches("PromiseInternalFunctionMaterializationContext")
             .count(),
-        1,
-        "the parent retains only the private import",
+        2,
+        "the parent imports the carrier and borrows it for capability executors",
     );
     assert!(!PROMISE_RESOLVE_REALM_CONTEXT_SOURCE.contains("materialization_context.realm_local"));
 
@@ -134,6 +135,27 @@ fn promise_internal_function_context_couples_one_realm_and_its_prototypes() {
                 .rfind("PromiseInternalFunctionMaterializationContext {")
                 .unwrap()
     );
+}
+
+#[test]
+fn promise_capability_executor_borrows_the_callers_realm_context() {
+    let capability = PROMISE_SOURCE
+        .split_once("pub(crate) fn emit_new_promise_capability(")
+        .expect("Promise capability factory")
+        .1
+        .split_once("fn emit_initialize_promise_reaction(")
+        .expect("Promise capability factory end")
+        .0;
+    assert!(capability.contains("executor_context: &PromiseInternalFunctionMaterializationContext"));
+    assert!(capability.contains(concat!(
+        "self.emit_promise_internal_function_value(\n",
+        "            &executor_meta,\n",
+        "            executor_context,",
+    )));
+    assert!(!capability.contains("materialization_context_from_realm("));
+    assert!(!capability
+        .contains("emit_current_function_promise_internal_function_materialization_context("));
+    assert!(!capability.contains("release_promise_internal_function_materialization_context("));
 }
 
 #[test]

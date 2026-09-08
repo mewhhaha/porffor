@@ -2033,22 +2033,13 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let thrower_meta = self
+        let constructor_meta = self
             .functions
-            .get(&StandardBuiltinId::ThrowTypeError.function_id())
+            .get(&HostBuiltinId::GeneratorFunctionConstructor.function_id())
             .cloned()
             .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `%ThrowTypeError%`",
-                )
+                EmitError::unsupported("missing GeneratorFunction constructor metadata")
             })?;
-        let mut constructor_meta = thrower_meta;
-        constructor_meta.name = "GeneratorFunction".to_string();
-        constructor_meta.to_string_value =
-            "function GeneratorFunction() { [native code] }".to_string();
-        constructor_meta.length = 1;
-        constructor_meta.length_name_configurable = true;
-        constructor_meta.protocol = FunctionProtocolIr::OrdinaryCallAndConstruct;
 
         self.emit_function_value_payload_with_prototype_materialization(
             &constructor_meta,
@@ -2057,14 +2048,24 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         let constructor_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalSet(constructor_local));
-        function.instruction(&Instruction::GlobalGet(
-            GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
-        ));
+        self.store_i64_local_at_offset(
+            constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            constructor_local,
+            function,
+        );
+        function.instruction(&Instruction::GlobalGet(FUNCTION_CONSTRUCTOR_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         self.store_i64_local_at_offset(
             constructor_local,
             HEAP_PROTOTYPE_OFFSET,
             self.scratch_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            constructor_local,
+            HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Function.tag() as u64,
             function,
         );
 
@@ -2310,38 +2311,30 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let thrower_meta = self
-            .functions
-            .get(&StandardBuiltinId::ThrowTypeError.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `%ThrowTypeError%`",
-                )
-            })?;
-
-        for (name, source, prototype_global_index, constructor_global_index, slot) in [
+        for (builtin, prototype_global_index, constructor_global_index, slot) in [
             (
-                "AsyncFunction",
-                "function AsyncFunction() { [native code] }",
+                HostBuiltinId::AsyncFunctionConstructor,
                 ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
                 ASYNC_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
                 NonArrayRealmIntrinsicSlot::AsyncFunctionConstructor,
             ),
             (
-                "AsyncGeneratorFunction",
-                "function AsyncGeneratorFunction() { [native code] }",
+                HostBuiltinId::AsyncGeneratorFunctionConstructor,
                 ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
                 ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_GLOBAL_INDEX,
                 NonArrayRealmIntrinsicSlot::AsyncGeneratorFunctionConstructor,
             ),
         ] {
-            let mut constructor_meta = thrower_meta.clone();
-            constructor_meta.name = name.to_string();
-            constructor_meta.to_string_value = source.to_string();
-            constructor_meta.length = 1;
-            constructor_meta.length_name_configurable = true;
-            constructor_meta.protocol = FunctionProtocolIr::OrdinaryCallAndConstruct;
+            let constructor_meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "missing {} constructor metadata",
+                        builtin.debug_name(),
+                    ))
+                })?;
 
             self.emit_function_value_payload_with_prototype_materialization(
                 &constructor_meta,
@@ -2350,6 +2343,12 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             let constructor_local = self.reserve_temp_local();
             function.instruction(&Instruction::LocalSet(constructor_local));
+            self.store_i64_local_at_offset(
+                constructor_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                constructor_local,
+                function,
+            );
             function.instruction(&Instruction::GlobalGet(FUNCTION_CONSTRUCTOR_GLOBAL_INDEX));
             function.instruction(&Instruction::LocalSet(self.scratch_local));
             self.store_i64_local_at_offset(
@@ -2709,8 +2708,6 @@ impl<'a> FunctionBuilder<'a> {
             NonArrayRealmIntrinsicSlot::AsyncFunctionPrototype,
             function,
         );
-        self.release_temp_local(callable_function_prototype_tag_local);
-        self.release_temp_local(callable_function_prototype_local);
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(ASYNC_ITERATOR_PROTOTYPE_GLOBAL_INDEX),
@@ -2724,14 +2721,17 @@ impl<'a> FunctionBuilder<'a> {
             NonArrayRealmIntrinsicSlot::AsyncGeneratorPrototype,
             function,
         );
-        self.emit_alloc_plain_object_with_prototype(
+        self.emit_alloc_plain_object_with_prototype_and_tag(
+            Some(callable_function_prototype_local),
+            Some(callable_function_prototype_tag_local),
             None,
-            Some(ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(
             ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.release_temp_local(callable_function_prototype_tag_local);
+        self.release_temp_local(callable_function_prototype_local);
         self.emit_store_current_realm_global_intrinsic(
             ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX,
             NonArrayRealmIntrinsicSlot::AsyncGeneratorFunctionPrototype,

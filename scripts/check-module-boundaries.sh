@@ -3554,7 +3554,7 @@ require_exact_line_count \
 if grep -Eq '^pub([^[:space:]]*[[:space:]]+)?use[[:space:]]+.*promise_internal_function_materialization' "$wasm_promise_builtins"; then
   fail "$wasm_promise_builtins must not re-export the Promise internal-function carrier"
 fi
-if ! grep -q '^pub(super) struct PromiseInternalFunctionMaterializationContext {$' "$wasm_promise_internal_function_materialization" \
+if ! grep -q '^pub(crate) struct PromiseInternalFunctionMaterializationContext {$' "$wasm_promise_internal_function_materialization" \
   || grep -Eq '^[[:space:]]+pub(\([^)]*\))?[[:space:]]+(realm_local|function_prototype_local|type_error_prototype_local|range_error_prototype_local):' "$wasm_promise_internal_function_materialization"; then
   fail "$wasm_promise_internal_function_materialization must own the opaque Promise internal-function carrier with private fields"
 fi
@@ -3566,22 +3566,24 @@ require_fixed_string_count \
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   'PromiseInternalFunctionMaterializationContext' \
-  11 \
+  13 \
   'Promise internal-function carrier recursive sites'
-for promise_internal_method_and_count in \
-  'emit_promise_internal_function_materialization_context_from_realm 4' \
-  'emit_current_function_promise_internal_function_materialization_context 7' \
-  'emit_promise_record_internal_function_materialization_context 2' \
-  'emit_promise_internal_function_value 11' \
-  'emit_load_promise_internal_function_context 9' \
-  'release_promise_internal_function_materialization_context 9' \
-  'emit_load_promise_internal_function_realm_intrinsics 2'
+for promise_internal_method_visibility_count in \
+  'emit_promise_internal_function_materialization_context_from_realm crate 5' \
+  'emit_current_function_promise_internal_function_materialization_context crate 18' \
+  'emit_promise_record_internal_function_materialization_context super 2' \
+  'emit_promise_internal_function_value super 11' \
+  'emit_load_promise_internal_function_context super 9' \
+  'release_promise_internal_function_materialization_context crate 21' \
+  'emit_load_promise_internal_function_realm_intrinsics super 2'
 do
-  promise_internal_method="${promise_internal_method_and_count% *}"
-  promise_internal_count="${promise_internal_method_and_count##* }"
+  set -- $promise_internal_method_visibility_count
+  promise_internal_method="$1"
+  promise_internal_visibility="$2"
+  promise_internal_count="$3"
   require_regex_count \
     "$wasm_promise_internal_function_materialization" \
-    "^[[:space:]]*pub\(super\)[[:space:]]+fn[[:space:]]+$promise_internal_method[[:space:]]*\(" \
+    "^[[:space:]]*pub\($promise_internal_visibility\)[[:space:]]+fn[[:space:]]+$promise_internal_method[[:space:]]*\(" \
     1 \
     "Promise internal-function owner method $promise_internal_method"
   require_tree_regex_count \

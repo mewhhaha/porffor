@@ -123,7 +123,10 @@ impl<'a> FunctionBuilder<'a> {
             ),
         };
 
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -131,6 +134,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.load_i64_to_local_from_offset(
             capability_record_local,
             HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,

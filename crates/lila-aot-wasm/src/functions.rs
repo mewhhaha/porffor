@@ -1168,12 +1168,11 @@ mod async_generator_topology_tests {
 
     const PUBLIC_TOPOLOGY_SOURCES: &[&str] = &[
         r#"
-            const asyncFunctionPrototype = Object.getPrototypeOf(async function () {});
             const asyncGenerator = async function* stream() {};
             const asyncGeneratorFunctionPrototype = Object.getPrototypeOf(asyncGenerator);
             const asyncGeneratorPrototype = asyncGeneratorFunctionPrototype.prototype;
 
-            Object.getPrototypeOf(asyncGeneratorFunctionPrototype) === asyncFunctionPrototype
+            Object.getPrototypeOf(asyncGeneratorFunctionPrototype) === Function.prototype
                 && Object.getPrototypeOf(asyncGenerator.prototype) === asyncGeneratorPrototype;
         "#,
         r#"
@@ -3882,9 +3881,8 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Most identities have a Wasm function meta and are materialized on
     /// demand. Constructors and derived Function intrinsics instead have one
-    /// canonical object allocated by realm bootstrap; those must be loaded,
-    /// not re-emitted (and the dynamic-source identities intentionally have no
-    /// backend meta at all).
+    /// canonical object allocated by realm bootstrap; those must be loaded
+    /// instead of allocating another object from their backend metadata.
     pub(crate) fn emit_function_identity_payload(
         &mut self,
         function_id: &FunctionId,
@@ -7492,12 +7490,6 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.store_i64_const_at_offset(
             arguments_local,
-            HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET,
-            u64::MAX,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            arguments_local,
             HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET,
             ARRAY_DESCRIPTOR_OWN_PROPERTY
                 | OBJECT_DESCRIPTOR_WRITABLE
@@ -8194,64 +8186,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_arguments_is_concat_spreadable_read(
-        &mut self,
-        arguments_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) {
-        self.load_i64_to_local_from_offset(
-            arguments_local,
-            HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET,
-            payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-    }
-
-    pub(crate) fn emit_arguments_is_concat_spreadable_write(
-        &mut self,
-        arguments_local: u32,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.store_i64_const_at_offset(
-            arguments_local,
-            HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET,
-            u64::MAX,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.compile_truthy_tagged_i32(tag_local, payload_local, function)?;
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.store_i64_local_at_offset(
-            arguments_local,
-            HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET,
-            self.scratch_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
     /// Routes a run-time-tagged Arguments write through the Arguments storage
     /// representation. Ordinary-object `HEAP_PTR`/`HEAP_LEN` storage is not a
     /// valid named-property table for this value kind.
@@ -8353,20 +8287,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(key_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.isConcatSpreadable"),
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_arguments_is_concat_spreadable_write(
-            arguments_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
         self.emit_arguments_named_property_write(
             arguments_local,
             key_local,
@@ -8375,7 +8295,6 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         self.release_temp_local(key_scratch_local);

@@ -1,0 +1,50 @@
+name: Observed Test262 failure regressions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: observed-failures-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check exact execution replay tooling
+        run: python3 -m unittest discover -s scripts/tests -p test_replay_test262_executions.py -v
+
+      - name: Check suspension storage and empty constructor lowering
+        run: >-
+          cargo test --locked -p lila-ir
+          --test async_for_of_activation --test empty_function_and_erased_eval
+          -- --test-threads=1
+
+      - name: Execute repaired compiler paths through Wasmtime
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_arguments_concat --test aot_async_loop_bindings
+          --test aot_await_rejection_realm --test aot_empty_function
+          --test aot_empty_dynamic_functions --test aot_dynamic_source_capability
+          --test aot_created_realm_dynamic_functions
+          --test aot_for_await_rejection_close --test aot_generator_loops
+          --test aot_regexp_recompile -- --test-threads=1
+
+      - name: Keep runtime capability failures distinct from JavaScript errors
+        run: >-
+          cargo test --locked -p lila-test262 --lib
+          runtime_dynamic_source_cannot_pass_by_catching_or_matching_a_js_error
+          -- --test-threads=1

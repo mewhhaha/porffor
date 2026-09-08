@@ -1087,8 +1087,8 @@ failure bucket zero. The module, task-plan, shortcut, and diff guards are
 green, and the shortcut inventory remains 240.
 
 The shared `emit_iterator_close` owner now creates both of its algorithm
-TypeErrors in the current function Realm. All 67 external entry routes share
-that rule: 16 direct, 48 preserving-current-Throw, and 3
+TypeErrors in the current function Realm. All 68 external entry routes share
+that rule: 16 direct, 49 preserving-current-Throw, and 3
 preserving-saved-Throw. The preserving wrappers still restore the incoming
 Throw after close, and a zero `current_env_local` still selects the main Realm
 fallback for entry code. At this close-only checkpoint, ordinary direct

@@ -8768,17 +8768,6 @@ impl<'a> FunctionBuilder<'a> {
                 .property_key_symbol_payload("Symbol.isConcatSpreadable"),
         ));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::LocalGet(item_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_arguments_is_concat_spreadable_read(
-            item_payload_local,
-            spreadable_payload_local,
-            spreadable_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
         self.emit_object_read(
             item_payload_local,
             item_tag_local,
@@ -8789,7 +8778,6 @@ impl<'a> FunctionBuilder<'a> {
             spreadable_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::End);
         self.emit_propagate_throw_from_locals_if_needed(
             spreadable_payload_local,
             spreadable_tag_local,

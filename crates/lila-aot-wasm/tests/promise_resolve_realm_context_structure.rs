@@ -60,6 +60,7 @@ fn promise_resolve_contexts_are_private_noncopyable_and_must_use() {
         "resolve_function_payload_local: u32",
         "#[must_use = \"intrinsic PromiseResolve Realm context must be explicitly released\"]",
         "pub(super) struct IntrinsicPromiseResolveRealmContext",
+        "materialization_context: PromiseInternalFunctionMaterializationContext",
         "operation: PromiseResolveOperationRealmContext",
         "constructor_payload_local: u32",
     ] {
@@ -131,6 +132,13 @@ fn promise_resolve_contexts_are_private_noncopyable_and_must_use() {
             .count(),
         2,
     );
+    assert_eq!(
+        PROMISE_RESOLVE_REALM_CONTEXT_SOURCE
+            .matches("context.materialization_context")
+            .count(),
+        2,
+        "the retained context is borrowed for rejection and consumed on release",
+    );
 }
 
 #[test]
@@ -176,21 +184,37 @@ fn intrinsic_context_pairs_the_resolve_function_and_constructor_from_one_catalog
         .find("emit_promise_resolve_internal_function_materialization_context(")
         .unwrap();
     assert!(resolve_reservation < constructor_reservation);
-    assert!(constructor_reservation < intrinsics_reservation);
-    assert!(intrinsics_reservation < materialization);
+    assert!(constructor_reservation < materialization);
+    assert!(materialization < intrinsics_reservation);
+    assert!(
+        !intrinsic_factory.contains("release_promise_internal_function_materialization_context(")
+    );
     assert!(
         intrinsic_factory
-            .find("release_promise_internal_function_materialization_context(")
+            .find("release_temp_local(intrinsics_local)")
             .unwrap()
             < intrinsic_factory
-                .find("release_temp_local(intrinsics_local)")
+                .find("Ok(IntrinsicPromiseResolveRealmContext {")
                 .unwrap()
     );
+    assert!(intrinsic_factory.contains(concat!(
+        "Ok(IntrinsicPromiseResolveRealmContext {\n",
+        "            materialization_context,",
+    )));
 
     let releases = between(
         PROMISE_RESOLVE_REALM_CONTEXT_SOURCE,
-        "fn release_promise_resolve_operation_realm_context(",
+        "fn release_intrinsic_promise_resolve_realm_context(",
         "pub(super) fn emit_intrinsic_promise_resolve_to_locals(",
+    );
+    assert!(releases.contains("context.materialization_context"));
+    assert!(
+        releases
+            .find("release_promise_internal_function_materialization_context(")
+            .unwrap()
+            < releases
+                .find("release_temp_local(context.constructor_payload_local)")
+                .unwrap()
     );
     assert!(
         releases
@@ -221,6 +245,7 @@ fn await_and_finally_consume_explicit_promise_resolve_realm_authority() {
         "\n    }\n}",
     );
     assert!(rejection_capability.contains("resolve_context.constructor_payload_local"));
+    assert!(rejection_capability.contains("&resolve_context.materialization_context"));
     assert_eq!(
         rejection_capability
             .matches("emit_new_promise_capability(")

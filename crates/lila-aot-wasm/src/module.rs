@@ -43,6 +43,7 @@ pub(crate) const HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
 pub(crate) const HOST_IMPORT_AGENT_CALL: &str = "agent_call";
 pub(crate) const HOST_IMPORT_INTL_CALL: &str = "intl_call";
 pub(crate) const HOST_IMPORT_RANDOM_F64: &str = "random_f64";
+pub(crate) const HOST_IMPORT_REJECT_DYNAMIC_SOURCE: &str = "reject_dynamic_source";
 
 pub(crate) const RESULT_TAG_GLOBAL_INDEX: u32 = 0;
 pub(crate) const COMPLETION_KIND_GLOBAL_INDEX: u32 = 1;
@@ -228,6 +229,8 @@ pub(crate) const HOST_NUMBER_POW_IMPORT_TYPE_INDEX: u32 = 9;
 pub(crate) const HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX: u32 = 10;
 pub(crate) const HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX: u32 = 11;
 pub(crate) const HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX: u32 = 12;
+pub(crate) const HOST_REJECT_DYNAMIC_SOURCE_IMPORT_TYPE_INDEX: u32 =
+    HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX;
 pub(crate) const HOST_AGENT_CALL_IMPORT_TYPE_INDEX: u32 = 13;
 // The two host calls deliberately share the existing `(i64, i64, i64) -> i64`
 // Wasm signature while retaining distinct semantic names and typed Rust wire

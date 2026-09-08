@@ -34,7 +34,7 @@ impl<'a> ScriptLowerer<'a> {
             return ForOfLoweringIr::no_iteration();
         };
         let Some((before_suspension, suspension_statement, after_suspension)) =
-            Self::split_resumable_loop_body(body)
+            Self::split_resumable_loop_body(body, false)
         else {
             self.unsupported("async for-of body did not lower to one direct await");
             return ForOfLoweringIr::no_iteration();

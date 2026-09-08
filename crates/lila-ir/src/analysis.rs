@@ -6257,50 +6257,6 @@ impl<'a> AnalysisBuilder<'a> {
                     ]);
             }
         }
-        for function in self.function_plans.values() {
-            if !matches!(
-                function.protocol.execution_kind(),
-                FunctionExecutionKind::Generator
-                    | FunctionExecutionKind::Async
-                    | FunctionExecutionKind::AsyncGenerator
-            ) {
-                continue;
-            }
-            let owner = self
-                .owner_plans
-                .get(&function.id)
-                .expect("generator owner must be planned");
-            // A resumable activation owns only bindings whose physical
-            // Environment Record is that activation. `root_bindings` is also
-            // the owner's all-descendants name inventory, so it contains the
-            // unique aliases of captured block/catch/head bindings. Copying
-            // that inventory wholesale into the activation duplicates those
-            // cells and makes capture hops disagree with the lexical
-            // environment chain that lowering emits. The physical-binding
-            // index spans every owner, so same-spelled bindings in sibling
-            // functions are ignored by the owner-local test below.
-            let activation_binding_names = owner
-                .root_bindings
-                .iter()
-                .filter(|name| {
-                    self.physical_binding_environments
-                        .get(*name)
-                        .is_some_and(|environments| {
-                            environments.contains(&owner.activation_environment_id)
-                                && environments.iter().all(|environment_id| {
-                                    let environment = &self.environment_plans[environment_id];
-                                    environment.owner_id != function.id
-                                        || *environment_id == owner.activation_environment_id
-                                })
-                        })
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            owned_names
-                .entry(owner.activation_environment_id)
-                .or_default()
-                .extend(activation_binding_names);
-        }
         let function_ids = self.function_order.clone();
         for function_id in function_ids {
             let Some(function) = self.function_plans.get(&function_id).cloned() else {
@@ -6464,6 +6420,50 @@ impl<'a> AnalysisBuilder<'a> {
             self.function_free_refs.insert(owner_id, free_refs);
         }
 
+        for function in self.function_plans.values() {
+            if !matches!(
+                function.protocol.execution_kind(),
+                FunctionExecutionKind::Generator
+                    | FunctionExecutionKind::Async
+                    | FunctionExecutionKind::AsyncGenerator
+            ) {
+                continue;
+            }
+            let owner = self
+                .owner_plans
+                .get(&function.id)
+                .expect("generator owner must be planned");
+            // Uncaptured lexical cells can live in the resumable activation,
+            // including block and loop-head cells. A cell captured in a real
+            // Environment Record must remain there: duplicating it would make
+            // resumed reads disagree with closure capture hops. Decide only
+            // after capture discovery has established those physical owners.
+            let activation_binding_names = owner
+                .root_bindings
+                .iter()
+                .filter(|name| {
+                    self.physical_binding_environments
+                        .get(*name)
+                        .is_some_and(|environments| {
+                            environments.iter().any(|environment_id| {
+                                self.environment_plans[environment_id].owner_id == function.id
+                            }) && environments.iter().all(|environment_id| {
+                                let environment = &self.environment_plans[environment_id];
+                                environment.owner_id != function.id
+                                    || *environment_id == owner.activation_environment_id
+                                    || !owned_names
+                                        .get(environment_id)
+                                        .is_some_and(|names| names.contains(*name))
+                            })
+                        })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            owned_names
+                .entry(owner.activation_environment_id)
+                .or_default()
+                .extend(activation_binding_names);
+        }
         for owner in self.owner_plans.values() {
             let activation = self
                 .environment_plans

@@ -802,6 +802,9 @@ pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
 }
 
 fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
+    let mut prepared_script = script.clone();
+    super::builtins::append_empty_dynamic_function_bodies(&mut prepared_script);
+    let script = &prepared_script;
     for function in script.functions.iter().filter(|function| {
         function.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
     }) {
@@ -1410,7 +1413,7 @@ fn emit_script_with_forced_builtins(
             + u32::from(uses_agent_host)
             + u32::from(uses_intl_host),
     );
-    let imported_function_count = 1
+    let reject_dynamic_source_import_function_index = 1
         + u32::from(uses_host_print)
         + u32::from(uses_number_pow_import)
         + u32::from(uses_wall_clock_millis)
@@ -1419,6 +1422,7 @@ fn emit_script_with_forced_builtins(
         + u32::from(uses_agent_host)
         + u32::from(uses_intl_host)
         + u32::from(uses_random_f64);
+    let imported_function_count = reject_dynamic_source_import_function_index + 1;
     let uses_json_stringify =
         compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
     // The Temporal calendar helpers are only *called* from the five types that
@@ -1444,6 +1448,7 @@ fn emit_script_with_forced_builtins(
         agent_call_import_function_index.map(AgentCallImportFunctionIndex::new),
         intl_call_import_function_index.map(IntlCallImportFunctionIndex::new),
         random_f64_import_function_index.map(RandomF64ImportFunctionIndex::new),
+        RejectDynamicSourceImportFunctionIndex::new(reject_dynamic_source_import_function_index),
     );
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
@@ -2632,6 +2637,11 @@ fn emit_script_with_forced_builtins(
             wasm_encoder::EntityType::Function(HOST_RANDOM_F64_IMPORT_TYPE_INDEX),
         );
     }
+    imports.import(
+        HOST_IMPORT_MODULE,
+        HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
+        wasm_encoder::EntityType::Function(HOST_REJECT_DYNAMIC_SOURCE_IMPORT_TYPE_INDEX),
+    );
 
     let mut memories = None;
     let mut data = None;
@@ -2850,6 +2860,9 @@ fn emit_script_with_forced_builtins(
             "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_RANDOM_F64}"
         ));
     }
+    debug_dump.push(format!(
+        "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_REJECT_DYNAMIC_SOURCE}"
+    ));
 
     if !string_pool.bytes.is_empty() || uses_heap {
         if uses_shared_memory {
@@ -4101,6 +4114,21 @@ impl<'a> FunctionBuilder<'a> {
                 Some(HostBuiltinId::RealmEvalScript) => {
                     self.compile_host_realm_eval_script_builtin(&mut function)?
                 }
+                Some(HostBuiltinId::GeneratorFunctionConstructor) => self
+                    .compile_dynamic_function_constructor_builtin(
+                        DynamicFunctionKind::Generator,
+                        &mut function,
+                    )?,
+                Some(HostBuiltinId::AsyncFunctionConstructor) => self
+                    .compile_dynamic_function_constructor_builtin(
+                        DynamicFunctionKind::Async,
+                        &mut function,
+                    )?,
+                Some(HostBuiltinId::AsyncGeneratorFunctionConstructor) => self
+                    .compile_dynamic_function_constructor_builtin(
+                        DynamicFunctionKind::AsyncGenerator,
+                        &mut function,
+                    )?,
                 Some(HostBuiltinId::CreateHTMLDDA) => {
                     self.compile_host_create_html_dda_builtin(&mut function)?
                 }

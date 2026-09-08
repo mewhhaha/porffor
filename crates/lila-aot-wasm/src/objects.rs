@@ -6071,14 +6071,6 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(array_prototype_tag_local);
                     self.release_temp_local(array_prototype_local);
                 }
-                PropertyKeyIr::StaticString(name) if name == "Symbol.isConcatSpreadable" => {
-                    self.emit_arguments_is_concat_spreadable_read(
-                        target_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    );
-                }
                 PropertyKeyIr::StaticString(name) if static_array_index_name(name).is_some() => {
                     let index_local = self.reserve_temp_local();
                     function.instruction(&Instruction::I64Const(
@@ -6497,26 +6489,6 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::Br(1));
             function.instruction(&Instruction::End);
         }
-
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(key_payload_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.isConcatSpreadable"),
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_arguments_is_concat_spreadable_read(
-            target_payload_local,
-            payload_local,
-            tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Br(1));
-        function.instruction(&Instruction::End);
 
         self.emit_string_index_0_to_4_or_minus_one(key_payload_local, index_local, function);
         function.instruction(&Instruction::LocalGet(key_tag_local));
@@ -7797,14 +7769,6 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     self.release_temp_local(index_local);
-                } else if matches!(key, PropertyKeyIr::StaticString(name) if name == "Symbol.isConcatSpreadable")
-                {
-                    self.emit_arguments_is_concat_spreadable_write(
-                        target_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
                 } else if matches!(
                     key,
                     PropertyKeyIr::StaticString(_) | PropertyKeyIr::StringExpr(_)

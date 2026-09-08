@@ -20,7 +20,10 @@ impl<'a> ScriptLowerer<'a> {
         }
         let promise_invocation_policy = PromiseInvocationPolicy::for_call(builtin, args, &context);
         let result = match builtin {
-            StandardBuiltinId::EvalFunction | StandardBuiltinId::FunctionConstructor => {
+            StandardBuiltinId::FunctionConstructor => Some(Self::empty_dynamic_function_info(
+                DynamicFunctionKind::Ordinary,
+            )),
+            StandardBuiltinId::EvalFunction => {
                 unreachable!(
                     "dynamic-source builtins must consume their resolved disposition before builtin result analysis"
                 )

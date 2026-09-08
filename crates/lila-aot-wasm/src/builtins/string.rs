@@ -1878,18 +1878,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.store_i64_local_at_offset(
-            receiver_payload_local,
-            HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET,
-            pattern_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            receiver_payload_local,
-            HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
-            flags_payload_local,
-            function,
-        );
         function.instruction(&Instruction::LocalGet(pattern_is_regexp_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
@@ -1923,6 +1911,18 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::End);
+        self.store_i64_local_at_offset(
+            receiver_payload_local,
+            HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET,
+            pattern_payload_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            receiver_payload_local,
+            HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
+            flags_payload_local,
+            function,
+        );
         function.instruction(&Instruction::I64Const(self.strings.payload("lastIndex")));
         function.instruction(&Instruction::LocalSet(key_local));
         function.instruction(&Instruction::F64Const(0.0.into()));

@@ -21,6 +21,13 @@ parse, early errors, spec-shaped IR, lowering IR, and real Wasm codegen. Lila
 does not count "compile a JavaScript interpreter or VM to Wasm and feed source
 into it" as success.
 
+The observed-failure repair batch addresses suspended lexical bindings,
+Promise rejection Realm ownership, iterator closing, RegExp recompilation,
+Arguments symbol properties and zero-argument Function-family construction. See
+[the repair and verification notes](docs/rust-rewrite/observed-failure-repairs.md)
+for the exact scope and retained dynamic-source limitations. The complete
+baseline running against the earlier compiler is separate evidence.
+
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace
@@ -1184,8 +1191,8 @@ Recent focused progress through `2026-09-01`:
   [`sync-iterator-consumer-capability.md`](docs/rust-rewrite/contracts/sync-iterator-consumer-capability.md).
 
 - Shared synchronous `IteratorClose` now constructs its two algorithm-created
-  TypeErrors in the current function Realm. Its 67 external entry routes split
-  into 16 direct, 48 preserving-current-Throw, and 3 preserving-saved-Throw
+  TypeErrors in the current function Realm. Its 68 external entry routes split
+  into 16 direct, 49 preserving-current-Throw, and 3 preserving-saved-Throw
   routes. The preserving routes still restore the incoming Throw, and entry
   code with no current environment still uses the main Realm fallback. The
   source-structure target passes `4/4`, the exact created-Realm CLI test passes

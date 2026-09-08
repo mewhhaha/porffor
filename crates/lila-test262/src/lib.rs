@@ -11566,6 +11566,9 @@ fn aggregate_snapshot(
 }
 
 fn classify_engine_error(err: &EngineError) -> FailureKind {
+    if err.runtime_dynamic_source_operation().is_some() {
+        return FailureKind::Unsupported;
+    }
     if let Some(feature) = err
         .ir_diagnostic()
         .and_then(|diagnostic| diagnostic.unsupported_feature())
@@ -37356,6 +37359,39 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "// eval(); Function() in a comment\nvar C = function Functionish() {};".to_string(),
         );
         assert_eq!(wasm_aot_unsupported_feature(&case), None);
+    }
+
+    #[test]
+    fn runtime_dynamic_source_cannot_pass_by_catching_or_matching_a_js_error() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let preludes = PreludeStore::default();
+        for expected_error in [None, Some(""), Some("Error"), Some("TypeError")] {
+            let path = "language/runtime-dynamic-source.js";
+            let mut case = synthetic_case(path);
+            case.execution_id = TestExecutionId::new(path, TestExecutionMode::RawScript);
+            case.flags.insert("raw".to_string());
+            let call = if expected_error.is_none() {
+                "try { holder.invoke('1'); } catch (error) {}"
+            } else {
+                "holder.invoke('1');"
+            };
+            case.original_source = Arc::from(format!(
+                "var holder = {{ invoke: eval }}; \
+                 var hook = new Proxy(function() {{}}, {{}}); hook(); {call}"
+            ));
+            case.negative = expected_error.map(|error_type| {
+                Arc::new(NegativeExpectation {
+                    phase: NegativePhase::Runtime,
+                    error_type: error_type.to_string(),
+                })
+            });
+            let result = run_one_case(&case, &preludes, 60_000, ExecutionBackend::WasmAot);
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("runtime dynamic source must remain non-passing: {expected_error:?}");
+            };
+            assert_eq!(failure.kind, FailureKind::Unsupported, "{failure:?}");
+            assert_eq!(failure.outcome, OutcomeKind::NotImplemented, "{failure:?}");
+        }
     }
 
     #[test]

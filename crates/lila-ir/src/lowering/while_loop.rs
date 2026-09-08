@@ -32,14 +32,26 @@ impl<'a> ScriptLowerer<'a> {
             None
         }) {
             if let Some((before_suspension, suspension_statement, after_suspension)) =
-                Self::split_resumable_loop_body(body.clone())
+                Self::split_resumable_loop_body(
+                    body.clone(),
+                    generator_entry_state.is_some() && self.current_resumable_plan.is_none(),
+                )
             {
-                let (StatementIr::GeneratorYield { resume_state, .. }
-                | StatementIr::AsyncAwait { resume_state, .. }) = &suspension_statement
-                else {
-                    unreachable!("while-loop resumable statement must be a yield or await");
+                let resume_state = match &suspension_statement {
+                    StatementIr::GeneratorYield { resume_state, .. }
+                    | StatementIr::AsyncAwait { resume_state, .. }
+                    | StatementIr::GeneratorIf {
+                        then_resume_state: Some(resume_state),
+                        else_resume_state: None,
+                        ..
+                    }
+                    | StatementIr::GeneratorIf {
+                        then_resume_state: None,
+                        else_resume_state: Some(resume_state),
+                        ..
+                    } => *resume_state,
+                    _ => unreachable!("resumable loop must have one suspension position"),
                 };
-                let resume_state = *resume_state;
                 let exit_state = if self.current_resumable_plan.is_some() {
                     resume_state
                 } else {
@@ -66,6 +78,12 @@ impl<'a> ScriptLowerer<'a> {
                     body_kind,
                 );
             }
+        }
+        if generator_entry_state.is_some()
+            && contains(while_loop.body(), ContainsSymbol::YieldExpression)
+        {
+            self.unsupported("generator loop body has no reentrant suspension segment");
+            return (StatementIr::Empty, ValueKind::Undefined);
         }
         if plain_async_await_loop {
             self.unsupported("async loop body did not lower to one direct await");

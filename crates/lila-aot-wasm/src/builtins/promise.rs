@@ -1282,6 +1282,7 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_new_promise_capability(
         &mut self,
+        executor_context: &PromiseInternalFunctionMaterializationContext,
         constructor_payload_local: u32,
         constructor_tag_local: u32,
         capability_record_local: u32,
@@ -1341,16 +1342,13 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing Promise capability executor builtin",
                 )
             })?;
-        let materialization_context =
-            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_promise_internal_function_value(
             &executor_meta,
-            &materialization_context,
+            executor_context,
             capability_record_local,
             executor_payload_local,
             function,
         )?;
-        self.release_promise_internal_function_materialization_context(materialization_context);
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(executor_tag_local));
         self.emit_pre_evaluated_arg_vector(
@@ -1702,13 +1700,10 @@ impl<'a> FunctionBuilder<'a> {
     /// discharges them in `emit_async_from_sync_close_on_rejection` below,
     /// against a different guard.
     ///
-    /// So one spec obligation has two independent implementations in this
-    /// backend and they can drift. The delegation path's fixture
-    /// (`wasm_async_from_sync_iterator_close_on_rejection.js`) covers an absent
-    /// `return`, a non-callable `return`, a throwing `return`, `done: true` and
-    /// `closeOnRejection === false`; nothing covers those five over a `for await`
-    /// driver. Duplicating the fixture's cases over `for await` is the follow-up
-    /// that would pin both continuations with one oracle.
+    /// Both drivers use the shared synchronous IteratorClose operation to
+    /// preserve the original rejection without unwrapping the return result.
+    /// The delegation fixture and `aot_for_await_rejection_close` regressions
+    /// exercise each driver's separate close obligation.
     pub(crate) fn emit_async_from_sync_value_continuation(
         &mut self,
         value_payload_local: u32,
@@ -2459,7 +2454,10 @@ impl<'a> FunctionBuilder<'a> {
             species_constructor_tag_local,
             function,
         )?;
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             species_constructor_payload_local,
             species_constructor_tag_local,
             capability_record_local,
@@ -2467,6 +2465,7 @@ impl<'a> FunctionBuilder<'a> {
             result_promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.emit_initialize_default_promise_reaction(
             fulfill_reaction_local,
             capability_record_local,
@@ -4480,7 +4479,10 @@ impl<'a> FunctionBuilder<'a> {
             PromiseSettlement::Reject => {}
         }
 
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -4488,6 +4490,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.load_i64_to_local_from_offset(
             capability_record_local,
             HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
@@ -4600,7 +4603,10 @@ impl<'a> FunctionBuilder<'a> {
         let reject_tag_local = self.reserve_temp_local();
         let result_object_local = self.reserve_temp_local();
 
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -4608,6 +4614,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.load_i64_to_local_from_offset(
             capability_record_local,
             HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
@@ -4720,7 +4727,10 @@ impl<'a> FunctionBuilder<'a> {
         let settle_call_payload_local = self.reserve_temp_local();
         let settle_call_tag_local = self.reserve_temp_local();
 
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -4728,6 +4738,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.emit_builtin_arg_to_locals(0, callback_payload_local, callback_tag_local, function);
 
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
@@ -5532,7 +5543,10 @@ impl<'a> FunctionBuilder<'a> {
         };
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(iterator_acquired_local));
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -5540,6 +5554,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.load_i64_to_local_from_offset(
             capability_record_local,
             HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
@@ -6236,7 +6251,10 @@ impl<'a> FunctionBuilder<'a> {
         };
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(iterator_acquired_local));
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -6244,6 +6262,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.load_i64_to_local_from_offset(
             capability_record_local,
             HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,

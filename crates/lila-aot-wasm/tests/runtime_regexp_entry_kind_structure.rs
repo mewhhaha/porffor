@@ -450,7 +450,10 @@ fn runtime_regexp_entry_kind_reader_is_borrowed_and_ordered() {
         .find("        let throwing_kind_words = RuntimeRegExpEntryKind::ALL")
         .expect("throwing-kind reader pipeline");
     let reader_tail = &reader[tail_start..];
-    let expected_tail = r#"
+    let (validation, replacement) = reader_tail
+        .split_once("        self.emit_regexp_program_slots(object_local, None, function);")
+        .expect("program replacement follows syntax validation");
+    let expected_validation = r#"
         let throwing_kind_words = RuntimeRegExpEntryKind::ALL
             .iter()
             .filter(|kind| kind.throws_syntax_error())
@@ -477,18 +480,32 @@ fn runtime_regexp_entry_kind_reader_is_borrowed_and_ordered() {
             function.instruction(&Instruction::End);
         }
 
-        self.release_temp_local(entry_kind_local);
+"#;
+    assert_eq!(
+        normalize_rust(validation).routes,
+        normalize_rust(expected_validation).routes,
+        "the throwing comparison and SyntaxError emission must precede all program mutation"
+    );
+    let (installation, unwind) = replacement
+        .split_once("        self.release_temp_local(entry_kind_local);")
+        .expect("program installation precedes local unwind");
+    assert!(normalize_rust(installation).routes.contains(
+        "Instruction::I64LtU);function.instruction(&Instruction::If(BlockType::Empty));"
+    ));
+    assert!(installation.contains("for (record_word, heap_offset) in ["));
+    assert_eq!(
+        normalize_rust(unwind).routes,
+        normalize_rust(
+            r#"
         self.release_temp_local(candidate_payload_local);
         self.release_temp_local(record_ptr_local);
         self.release_temp_local(index_local);
         thrown
     }
-
-"#;
-    assert_eq!(
-        normalize_rust(reader_tail).routes,
-        normalize_rust(expected_tail).routes,
-        "the throwing comparison, SyntaxError emission and local-unwind tail must remain exact"
+"#,
+        )
+        .routes,
+        "local unwind preserves the syntax-emission result"
     );
     assert_eq!(normalized_reader.matches(".copied()").count(), 0);
     assert!(!normalized_reader.contains("RuntimeRegExpEntryKind::ALL.into_iter()"));

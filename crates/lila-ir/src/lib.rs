@@ -94,7 +94,7 @@ pub use diagnostics::{
 };
 pub use dynamic_source::{
     DynamicFunctionKind, DynamicSourceGap, DynamicSourceIntrinsic, DynamicSourceKind,
-    DynamicSourceRequirement,
+    DynamicSourceRequirement, DynamicSourceRuntimeOperation,
 };
 pub(crate) use early_errors::validate_derived_constructor_body;
 pub use function_protocol::FunctionProtocolIr;
@@ -15000,12 +15000,6 @@ new Target([]);
             (
                 "Function('value', String('return value'));",
                 DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "new Function();",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
                     DynamicFunctionKind::Ordinary,
                 )),
             ),

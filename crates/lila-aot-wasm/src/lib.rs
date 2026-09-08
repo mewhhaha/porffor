@@ -1075,11 +1075,6 @@ mod tests {
                 active_constructor_realm_local,
                 function,
             );
-            self.emit_store_function_defining_realm(
-                function_object_local,
-                active_constructor_realm_local,
-                function,
-            );
             "#,
         );
         assert_eq!(
@@ -1089,6 +1084,15 @@ mod tests {
             1,
             "a supported empty Function result must inherit the active constructor's defining Realm"
         );
+        assert!(function_constructor.contains(&without_whitespace(
+            r#"
+            self.emit_store_function_defining_realm(
+                function_object_local,
+                active_constructor_realm_local,
+                function,
+            );
+            "#,
+        )));
         let created_function_constructor_identity = without_whitespace(
             r#"
             self.store_i64_local_at_offset(

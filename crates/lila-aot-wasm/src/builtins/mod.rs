@@ -15,6 +15,7 @@ mod disposable_stack;
 mod errors;
 mod finalization_registry;
 mod function;
+pub(crate) use function::append_empty_dynamic_function_bodies;
 mod global_numeric;
 mod host;
 mod intl;

@@ -18,12 +18,12 @@ errors now follow the same Realm rule through their separate consumer domain.
 
 ## Entry routes and completion precedence
 
-The shared owner has 67 external entry routes. The census excludes the calls
+The shared owner has 68 external entry routes. The census excludes the calls
 that connect the two preserving wrappers to each other and to
 `emit_iterator_close`:
 
 - 16 routes call `emit_iterator_close` directly;
-- 48 routes call `emit_iterator_close_preserving_current_throw`; and
+- 49 routes call `emit_iterator_close_preserving_current_throw`; and
 - 3 routes call `emit_iterator_close_preserving_saved_throw` directly.
 
 The preserving routes keep their existing completion rule. They save an

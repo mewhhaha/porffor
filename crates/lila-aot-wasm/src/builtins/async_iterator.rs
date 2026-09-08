@@ -46,7 +46,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(promise_constructor_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(promise_constructor_tag_local));
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             promise_constructor_payload_local,
             promise_constructor_tag_local,
             capability_record_local,
@@ -54,6 +57,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.load_i64_to_local_from_offset(
             promise_payload_local,
             HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
@@ -219,7 +223,10 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
 
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         self.emit_new_promise_capability(
+            &executor_context,
             promise_constructor_payload_local,
             promise_constructor_tag_local,
             throwaway_capability_local,
@@ -227,6 +234,7 @@ impl<'a> FunctionBuilder<'a> {
             throwaway_promise_tag_local,
             function,
         )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(callback_tag_local));
         self.emit_intrinsic_await_with_handlers(

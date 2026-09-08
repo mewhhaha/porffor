@@ -77,7 +77,10 @@ impl<'a> FunctionBuilder<'a> {
         let constructor_tag_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
         let result = self.emit_new_promise_capability(
+            &executor_context,
             constructor.constructor_payload_local,
             constructor_tag_local,
             capability_record_local,
@@ -85,6 +88,7 @@ impl<'a> FunctionBuilder<'a> {
             promise_tag_local,
             function,
         );
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.release_temp_local(constructor_tag_local);
         self.release_temp_local(constructor.constructor_payload_local);
         result

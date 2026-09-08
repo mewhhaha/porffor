@@ -344,7 +344,6 @@ pub(crate) const HEAP_BOUND_FUNCTION_RECORD_SIZE: u64 = 48;
 // 32/40/48 and the internal brand / prototype-tag / proxy fields up to 80.
 // The arguments-specific fields therefore live past that cluster so mapped
 // arguments objects are not misclassified as boxed primitives.
-pub(crate) const HEAP_ARGUMENTS_IS_CONCAT_SPREADABLE_OFFSET: u64 = 48;
 pub(crate) const HEAP_ARGUMENTS_LENGTH_VALUE_OFFSET: u64 = 80;
 pub(crate) const HEAP_ARGUMENTS_ENV_HANDLE_OFFSET: u64 = 88;
 // The array-header length tracks the indexed backing extent independently of

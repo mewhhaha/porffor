@@ -12,12 +12,25 @@ enum DynamicSourceProof {
 /// The exhaustive result of resolving a call to a dynamic-source identity.
 ///
 /// Call lowering must consume this value before it can emit executable IR. The
-/// pass-through variant proves that `%eval%` never reaches source evaluation;
-/// it is not evidence that any source text is AOT-compilable.
-#[must_use = "resolved dynamic-source calls must execute a proven no-source eval branch or record their typed gap"]
+/// pass-through variant proves that `%eval%` never reaches source evaluation.
+/// The empty-function variant admits a compiled empty body of its exact family.
+/// Neither proof admits arbitrary source text.
+#[must_use = "resolved dynamic-source calls must consume their no-source proof or record their typed gap"]
 pub(super) enum ResolvedDynamicSourceCall {
     EvalPassThrough(ProvenEvalPassThrough),
+    EmptyFunction(ProvenEmptyFunction),
     Unsupported(UnsupportedDynamicSourceCall),
+}
+
+/// Proof that function construction has neither parameters nor source.
+/// Each invocation allocates a fresh function with its execution protocol
+/// and active constructor's realm.
+pub(super) struct ProvenEmptyFunction(DynamicFunctionKind);
+
+impl ProvenEmptyFunction {
+    pub(super) fn into_result_info(self) -> ValueInfo {
+        ScriptLowerer::empty_dynamic_function_info(self.0)
+    }
 }
 
 /// One-shot ownership of an unsupported dynamic-source invocation.
@@ -257,17 +270,7 @@ impl ScriptLowerer<'_> {
         intrinsic: DynamicSourceIntrinsic,
     ) -> FunctionSignature {
         let return_info = match intrinsic {
-            DynamicSourceIntrinsic::Function(
-                DynamicFunctionKind::Ordinary
-                | DynamicFunctionKind::Generator
-                | DynamicFunctionKind::Async
-                | DynamicFunctionKind::AsyncGenerator,
-            ) => ValueInfo {
-                kind: ValueKind::Function,
-                possible_kinds: KindSet::from_kind(ValueKind::Function),
-                heap_shape: Some(Self::function_heap_shape(false)),
-                function_targets: FunctionTargetKnowledge::unknown(),
-            },
+            DynamicSourceIntrinsic::Function(kind) => Self::empty_dynamic_function_info(kind),
             DynamicSourceIntrinsic::RealmEvalScript => ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
@@ -335,6 +338,14 @@ impl ScriptLowerer<'_> {
         ) {
             if let Some(proof) = ProvenEvalPassThrough::from_args(source_args, lowered_args) {
                 return Some(ResolvedDynamicSourceCall::EvalPassThrough(proof));
+            }
+        }
+
+        if let DynamicSourceKind::Function(kind) = kind {
+            if source_args.is_none_or(<[Expression]>::is_empty) && lowered_args.is_empty() {
+                return Some(ResolvedDynamicSourceCall::EmptyFunction(
+                    ProvenEmptyFunction(kind),
+                ));
             }
         }
 
@@ -415,11 +426,12 @@ impl ScriptLowerer<'_> {
     pub(super) fn lower_dynamic_source_construct(
         &mut self,
         function_id: &str,
+        mut callee: TypedExpr,
         source_args: &[Expression],
     ) -> TypedExpr {
         let lowered_args = self
             .lower_call_args_expanding_spread(source_args)
-            .into_arguments_without_predecessor();
+            .into_arguments_after_expression(&mut callee);
         let resolved = self
             .resolve_dynamic_source_call(
                 function_id,
@@ -431,6 +443,17 @@ impl ScriptLowerer<'_> {
         match resolved {
             ResolvedDynamicSourceCall::EvalPassThrough(_) => {
                 unreachable!("the intrinsic eval function is not constructable")
+            }
+            ResolvedDynamicSourceCall::EmptyFunction(proof) => {
+                self.mark_host_builtin_from_function_id(function_id);
+                return TypedExpr::from_info(
+                    proof.into_result_info(),
+                    ExprIr::Construct {
+                        callee: Box::new(callee),
+                        args: lowered_args,
+                        static_regexp_compilation: None,
+                    },
+                );
             }
             ResolvedDynamicSourceCall::Unsupported(unsupported) => {
                 self.record_unsupported_dynamic_source(unsupported);

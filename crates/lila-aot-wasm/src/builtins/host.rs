@@ -16,6 +16,7 @@ use lila_ir::{
 };
 use lila_runtime::AgentHostOperation;
 
+mod created_realm_dynamic_function_intrinsics;
 mod created_realm_finalization_registry_intrinsics;
 mod created_realm_iterator_next;
 mod created_realm_weak_collection_intrinsics;
@@ -5231,6 +5232,15 @@ impl<'a> FunctionBuilder<'a> {
             function_constructor_local,
             function,
         )?;
+        self.emit_initialize_created_realm_dynamic_function_intrinsics(
+            realm_record,
+            &realm_functions,
+            function_constructor_local,
+            object_prototype_local,
+            iterator_prototype_local,
+            type_error_prototype_local,
+            function,
+        )?;
 
         self.emit_function_value_payload_in_realm(
             &object_meta,
@@ -8324,24 +8334,16 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Defensive body for the Test262 realm-evaluation capability.
-    ///
-    /// Resolved calls are rejected by IR lowering as `DynamicSourceGap`, so
-    /// this body only makes the harness's stored function value well-formed.
-    /// Reaching it means a compiler identity was lost after lowering; fail
-    /// closed instead of growing a runtime source compiler in the artifact.
+    /// Runtime identity supplies the capability boundary when property lookup
+    /// erased the call site's static realm-evaluation provenance.
     pub(crate) fn compile_host_realm_eval_script_builtin(
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            REALM_EVAL_SCRIPT_ESCAPE_MESSAGE,
-            self.result_local,
-            self.result_tag_local,
+        self.emit_reject_dynamic_source(
+            lila_ir::DynamicSourceRuntimeOperation::RealmEvalScript,
             function,
-        )?;
-        self.emit_return_current_completion(function);
+        );
         Ok(())
     }
 
