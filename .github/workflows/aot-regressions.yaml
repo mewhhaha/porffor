@@ -72,6 +72,11 @@ jobs:
         timeout-minutes: 15
         run: cargo test --locked -p lila-engine --test aot_date_parsing -- --test-threads=1
 
+      - name: Execute Intl.Locale core options through Wasmtime
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: cargo test --locked -p lila-engine --test aot_intl_locale_options -- --test-threads=1
+
   aot-backend:
     name: Complete AOT backend (${{ matrix.shard }})
     runs-on: ubuntu-latest
