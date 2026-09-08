@@ -9428,16 +9428,17 @@ pub fn classify_failure(
 ) -> FailureRecord {
     let detail = detail.into();
     let outcome = classify_failure_outcome(kind, &detail);
-    classify_failure_with_outcome(test_id, kind, outcome, detail)
+    let origin = classify_failure_origin(&detail);
+    classify_failure_with_outcome(test_id, kind, outcome, origin, detail)
 }
 
 fn classify_failure_with_outcome(
     test_id: TestExecutionId,
     kind: FailureKind,
     outcome: OutcomeKind,
+    origin: FailureOrigin,
     detail: String,
 ) -> FailureRecord {
-    let origin = classify_failure_origin(&detail);
     let detail = format!("[origin:{}] {detail}", origin.as_str());
     FailureRecord {
         test_path: test_id.path().to_string(),
@@ -11025,6 +11026,44 @@ fn run_one_case_with_wasm_aot_execution(
             engine.run_script(&materialized.source, compile_options, run_options)
         };
 
+        if let Some(lines) = &async_output {
+            let lines = lines
+                .lock()
+                .expect("Test262 output capture lock should not be poisoned");
+            let failures = lines
+                .iter()
+                .filter(|line| line.starts_with("Test262:AsyncTestFailure:"))
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            if !failures.is_empty() {
+                let mut detail = failures.join("; ");
+                let outcome = match &run_result {
+                    Ok(_) => OutcomeKind::Bug,
+                    Err(err) => {
+                        let execution_failure =
+                            classify_engine_failure(case.execution_id.clone(), err);
+                        detail.push_str("; ");
+                        detail.push_str(err.message());
+                        match execution_failure.outcome {
+                            OutcomeKind::Crash => OutcomeKind::Crash,
+                            OutcomeKind::Bug
+                            | OutcomeKind::NotImplemented
+                            | OutcomeKind::Success => OutcomeKind::Bug,
+                        }
+                    }
+                };
+                // Reported async failures survive even when the engine later
+                // rejects execution or throws the expected negative exception.
+                return Err(classify_failure_with_outcome(
+                    case.execution_id.clone(),
+                    FailureKind::Runtime,
+                    outcome,
+                    FailureOrigin::Unknown,
+                    detail,
+                ));
+            }
+        }
+
         if let Some(negative) = &case.negative {
             let negative_kind = classify_negative_phase(negative);
             return match run_result {
@@ -11065,9 +11104,10 @@ fn run_one_case_with_wasm_aot_execution(
                     if type_matches {
                         Ok(())
                     } else {
-                        let (outcome, mismatch) = match execution_backend {
+                        let (outcome, origin, mismatch) = match execution_backend {
                             ExecutionBackend::WasmAot => (
                                 OutcomeKind::Bug,
+                                FailureOrigin::Unknown,
                                 format!(
                                     "negative test error mismatch: expected {}, got constructor {}: {}",
                                     negative.error_type,
@@ -11081,13 +11121,18 @@ fn run_one_case_with_wasm_aot_execution(
                                     "negative test error mismatch: expected {}, got {}",
                                     negative.error_type, detail
                                 );
-                                (classify_failure_outcome(negative_kind, &mismatch), mismatch)
+                                (
+                                    classify_failure_outcome(negative_kind, &mismatch),
+                                    classify_failure_origin(&mismatch),
+                                    mismatch,
+                                )
                             }
                         };
                         Err(classify_failure_with_outcome(
                             case.execution_id.clone(),
                             negative_kind,
                             outcome,
+                            origin,
                             mismatch,
                         ))
                     }
@@ -11101,16 +11146,6 @@ fn run_one_case_with_wasm_aot_execution(
                     let lines = lines
                         .lock()
                         .expect("Test262 output capture lock should not be poisoned");
-                    if let Some(failure) = lines
-                        .iter()
-                        .find(|line| line.starts_with("Test262:AsyncTestFailure:"))
-                    {
-                        return Err(classify_failure(
-                            case.execution_id.clone(),
-                            FailureKind::Runtime,
-                            failure.clone(),
-                        ));
-                    }
                     let completions = lines
                         .iter()
                         .filter(|line| line.as_str() == "Test262:AsyncTestComplete")
@@ -11607,7 +11642,12 @@ fn classify_engine_failure(test_id: TestExecutionId, err: &EngineError) -> Failu
         ) => OutcomeKind::Bug,
         None => classify_failure_outcome(kind, err.message()),
     };
-    classify_failure_with_outcome(test_id, kind, outcome, err.to_string())
+    let origin = if err.wasm_execution_failure_kind().is_some() {
+        FailureOrigin::Unknown
+    } else {
+        classify_failure_origin(err.message())
+    };
+    classify_failure_with_outcome(test_id, kind, outcome, origin, err.to_string())
 }
 
 fn classify_engine_error(err: &EngineError) -> FailureKind {
@@ -17820,6 +17860,65 @@ print('Test262:AsyncTestComplete');
         assert_eq!(failure.kind, FailureKind::HostHarness);
         assert!(failure.detail.contains("exactly once"));
         assert!(failure.detail.contains("observed 2"));
+    }
+
+    #[test]
+    fn wasm_aot_retains_async_done_failures_alongside_execution_failures() {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let preludes = async_done_preludes();
+        for (path, source, negative_error, outcome, execution_detail, timeout_ms) in [
+            (
+                "harness/wasm-async-done-runtime-capability.js",
+                "var holder = { invoke: eval }; \
+                 var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1');",
+                None,
+                OutcomeKind::Bug,
+                "dynamic-source",
+                60_000,
+            ),
+            (
+                "harness/wasm-async-done-runtime-negative.js",
+                "throw new TypeError('execution marker');",
+                Some("TypeError"),
+                OutcomeKind::Bug,
+                "execution marker",
+                60_000,
+            ),
+            (
+                "harness/wasm-async-done-runtime-timeout.js",
+                "while (true) {}",
+                None,
+                OutcomeKind::Crash,
+                "timeout exceeded",
+                1_000,
+            ),
+        ] {
+            let mut case = synthetic_case(path);
+            case.flags.insert("async".to_string());
+            case.original_source = Arc::from(format!(
+                "$DONE('ICU runtime TypeError done marker'); {source}"
+            ));
+            case.negative = negative_error.map(|error_type| {
+                Arc::new(NegativeExpectation {
+                    phase: NegativePhase::Runtime,
+                    error_type: error_type.to_string(),
+                })
+            });
+            let result = run_one_case(&case, &preludes, timeout_ms, ExecutionBackend::WasmAot);
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("{path} must retain its async failure");
+            };
+            assert_eq!(failure.kind, FailureKind::Runtime, "{path}: {failure:?}");
+            assert_eq!(failure.outcome, outcome, "{path}: {failure:?}");
+            assert_eq!(
+                failure.origin,
+                FailureOrigin::Unknown,
+                "{path}: {failure:?}"
+            );
+            for expected in ["Test262:AsyncTestFailure:", "done marker", execution_detail] {
+                assert!(failure.detail.contains(expected), "{path}: {failure:?}");
+            }
+        }
     }
 
     #[test]
@@ -37442,6 +37541,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             };
             assert_eq!(failure.kind, FailureKind::Unsupported, "{failure:?}");
             assert_eq!(failure.outcome, OutcomeKind::NotImplemented, "{failure:?}");
+            assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
         }
     }
 
@@ -37485,6 +37585,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 };
                 assert_eq!(failure.kind, kind, "{failure:?}");
                 assert_eq!(failure.outcome, outcome, "{failure:?}");
+                assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
             }
         }
     }
@@ -37537,7 +37638,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             error_type: "TypeError".to_string(),
         }));
         for source in [
-            "throw new RangeError('TypeError');",
+            "throw new RangeError('TypeError ICU runtime');",
             "throw new RangeError('TypeError: unsupported in lila wasm-aot');",
             "throw 'TypeError';",
             "var error = new RangeError('root marker'); error.name = 'TypeError'; throw error;",
@@ -37559,6 +37660,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             };
             assert_eq!(failure.kind, FailureKind::Runtime, "{source}: {failure:?}");
             assert_eq!(failure.outcome, OutcomeKind::Bug, "{source}: {failure:?}");
+            assert_eq!(
+                failure.origin,
+                FailureOrigin::Unknown,
+                "{source}: {failure:?}"
+            );
             assert!(
                 failure.detail.contains("negative test error mismatch"),
                 "the fixture must reach the runtime constructor-name comparison: {source}: {failure:?}"

@@ -49,6 +49,11 @@ repair branch uses a separate worktree and bounded verification service.
   workers. A worker failure cannot satisfy a test expecting a root exception,
   and a dynamic-source failure cannot hide a simultaneous crash or JavaScript
   failure.
+- Reported async `$DONE(error)` failures survive subsequent engine errors and
+  expected runtime-negative exceptions. Both failure details are retained;
+  traps and timeouts remain Crash outcomes. Typed Wasm failures use an unknown
+  subsystem origin until more precise provenance exists, instead of attributing
+  Boa or ICU from words in a JavaScript error message.
 - Runtime-negative tests compare the final thrown value's constructor name
   exactly. Diagnostic messages, changed error names and stale caught exceptions
   cannot satisfy that expectation. Metadata observation does not invoke getters

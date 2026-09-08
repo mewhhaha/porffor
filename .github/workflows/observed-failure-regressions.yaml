@@ -65,6 +65,8 @@ jobs:
           cargo test --locked -p lila-test262 --lib agent_failures_never_satisfy_expected_root_runtime_exceptions -- --test-threads=1
           cargo test --locked -p lila-test262 --lib typed_root_runtime_exception_still_satisfies_negative_expectations -- --test-threads=1
           cargo test --locked -p lila-test262 --lib typed_runtime_negative_ignores_error_names_in_messages_and_primitives -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib wasm_aot_retains_async_done_failures_alongside_execution_failures -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib wasm_aot_enforces_async_done_output_after_jobs_drain -- --test-threads=1
 
       - name: Check created-realm disposal ownership
         run: cargo test --locked -p lila-aot-wasm --test created_realm_async_disposable_stack_structure

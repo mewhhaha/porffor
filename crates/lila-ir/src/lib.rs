@@ -10615,17 +10615,65 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
-    fn rejects_generator_suspensions_without_a_structured_resume_plan() {
-        for source in [
-            "function* nestedOperand() { return 1 + (yield 2); }",
+    fn generator_branch_lexical_declaration_has_a_structured_resume_plan() {
+        let program = lower_script(
             "function* scopedBranch(flag) { if (flag) { let value = 1; yield value; } }",
-        ] {
-            let program = lower_script(source);
-            assert!(
-                !program.is_wasm_supported(),
-                "source should be rejected: {source}"
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script ir should exist")
+            .functions
+            .iter()
+            .find(|function| function.name == "scopedBranch")
+            .expect("generator should be registered");
+        let [StatementIr::GeneratorIf {
+            then_before_yield,
+            then_yield_statement: Some(yield_statement),
+            entry_state: 0,
+            then_resume_state: Some(1),
+            else_resume_state: None,
+            exit_state: 2,
+            ..
+        }] = function.body.statements.as_slice()
+        else {
+            panic!(
+                "expected a resumable lexical branch: {:?}",
+                function.body.statements
             );
-        }
+        };
+        let [StatementIr::Lexical {
+            mode: BindingMode::Let,
+            name,
+            ..
+        }] = then_before_yield.as_slice()
+        else {
+            panic!("expected the branch's lexical declaration: {then_before_yield:?}");
+        };
+        assert!(matches!(
+            yield_statement.as_ref(),
+            StatementIr::GeneratorYield {
+                value: TypedExpr { expr: ExprIr::Identifier(yielded_name), .. },
+                suspend_state: 0,
+                resume_state: 1,
+                ..
+            } if yielded_name == name
+        ));
+        assert!(function
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == *name));
+    }
+
+    #[test]
+    fn rejects_generator_suspensions_without_a_structured_resume_plan() {
+        let source = "function* nestedOperand() { return 1 + (yield 2); }";
+        let program = lower_script(source);
+        assert!(
+            !program.is_wasm_supported(),
+            "source should be rejected: {source}"
+        );
     }
 
     #[test]
