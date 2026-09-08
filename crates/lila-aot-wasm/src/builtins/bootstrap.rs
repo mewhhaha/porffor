@@ -2332,7 +2332,7 @@ impl<'a> FunctionBuilder<'a> {
                 .ok_or_else(|| {
                     EmitError::unsupported(format!(
                         "missing {} constructor metadata",
-                        builtin.debug_name(),
+                        builtin.as_str(),
                     ))
                 })?;
 

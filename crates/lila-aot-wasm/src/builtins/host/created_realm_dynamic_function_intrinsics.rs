@@ -103,7 +103,7 @@ impl<'a> FunctionBuilder<'a> {
                 .get(&builtin.function_id())
                 .cloned()
                 .ok_or_else(|| {
-                    EmitError::unsupported(format!("missing {} metadata", builtin.debug_name()))
+                    EmitError::unsupported(format!("missing {} metadata", builtin.as_str()))
                 })?;
             self.emit_function_value_payload_in_realm(
                 &meta,
