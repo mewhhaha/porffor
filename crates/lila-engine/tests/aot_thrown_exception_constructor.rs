@@ -44,6 +44,44 @@ fn root_exception_constructor_metadata_uses_the_final_value_without_calling_user
              }));",
             None,
         ),
+        (
+            "var error = []; error.constructor = RangeError; \
+             Object.setPrototypeOf(error, { constructor: TypeError }); throw error;",
+            Some("RangeError"),
+        ),
+        (
+            "function fail(value) { arguments.constructor = RangeError; \
+             Object.setPrototypeOf(arguments, { constructor: TypeError }); \
+             throw arguments; } fail(1);",
+            Some("RangeError"),
+        ),
+        (
+            "var constructor = [1, 2]; constructor.name = 'RangeError'; \
+             Object.setPrototypeOf(constructor, { name: 'TypeError' }); \
+             throw { constructor: constructor };",
+            Some("RangeError"),
+        ),
+        (
+            "function fail(value) { 'use strict'; arguments.name = 'RangeError'; \
+             Object.setPrototypeOf(arguments, { name: 'TypeError' }); \
+             throw { constructor: arguments }; } fail(1);",
+            Some("RangeError"),
+        ),
+        (
+            "var error = [1]; \
+             Object.defineProperty(error, 'constructor', { get: function() { \
+               print('array constructor getter ran'); return RangeError; \
+             }}); Object.setPrototypeOf(error, { constructor: TypeError }); throw error;",
+            None,
+        ),
+        (
+            "function fail(value) { \
+             Object.defineProperty(arguments, 'name', { get: function() { \
+               print('arguments name getter ran'); return 'RangeError'; \
+             }}); Object.setPrototypeOf(arguments, { name: 'TypeError' }); \
+             throw { constructor: arguments }; } fail(1);",
+            None,
+        ),
     ] {
         let engine = Engine::new(RealmBuilder::new().build());
         let options = RunOptions {

@@ -33,6 +33,14 @@ repair branch uses a separate worktree and bounded verification service.
 - The synchronous disposal fallback creates the required async wrapper. It
   discards the synchronous method's return value and preserves thrown values as
   promise rejections.
+- Root and agent failures retain their typed causes, including disconnected
+  workers. A worker failure cannot satisfy a test expecting a root exception,
+  and a dynamic-source failure cannot hide a simultaneous crash or JavaScript
+  failure.
+- Runtime-negative tests compare the final thrown value's constructor name
+  exactly. Diagnostic messages, changed error names and stale caught exceptions
+  cannot satisfy that expectation. Metadata observation does not invoke getters
+  or Proxy traps; names requiring those operations remain unavailable.
 
 ## Dynamic-source boundary
 

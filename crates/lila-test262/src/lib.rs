@@ -37541,6 +37541,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             "throw new RangeError('TypeError: unsupported in lila wasm-aot');",
             "throw 'TypeError';",
             "var error = new RangeError('root marker'); error.name = 'TypeError'; throw error;",
+            "var error = []; error.constructor = RangeError; \
+             Object.setPrototypeOf(error, { constructor: TypeError }); throw error;",
+            "function fail() { arguments.constructor = RangeError; \
+             Object.setPrototypeOf(arguments, { constructor: TypeError }); \
+             throw arguments; } fail();",
         ] {
             case.original_source = Arc::from(source);
             let result = run_one_case(

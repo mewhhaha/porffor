@@ -21504,6 +21504,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(2));
         function.instruction(&Instruction::End);
+        self.emit_is_array_named_entry_backed_tag_i32(current_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_array_named_prop_read(
+            current_local,
+            key_local,
+            payload_local,
+            tag_local,
+            Some(present_local),
+            function,
+        );
+        function.instruction(&Instruction::Else);
         self.emit_object_own_data_field_read(
             current_local,
             current_tag_local,
@@ -21513,6 +21524,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         );
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
