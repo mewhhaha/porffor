@@ -212,7 +212,7 @@ class PublicationDriverTests(unittest.TestCase):
 
     def test_regressing_progress_is_rejected(self):
         result = self.run_driver([{"completed": 2, "total": 3}, {"completed": 1, "total": 3}])
-        self.assert_failure(result, "did not advance")
+        self.assert_failure(result, "matrix progress regressed below the recorded high-water mark")
         self.assertEqual(len(self.calls("report-all")), 1)
 
     def test_changing_total_is_rejected_even_when_new_total_is_complete(self):
@@ -232,10 +232,16 @@ class PublicationDriverTests(unittest.TestCase):
 
     def test_progress_requires_unique_well_formed_fields(self):
         valid = "matrix_nodes_completed: 1\nmatrix_nodes_total: 1"
-        for raw in ("", "matrix_nodes_completed: 1", valid + "\nmatrix_nodes_total: 1", valid + "\nmatrix_nodes_completed: 1", "matrix_nodes_completed: 1: 2\nmatrix_nodes_total: 1"):
+        for raw, reason in (
+            ("", "invalid matrix progress"),
+            ("matrix_nodes_completed: 1", "invalid matrix progress"),
+            (valid + "\nmatrix_nodes_total: 1", "duplicate matrix progress field: matrix_nodes_total"),
+            (valid + "\nmatrix_nodes_completed: 1", "duplicate matrix progress field: matrix_nodes_completed"),
+            ("matrix_nodes_completed: 1: 2\nmatrix_nodes_total: 1", "invalid matrix progress"),
+        ):
             with self.subTest(raw=raw):
                 result = self.run_driver([{"raw": raw}])
-                self.assert_failure(result, "invalid matrix progress")
+                self.assert_failure(result, reason)
                 self.assertEqual(self.calls("report-all"), [])
 
     def test_progress_rejects_noncanonical_and_overflowing_counts(self):
@@ -281,7 +287,7 @@ class PublicationDriverTests(unittest.TestCase):
 
     def test_binary_change_during_final_progress_prevents_publication(self):
         result = self.run_driver([{"completed": 1, "total": 1}], mutation={"command": "progress-status", "kind": "binary"})
-        self.assert_failure(result, "compiler changed during publication")
+        self.assert_failure(result, "provenance mismatch for executable_sha256")
 
     def test_lost_executable_permission_is_rejected(self):
         result = self.run_driver([{"completed": 0, "total": 1}, {"completed": 1, "total": 1}], mutation={"command": "report-all", "kind": "permission"})
@@ -290,7 +296,7 @@ class PublicationDriverTests(unittest.TestCase):
 
     def test_source_commit_change_prevents_publication(self):
         result = self.run_driver([{"completed": 1, "total": 1}], mutation={"command": "progress-status", "kind": "source"})
-        self.assert_failure(result, "source commit changed during publication")
+        self.assert_failure(result, "provenance mismatch for checkout_commit")
 
 
     def manifest_path(self):
@@ -311,7 +317,8 @@ class PublicationDriverTests(unittest.TestCase):
     def test_manifest_records_inputs_not_a_build_attestation(self):
         self.establish_manifest()
         manifest = json.loads(self.manifest_path().read_text())
-        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["progress"], {"completed": 1, "total": 1})
         identity = manifest["identity"]
         self.assertEqual(identity["checkout_commit"], self.source)
         self.assertEqual(identity["executable_sha256"], self.digest)
