@@ -64,14 +64,17 @@ pub(crate) use temporal_plain_date::TemporalCalendarId;
 /// full bootstrap (`string ... must exist in pool`), which is how batch 6 took
 /// 24 `lila-aot-wasm --lib` tests down with two new `&str` literals.
 pub(crate) use temporal_plain_date::TemporalDifferenceGuard;
+mod temporal_difference;
 mod temporal_plain_date_methods;
 mod temporal_plain_date_time;
 mod temporal_plain_date_time_methods;
+mod temporal_plain_date_zoned;
 mod temporal_plain_month_day;
 mod temporal_plain_time;
 mod temporal_plain_time_methods;
 mod temporal_plain_year_month;
 mod temporal_plain_year_month_methods;
+mod temporal_zoned_date_time_day;
 /// `Temporal.ZonedDateTime.prototype.{add,subtract,until,since,withCalendar}`.
 ///
 /// Split from `temporal.rs` on the same boundary
@@ -81,5 +84,6 @@ mod temporal_plain_year_month_methods;
 /// both, so the split cannot silently collapse back.
 mod temporal_zoned_date_time_format;
 mod temporal_zoned_date_time_methods;
+mod temporal_zoned_date_time_round;
 mod uri;
 mod weak_ref;

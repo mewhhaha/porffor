@@ -22619,6 +22619,21 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimeCompare => {
                 self.emit_temporal_zoned_date_time_compare(function)?;
             }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeRound => {
+                self.emit_temporal_zoned_date_time_round(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition => {
+                self.emit_temporal_zoned_date_time_get_time_zone_transition(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter => {
+                self.emit_temporal_zoned_date_time_hours_in_day(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay => {
+                self.emit_temporal_zoned_date_time_start_of_day(function)?;
+            }
+            StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime => {
+                self.emit_temporal_plain_date_to_zoned_date_time(function)?;
+            }
             StandardBuiltinId::TemporalZonedDateTimePrototypeToString => {
                 self.emit_temporal_zoned_date_time_to_string(function)?;
             }

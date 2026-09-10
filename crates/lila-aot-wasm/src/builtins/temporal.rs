@@ -982,7 +982,7 @@ impl<'a> FunctionBuilder<'a> {
         let month_code_payload_local = self.reserve_temp_local();
         let month_code_present_local = self.reserve_temp_local();
         let nanosecond_local = self.reserve_temp_local();
-        let offset_payload_local = self.reserve_temp_local();
+        let offset_nanoseconds_local = self.reserve_temp_local();
         let offset_present_local = self.reserve_temp_local();
         let second_local = self.reserve_temp_local();
         let year_local = self.reserve_temp_local();
@@ -1155,8 +1155,15 @@ impl<'a> FunctionBuilder<'a> {
             "Temporal.ZonedDateTime offset must be a string",
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(offset_payload_local));
+        function.instruction(&Instruction::LocalGet(offset_present_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_temporal_utc_offset_nanoseconds(
+            value_payload_local,
+            offset_nanoseconds_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
 
         self.emit_temporal_property_bag_integer(
             argument_payload_local,
@@ -1369,8 +1376,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         let time_zone_offset_seconds_local = self.reserve_temp_local();
-        let offset_seconds_local = self.reserve_temp_local();
+        let selected_offset_subsecond_local = self.reserve_temp_local();
         let selected_offset_seconds_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
         self.emit_temporal_fixed_time_zone_offset_seconds(
             time_zone_payload_local,
             time_zone_offset_seconds_local,
@@ -1382,11 +1391,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            offset_payload_local,
-            offset_seconds_local,
-            function,
-        )?;
+
         self.emit_temporal_zoned_date_time_offset_date_range(
             days_local,
             offset_option_local,
@@ -1394,8 +1399,10 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(offset_option_local));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
+        function.instruction(&Instruction::LocalGet(offset_nanoseconds_local));
         function.instruction(&Instruction::LocalGet(time_zone_offset_seconds_local));
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1411,8 +1418,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
+        function.instruction(&Instruction::LocalGet(offset_nanoseconds_local));
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64DivS);
         function.instruction(&Instruction::LocalSet(selected_offset_seconds_local));
+        function.instruction(&Instruction::LocalGet(offset_nanoseconds_local));
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64RemS);
+        function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -1448,7 +1461,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalGet(nanosecond_local));
         function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(selected_offset_subsecond_local));
+        function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(subsecond_local));
+        self.emit_temporal_normalize_seconds_and_subseconds(
+            seconds_local,
+            subsecond_local,
+            function,
+        );
         self.emit_temporal_epoch_nanoseconds_bigint(
             seconds_local,
             subsecond_local,
@@ -1474,7 +1494,7 @@ impl<'a> FunctionBuilder<'a> {
 
         for local in [
             selected_offset_seconds_local,
-            offset_seconds_local,
+            selected_offset_subsecond_local,
             time_zone_offset_seconds_local,
             subsecond_local,
             seconds_local,
@@ -1485,7 +1505,7 @@ impl<'a> FunctionBuilder<'a> {
             year_local,
             second_local,
             offset_present_local,
-            offset_payload_local,
+            offset_nanoseconds_local,
             nanosecond_local,
             month_code_present_local,
             month_code_payload_local,
@@ -5758,6 +5778,164 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
+    /// Parse UTCOffset at the field-conversion boundary, before later getters.
+    /// Unlike a time-zone identifier, this grammar allows seconds and fractions.
+    fn emit_temporal_utc_offset_nanoseconds(
+        &mut self,
+        payload_local: u32,
+        nanoseconds_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let string_offset_local = self.reserve_temp_local();
+        let length_local = self.reserve_temp_local();
+        let cursor_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let valid_local = self.reserve_temp_local();
+        let sign_local = self.reserve_temp_local();
+        let hour_local = self.reserve_temp_local();
+        let minute_local = self.reserve_temp_local();
+        let second_local = self.reserve_temp_local();
+        let has_second_local = self.reserve_temp_local();
+        let fraction_local = self.reserve_temp_local();
+        let fraction_digits_local = self.reserve_temp_local();
+        self.emit_unpack_string_payload(payload_local, string_offset_local, length_local, function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(cursor_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(hour_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(minute_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(second_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(fraction_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(fraction_digits_local));
+        self.emit_temporal_peek_byte_if_available(
+            string_offset_local,
+            cursor_local,
+            length_local,
+            byte_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'+' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(valid_local));
+        function.instruction(&Instruction::LocalGet(byte_local));
+        function.instruction(&Instruction::I64Const(b'-' as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(-1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(sign_local));
+        self.emit_temporal_advance_cursor(cursor_local, function);
+        self.emit_temporal_parse_fixed_decimal(
+            string_offset_local,
+            cursor_local,
+            length_local,
+            byte_local,
+            valid_local,
+            hour_local,
+            2,
+            function,
+        );
+        self.emit_temporal_parse_offset_tail(
+            string_offset_local,
+            cursor_local,
+            length_local,
+            byte_local,
+            valid_local,
+            minute_local,
+            second_local,
+            has_second_local,
+            fraction_local,
+            fraction_digits_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(valid_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(cursor_local));
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(hour_local));
+        function.instruction(&Instruction::I64Const(23));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(minute_local));
+        function.instruction(&Instruction::I64Const(59));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(second_local));
+        function.instruction(&Instruction::I64Const(59));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Invalid Temporal.ZonedDateTime string",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        // The shared parser stores unscaled decimal fraction digits.
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(fraction_digits_local));
+        function.instruction(&Instruction::I64Const(9));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(fraction_local));
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(fraction_local));
+        function.instruction(&Instruction::LocalGet(fraction_digits_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(fraction_digits_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(hour_local));
+        function.instruction(&Instruction::I64Const(3600));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(minute_local));
+        function.instruction(&Instruction::I64Const(60));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(second_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(fraction_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(nanoseconds_local));
+        self.release_temp_local(fraction_digits_local);
+        self.release_temp_local(fraction_local);
+        self.release_temp_local(has_second_local);
+        self.release_temp_local(second_local);
+        self.release_temp_local(minute_local);
+        self.release_temp_local(hour_local);
+        self.release_temp_local(sign_local);
+        self.release_temp_local(valid_local);
+        self.release_temp_local(byte_local);
+        self.release_temp_local(cursor_local);
+        self.release_temp_local(length_local);
+        self.release_temp_local(string_offset_local);
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_parse_offset_tail(
         &mut self,
@@ -6633,6 +6811,82 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.release_temp_local(record_local);
         Ok(())
+    }
+
+    pub(super) fn emit_temporal_zoned_date_time_epoch_pair(
+        &mut self,
+        record_local: u32,
+        seconds_local: u32,
+        subsecond_local: u32,
+        function: &mut Function,
+    ) {
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+        let milliseconds_local = self.reserve_temp_local();
+        let remainder_local = self.reserve_temp_local();
+        let negative_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+            payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
+            tag_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64DivS);
+        function.instruction(&Instruction::LocalSet(seconds_local));
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64RemS);
+        function.instruction(&Instruction::LocalSet(subsecond_local));
+        function.instruction(&Instruction::Else);
+        self.emit_temporal_heap_bigint_millisecond_quotient(
+            payload_local,
+            milliseconds_local,
+            remainder_local,
+            negative_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(milliseconds_local));
+        function.instruction(&Instruction::I64Const(1_000));
+        function.instruction(&Instruction::I64DivS);
+        function.instruction(&Instruction::LocalSet(seconds_local));
+        function.instruction(&Instruction::LocalGet(negative_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(remainder_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(milliseconds_local));
+        function.instruction(&Instruction::I64Const(1_000));
+        function.instruction(&Instruction::I64RemS);
+        function.instruction(&Instruction::I64Const(1_000_000));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(subsecond_local));
+        function.instruction(&Instruction::End);
+        for local in [
+            negative_local,
+            remainder_local,
+            milliseconds_local,
+            tag_local,
+            payload_local,
+        ] {
+            self.release_temp_local(local);
+        }
     }
 
     /// `floor(epochNanoseconds / 10^6)` as an f64, read out of the epoch

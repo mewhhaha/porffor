@@ -8,6 +8,8 @@ const PLAIN_YEAR_MONTH_SOURCE: &str =
     include_str!("../src/builtins/temporal_plain_year_month_methods.rs");
 const ZONED_DATE_TIME_FORMAT_SOURCE: &str =
     include_str!("../src/builtins/temporal_zoned_date_time_format.rs");
+const ZONED_DATE_TIME_ROUND_SOURCE: &str =
+    include_str!("../src/builtins/temporal_zoned_date_time_round.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -102,6 +104,7 @@ fn temporal_unit_option_callers_use_named_properties() {
         (PLAIN_TIME_SOURCE, 4),
         (PLAIN_YEAR_MONTH_SOURCE, 2),
         (ZONED_DATE_TIME_FORMAT_SOURCE, 1),
+        (ZONED_DATE_TIME_ROUND_SOURCE, 1),
     ];
     let mut calls = Vec::new();
     for (source, expected_count) in callers {
@@ -120,7 +123,7 @@ fn temporal_unit_option_callers_use_named_properties() {
         calls.extend(source_calls);
     }
 
-    assert_eq!(calls.len(), 17);
+    assert_eq!(calls.len(), 18);
     assert_eq!(
         calls
             .iter()
@@ -133,7 +136,7 @@ fn temporal_unit_option_callers_use_named_properties() {
             .iter()
             .filter(|call| call.contains("TemporalUnitOptionProperty::SmallestUnit"))
             .count(),
-        11
+        12
     );
     assert_eq!(
         calls

@@ -2288,6 +2288,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalPlainDatePrototypeUntil
             | StandardBuiltinId::TemporalPlainDatePrototypeSince
             | StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime
+            | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
             | StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth
             | StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay
             | StandardBuiltinId::TemporalPlainDatePrototypeValueOf => {
@@ -2324,6 +2325,7 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalPlainDatePrototypeUntil,
                     StandardBuiltinId::TemporalPlainDatePrototypeSince,
                     StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime,
+                    StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime,
                     StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth,
                     StandardBuiltinId::TemporalPlainDatePrototypeToPlainMonthDay,
                 ] {
@@ -2687,6 +2689,10 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
@@ -2803,6 +2809,10 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToString,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeRound,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter,
@@ -6814,6 +6824,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
         | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
         | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
+        | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
         | StandardBuiltinId::TemporalPlainDateTimeFrom
         | StandardBuiltinId::TemporalPlainDateTimePrototypeWith
         | StandardBuiltinId::TemporalPlainDateTimePrototypeWithCalendar
@@ -7035,6 +7048,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => 0,
         StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape

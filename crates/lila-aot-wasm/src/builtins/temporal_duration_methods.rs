@@ -1401,7 +1401,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Round a signed (seconds, subsecond) pair to a multiple of
     /// `quantum_local` nanoseconds. `quantum_local` is at most 10^9 so the
     /// arithmetic never leaves the sub-second slot except through the carry.
-    fn emit_temporal_duration_round_subsecond(
+    pub(super) fn emit_temporal_duration_round_subsecond(
         &mut self,
         seconds_local: u32,
         subsecond_local: u32,
@@ -1414,6 +1414,7 @@ impl<'a> FunctionBuilder<'a> {
         let sub_local = self.reserve_temp_local();
         let remainder_local = self.reserve_temp_local();
         let quotient_local = self.reserve_temp_local();
+        let parity_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(sign_local));
@@ -1452,10 +1453,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(quantum_local));
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::LocalSet(quotient_local));
+        // Half-even uses the quotient of the whole duration, including seconds.
+        // Only its low bit is needed, so multiplication cannot lose parity.
+        function.instruction(&Instruction::LocalGet(magnitude_local));
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::LocalGet(quantum_local));
+        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(quotient_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(parity_local));
         self.emit_temporal_duration_round_up_i32(
             remainder_local,
             quantum_local,
-            quotient_local,
+            parity_local,
             sign_local,
             mode_local,
             function,
@@ -1492,6 +1503,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalSet(subsecond_local));
 
+        self.release_temp_local(parity_local);
         self.release_temp_local(quotient_local);
         self.release_temp_local(remainder_local);
         self.release_temp_local(sub_local);
@@ -1501,7 +1513,7 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Round a signed (seconds, subsecond) pair to a whole number of
     /// `unit_seconds x increment` seconds.
-    fn emit_temporal_duration_round_seconds(
+    pub(super) fn emit_temporal_duration_round_seconds(
         &mut self,
         seconds_local: u32,
         subsecond_local: u32,
@@ -1549,21 +1561,63 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(quantum_local));
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::LocalSet(quotient_local));
-        // Both the remainder and the increment are converted to nanoseconds so
-        // the sub-second tail participates in the midpoint comparison exactly.
-        // The increment never exceeds a day, so 2 x 86400 x 10^9 stays inside
-        // an `i64`.
+        // Encode the exact midpoint comparison in quarters. Whole seconds
+        // may span the full date range; only the subsecond remainder is scaled.
         function.instruction(&Instruction::LocalGet(magnitude_local));
         function.instruction(&Instruction::LocalGet(quantum_local));
         function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(sub_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(remainder_local));
         function.instruction(&Instruction::LocalGet(quantum_local));
-        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(scaled_quantum_local));
+        function.instruction(&Instruction::LocalGet(sub_local));
+        function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(remainder_local));
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Const(1_000_000_000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(remainder_local));
+        function.instruction(&Instruction::LocalGet(scaled_quantum_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(scaled_quantum_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(scaled_quantum_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(scaled_quantum_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(remainder_local));
+        function.instruction(&Instruction::LocalGet(magnitude_local));
+        function.instruction(&Instruction::LocalGet(quantum_local));
+        function.instruction(&Instruction::I64RemU);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(sub_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(remainder_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(4));
         function.instruction(&Instruction::LocalSet(scaled_quantum_local));
         self.emit_temporal_duration_round_up_i32(
             remainder_local,
