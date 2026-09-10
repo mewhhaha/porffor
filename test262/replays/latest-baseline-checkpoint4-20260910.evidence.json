@@ -1,0 +1,689 @@
+{
+  "schema_version": 1,
+  "verified_at_utc": "2026-09-10T17:17:27.154864+00:00",
+  "status": "verified checkpoint-4 native evidence; recorded primary outcomes remain unchanged",
+  "candidate_checkpoint": "checkpoint-4, before the CI-discovered ArrayBuffer allocator repair",
+  "origin_commit": "9d435d996c8b9f72947007d81467794f8396b3ab",
+  "origin_build_provenance": {
+    "path": "target/failure-review/latest-baseline-pr/origin-compiler.json",
+    "sha256": "397563edd22ef894826ff0663f5274cc62fcffd01f1e945453ec03f9e8a69ee4"
+  },
+  "test262_tree_pin": "aa55200d1310384c5cf69ea95b2a2ecba457007b",
+  "tools": [
+    {
+      "path": "target/failure-review/latest-baseline-pr/audit-final-evidence.py",
+      "sha256": "afabeae5903a6d6d4605add5ca2f9d577674080c2ae8c342a65b1ca1389727f8"
+    },
+    {
+      "path": "target/failure-review/verify-cohort-replay.py",
+      "sha256": "8b8f7b01cc65484b95a459ae07785e5d3518394bf44d301aeaafa46ec6379485"
+    },
+    {
+      "path": "scripts/replay-test262-executions.py",
+      "sha256": "5728d4b15e1d27ab1d67efa187d0abe004fa28e53855dfd727d84756efbc5666"
+    }
+  ],
+  "tracked_membership_inputs": [
+    {
+      "path": "test262/replays/observed-20260908.executions",
+      "sha256": "cac4c0199c8fb1392a10a6c18a48736817034c2abdb13e27d79d770aa17c7ec9"
+    },
+    {
+      "path": "test262/replays/observed-later-20260908.executions",
+      "sha256": "90f3688a7b20e9e1f7b8fa5d9a65fa47f3a3921d71e4ed79a264fa4a72a6f861"
+    },
+    {
+      "path": "test262/replays/latest-baseline-focused-20260910.executions",
+      "sha256": "eae06f996a04763ed2ce51ad743dd77d51b6126e81fc561b22414db4875f3a5c"
+    },
+    {
+      "path": "test262/replays/observed-latest-20260910.executions",
+      "sha256": "888d62827d2f6bb790a6d4f6c333b6127d5be7f043bc96c93da04f748c1b7177"
+    }
+  ],
+  "audits": {
+    "origin": {
+      "binary_sha256": "8452527ae7b8b467a99270168b97d3b8fe6f268360c67c0c39e5e8436d97a81c",
+      "execution_list_sha256": "580a7cae8fd23ca6d71add23a19d6d18d0fe040adedcf3c2a3c678d652e4cf1a",
+      "total": 1012,
+      "outcomes": {
+        "Success": 111,
+        "NotImplemented": 830,
+        "Bug": 71,
+        "Crash": 0
+      },
+      "native_snapshots_verified": 1012,
+      "run_manifest_verified": true,
+      "replay_directory": "target/failure-review/latest-baseline-pr/origin-prior1012",
+      "membership": {
+        "count": 1012,
+        "sorted_execution_ids_sha256": "88ed456f4a334b9db833d259566aa23f77bd66bc366ebe05703259c38c9a3b16"
+      },
+      "summary": {
+        "path": "target/failure-review/latest-baseline-pr/origin-prior1012/summary.json",
+        "sha256": "9bb6e8f1dc516b1f84738415789fbe22ff4fc45f788c0a15b9b44f13d695fbe9"
+      },
+      "run_manifest": {
+        "path": "target/failure-review/latest-baseline-pr/origin-prior1012/run.json",
+        "sha256": "17c8be013e73689c7ac570d5513bce86f3f09aa64306bff6bf6583e7d203b8a8"
+      },
+      "native_evidence_ledger_sha256": "4d2c804342de273dade103394cd86554c5f29fe5126c1a901b84acdfd95a63c3",
+      "native_evidence_ledger_encoding": "compact JSON sorted by execution ID: [ID,row SHA256,transcript SHA256,snapshot SHA256]",
+      "timeout_executions": [],
+      "cohorts": {
+        "original_592": {
+          "total": 592,
+          "outcomes": {
+            "NotImplemented": 527,
+            "Success": 65
+          }
+        },
+        "later_420": {
+          "total": 420,
+          "outcomes": {
+            "Bug": 71,
+            "NotImplemented": 303,
+            "Success": 46
+          }
+        }
+      }
+    },
+    "prior37": {
+      "binary_sha256": "37cb9c33f04c7ab186f93476d6ffef0bca1eccc4f901f57658df493034d6b034",
+      "execution_list_sha256": "580a7cae8fd23ca6d71add23a19d6d18d0fe040adedcf3c2a3c678d652e4cf1a",
+      "total": 1012,
+      "outcomes": {
+        "Success": 994,
+        "NotImplemented": 18,
+        "Bug": 0,
+        "Crash": 0
+      },
+      "native_snapshots_verified": 1012,
+      "run_manifest_verified": true,
+      "replay_directory": "target/failure-review/completion-replay",
+      "membership": {
+        "count": 1012,
+        "sorted_execution_ids_sha256": "88ed456f4a334b9db833d259566aa23f77bd66bc366ebe05703259c38c9a3b16"
+      },
+      "summary": {
+        "path": "target/failure-review/completion-replay/summary.json",
+        "sha256": "4539da3945f4bb41f170e88bbefa6d35f2ddc05bbb7f8b336f07234688f50569"
+      },
+      "run_manifest": {
+        "path": "target/failure-review/completion-replay/run.json",
+        "sha256": "b57f2697285aaafcafd0c946ea57b27041b1c2189bdc9620a1b3d2b7b4872bee"
+      },
+      "native_evidence_ledger_sha256": "c7c1f6de75d89446b3a91d30c4bed2cf796ad207c492ff79ac81d284d8931e37",
+      "native_evidence_ledger_encoding": "compact JSON sorted by execution ID: [ID,row SHA256,transcript SHA256,snapshot SHA256]",
+      "timeout_executions": [],
+      "cohorts": {
+        "original_592": {
+          "total": 592,
+          "outcomes": {
+            "NotImplemented": 4,
+            "Success": 588
+          }
+        },
+        "later_420": {
+          "total": 420,
+          "outcomes": {
+            "NotImplemented": 14,
+            "Success": 406
+          }
+        }
+      }
+    },
+    "primary": {
+      "binary_sha256": "b2cc76fcd6b4a098074e37ab4f4296fca26fafdfadb975da076dc434b399f6d2",
+      "execution_list_sha256": "580a7cae8fd23ca6d71add23a19d6d18d0fe040adedcf3c2a3c678d652e4cf1a",
+      "total": 1012,
+      "outcomes": {
+        "Success": 984,
+        "NotImplemented": 18,
+        "Bug": 0,
+        "Crash": 10
+      },
+      "native_snapshots_verified": 1012,
+      "run_manifest_verified": true,
+      "replay_directory": "target/failure-review/latest-baseline-pr/final-prior1012",
+      "membership": {
+        "count": 1012,
+        "sorted_execution_ids_sha256": "88ed456f4a334b9db833d259566aa23f77bd66bc366ebe05703259c38c9a3b16"
+      },
+      "summary": {
+        "path": "target/failure-review/latest-baseline-pr/final-prior1012/summary.json",
+        "sha256": "84f199b92358f462325a58386df10cc5b76ee5df030f82dd72f7683245f669dd"
+      },
+      "run_manifest": {
+        "path": "target/failure-review/latest-baseline-pr/final-prior1012/run.json",
+        "sha256": "7482861dc6d496b411355dd275017e74a6c8a3a10f7951c5e0c2b46bb9db92e5"
+      },
+      "native_evidence_ledger_sha256": "d7cff94ff8b10bd254320ea560076b97c15c4a47a08cea36b3db542198e1963f",
+      "native_evidence_ledger_encoding": "compact JSON sorted by execution ID: [ID,row SHA256,transcript SHA256,snapshot SHA256]",
+      "timeout_executions": [
+        "sloppy-script:built-ins/Array/fromAsync/asyncitems-asynciterator-sync.js",
+        "sloppy-script:built-ins/Array/fromAsync/asyncitems-iterator-exists.js",
+        "sloppy-script:built-ins/Array/fromAsync/asyncitems-iterator-promise.js",
+        "sloppy-script:built-ins/AsyncFunction/is-a-constructor.js",
+        "sloppy-script:built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+        "sloppy-script:built-ins/Atomics/waitAsync/bigint/good-views.js",
+        "sloppy-script:built-ins/Atomics/waitAsync/good-views.js",
+        "strict-script:built-ins/Array/fromAsync/asyncitems-asynciterator-sync.js",
+        "strict-script:built-ins/Array/fromAsync/asyncitems-iterator-exists.js",
+        "strict-script:built-ins/Array/fromAsync/asyncitems-iterator-promise.js"
+      ],
+      "cohorts": {
+        "original_592": {
+          "total": 592,
+          "outcomes": {
+            "Crash": 10,
+            "NotImplemented": 4,
+            "Success": 578
+          }
+        },
+        "later_420": {
+          "total": 420,
+          "outcomes": {
+            "NotImplemented": 14,
+            "Success": 406
+          }
+        }
+      }
+    },
+    "timeout_recheck": {
+      "binary_sha256": "b2cc76fcd6b4a098074e37ab4f4296fca26fafdfadb975da076dc434b399f6d2",
+      "execution_list_sha256": "a0a016fc303515ecb5f3ea216941edc30601bb22fa5cf1037fd4068bbfe8e07b",
+      "total": 10,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      },
+      "native_snapshots_verified": 10,
+      "run_manifest_verified": true,
+      "replay_directory": "target/failure-review/latest-baseline-pr/final-timeout-recheck",
+      "membership": {
+        "count": 10,
+        "sorted_execution_ids_sha256": "a0a016fc303515ecb5f3ea216941edc30601bb22fa5cf1037fd4068bbfe8e07b"
+      },
+      "summary": {
+        "path": "target/failure-review/latest-baseline-pr/final-timeout-recheck/summary.json",
+        "sha256": "3b5688e8bcfb2ed9da66327bbddaf80ecd0ea53cf450ebea85525cc522d07683"
+      },
+      "run_manifest": {
+        "path": "target/failure-review/latest-baseline-pr/final-timeout-recheck/run.json",
+        "sha256": "030c60c4e4ef0f579a0ead7e0a5fc6130b4a714605346e3a87b2b5276b30cab1"
+      },
+      "native_evidence_ledger_sha256": "2c423df59ac113881c51530eeaaf58d2a2f36751bc6dfc3b22b86d40f33b1671",
+      "native_evidence_ledger_encoding": "compact JSON sorted by execution ID: [ID,row SHA256,transcript SHA256,snapshot SHA256]",
+      "timeout_executions": []
+    },
+    "focused_origin": {
+      "binary_sha256": "8452527ae7b8b467a99270168b97d3b8fe6f268360c67c0c39e5e8436d97a81c",
+      "execution_list_sha256": "1617e80797b2bd36ce2400103bf5685bf7fc6589541024bc1badda5ad3d003d8",
+      "total": 134,
+      "outcomes": {
+        "Success": 2,
+        "NotImplemented": 4,
+        "Bug": 128,
+        "Crash": 0
+      },
+      "native_snapshots_verified": 134,
+      "run_manifest_verified": true,
+      "replay_directory": "target/failure-review/latest-baseline-pr/origin-scope",
+      "membership": {
+        "count": 134,
+        "sorted_execution_ids_sha256": "1617e80797b2bd36ce2400103bf5685bf7fc6589541024bc1badda5ad3d003d8"
+      },
+      "summary": {
+        "path": "target/failure-review/latest-baseline-pr/origin-scope/summary.json",
+        "sha256": "239e87b6baab8a9e0bfa1a9d457aa53703e63d3a6c198c081a52d3637a56dffe"
+      },
+      "run_manifest": {
+        "path": "target/failure-review/latest-baseline-pr/origin-scope/run.json",
+        "sha256": "6200355519b2528935fe1cc5a0c0a9ba12d92f8d546887ba9f045175704fe782"
+      },
+      "native_evidence_ledger_sha256": "d6fac64f37b8fa89b3d2ea46194c739c06f1a1dcb32888cc24bbeea51a89da96",
+      "native_evidence_ledger_encoding": "compact JSON sorted by execution ID: [ID,row SHA256,transcript SHA256,snapshot SHA256]",
+      "timeout_executions": []
+    },
+    "focused_final": {
+      "binary_sha256": "b2cc76fcd6b4a098074e37ab4f4296fca26fafdfadb975da076dc434b399f6d2",
+      "execution_list_sha256": "eae06f996a04763ed2ce51ad743dd77d51b6126e81fc561b22414db4875f3a5c",
+      "total": 182,
+      "outcomes": {
+        "Success": 176,
+        "NotImplemented": 0,
+        "Bug": 6,
+        "Crash": 0
+      },
+      "native_snapshots_verified": 182,
+      "run_manifest_verified": true,
+      "replay_directory": "target/failure-review/latest-baseline-pr/focused-4",
+      "membership": {
+        "count": 182,
+        "sorted_execution_ids_sha256": "68404fdd7666836258b6c1f0efc2f73918ae8f2e27a5b57c568b7d01338c6dbf"
+      },
+      "summary": {
+        "path": "target/failure-review/latest-baseline-pr/focused-4/summary.json",
+        "sha256": "439a959e187f535be62238f74dc244ec6db6057fbd1d93d917981def55079f72"
+      },
+      "run_manifest": {
+        "path": "target/failure-review/latest-baseline-pr/focused-4/run.json",
+        "sha256": "bf7c8586a2003b88bad2e0e95cd88641222c3bf381ce9ed4848d558a8620ebd6"
+      },
+      "native_evidence_ledger_sha256": "e8d516cba9e59a4bf5bd189d3dc726d04b070d20b2cb9aae533e71c6242d9344",
+      "native_evidence_ledger_encoding": "compact JSON sorted by execution ID: [ID,row SHA256,transcript SHA256,snapshot SHA256]",
+      "timeout_executions": []
+    }
+  },
+  "native_snapshots_verified_total": 3362,
+  "timeout_recheck_selection": {
+    "path": "target/failure-review/latest-baseline-pr/other-builtins/final-timeout-recheck-primary-input.json",
+    "sha256": "9e6301ed1a547ed63572bcb4a50ac2247166f740d66f31d7870dfd1df61563c8"
+  },
+  "timeout_recheck_resource_context": {
+    "path": "target/failure-review/latest-baseline-pr/other-builtins/final-timeout-recheck-resource-provenance.json",
+    "sha256": "e7f256faaf7d37f55139b7ddd484af47c100e463f666823c504e87fd6fe7d617"
+  },
+  "primary_resource_context": [
+    {
+      "path": "target/failure-review/latest-baseline-pr/final-cohort-first-segment.json",
+      "sha256": "51231e181dc3dbbdfb69dc508598e2347bca55db744948ab982460a1baf77366"
+    },
+    {
+      "path": "target/failure-review/latest-baseline-pr/final-cohort-memory-adjustment.json",
+      "sha256": "f73b44e2d59bc50525d74ad8b6e4864639f22996fcd2fc899fa48f15c1971ecb"
+    }
+  ],
+  "focused_audit_revalidated": {
+    "path": "target/failure-review/latest-baseline-pr/focused-4-audit.json",
+    "sha256": "ddf58439876caa33dc3f419e371ce39aed86967167cdbe12fb7eaf88166d6495"
+  },
+  "primary_transitions": {
+    "origin": {
+      "Bug -> Success": 71,
+      "NotImplemented -> Crash": 2,
+      "NotImplemented -> NotImplemented": 18,
+      "NotImplemented -> Success": 810,
+      "Success -> Crash": 8,
+      "Success -> Success": 103
+    },
+    "prior37": {
+      "NotImplemented -> NotImplemented": 18,
+      "Success -> Crash": 10,
+      "Success -> Success": 984
+    }
+  },
+  "timeout_recheck_transitions": [
+    {
+      "execution_id": "sloppy-script:built-ins/Array/fromAsync/asyncitems-asynciterator-sync.js",
+      "origin": "Success",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Array/fromAsync/asyncitems-iterator-exists.js",
+      "origin": "Success",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Array/fromAsync/asyncitems-iterator-promise.js",
+      "origin": "Success",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/AsyncFunction/is-a-constructor.js",
+      "origin": "NotImplemented",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+      "origin": "NotImplemented",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Atomics/waitAsync/bigint/good-views.js",
+      "origin": "Success",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Atomics/waitAsync/good-views.js",
+      "origin": "Success",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Array/fromAsync/asyncitems-asynciterator-sync.js",
+      "origin": "Success",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Array/fromAsync/asyncitems-iterator-exists.js",
+      "origin": "Success",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Array/fromAsync/asyncitems-iterator-promise.js",
+      "origin": "Success",
+      "prior37": "Success",
+      "primary": "Crash",
+      "recheck": "Success"
+    }
+  ],
+  "unique_observed_successes_across_primary_and_recheck": {
+    "count": 994,
+    "sorted_execution_ids_sha256": "026abcd8e583b690d4ce127a0afab442689ddd65010b386e4aba75e8e6c6ac22"
+  },
+  "origin_comparison_across_separate_runs": {
+    "baseline_successes": {
+      "count": 111,
+      "sorted_execution_ids_sha256": "ac37b496da5d04da3f340c40dcb5f8fdc40ae8b357cfc454b5e4140e085ab261"
+    },
+    "baseline_successes_observed_passing": {
+      "count": 111,
+      "sorted_execution_ids_sha256": "ac37b496da5d04da3f340c40dcb5f8fdc40ae8b357cfc454b5e4140e085ab261"
+    },
+    "baseline_successes_without_a_candidate_pass": [],
+    "baseline_non_successes_observed_passing": {
+      "count": 883,
+      "sorted_execution_ids_sha256": "e11dd333ed3e4382e138e074672343ce8defe865b277f896b523bd68723067be"
+    }
+  },
+  "prior37_comparison_across_separate_runs": {
+    "baseline_successes": {
+      "count": 994,
+      "sorted_execution_ids_sha256": "026abcd8e583b690d4ce127a0afab442689ddd65010b386e4aba75e8e6c6ac22"
+    },
+    "baseline_successes_observed_passing": {
+      "count": 994,
+      "sorted_execution_ids_sha256": "026abcd8e583b690d4ce127a0afab442689ddd65010b386e4aba75e8e6c6ac22"
+    },
+    "baseline_successes_without_a_candidate_pass": [],
+    "baseline_non_successes_observed_passing": {
+      "count": 0,
+      "sorted_execution_ids_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "focused_origin_comparison": {
+    "baseline_successes": {
+      "count": 2,
+      "sorted_execution_ids_sha256": "c428060ba5bb7bea486b9b6f616ed2b5150660342fea94dc5a320d2681e8f876"
+    },
+    "baseline_successes_observed_passing": {
+      "count": 2,
+      "sorted_execution_ids_sha256": "c428060ba5bb7bea486b9b6f616ed2b5150660342fea94dc5a320d2681e8f876"
+    },
+    "baseline_successes_without_a_candidate_pass": [],
+    "baseline_non_successes_observed_passing": {
+      "count": 126,
+      "sorted_execution_ids_sha256": "e90d8ae0f435962ce692df159ddd1a7b7b453df1097ad7172fdae8c3dec07572"
+    }
+  },
+  "focused_transition_counts": {
+    "Bug -> Bug": 6,
+    "Bug -> Success": 122,
+    "NotImplemented -> Success": 4,
+    "Success -> Success": 2
+  },
+  "combined_unique_fixes_against_origin": {
+    "count": 1009,
+    "sorted_execution_ids_sha256": "0e4b4e4e5ed0d4ea87a5f410f792c5232eb72024471b24ede174755f1da790ed"
+  },
+  "remaining_primary_non_successes": [
+    {
+      "execution_id": "sloppy-script:annexB/built-ins/RegExp/RegExp-leading-escape-BMP.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "sloppy-script:annexB/built-ins/RegExp/RegExp-trailing-escape-BMP.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Array/fromAsync/asyncitems-asynciterator-sync.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 360301ms"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Array/fromAsync/asyncitems-iterator-exists.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 360355ms"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Array/fromAsync/asyncitems-iterator-promise.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 360297ms"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/AsyncFunction/is-a-constructor.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 360506ms"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 360478ms"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Atomics/waitAsync/bigint/good-views.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 282683ms (wasm epoch interrupt, bound 60000ms)"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Atomics/waitAsync/good-views.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 278960ms (wasm epoch interrupt, bound 60000ms)"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Function/S15.3.2.1_A2_T4.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Function/S15.3.2.1_A2_T5.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Function/S15.3.2.1_A2_T6.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Function/prototype/apply/S15.3.4.3_A7_T3.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Function/prototype/apply/S15.3.4.3_A7_T4.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Function/prototype/call/S15.3.4.4_A6_T3.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Function/prototype/call/S15.3.4.4_A6_T4.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:annexB/built-ins/RegExp/RegExp-leading-escape-BMP.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:annexB/built-ins/RegExp/RegExp-trailing-escape-BMP.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Array/fromAsync/asyncitems-asynciterator-sync.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 360694ms"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Array/fromAsync/asyncitems-iterator-exists.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 360736ms"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Array/fromAsync/asyncitems-iterator-promise.js",
+      "outcome": "Crash",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] timeout exceeded after 360388ms"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Function/S15.3.2.1_A2_T4.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Function/S15.3.2.1_A2_T5.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Function/S15.3.2.1_A2_T6.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Function/prototype/apply/S15.3.4.3_A7_T3.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Function/prototype/apply/S15.3.4.3_A7_T4.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Function/prototype/call/S15.3.4.4_A6_T3.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Function/prototype/call/S15.3.4.4_A6_T4.js",
+      "outcome": "NotImplemented",
+      "kind": "Unsupported",
+      "detail": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization"
+    }
+  ],
+  "remaining_without_a_success_across_primary_and_recheck": [
+    "sloppy-script:annexB/built-ins/RegExp/RegExp-leading-escape-BMP.js",
+    "sloppy-script:annexB/built-ins/RegExp/RegExp-trailing-escape-BMP.js",
+    "sloppy-script:built-ins/Function/S15.3.2.1_A2_T4.js",
+    "sloppy-script:built-ins/Function/S15.3.2.1_A2_T5.js",
+    "sloppy-script:built-ins/Function/S15.3.2.1_A2_T6.js",
+    "sloppy-script:built-ins/Function/prototype/apply/S15.3.4.3_A7_T3.js",
+    "sloppy-script:built-ins/Function/prototype/apply/S15.3.4.3_A7_T4.js",
+    "sloppy-script:built-ins/Function/prototype/call/S15.3.4.4_A6_T3.js",
+    "sloppy-script:built-ins/Function/prototype/call/S15.3.4.4_A6_T4.js",
+    "strict-script:annexB/built-ins/RegExp/RegExp-leading-escape-BMP.js",
+    "strict-script:annexB/built-ins/RegExp/RegExp-trailing-escape-BMP.js",
+    "strict-script:built-ins/Function/S15.3.2.1_A2_T4.js",
+    "strict-script:built-ins/Function/S15.3.2.1_A2_T5.js",
+    "strict-script:built-ins/Function/S15.3.2.1_A2_T6.js",
+    "strict-script:built-ins/Function/prototype/apply/S15.3.4.3_A7_T3.js",
+    "strict-script:built-ins/Function/prototype/apply/S15.3.4.3_A7_T4.js",
+    "strict-script:built-ins/Function/prototype/call/S15.3.4.4_A6_T3.js",
+    "strict-script:built-ins/Function/prototype/call/S15.3.4.4_A6_T4.js"
+  ],
+  "remaining_timeout_recheck_non_successes": [],
+  "remaining_focused_non_successes": [
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-5.js",
+      "outcome": "Bug",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(BalanceTimeDuration should implement floating-point calculation correctly for largestUnit microseconds Expected SameValue(8.69228866946552e+21, 8.692288669465521e+21) to be true)"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-6.js",
+      "outcome": "Bug",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 22) to be true)"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-7.js",
+      "outcome": "Bug",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(milliseconds=2251799813685248, microseconds=125 Expected SameValue(2251799813685248.5, 2251799813685248) to be true)"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-5.js",
+      "outcome": "Bug",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(BalanceTimeDuration should implement floating-point calculation correctly for largestUnit microseconds Expected SameValue(8.69228866946552e+21, 8.692288669465521e+21) to be true)"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-6.js",
+      "outcome": "Bug",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 22) to be true)"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-7.js",
+      "outcome": "Bug",
+      "kind": "Runtime",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(milliseconds=2251799813685248, microseconds=125 Expected SameValue(2251799813685248.5, 2251799813685248) to be true)"
+    }
+  ],
+  "limitations": [
+    "Primary outcomes and timeout recheck outcomes are separate observations; their union is not a single-run green result.",
+    "The primary timeouts remain Crash outcomes; successful rechecks do not establish their cause or erase them.",
+    "The primary replay retained completed rows across a worker-count change and later memory-limit adjustment; the resource-context records are hashed separately.",
+    "Counts describe these exact cohorts, not the full pinned Test262 suite or every test in a feature family.",
+    "All candidate outcomes are from b2cc/checkpoint-4 before the later ArrayBuffer allocator repair; no later-compiler or final-source verification is implied.",
+    "The 134 focused main-comparison identities are disjoint from the prior 1012; the 48 neighboring controls do not add main-fix claims.",
+    "The original historical 65 passing identities were not recovered; this audit verifies identities from the fresh origin comparator instead.",
+    "Native artifacts under target are required to rerun verification; this compact report records their hashes and repository-relative locations."
+  ]
+}

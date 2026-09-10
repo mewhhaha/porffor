@@ -78,6 +78,10 @@ implemented operations:
   through integer-indexed element access. Reflect.get and compound assignments
   therefore read actual Number/BigInt elements, and invalid canonical indexes
   do not consult a prototype property.
+- ArrayBuffer backing stores use the same selected memory for allocation and
+  byte access, including transfer and ordinary/immutable slicing. Resizable
+  transfers reserve their maximum byte length so later growth stays within the
+  allocated store. This fixes the flatMap detachment regression found by CI.
 - Numeric updates retain distinct old and new payload/tag pairs and use canonical
   BigInt arithmetic. Prefix/postfix results remain correct when increments or
   decrements cross inline/heap representation boundaries, including typed-array
@@ -90,7 +94,7 @@ unrelated structural tests no longer hard-code the entire realm record size.
 
 ## Verified latest scope
 
-The final runtime compiler SHA-256 is
+The pre-CI-repair runtime compiler SHA-256 is
 `b2cc76fcd6b4a098074e37ab4f4296fca26fafdfadb975da076dc434b399f6d2`.
 The 182-case focused replay was audited on 2026-09-10 against every native
 snapshot, transcript, exact execution identity and frozen input/compiler hash.
@@ -98,7 +102,7 @@ snapshot, transcript, exact execution identity and frozen input/compiler hash.
 | Selected additional baseline cases | Success | NotImplemented | Bug | Crash |
 | --- | ---: | ---: | ---: | ---: |
 | Fresh origin/main, 134 executions | 2 | 4 | 128 | 0 |
-| Final compiler, same 134 executions | 128 | 0 | 6 | 0 |
+| Pre-CI-repair compiler, same 134 executions | 128 | 0 | 6 | 0 |
 
 This verifies 126 newly repaired main failures: 122 Bug and 4 NotImplemented
 outcomes become Success, and both existing main successes are preserved.
@@ -113,6 +117,63 @@ The three remaining files fail in both sloppy and strict modes:
 | `precision-exact-mathematical-values-6.js` | `NaN` / `22` |
 | `precision-exact-mathematical-values-7.js` | `2251799813685248.5` / `2251799813685248` |
 
+## Verification after the CI buffer repair
+
+The repaired runtime compiler SHA-256 is
+`9a84e3ad40d06cb7cf15ced46b4882e2c883ac5f00bdf1fbe6d1a5c5d3e6eb45`.
+Its independently audited 182-case replay reproduces **176 Success and 6 Bug**,
+with no outcome changes from the earlier checkpoint: all 126 repaired main
+failures, both existing main successes and all 48 neighboring controls pass.
+There are no NotImplemented outcomes or crashes in this replay. It peaked at
+13.735 GiB without memory throttling or OOM events.
+
+The same production compiler passes 68 native Wasmtime regressions across 15
+targets, including all 17 flatMap tests and three buffer allocation regressions,
+plus the Temporal CLI regression. The IR's 1,122 unit tests and both Object
+constructor integration tests pass; the full backend passes 427 unit tests.
+The selected structural suite passes 48 tests, and four separately compiled
+buffer structural targets pass another 16. Workspace checking includes every
+target. Deep planner regressions retain their original depths and assertions
+while running on the compiler's 64 MiB worker-stack convention.
+
+The full fake suite passes **191/191 executions across 190 files**, with zero
+NotImplemented, Bug or Crash outcomes. Formatting, module boundaries, identity,
+task-plan checks, execution-replay tests and failure-collector tests pass. These
+fake-suite results remain separate from the pinned real Test262 observations.
+The [final verification record](../../test262/replays/latest-baseline-20260910.verification.json)
+retains compiler/source hashes, raw failed attempts, corrected checks and exact
+replay comparisons. Only the two reviewed integration-test files changed after
+the final production compiler was frozen.
+
+## Earlier cohort preservation
+
+The same pre-CI-repair compiler replayed all 1,012 earlier identities. The raw
+run completed with **984 Success, 18 NotImplemented, 0 Bug and 10 Crash**. Each
+Crash was a timeout; a fresh two-worker replay of exactly those ten identities,
+with the same compiler and timeout settings, completed **10 Success**. Those
+separate observations preserve all 994 previously passing identities and all
+111 successes from the freshly built main comparator. The original timeout
+records remain unchanged; this is not a single-run 994-pass result.
+
+Main records 111 Success, 830 NotImplemented and 71 Bug on that exact cohort.
+Across the primary observations and separate rechecks, 812 NotImplemented and
+71 Bug outcomes from main have a passing reproduction: **883 repaired main
+failures**. The 126 additional focused repairs are disjoint, giving **1,009
+unique repaired executions** in this checkpoint's evidence. The audit verifies
+3,362 native snapshots across both comparators, the primary run, timeout
+rechecks and focused cohorts. The [compact evidence record](../../test262/replays/latest-baseline-checkpoint4-20260910.evidence.json)
+retains hashes, exact remaining identities and separate attempt counts.
+
+The primary replay encountered substantial memory-limit throttling before its
+soft limit was raised. The two-worker recheck peaked at 9.464 GiB with no memory
+throttling or OOM events. Passing repeats support resource sensitivity without
+proving the sole cause of the original timeouts.
+
+These 1,012-case results predate the subsequent CI buffer allocation repair.
+They do not claim a full replay on the later compiler. The original historical
+65 passing identities remain unavailable; preservation is verified against the
+fresh main comparator rather than inferred for that historical set.
+
 ## Remaining work
 
 This patch does not claim a completed full-suite run or full conformance.
@@ -122,6 +183,9 @@ large missing Temporal Instant/Now operations, PlainDate.toZonedDateTime,
 Duration calendar-relative operations, ShadowRealm, and SharedArrayBuffer
 realm construction. RegExp still needs Unicode property data coverage,
 lookbehind support/correctness and work on large generated programs/timeouts.
+The buffer regression also exposed an absent `ArrayBuffer.prototype.immutable`
+accessor; it remains a separate capability gap. Immutable backing-store behavior
+is verified through rejected DataView writes, independently of that accessor.
 Other Object descriptor/enumeration and Proxy/String failures remain to be
 repaired in their owning operations.
 

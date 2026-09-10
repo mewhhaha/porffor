@@ -1,0 +1,608 @@
+{
+  "schema_version": 1,
+  "verified_at_utc": "2026-09-10T17:40:25.944471+00:00",
+  "auditor": {
+    "path": "target/failure-review/latest-baseline-pr/audit-final-verification.py",
+    "sha256": "4aaf5f58a37e51f5126c2e7ba79f68761f78bba27b85fce107e8b4ed5dbfce08"
+  },
+  "source_equivalence": {
+    "compiler_sha256": "9a84e3ad40d06cb7cf15ced46b4882e2c883ac5f00bdf1fbe6d1a5c5d3e6eb45",
+    "compiler_manifest": {
+      "path": "target/failure-review/latest-baseline-pr/checkpoint-6/compiler.json",
+      "sha256": "cbb9a8d867a423fde86c772bc789d200d6891dbb7c99ca412680662c81e68236"
+    },
+    "frozen_source_manifest": {
+      "path": "target/failure-review/latest-baseline-pr/checkpoint-6/source.json",
+      "sha256": "880f0949fac577d7809a0e1a2855ca5a71ce3ce2445fa0bd5bfbe26fec08dd0d"
+    },
+    "rust_and_cargo_inputs_verified": 1657,
+    "exactly_matching_inputs": 1655,
+    "production_source_unchanged": true,
+    "allowed_test_changes": [
+      {
+        "path": "crates/lila-aot-wasm/tests/array_buffer_slice_copy_policy_structure.rs",
+        "before_sha256": "f8844f85951da502a36367a128e358cb01b2f419ac6bd06af0bd0290ee527c86",
+        "after_sha256": "8a18dd19baafd6976a27edec0c313c8ffc04421535ed18b41b8a891c9fadca45"
+      },
+      {
+        "path": "crates/lila-engine/tests/aot_buffer_backing_store.rs",
+        "before_sha256": "aef00c1200beb61d6d64439963cd3b7bb3d3a7980af2353dc24371090f675980",
+        "after_sha256": "a42889d71c2c5011cad73d41232737cd994c32606860576bdf9af5e598b3b8b6"
+      }
+    ],
+    "buffer_fixture_change": "Only slices_preserve_bytes_and_independent_backing_stores changed: replace the absent immutable accessor assertion with an observable rejected DataView write.",
+    "structure_change": "Only four reviewed fingerprint assertions and three explanatory comments changed; original workspace formatting restored.",
+    "fingerprint_review": {
+      "path": "target/failure-review/latest-baseline-pr/buffer-standalone-structures/fingerprint-review/comparison.json",
+      "sha256": "e8273d5e687671c0baf891aecd1488317d901949135f9fe3d3a37440de61a050"
+    },
+    "earlier_ir_source_manifest": {
+      "path": "target/failure-review/latest-baseline-pr/checkpoint-4-final-checks/source.json",
+      "sha256": "62ce3906ed2c531761a5b064e86b8100fc52384a9d8ef215e7de5148a3b9a1e9"
+    },
+    "unchanged_ir_front_and_cargo_inputs": 177
+  },
+  "native": {
+    "primary": {
+      "transcript": {
+        "path": "target/watched/pr-checkpoint-6-native.log",
+        "sha256": "7892323fe50c2f37825b71c178d107892464b9258a74438cb711de2976d15412"
+      },
+      "passed": 67,
+      "failed": 1,
+      "ignored": 0,
+      "total": 68,
+      "failures": [
+        "tests/aot_buffer_backing_store.rs::slices_preserve_bytes_and_independent_backing_stores"
+      ],
+      "test_identity_outcome_sha256": "3ff256dc9161e1fc57b47ad00ae5c54d1392e0a40ae7ce40aee0aa39c37f3dc6"
+    },
+    "corrected_buffer_fixture": {
+      "transcript": {
+        "path": "target/watched/pr-checkpoint-6-final-checks-native.log",
+        "sha256": "bb8cc1ce22fe14e62a0674d01ce87730569c487966306c0c2d535732333aafd1"
+      },
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "total": 3,
+      "failures": [],
+      "test_identity_outcome_sha256": "9018a7a42445ce79c567a77c8ce9f44a5c8b96429652246062651c30990e98b4"
+    },
+    "distinct_current_test_names_verified_passing": 68,
+    "limit": "67/68 raw and 3/3 corrected are separate runs; the changed fixture is not claimed to be the original failed fixture."
+  },
+  "rust_suites": {
+    "temporal-cli": {
+      "transcript": {
+        "path": "target/watched/pr-checkpoint-6-final-checks-temporal-cli.log",
+        "sha256": "52c4307c184dcb3e31646138804edf817c5b3d0a695090fa7691e720b096579f"
+      },
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "total": 1,
+      "failures": [],
+      "test_identity_outcome_sha256": "af5cefae26c6aa8cecc569ab6a820b64af53303bb13497cc0ac4e4a8daa5e888"
+    },
+    "backend": {
+      "transcript": {
+        "path": "target/watched/pr-checkpoint-6-final-checks-backend.log",
+        "sha256": "80bcbc15f2c15515aab708fb57635a4b84a8ea24213e9fff802c9c70512240c7"
+      },
+      "passed": 427,
+      "failed": 0,
+      "ignored": 0,
+      "total": 427,
+      "failures": [],
+      "test_identity_outcome_sha256": "c2c788279870a4bdd6bdc4f70bfb09feb1af045c566ce8821de0b3226b19cad2"
+    },
+    "structure": {
+      "transcript": {
+        "path": "target/watched/pr-checkpoint-6-final-checks-structure.log",
+        "sha256": "da7639fd4c8808168fc8c5e33e5c2256ef2bc9ee450718421c1dd5f6d35abc5d"
+      },
+      "passed": 48,
+      "failed": 0,
+      "ignored": 0,
+      "total": 48,
+      "failures": [],
+      "test_identity_outcome_sha256": "fae97b497806773e8fa9179e7d1c477799cc8e9e98c339e1fd12c53f7b5136c7"
+    },
+    "ir": {
+      "transcript": {
+        "path": "target/watched/pr-checkpoint-4-final-checks-ir.log",
+        "sha256": "63c14043e23ad43e4b7effd5cb4e0061390e336bb4880f6a3ffa450652d73713"
+      },
+      "passed": 1124,
+      "failed": 0,
+      "ignored": 0,
+      "total": 1124,
+      "failures": [],
+      "test_identity_outcome_sha256": "d275b6674538008627cc26de0b796a193f4bf08c8c67e71d115ffc45e20f7b7a"
+    }
+  },
+  "standalone_structures": {
+    "results": {
+      "path": "target/failure-review/latest-baseline-pr/buffer-standalone-structures/results.json",
+      "sha256": "ff54795dca156bcd8baa361c58c74417aea9ec05457236b366675ed18ea734bf"
+    },
+    "targets": [
+      {
+        "target": "array_buffer_slice_copy_policy_structure",
+        "compiled_source_sha256": "8a18dd19baafd6976a27edec0c313c8ffc04421535ed18b41b8a891c9fadca45",
+        "current_source_sha256": "8a18dd19baafd6976a27edec0c313c8ffc04421535ed18b41b8a891c9fadca45",
+        "transcript": {
+          "path": "target/failure-review/latest-baseline-pr/buffer-standalone-structures/array_buffer_slice_copy_policy_structure.run.log",
+          "sha256": "accf8aae019b478539d36bc1400f413a8b5befd2494fbfcb01facecc2b20f0b2"
+        },
+        "passed": 7,
+        "failed": 0,
+        "ignored": 0,
+        "total": 7,
+        "failures": [],
+        "test_identity_outcome_sha256": "77bbc1abf020cc5282edd96f194b9d0b0e34dbb45a27922beb42d915aa6e8f81"
+      },
+      {
+        "target": "typed_array_constructor_source_witness_structure",
+        "compiled_source_sha256": "2f96d376f8da75de63022c790bd94c73dbc97ec4f5dfc5004d15c97140b9b6a4",
+        "current_source_sha256": "2f96d376f8da75de63022c790bd94c73dbc97ec4f5dfc5004d15c97140b9b6a4",
+        "transcript": {
+          "path": "target/failure-review/latest-baseline-pr/buffer-standalone-structures/typed_array_constructor_source_witness_structure.run.log",
+          "sha256": "2ade87e707dbcb7502670428f20b6c2dde08ac144d37d0ddbcf36864429fa7a6"
+        },
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "total": 3,
+        "failures": [],
+        "test_identity_outcome_sha256": "8a4fef0dbd335fc8e06b416c828e25d7ab02c90b32703c633c9a8b3c17c40be1"
+      },
+      {
+        "target": "typed_array_set_witness_structure",
+        "compiled_source_sha256": "eba3fab365658fc9561756a711e8d864f21ad347ec1bea1b08757803a06ca108",
+        "current_source_sha256": "eba3fab365658fc9561756a711e8d864f21ad347ec1bea1b08757803a06ca108",
+        "transcript": {
+          "path": "target/failure-review/latest-baseline-pr/buffer-standalone-structures/typed_array_set_witness_structure.run.log",
+          "sha256": "79c68fb6f4491c643dbe723a6e6d81e67e2391e7e4079c4ece86a4c938aaf1fc"
+        },
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "total": 3,
+        "failures": [],
+        "test_identity_outcome_sha256": "2cd2a3ed8d140f68e3d5c443da97547dbb5c4a306f970c745fd7ab00cd0ca8c5"
+      },
+      {
+        "target": "array_flat_map_typed_array_witness_structure",
+        "compiled_source_sha256": "869430b558863c1862f442225c2fd2cfcdb49480f143a16ba524e850ebcf1602",
+        "current_source_sha256": "869430b558863c1862f442225c2fd2cfcdb49480f143a16ba524e850ebcf1602",
+        "transcript": {
+          "path": "target/failure-review/latest-baseline-pr/buffer-standalone-structures/array_flat_map_typed_array_witness_structure.run.log",
+          "sha256": "91d501aa63869b7a677cdc23ffce35d11e7d537119baa820ff24992ffcdf8a52"
+        },
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "total": 3,
+        "failures": [],
+        "test_identity_outcome_sha256": "9f9d887fb0bca742424291454293b86e5358e22b836b6c379518835d12c7afa7"
+      }
+    ]
+  },
+  "fake_suite": {
+    "total": 191,
+    "passed": 191,
+    "snapshot": {
+      "path": "target/failure-review/latest-baseline-pr/checkpoint-6-final-tools/fake-snapshots/pr-checkpoint-6-final-tools-fake-full-6884443370544456486.json",
+      "sha256": "f2f2cf035b1d6cd5c3b2bd55eb3a0f4b00e5614bfa45edbef4cb3d5c59fe71d4"
+    },
+    "transcript": {
+      "path": "target/watched/pr-checkpoint-6-final-tools-fake-full.log",
+      "sha256": "cb9af493fe29aaff738a30b73480f5bd41f381f2168fc286084c9ce794a57329"
+    },
+    "limit": "Fake fixture suite, not real Test262 conformance."
+  },
+  "focused_checkpoint6": {
+    "compiler_sha256": "9a84e3ad40d06cb7cf15ced46b4882e2c883ac5f00bdf1fbe6d1a5c5d3e6eb45",
+    "execution_list": {
+      "path": "test262/replays/latest-baseline-focused-20260910.executions",
+      "sha256": "eae06f996a04763ed2ce51ad743dd77d51b6126e81fc561b22414db4875f3a5c"
+    },
+    "total": 182,
+    "outcomes": {
+      "Success": 176,
+      "NotImplemented": 0,
+      "Bug": 6,
+      "Crash": 0
+    },
+    "all_182_outcomes_unchanged_from_checkpoint4": true,
+    "main_non_successes_now_passing": 126,
+    "main_successes_preserved": 2,
+    "neighboring_controls_passing": 48,
+    "summary": {
+      "path": "target/failure-review/latest-baseline-pr/focused-6/summary.json",
+      "sha256": "cb60d9fd39ac4eb180f7be3014d4e5fd8be133df2169bd7ca19fc603093885ed"
+    },
+    "origin_comparison_audit": {
+      "path": "target/failure-review/latest-baseline-pr/focused-6-audit.json",
+      "sha256": "cd733518195541fbb70b45c6e951fac576840a790af54b70be2cc32ab4d60049"
+    },
+    "checkpoint_comparison": {
+      "path": "target/failure-review/latest-baseline-pr/other-builtins/focused-6-comparison.json",
+      "sha256": "27122673a585ab778d3e1f3b0da9b25832c1707ab7bde4e1fbc464d9668131ad"
+    },
+    "remaining_execution_ids": [
+      "sloppy-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-5.js",
+      "sloppy-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-6.js",
+      "sloppy-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-7.js",
+      "strict-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-5.js",
+      "strict-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-6.js",
+      "strict-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-7.js"
+    ]
+  },
+  "earlier_checkpoint4_cohort_evidence": {
+    "path": "target/failure-review/latest-baseline-pr/checkpoint4-cohort-evidence.json",
+    "sha256": "0d26e50052b21219dd73db37c7b010727aab55bd998e1b1392d39ea1bea4aae9"
+  },
+  "step_evidence": {
+    "checkpoint-6": {
+      "results": {
+        "path": "target/failure-review/latest-baseline-pr/checkpoint-6/results.json",
+        "sha256": "86897ff46bcd6ed2f80c55364f88d2fe59aef82cda32451d2876ae755d5e4bdd"
+      },
+      "raw_steps": [
+        {
+          "label": "build",
+          "command": [
+            "cargo",
+            "build",
+            "--release",
+            "--locked",
+            "-j2",
+            "-p",
+            "lila-cli"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 135.06234572501853
+        },
+        {
+          "label": "native",
+          "command": [
+            "cargo",
+            "test",
+            "--no-fail-fast",
+            "--release",
+            "--locked",
+            "-j2",
+            "-p",
+            "lila-engine",
+            "--test",
+            "aot_aggregate_error_constructor_realm",
+            "--test",
+            "aot_suppressed_error_constructor_realm",
+            "--test",
+            "aot_string_numeric_prefixes",
+            "--test",
+            "aot_proto_getter_receiver",
+            "--test",
+            "aot_temporal_month_code",
+            "--test",
+            "aot_regexp_recompile",
+            "--test",
+            "aot_created_realm_array_iterator",
+            "--test",
+            "aot_iterator_consumers",
+            "--test",
+            "aot_promise_combinator_intrinsics",
+            "--test",
+            "aot_regexp_constructor_and_iterator",
+            "--test",
+            "aot_typed_array_reference_get",
+            "--test",
+            "aot_bigint_numeric_updates",
+            "--test",
+            "aot_bigint_number_conversion",
+            "--test",
+            "aot_buffer_backing_store",
+            "--test",
+            "aot_flat_map",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 101,
+          "elapsed_seconds": 375.1119361979654
+        }
+      ]
+    },
+    "checkpoint-6-final-checks": {
+      "results": {
+        "path": "target/failure-review/latest-baseline-pr/checkpoint-6-final-checks/results.json",
+        "sha256": "7a3137f36e7423a0dd9548b9adad7538714782dcaf64146eec29e3d65d6cfde2"
+      },
+      "raw_steps": [
+        {
+          "label": "native",
+          "command": [
+            "cargo",
+            "test",
+            "--release",
+            "--locked",
+            "-j2",
+            "-p",
+            "lila-engine",
+            "--test",
+            "aot_buffer_backing_store",
+            "--",
+            "--test-threads=2"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 15.042164952028543
+        },
+        {
+          "label": "temporal-cli",
+          "command": [
+            "cargo",
+            "test",
+            "--release",
+            "--locked",
+            "-j2",
+            "-p",
+            "lila-cli",
+            "--test",
+            "cli",
+            "run_wasm_backend_preserves_temporal_date_field_read_modes",
+            "--",
+            "--test-threads=1"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 45.0384645400336
+        },
+        {
+          "label": "backend",
+          "command": [
+            "cargo",
+            "test",
+            "--release",
+            "--locked",
+            "-j2",
+            "-p",
+            "lila-aot-wasm",
+            "--lib",
+            "--",
+            "--test-threads=4"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 360.0530336779775
+        },
+        {
+          "label": "structure",
+          "command": [
+            "cargo",
+            "test",
+            "--release",
+            "--locked",
+            "-j2",
+            "-p",
+            "lila-aot-wasm",
+            "--test",
+            "required_resolved_realm_ordinary_prototype_structure",
+            "--test",
+            "created_realm_promise_publication_structure",
+            "--test",
+            "async_generator_request_promise_realm_structure",
+            "--test",
+            "temporal_date_field_read_mode_structure",
+            "--test",
+            "created_realm_array_prototype_structure",
+            "--test",
+            "created_realm_iterator_next_publication_structure",
+            "--test",
+            "proxy_execution_realm_structure",
+            "--test",
+            "typed_array_to_locale_string_witness_structure",
+            "--test",
+            "numeric_update_value_kind_structure",
+            "--test",
+            "ordinary_property_numeric_update_structure",
+            "--",
+            "--test-threads=4"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 90.04835978604387
+        },
+        {
+          "label": "workspace",
+          "command": [
+            "cargo",
+            "check",
+            "--release",
+            "--locked",
+            "-j2",
+            "--workspace",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 60.04630251508206
+        },
+        {
+          "label": "format",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 1,
+          "elapsed_seconds": 15.043286557076499
+        }
+      ]
+    },
+    "checkpoint-6-final-tools": {
+      "results": {
+        "path": "target/failure-review/latest-baseline-pr/checkpoint-6-final-tools/results.json",
+        "sha256": "9d6c8c034223cc9c32c59edb4ff31736027937828809802b37ed141c301aa607"
+      },
+      "raw_steps": [
+        {
+          "label": "format",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 15.043502809014171
+        },
+        {
+          "label": "module-boundaries",
+          "command": [
+            "bash",
+            "scripts/check-module-boundaries.sh"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 15.047957109985873
+        },
+        {
+          "label": "task-plan",
+          "command": [
+            "bash",
+            "scripts/check-task-plan.sh"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 15.037634794018231
+        },
+        {
+          "label": "replay-tool",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts/tests",
+            "-p",
+            "test_replay_test262_executions.py",
+            "-v"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 15.038653651019558
+        },
+        {
+          "label": "collector-tool",
+          "command": [
+            "python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "scripts/tests",
+            "-p",
+            "test_collect_new_test262_failures.py",
+            "-v"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 15.040776208974421
+        },
+        {
+          "label": "diff",
+          "command": [
+            "git",
+            "diff",
+            "--check"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 15.039157182909548
+        },
+        {
+          "label": "fake-full",
+          "command": [
+            "target/failure-review/latest-baseline-pr/checkpoint-6/lila",
+            "--jobs",
+            "1",
+            "test262",
+            "run",
+            "--suite-root",
+            "crates/lila-test262/tests/fixtures/fake_test262/vendor/test262",
+            "--execution-backend",
+            "wasm-aot",
+            "--snapshot-dir",
+            "target/failure-review/latest-baseline-pr/checkpoint-6-final-tools/fake-snapshots",
+            "--snapshot-name",
+            "pr-checkpoint-6-final-tools-fake-full",
+            "--threads",
+            "2",
+            "--timeout-ms",
+            "60000"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 465.04187906207517
+        }
+      ]
+    },
+    "checkpoint-4-final-checks": {
+      "results": {
+        "path": "target/failure-review/latest-baseline-pr/checkpoint-4-final-checks/results.json",
+        "sha256": "82a0b7e6a2a1d722e960e5e57adbc6c91b09c620b1f8f4b1e24abf8bdeff12e6"
+      },
+      "raw_steps": [
+        {
+          "label": "ir",
+          "command": [
+            "cargo",
+            "test",
+            "--release",
+            "--locked",
+            "-j2",
+            "-p",
+            "lila-ir",
+            "--lib",
+            "--test",
+            "object_constructor_boxing",
+            "--",
+            "--test-threads=4"
+          ],
+          "exit_code": 0,
+          "elapsed_seconds": 1365.0758552369662
+        }
+      ]
+    }
+  },
+  "raw_service_results": {
+    "lila-pr-verification-6.service": {
+      "Id": "lila-pr-verification-6.service",
+      "ActiveState": "failed",
+      "SubState": "failed",
+      "Result": "exit-code",
+      "ExecMainCode": "1",
+      "ExecMainStatus": "101"
+    },
+    "lila-pr-final-checks-6.service": {
+      "Id": "lila-pr-final-checks-6.service",
+      "ActiveState": "failed",
+      "SubState": "failed",
+      "Result": "exit-code",
+      "ExecMainCode": "1",
+      "ExecMainStatus": "1"
+    },
+    "lila-pr-final-tools-6.service": {
+      "Id": "lila-pr-final-tools-6.service",
+      "ActiveState": "inactive",
+      "SubState": "dead",
+      "Result": "success",
+      "ExecMainCode": "0",
+      "ExecMainStatus": "0"
+    }
+  },
+  "limitations": [
+    "The first native service exited101 on one unsupported-accessor fixture assertion; its raw failure remains recorded. The corrected observable fixture passed separately.",
+    "The first final-checks service exited1 at formatting; it never reached its source guard. The later format/tools/fake continuation passed with its own unchanged-source guard.",
+    "The complete IR1122 plus boxing2 run predates checkpoint6; all IR/front-end/Cargo inputs are byte-identical and are verified here.",
+    "The checkpoint4 primary1012 and its ten timeout rechecks remain separate earlier-compiler evidence; no checkpoint6 full1012 replay is claimed.",
+    "Native verification covers the selected targets and 191 fake executions, not the full real Test262 suite or every CI target."
+  ],
+  "status": "completed selected verification reconciled; original failed runs preserved"
+}

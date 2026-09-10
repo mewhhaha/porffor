@@ -48,8 +48,11 @@ The [2026-09-10 baseline follow-up](docs/rust-rewrite/latest-baseline-repairs.md
 compares newly observed failures with freshly fetched `origin/main`. It repairs
 radix-string conversion and rounding, RegExp construction and string-iterator
 identity, Temporal month-code validation order, typed-array Reference reads,
-BigInt numeric updates, and cross-realm error prototypes and accessors. The notes retain the exact replay scope and
-remaining unsupported features and runtime failures.
+BigInt numeric updates, buffer backing-store allocation, and cross-realm error
+prototypes and accessors. The audited repair checkpoint verifies 1,009 distinct
+execution failures repaired relative to main, including ten separately recorded
+timeout rechecks. The notes distinguish that checkpoint from the subsequent CI
+repair and retain the exact scope and remaining failures.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
