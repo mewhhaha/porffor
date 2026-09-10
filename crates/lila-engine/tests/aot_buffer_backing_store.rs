@@ -48,9 +48,12 @@ var copied = source.slice(1, 3);
 var immutable = source.sliceToImmutable(1, 3);
 new Uint8Array(source)[1] = 42;
 new Uint8Array(copied)[0] = 17;
+var denied = false;
+try { new DataView(immutable).setUint8(0, 9); }
+catch (e) { denied = e instanceof TypeError; }
 new Uint8Array(copied)[0] === 17 && new Uint8Array(copied)[1] === 7 &&
 new Uint8Array(immutable)[0] === 5 && new Uint8Array(immutable)[1] === 7 &&
-immutable.immutable && !source.detached;
+denied && !source.detached;
 "#,
     );
 }
