@@ -58,8 +58,9 @@ The [Temporal baseline follow-up](docs/rust-rewrite/temporal-baseline-follow-up.
 tracks the next 134 observed failures after PR #45, reproduced on fresh main.
 It repairs PlainYearMonth parsing, arithmetic and rounding, and adds missing
 ZonedDateTime comparison, calendar getters and exact epoch string formatting.
-The notes retain the frozen observation and focused verification separately
-from the generated full-suite status.
+All 134 failures are repaired in an audited 346/346 passing pinned replay;
+23 focused Wasmtime regressions also pass. The notes retain this evidence
+separately from the generated full-suite status.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for

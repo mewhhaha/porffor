@@ -1,7 +1,7 @@
 # `Temporal.ZonedDateTime` field-result ownership
 
 Status: T22 ownership invariant extended to the complete 21-field dispatch,
-2026-09-10. The coordinated native verification checkpoint is pending.
+2026-09-10. All six tests in the coordinated native surface target pass.
 
 ## Boundary
 
@@ -97,8 +97,9 @@ The 2026-09-10 repair batch adds nine accessors, so its emitted behavior is no
 longer source-equivalent to the historical checkpoint. The new
 `aot_temporal_zoned_date_time_surface` native target covers local-date calendar
 values, ISO week-year boundaries, Boolean/Undefined result tags, accessor
-metadata and brand rejection. Its runtime results belong to the coordinated
-batch checkpoint and are not established by the historical evidence above.
+metadata and brand rejection. All six tests pass through Wasmtime in the
+[2026-09-10 batch checkpoint](../temporal-baseline-follow-up.md), independently
+of the historical evidence above.
 
 The ownership invariant does not supply time-zone data, add another calendar,
 prove general Temporal conformance or make result-variant selection a Rust type
