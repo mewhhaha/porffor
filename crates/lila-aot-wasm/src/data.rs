@@ -2329,8 +2329,6 @@ impl StringPool {
                 "Temporal.PlainDate day must be an integer",
                 "Temporal.PlainDate calendar must be a string",
                 "Invalid Temporal.PlainDate calendar",
-                "Temporal.PlainDate is not a valid ISO date",
-                "Temporal.PlainDate is outside the supported date range",
                 "Temporal.PlainDate receiver does not have [[InitializedTemporalDate]]",
                 "Temporal.PlainDate expects a string, a property bag, or a Temporal.PlainDate",
                 "Temporal.PlainDate monthCode must be a string",
@@ -2391,6 +2389,11 @@ impl StringPool {
                 // behind the PlainDate-only gate above.
                 "Invalid Temporal.PlainDate calendar annotation",
                 "Invalid Temporal.PlainDate string",
+                // ZonedDateTime differences now emit AddISODate directly.
+                // Its RejectISODate diagnostics are shared arithmetic inputs,
+                // even when no Plain-family builtin body is compiled.
+                "Temporal.PlainDate is not a valid ISO date",
+                "Temporal.PlainDate is outside the supported date range",
                 // The same shared helper's final time-string arm resolves
                 // calendar annotations rather than using PlainTime's
                 // ignore-calendar policy.
@@ -2645,6 +2648,16 @@ impl StringPool {
                 "Invalid Temporal.ZonedDateTime offset option",
                 "Invalid Temporal.PlainDate calendar",
                 "Invalid Temporal.ZonedDateTime timeZoneName option",
+                "direction",
+                "plainTime",
+                "hoursInDay",
+                "previous",
+                "Temporal.ZonedDateTime transition direction must be a string or object",
+                "Invalid Temporal.ZonedDateTime transition direction",
+                "Temporal.ZonedDateTime.prototype.round requires a roundTo argument",
+                "Temporal.ZonedDateTime.prototype.round requires smallestUnit",
+                "Invalid Temporal.ZonedDateTime rounding increment",
+                "Temporal.ZonedDateTime rounded ISO date is outside the supported range",
                 "Invalid Temporal.ZonedDateTime unit option",
                 "[!",
                 "timeZoneName",
@@ -5215,6 +5228,35 @@ mod runtime_error_message_pool_tests {
         let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
         let script = lower(&parsed).script.expect("empty script should lower");
         StringPool::collect(&script, &BTreeMap::new(), &[])
+    }
+
+    #[test]
+    fn shared_temporal_arithmetic_literals_do_not_require_plain_family_bodies() {
+        let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
+        let script = lower(&parsed).script.expect("empty script should lower");
+        for builtin in [
+            StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+            StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
+            StandardBuiltinId::TemporalPlainDateFrom,
+        ] {
+            let pool = StringPool::collect(&script, &BTreeMap::new(), &[builtin]);
+            for message in [
+                "Temporal.PlainDate is not a valid ISO date",
+                "Temporal.PlainDate is outside the supported date range",
+                "plainTime",
+            ] {
+                let payload = pool.payload(message) as u64;
+                let offset = (payload >> 32) as usize - STATIC_DATA_OFFSET as usize;
+                let len = (payload & 0xFFFF_FFFF) as usize;
+                assert_eq!(
+                    &pool.bytes[offset..offset + len],
+                    message.as_bytes(),
+                    "missing shared literal for {}",
+                    builtin.debug_name(),
+                );
+            }
+        }
     }
 
     #[test]

@@ -94,6 +94,10 @@ jobs:
           --test aot_temporal_plain_year_month
           --test aot_temporal_zoned_date_time_format
           --test aot_temporal_zoned_date_time_surface
+          --test aot_temporal_zoned_date_time_day
+          --test aot_temporal_zoned_date_time_round
+          --test aot_temporal_zoned_date_time_difference
+          --test aot_temporal_plain_date_zoned
           -- --test-threads=1
 
       - name: Check Temporal option and getter ownership

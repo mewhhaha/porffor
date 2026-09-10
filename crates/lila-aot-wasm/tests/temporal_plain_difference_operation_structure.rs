@@ -1,3 +1,4 @@
+const DIFFERENCE_SOURCE: &str = include_str!("../src/builtins/temporal_difference.rs");
 const DATE_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_methods.rs");
 const DATE_TIME_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_time_methods.rs");
 const TIME_SOURCE: &str = include_str!("../src/builtins/temporal_plain_time_methods.rs");
@@ -20,7 +21,7 @@ fn temporal_plain_difference_operation_is_a_private_two_variant_domain() {
     let declaration = bounded(
         DATE_TIME_SOURCE,
         "pub(super) enum TemporalPlainDifferenceOperation {",
-        "\n}\n\n/// The three compile-time consumers of the shared DateTime difference-settings",
+        "\n}\n\n/// Receiver kind and direction jointly select the default unit and rounding",
     );
     let variants = declaration
         .lines()
@@ -68,6 +69,16 @@ fn all_four_plain_difference_emitters_choose_rounding_and_result_exhaustively() 
             1,
             "typed operation missing from `{start}`"
         );
+        let arithmetic = if start.contains("plain_date_time_until_or_since") {
+            bounded(
+                DIFFERENCE_SOURCE,
+                "pub(super) fn emit_temporal_difference_date_time(",
+                "/// Validate a calendar candidate",
+            )
+        } else {
+            ""
+        };
+        let emitter = format!("{emitter}\n{arithmetic}");
         assert_eq!(
             emitter.matches("match operation {").count(),
             2,

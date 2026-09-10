@@ -1,140 +1,108 @@
-const PLAIN_DATE_TIME_SOURCE: &str =
-    include_str!("../src/builtins/temporal_plain_date_time_methods.rs");
-const ZONED_DATE_TIME_SOURCE: &str =
-    include_str!("../src/builtins/temporal_zoned_date_time_methods.rs");
-const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
+const PLAIN: &str = include_str!("../src/builtins/temporal_plain_date_time_methods.rs");
+const ZONED: &str = include_str!("../src/builtins/temporal_zoned_date_time_methods.rs");
+const DIFFERENCE: &str = include_str!("../src/builtins/temporal_difference.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
         .split_once(start)
-        .unwrap_or_else(|| panic!("missing start: {start}"))
+        .unwrap_or_else(|| panic!("missing {start}"))
         .1
         .split_once(end)
-        .unwrap_or_else(|| panic!("missing end after {start}: {end}"))
+        .unwrap_or_else(|| panic!("missing {end}"))
         .0
 }
 
-fn assert_before(source: &str, earlier: &str, later: &str) {
-    let earlier_offset = source.find(earlier).expect("earlier operation");
-    let later_offset = source.find(later).expect("later operation");
+fn assert_before(source: &str, first: &str, second: &str) {
     assert!(
-        earlier_offset < later_offset,
-        "`{earlier}` must precede `{later}`"
+        source.find(first).expect(first) < source.find(second).expect(second),
+        "{first} must precede {second}"
     );
 }
 
 #[test]
-fn date_time_difference_settings_plan_is_closed_and_receiver_specific() {
-    let plain_direction = bounded(
-        PLAIN_DATE_TIME_SOURCE,
-        "pub(super) enum TemporalPlainDifferenceOperation {",
-        "/// The three compile-time consumers of the shared DateTime difference-settings",
-    );
-    let plain_variants = plain_direction
-        .split_once('}')
-        .expect("plain direction end")
-        .0
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
-    assert_eq!(plain_variants, ["Until,", "Since,"]);
-
-    let plan = bounded(
-        PLAIN_DATE_TIME_SOURCE,
+fn receiver_and_direction_jointly_own_difference_settings() {
+    let variants = bounded(
+        PLAIN,
         "enum TemporalDateTimeDifferenceSettingsPlan {",
-        "impl TemporalDateTimeDifferenceSettingsPlan {",
-    );
-    let plan_variants = plan
-        .split_once('}')
-        .expect("settings plan end")
-        .0
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
+        "\n}",
+    )
+    .lines()
+    .map(str::trim)
+    .filter(|line| !line.is_empty())
+    .collect::<Vec<_>>();
     assert_eq!(
-        plan_variants,
-        ["PlainUntil,", "PlainSince,", "ZonedDelegate,"]
+        variants,
+        ["PlainUntil,", "PlainSince,", "ZonedUntil,", "ZonedSince,"]
     );
-
     let authority = bounded(
-        PLAIN_DATE_TIME_SOURCE,
+        PLAIN,
         "impl TemporalDateTimeDifferenceSettingsPlan {",
-        "struct ResolvedTemporalDateTimeDifferenceSettings {",
+        "/// The completed",
     );
+    for arm in [
+        "Self::PlainUntil | Self::PlainSince => TemporalUnit::Day,",
+        "Self::ZonedUntil | Self::ZonedSince => TemporalUnit::Hour,",
+        "Self::PlainUntil | Self::ZonedUntil => false,",
+        "Self::PlainSince | Self::ZonedSince => true,",
+    ] {
+        assert_eq!(authority.matches(arm).count(), 1);
+    }
     assert!(!authority.contains("_ =>"));
-    assert_eq!(
-        authority
-            .matches("Self::PlainUntil | Self::PlainSince => TemporalUnit::Day,")
-            .count(),
-        1
-    );
-    assert_eq!(
-        authority
-            .matches("Self::ZonedDelegate => TemporalUnit::Hour,")
-            .count(),
-        1
-    );
-    assert_eq!(
-        authority
-            .matches("Self::PlainUntil | Self::ZonedDelegate => false,")
-            .count(),
-        1
-    );
-    assert_eq!(authority.matches("Self::PlainSince => true,").count(), 1);
 }
 
 #[test]
-fn resolved_settings_are_a_linear_complete_witness() {
-    let declaration = PLAIN_DATE_TIME_SOURCE
-        .split_once("struct ResolvedTemporalDateTimeDifferenceSettings {")
-        .expect("resolved settings witness")
-        .0
-        .rsplit_once("\n\n")
-        .expect("witness attribute boundary")
-        .1;
-    assert!(declaration.contains("#[must_use"));
-    assert!(!declaration.contains("derive"));
-    assert!(!declaration.contains("pub"));
-    assert!(!PLAIN_DATE_TIME_SOURCE
-        .contains("impl Copy for ResolvedTemporalDateTimeDifferenceSettings"));
-
-    let fields = PLAIN_DATE_TIME_SOURCE
-        .split_once("struct ResolvedTemporalDateTimeDifferenceSettings {")
-        .expect("resolved settings fields")
-        .1
-        .split_once('}')
-        .expect("resolved settings fields end")
-        .0
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
+fn resolved_settings_are_borrowed_by_arithmetic_without_an_observable_transport() {
+    let fields = bounded(
+        PLAIN,
+        "struct ResolvedTemporalDateTimeDifferenceSettings {",
+        "\n}",
+    )
+    .lines()
+    .map(str::trim)
+    .filter(|line| !line.is_empty())
+    .collect::<Vec<_>>();
     assert_eq!(
         fields,
         [
-            "largest_unit_local: u32,",
-            "smallest_unit_local: u32,",
-            "increment_local: u32,",
-            "mode_local: u32,",
+            "pub(super) largest_unit_local: u32,",
+            "pub(super) smallest_unit_local: u32,",
+            "pub(super) increment_local: u32,",
+            "pub(super) mode_local: u32,",
         ]
     );
+    let declaration = PLAIN
+        .split_once("pub(super) struct ResolvedTemporalDateTimeDifferenceSettings")
+        .unwrap()
+        .0;
+    assert!(declaration
+        .rsplit_once("\n\n")
+        .unwrap()
+        .1
+        .contains("#[must_use"));
+    assert!(!declaration
+        .rsplit_once("\n\n")
+        .unwrap()
+        .1
+        .contains("derive"));
     assert_eq!(
-        PLAIN_DATE_TIME_SOURCE
-            .matches("let ResolvedTemporalDateTimeDifferenceSettings {")
+        DIFFERENCE
+            .matches("settings: &ResolvedTemporalDateTimeDifferenceSettings,")
             .count(),
-        2,
-        "the witness has exactly one PlainDateTime and one ZonedDateTime consumer"
+        1
     );
+    for source in [PLAIN, ZONED] {
+        assert!(!source.contains("delegate_options"));
+        assert!(!source.contains("difference_unit_string_payload"));
+        assert!(!source.contains("difference_rounding_mode_string_payload"));
+    }
 }
 
 #[test]
-fn shared_reader_gets_each_user_setting_once_in_spec_order() {
+fn shared_reader_gets_each_setting_once_in_spec_order() {
     let reader = bounded(
-        PLAIN_DATE_TIME_SOURCE,
-        "    fn emit_temporal_date_time_difference_settings(",
-        "    fn emit_temporal_difference_unit_string_payload(",
+        PLAIN,
+        "pub(super) fn emit_temporal_date_time_difference_settings(",
+        "/// Temporal proposal 5.3.x `until`",
     );
     assert_eq!(
         reader
@@ -160,111 +128,109 @@ fn shared_reader_gets_each_user_setting_once_in_spec_order() {
             .count(),
         1
     );
-    assert_before(
-        reader,
-        "TemporalUnitOptionProperty::LargestUnit",
-        "rounding_increment_option(",
-    );
-    assert_before(
-        reader,
-        "rounding_increment_option(",
-        "rounding_mode_option(",
-    );
-    assert_before(
-        reader,
-        "rounding_mode_option(",
-        "TemporalUnitOptionProperty::SmallestUnit",
-    );
-    assert!(reader.contains("let fallback_largest_unit = plan.fallback_largest_unit();"));
+    for (first, second) in [
+        (
+            "TemporalUnitOptionProperty::LargestUnit",
+            "rounding_increment_option(",
+        ),
+        ("rounding_increment_option(", "rounding_mode_option("),
+        (
+            "rounding_mode_option(",
+            "TemporalUnitOptionProperty::SmallestUnit",
+        ),
+    ] {
+        assert_before(reader, first, second);
+    }
+    assert!(reader.contains("plan.fallback_largest_unit()"));
     assert!(reader.contains("if plan.negates_rounding_mode()"));
 }
 
 #[test]
-fn plain_arithmetic_and_zoned_transport_are_the_only_consumers() {
+fn entrypoints_read_options_once_and_share_the_typed_arithmetic_boundary() {
     let plain = bounded(
-        PLAIN_DATE_TIME_SOURCE,
-        "    pub(super) fn emit_temporal_plain_date_time_until_or_since(",
-        "    pub(crate) fn emit_temporal_plain_date_time_to_locale_string(",
+        PLAIN,
+        "pub(super) fn emit_temporal_plain_date_time_until_or_since(",
+        "pub(crate) fn emit_temporal_plain_date_time_to_locale_string(",
     );
-    assert_eq!(
-        plain
-            .matches("emit_temporal_date_time_difference_settings(")
-            .count(),
-        1
+    let zoned = ZONED
+        .split_once("fn emit_temporal_zoned_date_time_until_or_since(")
+        .unwrap()
+        .1;
+    for entry in [plain, zoned] {
+        assert_eq!(
+            entry
+                .matches("emit_temporal_date_time_difference_settings(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            entry.matches("emit_temporal_difference_date_time(").count(),
+            1
+        );
+        assert_before(
+            entry,
+            "emit_temporal_require_same_calendar(",
+            "emit_temporal_date_time_difference_settings(",
+        );
+        assert!(!entry.contains("emit_temporal_duration_unit_option("));
+    }
+    assert!(plain.contains("TemporalDifferenceContext::Plain"));
+    assert!(zoned.contains("TemporalDifferenceContext::Zoned"));
+    assert_before(
+        zoned,
+        "emit_temporal_date_time_difference_settings(",
+        "TemporalDifferenceGuard::ZonedDateTimeSameTimeZone",
     );
-    assert!(plain.contains("let settings_plan = match operation {"));
-    assert!(plain.contains(
-        "TemporalPlainDifferenceOperation::Until => {\n                TemporalDateTimeDifferenceSettingsPlan::PlainUntil"
-    ));
-    assert!(plain.contains(
-        "TemporalPlainDifferenceOperation::Since => {\n                TemporalDateTimeDifferenceSettingsPlan::PlainSince"
-    ));
-    assert!(!plain.contains("emit_temporal_duration_unit_option("));
-    assert!(!plain.contains("emit_temporal_duration_rounding_mode_option("));
-
-    let transport = bounded(
-        PLAIN_DATE_TIME_SOURCE,
-        "    pub(crate) fn emit_temporal_zoned_date_time_difference_delegate_options(",
-        "    pub(super) fn emit_temporal_plain_date_time_until_or_since(",
+    let guard = bounded(
+        zoned,
+        "let settings =",
+        "TemporalDifferenceGuard::ZonedDateTimeSameTimeZone",
     );
-    assert_eq!(
-        transport
-            .matches("TemporalDateTimeDifferenceSettingsPlan::ZonedDelegate")
-            .count(),
-        1
+    assert!(guard.contains("LocalGet(settings.largest_unit_local)"));
+    assert!(guard.contains("I64Const(TemporalUnit::Day.code())"));
+    assert!(guard.contains("Instruction::I64LeS"));
+    assert_before(
+        zoned,
+        "emit_temporal_zoned_date_time_epoch_pair(",
+        "emit_temporal_zoned_date_time_to_plain_date_time(",
     );
-    assert_eq!(
-        transport
-            .matches("emit_alloc_plain_object_with_prototype(None, None, function)")
-            .count(),
-        1
-    );
-    assert_eq!(
-        transport
-            .matches("emit_object_define_enumerable_data(")
-            .count(),
-        4
-    );
-    assert_before(transport, "\"largestUnit\"", "\"roundingIncrement\"");
-    assert_before(transport, "\"roundingIncrement\"", "\"roundingMode\"");
-    assert_before(transport, "\"roundingMode\"", "\"smallestUnit\"");
 }
 
 #[test]
-fn zoned_delegate_receives_only_the_normalized_options_bag() {
-    let zoned = ZONED_DATE_TIME_SOURCE
-        .split_once("    fn emit_temporal_zoned_date_time_until_or_since(")
-        .expect("ZonedDateTime difference emitter")
-        .1;
+fn calendar_candidates_have_one_exhaustive_range_authority() {
+    let context = bounded(DIFFERENCE, "enum TemporalDifferenceContext {", "\n}");
     assert_eq!(
-        zoned
-            .matches("emit_temporal_zoned_date_time_difference_delegate_options(")
+        context
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>(),
+        ["Plain,", "Zoned { offset_seconds_local: u32 },"]
+    );
+    let validation = bounded(
+        DIFFERENCE,
+        "fn emit_temporal_difference_candidate_range(",
+        "/// NudgeToCalendarUnit",
+    );
+    assert!(validation.contains("match context {"));
+    assert!(!validation.contains("_ =>"));
+    assert!(validation.contains("emit_temporal_instant_validate_range("));
+    let nudge = bounded(
+        DIFFERENCE,
+        "fn emit_temporal_nudge_difference_calendar(",
+        "/// Bubble only",
+    );
+    assert_eq!(
+        nudge
+            .matches("emit_temporal_difference_candidate_range(")
             .count(),
-        1
+        2
     );
     assert_before(
-        zoned,
-        "emit_temporal_zoned_date_time_difference_delegate_options(",
-        "let difference_builtin = difference.plain_date_time_builtin();",
+        nudge,
+        "emit_temporal_difference_candidate_range(",
+        "emit_temporal_duration_round_up_i32(",
     );
-
-    let delegate = bounded(
-        zoned,
-        "        let difference_builtin = difference.plain_date_time_builtin();",
-        "        function.instruction(&Instruction::LocalGet(duration_payload_local));",
-    );
-    assert!(delegate.contains("delegate_options_payload_local"));
-    assert!(delegate.contains("delegate_options_tag_local"));
-    assert!(!delegate.contains("(options_payload_local, options_tag_local)"));
-
-    assert!(STANDARD_SOURCE
-        .contains("TemporalPlainDifferenceOperation::Until,\n                    function,"));
-    assert!(STANDARD_SOURCE
-        .contains("TemporalPlainDifferenceOperation::Since,\n                    function,"));
-    assert!(
-        !STANDARD_SOURCE.contains("emit_temporal_plain_date_time_until_or_since(false, function)")
-    );
-    assert!(
-        !STANDARD_SOURCE.contains("emit_temporal_plain_date_time_until_or_since(true, function)")
-    );
+    assert!(DIFFERENCE.contains("fn emit_temporal_zoned_time_nudge_range("));
+    assert!(DIFFERENCE.contains("fn emit_temporal_bubble_difference("));
 }

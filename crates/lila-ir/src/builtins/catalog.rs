@@ -5830,6 +5830,41 @@ standard_builtin_catalog! {
         installer: None,
         native: "toString",
     }
+    TemporalZonedDateTimePrototypeRound {
+        function: FunctionOrdinal(801) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.round",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "round",
+    }
+    TemporalZonedDateTimePrototypeGetTimeZoneTransition {
+        function: FunctionOrdinal(802) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GET_TIME_ZONE_TRANSITION_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.getTimeZoneTransition",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "getTimeZoneTransition",
+    }
+    TemporalZonedDateTimePrototypeHoursInDayGetter {
+        function: FunctionOrdinal(803) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOURS_IN_DAY_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.hoursInDay",
+        flags: [],
+        installer: None,
+        native: "get hoursInDay",
+    }
+    TemporalZonedDateTimePrototypeStartOfDay {
+        function: FunctionOrdinal(804) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_START_OF_DAY_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.startOfDay",
+        flags: [],
+        installer: None,
+        native: "startOfDay",
+    }
+    TemporalPlainDatePrototypeToZonedDateTime {
+        function: FunctionOrdinal(805) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_ZONED_DATE_TIME_FUNCTION_ID,
+        debug: "Temporal.PlainDate.prototype.toZonedDateTime",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "toZonedDateTime",
+    }
 }
 
 impl StandardBuiltinId {

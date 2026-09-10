@@ -7,53 +7,16 @@
 //! `temporal_plain_date_time.rs`. Both halves are `impl FunctionBuilder`
 //! blocks; the boundary is pinned by `scripts/check-module-boundaries.sh`.
 //!
-//! # Why these five did not exist
-//!
-//! Before batch 6 `Temporal.ZonedDateTime.prototype` carried 18 accessors and
-//! exactly four data methods. `zdt.add(duration)` therefore read `undefined`
-//! off the prototype and the call site threw
-//! `TypeError: value is not callable` — the label measured on all 28
-//! `intl402/Temporal/ZonedDateTime/prototype/{add,subtract,since,until}/era-boundary-*.js`
-//! cases. Nothing was mis-rooted and no internal `AddZonedDateTime` was
-//! stranded: the members simply were not there.
-//!
-//! # The shape, and its limit
-//!
-//! `add`/`subtract`/`until`/`since` are **composition, not new arithmetic**:
-//!
-//! ```text
-//! ZonedDateTime --toPlainDateTime--> PlainDateTime
-//!                                        |  Temporal.PlainDateTime.prototype.{add,subtract,until,since}
-//!                                        v
-//!                     PlainDateTime --toZonedDateTime(receiver's time zone)--> ZonedDateTime
-//!                     (until/since stop at the Duration and return it)
-//! ```
-//!
-//! Both legs already exist and are already correct: `toPlainDateTime` IS the
-//! spec's `GetPlainDateTimeFor` and carries the receiver's calendar payload, so
-//! era-aware calendar arithmetic happens in the PlainDateTime bodies with the
-//! right calendar; `toZonedDateTime` IS `GetEpochNanosecondsFor` and carries the
-//! calendar back. Delegating rather than re-deriving is what keeps one
-//! implementation of `AddISODate`/`CalendarDateUntil` in the tree.
-//!
-//! **STATED LIMIT — this is not the spec answer across a DST transition.**
-//! `AddDurationToZonedDateTime` adds the date part in the calendar, re-derives
-//! epoch nanoseconds with `compatible` disambiguation, and only then adds the
-//! time part as an absolute duration; `DifferenceZonedDateTime` does the mirror
-//! image. The round trip here does *all* of it in local wall-clock time, which
-//! agrees with the spec exactly when the local offset is constant across the
-//! interval. Every one of the 28 era-boundary cases uses `timeZone: "UTC"`, and
-//! this backend resolves only `UTC` and fixed numeric offsets anyway (see
-//! `emit_temporal_plain_date_time_to_zoned_date_time`'s own note), so the gap is
-//! unreachable from the currently supported time-zone set — but it is a real
-//! gap the moment named IANA zones land, and it is recorded as owned debt in
-//! `target/lane-notes/zdt-arithmetic-surface-b6-integration.md` rather than left
-//! for a green gate to imply it is finished.
-//!
-//! `withCalendar` is not composition and carries no such caveat: it rewrites one
-//! field of the record, so it is exact.
+//! Date arithmetic delegates to PlainDateTime for the supported UTC and fixed
+//! offset zones. Time-unit differences use exact epoch seconds/subseconds;
+//! date-unit differences require the same zone after reading options.
 
 use super::super::*;
+use super::temporal_difference::TemporalDifferenceContext;
+use super::temporal_options::TemporalUnit;
+use super::temporal_plain_date_time_methods::{
+    TemporalDateTimeDifferenceSettingsPlan, TemporalPlainDifferenceOperation,
+};
 
 /// Which of the two arithmetic members is being emitted.
 ///
@@ -89,15 +52,6 @@ impl ZonedDateTimeArithmetic {
 enum ZonedDateTimeDifference {
     Until,
     Since,
-}
-
-impl ZonedDateTimeDifference {
-    fn plain_date_time_builtin(self) -> StandardBuiltinId {
-        match self {
-            Self::Until => StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
-            Self::Since => StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
-        }
-    }
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -437,8 +391,6 @@ impl<'a> FunctionBuilder<'a> {
         let argument_tag_local = self.reserve_temp_local();
         let options_payload_local = self.reserve_temp_local();
         let options_tag_local = self.reserve_temp_local();
-        let delegate_options_payload_local = self.reserve_temp_local();
-        let delegate_options_tag_local = self.reserve_temp_local();
         let other_payload_local = self.reserve_temp_local();
         let other_tag_local = self.reserve_temp_local();
         let other_record_local = self.reserve_temp_local();
@@ -448,9 +400,14 @@ impl<'a> FunctionBuilder<'a> {
         let plain_tag_local = self.reserve_temp_local();
         let other_plain_payload_local = self.reserve_temp_local();
         let other_plain_tag_local = self.reserve_temp_local();
-        let duration_payload_local = self.reserve_temp_local();
-        let duration_tag_local = self.reserve_temp_local();
 
+        let offset_seconds_local = self.reserve_temp_local();
+        let fields = self.reserve_temporal_plain_date_time_field_locals();
+        let other_fields = self.reserve_temporal_plain_date_time_field_locals();
+        let operation = match difference {
+            ZonedDateTimeDifference::Until => TemporalPlainDifferenceOperation::Until,
+            ZonedDateTimeDifference::Since => TemporalPlainDifferenceOperation::Since,
+        };
         self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
         for (offset, local) in [
             (
@@ -513,25 +470,20 @@ impl<'a> FunctionBuilder<'a> {
             TemporalDifferenceGuard::ZonedDateTimeSameCalendar,
             function,
         )?;
-        // `TimeZoneEquals`. Comparing the two canonical time-zone strings is
-        // sound for exactly the set of zones this backend resolves (`UTC` and
-        // fixed numeric offsets, canonicalised on the way into the record), and
-        // it is what makes the wall-clock round trip below a legitimate
-        // implementation of the difference: with one shared constant offset,
-        // local-time arithmetic and instant arithmetic agree.
-        //
-        // DELIBERATELY OVER-STRICT, and this is the choice, not an oversight.
-        // The spec applies `TimeZoneEquals` only when `largestUnit` is a *date*
-        // unit; a time-unit difference across two zones is legal and answers
-        // the plain instant difference. `largestUnit` is resolved into a
-        // linear settings witness below. Moving that read
-        // before this guard and conditioning the guard on the witness would
-        // repair a separate observable-order/cross-zone seam; it is
-        // deliberately not ridden along here. Given the choice between
-        // throwing a spec-shaped RangeError in a case the spec allows and
-        // returning a *wrong number* (differencing two wall-clock readings
-        // taken in different zones is meaningless), this takes the loud error.
-        // Cross-zone time-unit differences remain a known, named gap.
+        let plan = match difference {
+            ZonedDateTimeDifference::Until => TemporalDateTimeDifferenceSettingsPlan::ZonedUntil,
+            ZonedDateTimeDifference::Since => TemporalDateTimeDifferenceSettingsPlan::ZonedSince,
+        };
+        let settings = self.emit_temporal_date_time_difference_settings(
+            options_payload_local,
+            options_tag_local,
+            plan,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(settings.largest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
+        function.instruction(&Instruction::I64LeS);
+        function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_string_payload_equality_i32(
             time_zone_payload_local,
             other_time_zone_payload_local,
@@ -546,6 +498,74 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(settings.largest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
+        function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let seconds_local = self.reserve_temp_local();
+        let subsecond_local = self.reserve_temp_local();
+        let other_seconds_local = self.reserve_temp_local();
+        let other_subsecond_local = self.reserve_temp_local();
+        let duration_fields = self.reserve_temporal_duration_field_locals();
+        self.emit_temporal_zoned_date_time_epoch_pair(
+            record_local,
+            seconds_local,
+            subsecond_local,
+            function,
+        );
+        self.emit_temporal_zoned_date_time_epoch_pair(
+            other_record_local,
+            other_seconds_local,
+            other_subsecond_local,
+            function,
+        );
+        for (receiver, other) in [
+            (seconds_local, other_seconds_local),
+            (subsecond_local, other_subsecond_local),
+        ] {
+            function.instruction(&Instruction::LocalGet(other));
+            function.instruction(&Instruction::LocalGet(receiver));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::LocalSet(receiver));
+        }
+        self.emit_temporal_duration_renormalize(seconds_local, subsecond_local, function);
+        self.emit_temporal_round_difference_time(
+            seconds_local,
+            subsecond_local,
+            settings.smallest_unit_local,
+            settings.increment_local,
+            settings.mode_local,
+            function,
+        );
+        if matches!(difference, ZonedDateTimeDifference::Since) {
+            for local in [seconds_local, subsecond_local] {
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalGet(local));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(local));
+            }
+        }
+        self.emit_temporal_duration_balance(
+            seconds_local,
+            subsecond_local,
+            settings.largest_unit_local,
+            &duration_fields,
+            function,
+        )?;
+        self.emit_create_temporal_duration(&duration_fields, function)?;
+        self.emit_return_current_completion(function);
+        self.release_temporal_duration_field_locals(duration_fields);
+        for local in [
+            other_subsecond_local,
+            other_seconds_local,
+            subsecond_local,
+            seconds_local,
+        ] {
+            self.release_temp_local(local);
+        }
         function.instruction(&Instruction::End);
 
         // Both sides to PlainDateTime: the receiver inline (its `this` is ours),
@@ -577,48 +597,58 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        // Resolve the user bag under ZonedDateTime's hour fallback exactly
-        // once. The returned private bag contains only validated primitives,
-        // so the existing PlainDateTime body can read it without repeating an
-        // observable getter or conversion.
-        self.emit_temporal_zoned_date_time_difference_delegate_options(
-            options_payload_local,
-            options_tag_local,
-            delegate_options_payload_local,
-            delegate_options_tag_local,
+        self.load_i64_to_local_from_offset(
+            plain_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            other_plain_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            other_record_local,
+            function,
+        );
+        self.emit_temporal_plain_date_time_load_record(
+            record_local,
+            &fields,
+            calendar_payload_local,
+            function,
+        );
+        self.emit_temporal_plain_date_time_load_record(
+            other_record_local,
+            &other_fields,
+            other_calendar_payload_local,
+            function,
+        );
+        self.emit_temporal_fixed_time_zone_offset_seconds(
+            time_zone_payload_local,
+            offset_seconds_local,
             function,
         )?;
-
-        let difference_builtin = difference.plain_date_time_builtin();
-        let difference_meta = self
-            .functions
-            .get(&difference_builtin.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    difference_builtin.debug_name()
-                ))
-            })?;
-        self.emit_direct_js_call(
-            &difference_meta,
-            Some((plain_payload_local, Some(plain_tag_local))),
-            &[
-                (other_plain_payload_local, other_plain_tag_local),
-                (delegate_options_payload_local, delegate_options_tag_local),
-            ],
-            duration_payload_local,
-            duration_tag_local,
+        self.emit_temporal_difference_date_time(
+            &fields,
+            &other_fields,
+            &settings,
+            operation,
+            TemporalDifferenceContext::Zoned {
+                offset_seconds_local,
+            },
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(duration_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(duration_tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
         for local in [
-            duration_tag_local,
-            duration_payload_local,
+            settings.mode_local,
+            settings.increment_local,
+            settings.smallest_unit_local,
+            settings.largest_unit_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        self.release_temporal_plain_date_time_field_locals(other_fields);
+        self.release_temporal_plain_date_time_field_locals(fields);
+        self.release_temp_local(offset_seconds_local);
+        for local in [
             other_plain_tag_local,
             other_plain_payload_local,
             plain_tag_local,
@@ -628,8 +658,6 @@ impl<'a> FunctionBuilder<'a> {
             other_record_local,
             other_tag_local,
             other_payload_local,
-            delegate_options_tag_local,
-            delegate_options_payload_local,
             options_tag_local,
             options_payload_local,
             argument_tag_local,

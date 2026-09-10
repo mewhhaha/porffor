@@ -1,5 +1,8 @@
 # ZonedDateTime difference default largest unit
 
+Status: current architecture as of 2026-09-10; the direct-arithmetic batch's
+native checkpoint is pending.
+
 `Temporal.ZonedDateTime.prototype.until` and `since` use
 `DifferenceTemporalZonedDateTime`. Its `GetDifferenceSettings` call has
 `"hour"` as the fallback largest unit and `"nanosecond"` as the fallback
@@ -25,22 +28,7 @@ larger of `hour` and the resolved `smallestUnit`. A one-year fixed-offset
 difference is expressed as 8784 hours, not 366 days. If `smallestUnit` is a
 date unit, that larger unit remains the default.
 
-## Existing composition and the defect
-
-The Wasm-AOT ZonedDateTime implementation converts both operands to trusted
-PlainDateTime values and directly calls the compiled PlainDateTime `until` or
-`since` body. Passing the user's options object through that call preserves
-observable property access, but also selects PlainDateTime's hard-coded `day`
-fallback. The result has the right sign and shape while balancing into the
-wrong largest unit.
-
-Reading `largestUnit` in the ZonedDateTime wrapper and then passing the same
-object to the delegate is not a valid repair: getters, proxies and conversion
-hooks would be observed twice. Duplicating the complete PlainDateTime
-difference emitter would avoid the second read but would create a second
-arithmetic authority and substantially increase emitted Wasm.
-
-## Closed settings plan and linear witness
+## Closed settings plan and direct arithmetic
 
 One shared settings producer owns the four observable reads in order:
 
@@ -49,26 +37,65 @@ One shared settings producer owns the four observable reads in order:
 3. `roundingMode`; and
 4. `smallestUnit`.
 
-Its closed compile-time plan has exactly three states:
+`TemporalDateTimeDifferenceSettingsPlan` has four exhaustive states:
 
-- PlainDateTime `until`: `day` fallback, rounding mode consumed directly;
-- PlainDateTime `since`: `day` fallback, rounding mode negated before use; and
-- ZonedDateTime delegation: `hour` fallback, unnegated rounding mode retained
-  because the selected PlainDateTime delegate still owns the operation
-  direction.
+| Plan | Fallback largest unit | Rounding mode |
+| --- | --- | --- |
+| `PlainUntil` | `day` | Requested mode |
+| `PlainSince` | `day` | Negated mode |
+| `ZonedUntil` | `hour` | Requested mode |
+| `ZonedSince` | `hour` | Negated mode |
 
-The producer returns a private, `#[must_use]`, non-`Copy` resolved-settings
-witness. PlainDateTime consumes the witness directly in its existing
-arithmetic. ZonedDateTime consumes it through one materializer that builds an
-unreachable null-prototype options object containing explicit primitive values
-for all four settings. The existing PlainDateTime delegate may read and
-validate that internal object again, but no user getter or conversion hook is
-repeated. The user options object is never passed to the delegate.
+The producer returns the builtin-scoped, `#[must_use]`, non-`Copy`
+`ResolvedTemporalDateTimeDifferenceSettings` witness containing all four
+resolved locals. The entry emitter owns their lifetime and lends the witness
+directly to arithmetic. The settings reader negates a `since` rounding mode
+once; arithmetic negates the final duration once. There is no serializer,
+internal options object, second option read, or PlainDateTime difference
+builtin call in the ZonedDateTime path.
 
-The internal object is a transport representation, not a new JavaScript API or
-general Temporal options abstraction. It exists only to keep one arithmetic
-body while carrying already resolved settings across the existing builtin-call
-boundary.
+`emit_temporal_difference_date_time` in `builtins/temporal_difference.rs` owns
+the shared field arithmetic, calendar rounding and expansion into larger
+units. PlainDateTime enters it with `TemporalDifferenceContext::Plain`.
+ZonedDateTime date-unit differences enter it with
+`TemporalDifferenceContext::Zoned { offset_seconds_local }`. The closed
+context selects the range authority for calendar candidates: the ISO date
+bounds used by `CalendarDateAdd` on the Plain path, or the corresponding
+instant after applying the fixed offset on the Zoned path. The Plain path
+converts a candidate directly to epoch nanoseconds; it does not impose the
+additional lower-midnight restriction of constructing a PlainDateTime.
+Operation direction remains the separate
+`TemporalPlainDifferenceOperation::{Until, Since}` domain.
+
+ZonedDateTime still obtains trusted local date-time fields through the existing
+conversion path for date-unit arithmetic. Sharing these converted fields does
+not delegate option interpretation or rounding to a public PlainDateTime
+method. Whole seconds and subseconds remain separate in time-duration
+arithmetic; the complete difference is not multiplied into an overflowing i64
+nanosecond total.
+
+## Observable order and time-zone boundary
+
+The ZonedDateTime entry brands the receiver, converts `other`, and checks
+calendar equality before reading options. After resolving settings, a largest
+unit of `day` or larger requires equal time-zone identifiers. For a largest
+unit smaller than `day`, the emitter subtracts exact epoch seconds/subseconds
+directly and may compare operands with different supported zones. It rounds
+that pair with `emit_temporal_round_difference_time` and balances into the
+resolved largest unit. These branch and ordering requirements follow
+[DifferenceTemporalZonedDateTime](https://tc39.es/proposal-temporal/#sec-temporal-differencetemporalzoneddatetime).
+
+The current local-calendar implementation supports UTC and fixed numeric
+offsets. The context carries that known offset into candidate validation; it
+does not introduce named-zone transition or DST arithmetic.
+
+When time-unit rounding retains calendar days, the Plain path includes those
+days in the quantity being rounded. The Zoned path rounds the time remainder
+and validates both adjacent day endpoints before selecting a result. Even
+fixed 24-hour days can therefore produce different half-even results: 28 hours
+rounded to an eight-hour increment yields `P1DT8H` for PlainDateTime and `P1D`
+for a UTC ZonedDateTime. The nanosecond/increment-one shortcut returns the
+unrounded difference before that relative rounding step.
 
 ## Observable regression
 
@@ -83,23 +110,43 @@ prove that every user property is consumed once. This prevents a later
 shortcut from restoring the correct numeric answer by double-reading the
 original options bag.
 
-A focused source-structure test pins the three-state plan, its exhaustive
-fallback and rounding ownership, the non-copyable witness, both consumers, and
-the rule that ZonedDateTime passes the normalized options locals rather than
-the user's locals to the PlainDateTime delegate.
+A focused source-structure test must pin the four-state plan, exhaustive
+fallback and rounding ownership, the non-copyable witness, direct consumers,
+closed range context, and absence of the retired options transport. Runtime
+controls must also exercise wide exact differences, `since` sign ownership,
+calendar-unit rounding across boundaries, and option reads before the
+date-unit time-zone guard.
 
-## Baseline and deferred gates
+## Historical composition and evidence
+
+The original implementation called the compiled PlainDateTime `until` or
+`since` body with the user's options. That preserved property access but
+incorrectly selected PlainDateTime's `day` fallback.
+
+The 2026-08-13 repair introduced three settings plans (`PlainUntil`,
+`PlainSince`, `ZonedDelegate`). ZonedDateTime resolved user options once, then
+materialized explicit primitive settings in an internal null-prototype object
+for the selected PlainDateTime builtin to read. `ZonedDelegate` kept the mode
+unnegated because that delegate owned the direction. This repaired the hour
+default without repeating user effects. The 2026-09-10 implementation removes
+that transport and moves arithmetic behind the direct shared boundary above.
 
 The completed 2026-08-13 current-pin Wasm-AOT Date-family snapshots were
 produced by an older binary. They are ownership evidence only: the aggregate
 Date leaf passed 75 of 78 cases with exactly the three now-landed constructor
 realm-prototype failures, while `Date/UTC`, `Date/now`, `Date/parse` and
-`Date/prototype` passed 17/17, 6/6, 8/8 and 485/485 respectively. No completed
-current-pin Temporal Wasm leaf establishes this seam's runtime result.
+`Date/prototype` passed 17/17, 6/6, 8/8 and 485/485 respectively. At that point,
+no completed current-pin Temporal Wasm leaf established the seam's runtime
+result.
 
-While that baseline owns Cargo and Test262 resources, this batch performs only
-source inspection and cheap static checks. After release, verification must
-include:
+Those older snapshots and the later operation-domain checkpoint recorded in
+[the plain difference contract](temporal-plain-difference-operation.md) retain
+their original scope. They do not verify the current direct-arithmetic batch.
+
+## Current verification requirements
+
+The 2026-09-10 batch requires focused native regressions followed by the
+coordinated broad checkpoint. Relevant retained checks include:
 
 ```sh
 cargo test -p lila-aot-wasm --test temporal_zoned_date_time_difference_defaults_structure
@@ -117,9 +164,9 @@ the low-RAM current-pin publication path.
 
 ## Non-claims
 
-This seam does not implement named time zones or DST-sensitive
-`DifferenceZonedDateTime`. It does not make time-unit differences legal across
-different zones, move `GetDifferenceSettings` before the existing time-zone
-guard, add a default-zone provider, or change another Temporal class. It does
-not change Date, claim the current Date fixes have executed successfully, claim
-the complete Temporal tree is green, or refresh snapshots and README status.
+This seam does not implement named time zones, DST-sensitive
+`DifferenceZonedDateTime`, or a default-zone provider. Shared arithmetic changes
+also affect PlainDateTime and require its neighboring controls. The historical
+Date evidence is not a new Date verification result, and the current source
+does not establish that the complete Temporal tree is green or publish new
+snapshots and README status.

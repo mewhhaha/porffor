@@ -311,6 +311,10 @@ impl<'a> FunctionBuilder<'a> {
                 StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime,
             ),
             (
+                "toZonedDateTime",
+                StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime,
+            ),
+            (
                 "toPlainYearMonth",
                 StandardBuiltinId::TemporalPlainDatePrototypeToPlainYearMonth,
             ),
@@ -1056,6 +1060,10 @@ impl<'a> FunctionBuilder<'a> {
             (
                 "daysInYear",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter,
+            ),
+            (
+                "hoursInDay",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter,
             ),
             (
                 "monthsInYear",

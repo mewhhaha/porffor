@@ -290,7 +290,30 @@ pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId
         "toString",
         StandardBuiltinId::TemporalZonedDateTimePrototypeToString,
     ),
+    (
+        "round",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeRound,
+    ),
+    (
+        "getTimeZoneTransition",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition,
+    ),
+    (
+        "startOfDay",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay,
+    ),
 ];
+
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.round";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GET_TIME_ZONE_TRANSITION_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.getTimeZoneTransition";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOURS_IN_DAY_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.hoursInDay.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_START_OF_DAY_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.startOfDay";
+pub const BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_ZONED_DATE_TIME_FUNCTION_ID: &str =
+    "$builtin.Temporal.PlainDate.prototype.toZonedDateTime";
 
 pub const REGEXP_NAME: &str = "RegExp";
 pub const JSON_NAME: &str = "JSON";

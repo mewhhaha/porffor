@@ -1224,6 +1224,10 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter,
             ),
             (
+                "hoursInDay",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter,
+            ),
+            (
                 "monthsInYear",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
             ),
@@ -1446,6 +1450,13 @@ impl<'a> ScriptLowerer<'a> {
             "toPlainDateTime".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                 StandardBuiltinId::TemporalPlainDatePrototypeToPlainDateTime.function_id(),
+                false,
+            )),
+        );
+        properties.insert(
+            "toZonedDateTime".to_string(),
+            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime.function_id(),
                 false,
             )),
         );
@@ -6525,13 +6536,22 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object).union(KindSet::from_kind(ValueKind::Null)),
+                Some(Self::temporal_zoned_date_time_instance_shape()),
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::TemporalZonedDateTimeConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_zoned_date_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimeFrom => (
+            StandardBuiltinId::TemporalZonedDateTimePrototypeRound
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
+            | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
+            | StandardBuiltinId::TemporalZonedDateTimeFrom => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_zoned_date_time_instance_shape()),
@@ -6566,6 +6586,7 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::TemporalZonedDateTimeCompare
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter

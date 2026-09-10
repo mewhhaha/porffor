@@ -19,7 +19,9 @@ use super::temporal_options::{
 use super::temporal_plain_date_time_methods::{
     TemporalPlainArithmeticOperation, TemporalPlainDifferenceOperation,
 };
-use super::temporal_plain_time::TEMPORAL_PLAIN_TIME_ALPHABETICAL_FIELDS;
+use super::temporal_plain_time::{
+    NANOSECONDS_PER_TEMPORAL_DAY, TEMPORAL_PLAIN_TIME_ALPHABETICAL_FIELDS,
+};
 
 /// `ToSecondsStringPrecisionRecord` precision codes. Non-negative values are a
 /// literal digit count.
@@ -729,6 +731,56 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `RoundTime` rounds only the selected field and smaller fields. Keeping
+    /// higher fields out of the quotient matters for half-even ties when a
+    /// valid increment divides its parent unit an odd number of times.
+    pub(crate) fn emit_temporal_round_time_nanoseconds(
+        &mut self,
+        nanoseconds_local: u32,
+        unit_local: u32,
+        quantum_local: u32,
+        mode_local: u32,
+        function: &mut Function,
+    ) {
+        let parent_length_local = self.reserve_temp_local();
+        let prefix_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
+        function.instruction(&Instruction::LocalSet(parent_length_local));
+        for unit in TemporalTimeUnit::ALL {
+            function.instruction(&Instruction::LocalGet(unit_local));
+            function.instruction(&Instruction::I64Const(unit.code()));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(
+                unit.nanoseconds() * unit.maximum_rounding_increment(),
+            ));
+            function.instruction(&Instruction::LocalSet(parent_length_local));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(nanoseconds_local));
+        function.instruction(&Instruction::LocalGet(nanoseconds_local));
+        function.instruction(&Instruction::LocalGet(parent_length_local));
+        function.instruction(&Instruction::I64RemU);
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(prefix_local));
+        function.instruction(&Instruction::LocalGet(nanoseconds_local));
+        function.instruction(&Instruction::LocalGet(prefix_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(nanoseconds_local));
+        self.emit_temporal_plain_time_round_nanoseconds(
+            nanoseconds_local,
+            quantum_local,
+            mode_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(nanoseconds_local));
+        function.instruction(&Instruction::LocalGet(prefix_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(nanoseconds_local));
+        self.release_temp_local(prefix_local);
+        self.release_temp_local(parent_length_local);
+    }
+
     /// `increment x nanosecondsPerUnit`, the quantum every rounding step here
     /// works in.
     pub(crate) fn emit_temporal_plain_time_rounding_quantum(
@@ -882,8 +934,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.emit_temporal_plain_time_total_nanoseconds(&field_locals, total_local, function);
-        self.emit_temporal_plain_time_round_nanoseconds(
+        self.emit_temporal_round_time_nanoseconds(
             total_local,
+            unit_local,
             quantum_local,
             mode_local,
             function,
@@ -1538,8 +1591,9 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
             self.emit_temporal_plain_time_total_nanoseconds(&field_locals, total_local, function);
-            self.emit_temporal_plain_time_round_nanoseconds(
+            self.emit_temporal_round_time_nanoseconds(
                 total_local,
+                unit_local,
                 quantum_local,
                 mode_local,
                 function,

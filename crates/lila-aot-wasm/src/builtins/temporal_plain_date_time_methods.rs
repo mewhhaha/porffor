@@ -14,6 +14,7 @@
 //! (`CalendarDateUntil` for the ISO calendar).
 
 use super::super::*;
+use super::temporal_difference::TemporalDifferenceContext;
 use super::temporal_options::{
     ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow, TemporalRoundingMode,
     TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
@@ -44,33 +45,28 @@ pub(super) enum TemporalPlainDifferenceOperation {
     Since,
 }
 
-/// The three compile-time consumers of the shared DateTime difference-settings
-/// reader.
-///
-/// ZonedDateTime deliberately has one delegate state rather than separate
-/// directions: the selected PlainDateTime builtin still owns `until` versus
-/// `since`, so the internal options bag must carry the user's unnegated mode.
-/// Keeping that state distinct from `PlainSince` prevents the mode from being
-/// negated once here and a second time in the delegate.
+/// Receiver kind and direction jointly select the default unit and rounding
+/// mode. Each entry reads options once before calling shared arithmetic.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum TemporalDateTimeDifferenceSettingsPlan {
+pub(super) enum TemporalDateTimeDifferenceSettingsPlan {
     PlainUntil,
     PlainSince,
-    ZonedDelegate,
+    ZonedUntil,
+    ZonedSince,
 }
 
 impl TemporalDateTimeDifferenceSettingsPlan {
     const fn fallback_largest_unit(self) -> TemporalUnit {
         match self {
             Self::PlainUntil | Self::PlainSince => TemporalUnit::Day,
-            Self::ZonedDelegate => TemporalUnit::Hour,
+            Self::ZonedUntil | Self::ZonedSince => TemporalUnit::Hour,
         }
     }
 
     const fn negates_rounding_mode(self) -> bool {
         match self {
-            Self::PlainUntil | Self::ZonedDelegate => false,
-            Self::PlainSince => true,
+            Self::PlainUntil | Self::ZonedUntil => false,
+            Self::PlainSince | Self::ZonedSince => true,
         }
     }
 }
@@ -79,15 +75,14 @@ impl TemporalDateTimeDifferenceSettingsPlan {
 /// arithmetic may not consume a largest unit resolved under one fallback and a
 /// rounding mode resolved under another operation.
 ///
-/// This witness is intentionally linear. In particular, the ZonedDateTime
-/// consumer must move it into the normalized internal options bag rather than
-/// reuse the user's observable bag at the PlainDateTime call boundary.
+/// The entry owns these locals until the arithmetic consumer has finished;
+/// the user's option getters are never read a second time.
 #[must_use = "resolved Temporal difference settings must be consumed"]
-struct ResolvedTemporalDateTimeDifferenceSettings {
-    largest_unit_local: u32,
-    smallest_unit_local: u32,
-    increment_local: u32,
-    mode_local: u32,
+pub(super) struct ResolvedTemporalDateTimeDifferenceSettings {
+    pub(super) largest_unit_local: u32,
+    pub(super) smallest_unit_local: u32,
+    pub(super) increment_local: u32,
+    pub(super) mode_local: u32,
 }
 
 /// One row of the combined `PrepareCalendarFields` / `ToTemporalTimeRecord`
@@ -413,7 +408,7 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Leaves an `i64` in `output_local`: -1, 0 or 1 comparing the left ISO
     /// date against the right.
-    fn emit_temporal_compare_iso_date(
+    pub(super) fn emit_temporal_compare_iso_date(
         &mut self,
         left: [u32; 3],
         right: [u32; 3],
@@ -1819,296 +1814,12 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// `RoundRelativeDuration` for a calendar `smallestUnit` (`year`, `month`
-    /// or `week`) in `until`/`since`.
-    ///
-    /// A calendar unit has no fixed nanosecond length, so the difference cannot
-    /// be rounded by dividing. The proposal instead dates both candidates: the
-    /// truncated duration `r1` already in `years/months/weeks`, and `r2`, one
-    /// `increment` of `smallestUnit` further in the direction of travel. Adding
-    /// each to the receiver gives two instants that bracket the real end
-    /// instant, and the rounding mode is applied to where the end falls between
-    /// them. `PlainDateTime` is its own `relativeTo`, so no anchor argument is
-    /// needed.
-    ///
-    /// The fraction is measured in nanoseconds relative to `r1`'s instant
-    /// rather than in absolute epoch nanoseconds: an absolute count at the ends
-    /// of the representable range overflows `i64`, while the bracket is at most
-    /// a few years wide.
-    #[allow(clippy::too_many_arguments)]
-    fn emit_temporal_plain_date_time_nudge_calendar_unit(
-        &mut self,
-        field_locals: &[u32; 9],
-        other_locals: &[u32; 9],
-        smallest_unit_local: u32,
-        increment_local: u32,
-        mode_local: u32,
-        years_local: u32,
-        months_local: u32,
-        weeks_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let overflow_local = self.reserve_temp_local();
-        let sign_local = self.reserve_temp_local();
-        let step_local = self.reserve_temp_local();
-        let receiver_time_local = self.reserve_temp_local();
-        let other_time_local = self.reserve_temp_local();
-        let receiver_epoch_local = self.reserve_temp_local();
-        let other_epoch_local = self.reserve_temp_local();
-        let start_epoch_local = self.reserve_temp_local();
-        let end_epoch_local = self.reserve_temp_local();
-        let numerator_local = self.reserve_temp_local();
-        let quantum_local = self.reserve_temp_local();
-        let start_year_local = self.reserve_temp_local();
-        let start_month_local = self.reserve_temp_local();
-        let start_day_local = self.reserve_temp_local();
-        let end_year_local = self.reserve_temp_local();
-        let end_month_local = self.reserve_temp_local();
-        let end_day_local = self.reserve_temp_local();
-        let nudge_years_local = self.reserve_temp_local();
-        let nudge_months_local = self.reserve_temp_local();
-        let nudge_weeks_local = self.reserve_temp_local();
-        let zero_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
-        function.instruction(&Instruction::LocalSet(overflow_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(zero_local));
-
-        let receiver_time_locals = Self::temporal_plain_date_time_time_locals(field_locals);
-        let other_time_locals = Self::temporal_plain_date_time_time_locals(other_locals);
-        self.emit_temporal_plain_time_total_nanoseconds(
-            &receiver_time_locals,
-            receiver_time_local,
-            function,
-        );
-        self.emit_temporal_plain_time_total_nanoseconds(
-            &other_time_locals,
-            other_time_local,
-            function,
-        );
-        self.emit_temporal_plain_date_epoch_days(
-            field_locals[0],
-            field_locals[1],
-            field_locals[2],
-            receiver_epoch_local,
-            function,
-        );
-        self.emit_temporal_plain_date_epoch_days(
-            other_locals[0],
-            other_locals[1],
-            other_locals[2],
-            other_epoch_local,
-            function,
-        );
-
-        // `DurationSign` of the untruncated difference: compare the dates
-        // first, then the wall-clock times when the dates match.
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::LocalGet(other_epoch_local));
-        function.instruction(&Instruction::LocalGet(receiver_epoch_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(other_time_local));
-        function.instruction(&Instruction::LocalGet(receiver_time_local));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(other_time_local));
-        function.instruction(&Instruction::LocalGet(receiver_time_local));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(other_epoch_local));
-        function.instruction(&Instruction::LocalGet(receiver_epoch_local));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::LocalGet(increment_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(step_local));
-        for (source, destination) in [
-            (years_local, nudge_years_local),
-            (months_local, nudge_months_local),
-            (weeks_local, nudge_weeks_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(destination));
-        }
-        for (unit, local) in [
-            (TemporalUnit::Year.code(), nudge_years_local),
-            (TemporalUnit::Month.code(), nudge_months_local),
-            (TemporalUnit::Week.code(), nudge_weeks_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(smallest_unit_local));
-            function.instruction(&Instruction::I64Const(unit));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(local));
-            function.instruction(&Instruction::LocalGet(step_local));
-            function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(local));
-            function.instruction(&Instruction::End);
-        }
-
-        for (year, month, day) in [
-            (start_year_local, start_month_local, start_day_local),
-            (end_year_local, end_month_local, end_day_local),
-        ] {
-            for (source, destination) in [
-                (field_locals[0], year),
-                (field_locals[1], month),
-                (field_locals[2], day),
-            ] {
-                function.instruction(&Instruction::LocalGet(source));
-                function.instruction(&Instruction::LocalSet(destination));
-            }
-        }
-        self.emit_temporal_add_iso_date(
-            start_year_local,
-            start_month_local,
-            start_day_local,
-            years_local,
-            months_local,
-            weeks_local,
-            zero_local,
-            overflow_local,
-            function,
-        )?;
-        self.emit_temporal_add_iso_date(
-            end_year_local,
-            end_month_local,
-            end_day_local,
-            nudge_years_local,
-            nudge_months_local,
-            nudge_weeks_local,
-            zero_local,
-            overflow_local,
-            function,
-        )?;
-        self.emit_temporal_plain_date_epoch_days(
-            start_year_local,
-            start_month_local,
-            start_day_local,
-            start_epoch_local,
-            function,
-        );
-        self.emit_temporal_plain_date_epoch_days(
-            end_year_local,
-            end_month_local,
-            end_day_local,
-            end_epoch_local,
-            function,
-        );
-
-        // numerator: end instant minus `r1`'s instant. quantum: the width of
-        // the bracket, always a whole number of days because both candidates
-        // keep the receiver's wall-clock time.
-        function.instruction(&Instruction::LocalGet(other_epoch_local));
-        function.instruction(&Instruction::LocalGet(start_epoch_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(other_time_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(receiver_time_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(numerator_local));
-        function.instruction(&Instruction::LocalGet(end_epoch_local));
-        function.instruction(&Instruction::LocalGet(start_epoch_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(quantum_local));
-
-        function.instruction(&Instruction::LocalGet(quantum_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_plain_time_round_nanoseconds(
-            numerator_local,
-            quantum_local,
-            mode_local,
-            function,
-        );
-        // The end instant lies inside the bracket, so the rounded value is
-        // either zero (keep `r1`) or the whole bracket (take `r2`).
-        function.instruction(&Instruction::LocalGet(numerator_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        for (source, destination) in [
-            (nudge_years_local, years_local),
-            (nudge_months_local, months_local),
-            (nudge_weeks_local, weeks_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(destination));
-        }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        for local in [
-            zero_local,
-            nudge_weeks_local,
-            nudge_months_local,
-            nudge_years_local,
-            end_day_local,
-            end_month_local,
-            end_year_local,
-            start_day_local,
-            start_month_local,
-            start_year_local,
-            quantum_local,
-            numerator_local,
-            end_epoch_local,
-            start_epoch_local,
-            other_epoch_local,
-            receiver_epoch_local,
-            other_time_local,
-            receiver_time_local,
-            step_local,
-            sign_local,
-            overflow_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
-    /// `RoundISODateTime`: round the wall-clock time to a whole number of
-    /// `quantum_local` nanoseconds and carry any whole day into the date.
+    /// `RoundISODateTime`: round the selected wall-clock field and smaller
+    /// fields, then carry any whole day into the date.
     fn emit_temporal_round_iso_date_time(
         &mut self,
         field_locals: &[u32; 9],
+        unit_local: u32,
         quantum_local: u32,
         mode_local: u32,
         function: &mut Function,
@@ -2119,8 +1830,9 @@ impl<'a> FunctionBuilder<'a> {
         let time_locals = Self::temporal_plain_date_time_time_locals(field_locals);
 
         self.emit_temporal_plain_time_total_nanoseconds(&time_locals, total_local, function);
-        self.emit_temporal_plain_time_round_nanoseconds(
+        self.emit_temporal_round_time_nanoseconds(
             total_local,
+            unit_local,
             quantum_local,
             mode_local,
             function,
@@ -2296,7 +2008,13 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::End);
-        self.emit_temporal_round_iso_date_time(&field_locals, quantum_local, mode_local, function)?;
+        self.emit_temporal_round_iso_date_time(
+            &field_locals,
+            unit_local,
+            quantum_local,
+            mode_local,
+            function,
+        )?;
         self.emit_alloc_temporal_plain_date_time(
             &field_locals,
             calendar_payload_local,
@@ -2319,11 +2037,11 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// The shared `GetDifferenceSettings` portion of PlainDateTime and
-    /// ZonedDateTime delegation. `plan` is compile-time policy: no raw unit or
+    /// The shared `GetDifferenceSettings` boundary for PlainDateTime and
+    /// ZonedDateTime differences. `plan` is compile-time policy: no raw unit or
     /// direction flag can cross this boundary independently of the consumer
     /// that owns it.
-    fn emit_temporal_date_time_difference_settings(
+    pub(super) fn emit_temporal_date_time_difference_settings(
         &mut self,
         options_payload_local: u32,
         options_tag_local: u32,
@@ -2456,171 +2174,6 @@ impl<'a> FunctionBuilder<'a> {
         })
     }
 
-    /// Turn one validated unit code into the canonical singular spelling used
-    /// by the private ZonedDateTime delegate options bag.
-    fn emit_temporal_difference_unit_string_payload(
-        &mut self,
-        unit_local: u32,
-        output_payload_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(TemporalUnit::Nanosecond.singular()),
-        ));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        for unit in TemporalUnit::ALL {
-            function.instruction(&Instruction::LocalGet(unit_local));
-            function.instruction(&Instruction::I64Const(unit.code()));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(
-                self.strings.payload(unit.singular()),
-            ));
-            function.instruction(&Instruction::LocalSet(output_payload_local));
-            function.instruction(&Instruction::End);
-        }
-    }
-
-    /// The rounding-mode twin of
-    /// [`Self::emit_temporal_difference_unit_string_payload`].
-    fn emit_temporal_difference_rounding_mode_string_payload(
-        &mut self,
-        mode_local: u32,
-        output_payload_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload(TemporalRoundingMode::Trunc.name()),
-        ));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        for mode in TemporalRoundingMode::ALL {
-            function.instruction(&Instruction::LocalGet(mode_local));
-            function.instruction(&Instruction::I64Const(mode.code()));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(self.strings.payload(mode.name())));
-            function.instruction(&Instruction::LocalSet(output_payload_local));
-            function.instruction(&Instruction::End);
-        }
-    }
-
-    /// Resolve a ZonedDateTime difference's user options exactly once, then
-    /// consume the linear witness into an unreachable primitive-only object
-    /// for the existing PlainDateTime delegate.
-    pub(crate) fn emit_temporal_zoned_date_time_difference_delegate_options(
-        &mut self,
-        options_payload_local: u32,
-        options_tag_local: u32,
-        delegate_options_payload_local: u32,
-        delegate_options_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let settings = self.emit_temporal_date_time_difference_settings(
-            options_payload_local,
-            options_tag_local,
-            TemporalDateTimeDifferenceSettingsPlan::ZonedDelegate,
-            function,
-        )?;
-        let ResolvedTemporalDateTimeDifferenceSettings {
-            largest_unit_local,
-            smallest_unit_local,
-            increment_local,
-            mode_local,
-        } = settings;
-        let key_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
-        // A null prototype makes the transport object independent of mutable
-        // realm intrinsics. Every property the delegate reads is defined below.
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(delegate_options_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(delegate_options_tag_local));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("largestUnit")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_temporal_difference_unit_string_payload(
-            largest_unit_local,
-            value_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_enumerable_data(
-            delegate_options_payload_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("roundingIncrement"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::LocalGet(increment_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_enumerable_data(
-            delegate_options_payload_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("roundingMode")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_temporal_difference_rounding_mode_string_payload(
-            mode_local,
-            value_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_enumerable_data(
-            delegate_options_payload_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("smallestUnit")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_temporal_difference_unit_string_payload(
-            smallest_unit_local,
-            value_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_enumerable_data(
-            delegate_options_payload_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-
-        for local in [
-            value_tag_local,
-            value_payload_local,
-            key_local,
-            mode_local,
-            increment_local,
-            smallest_unit_local,
-            largest_unit_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
-    }
-
     /// Temporal proposal 5.3.x `until` and `since`, both through
     /// `DifferencePlainDateTimeWithRounding`.
     pub(super) fn emit_temporal_plain_date_time_until_or_since(
@@ -2634,24 +2187,8 @@ impl<'a> FunctionBuilder<'a> {
         let options_tag_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let other_calendar_payload_local = self.reserve_temp_local();
-        let quantum_local = self.reserve_temp_local();
-        let total_local = self.reserve_temp_local();
-        let other_total_local = self.reserve_temp_local();
-        let date_sign_local = self.reserve_temp_local();
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
-        let years_local = self.reserve_temp_local();
-        let months_local = self.reserve_temp_local();
-        let weeks_local = self.reserve_temp_local();
-        let days_local = self.reserve_temp_local();
-        let adjusted_year_local = self.reserve_temp_local();
-        let adjusted_month_local = self.reserve_temp_local();
-        let adjusted_day_local = self.reserve_temp_local();
-        let epoch_local = self.reserve_temp_local();
-        let time_largest_unit_local = self.reserve_temp_local();
         let field_locals = self.reserve_temporal_plain_date_time_field_locals();
         let other_locals = self.reserve_temporal_plain_date_time_field_locals();
-        let duration_locals = self.reserve_temporal_duration_field_locals();
 
         self.emit_temporal_plain_date_time_fields_from_receiver(
             &field_locals,
@@ -2692,303 +2229,25 @@ impl<'a> FunctionBuilder<'a> {
             settings_plan,
             function,
         )?;
-        let ResolvedTemporalDateTimeDifferenceSettings {
-            largest_unit_local,
-            smallest_unit_local,
-            increment_local,
-            mode_local,
-        } = settings;
-
-        let time_locals = Self::temporal_plain_date_time_time_locals(&field_locals);
-        let other_time_locals = Self::temporal_plain_date_time_time_locals(&other_locals);
-        self.emit_temporal_plain_time_total_nanoseconds(&time_locals, total_local, function);
-        self.emit_temporal_plain_time_total_nanoseconds(
-            &other_time_locals,
-            other_total_local,
-            function,
-        );
-
-        for local in [years_local, months_local, weeks_local, days_local] {
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
-        }
-
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // Hour and below: the whole difference is a nanosecond count.
-        self.emit_temporal_plain_date_epoch_days(
-            field_locals[0],
-            field_locals[1],
-            field_locals[2],
-            epoch_local,
-            function,
-        );
-        self.emit_temporal_plain_date_epoch_days(
-            other_locals[0],
-            other_locals[1],
-            other_locals[2],
-            adjusted_day_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(adjusted_day_local));
-        function.instruction(&Instruction::LocalGet(epoch_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(other_total_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(total_local));
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::LocalSet(time_largest_unit_local));
-        function.instruction(&Instruction::Else);
-        // Day and above: borrow a day when the time-of-day difference runs
-        // against the date difference, then take a calendar difference.
-        self.emit_temporal_compare_iso_date(
-            [other_locals[0], other_locals[1], other_locals[2]],
-            [field_locals[0], field_locals[1], field_locals[2]],
-            date_sign_local,
-            function,
-        );
-        for (source, destination) in [
-            (other_locals[0], adjusted_year_local),
-            (other_locals[1], adjusted_month_local),
-            (other_locals[2], adjusted_day_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(destination));
-        }
-        function.instruction(&Instruction::LocalGet(other_total_local));
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(total_local));
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(date_sign_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::LocalGet(date_sign_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_plain_date_epoch_days(
-            adjusted_year_local,
-            adjusted_month_local,
-            adjusted_day_local,
-            epoch_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(epoch_local));
-        function.instruction(&Instruction::LocalGet(date_sign_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(epoch_local));
-        self.emit_temporal_civil_from_days(
-            epoch_local,
-            adjusted_year_local,
-            adjusted_month_local,
-            adjusted_day_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::LocalGet(date_sign_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_local));
-        function.instruction(&Instruction::End);
-        self.emit_temporal_difference_iso_date(
-            [field_locals[0], field_locals[1], field_locals[2]],
-            [
-                adjusted_year_local,
-                adjusted_month_local,
-                adjusted_day_local,
-            ],
-            largest_unit_local,
-            years_local,
-            months_local,
-            weeks_local,
-            days_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(TemporalUnit::Hour.code()));
-        function.instruction(&Instruction::LocalSet(time_largest_unit_local));
-        function.instruction(&Instruction::End);
-
-        // Rounding. A time smallestUnit rounds the nanosecond tail and carries
-        // a whole day into the day count; a `day` smallestUnit rounds the day
-        // count itself; a calendar smallestUnit truncates, which is what an
-        // unrounded difference already is.
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_plain_time_rounding_quantum(
-            smallest_unit_local,
-            increment_local,
-            quantum_local,
-            function,
-        );
-        self.emit_temporal_plain_time_round_nanoseconds(
-            total_local,
-            quantum_local,
-            mode_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
-        function.instruction(&Instruction::I64LeS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(epoch_local));
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::LocalGet(epoch_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(days_local));
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::LocalGet(epoch_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(total_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_local));
-        function.instruction(&Instruction::LocalGet(increment_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(quantum_local));
-        self.emit_temporal_plain_time_round_nanoseconds(
-            total_local,
-            quantum_local,
-            mode_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(days_local));
-        function.instruction(&Instruction::End);
-        // A calendar smallestUnit drops everything below it, which is the
-        // `trunc` answer and the lower of the two candidates every other mode
-        // picks between.
-        for (limit, local) in [
-            (TemporalUnit::Week.code(), days_local),
-            (TemporalUnit::Month.code(), weeks_local),
-            (TemporalUnit::Year.code(), months_local),
-        ] {
-            function.instruction(&Instruction::LocalGet(smallest_unit_local));
-            function.instruction(&Instruction::I64Const(limit));
-            function.instruction(&Instruction::I64LeS);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(total_local));
-        self.emit_temporal_plain_date_time_nudge_calendar_unit(
+        self.emit_temporal_difference_date_time(
             &field_locals,
             &other_locals,
-            smallest_unit_local,
-            increment_local,
-            mode_local,
-            years_local,
-            months_local,
-            weeks_local,
+            &settings,
+            operation,
+            TemporalDifferenceContext::Plain,
             function,
         )?;
-        function.instruction(&Instruction::End);
-
-        match operation {
-            TemporalPlainDifferenceOperation::Until => {}
-            TemporalPlainDifferenceOperation::Since => {
-                for local in [
-                    years_local,
-                    months_local,
-                    weeks_local,
-                    days_local,
-                    total_local,
-                ] {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(local));
-                }
-            }
-        }
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        self.emit_temporal_duration_balance(
-            seconds_local,
-            subsecond_local,
-            time_largest_unit_local,
-            &duration_locals,
-            function,
-        )?;
-        for (source, index) in [(years_local, 0_usize), (months_local, 1), (weeks_local, 2)] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(duration_locals[index]));
-        }
-        function.instruction(&Instruction::LocalGet(duration_locals[3]));
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(duration_locals[3]));
-        self.emit_create_temporal_duration(&duration_locals, function)?;
-
         for local in [
-            mode_local,
-            increment_local,
-            smallest_unit_local,
-            largest_unit_local,
+            settings.mode_local,
+            settings.increment_local,
+            settings.smallest_unit_local,
+            settings.largest_unit_local,
         ] {
             self.release_temp_local(local);
         }
-        self.release_temporal_duration_field_locals(duration_locals);
         self.release_temporal_plain_date_time_field_locals(other_locals);
         self.release_temporal_plain_date_time_field_locals(field_locals);
         for local in [
-            time_largest_unit_local,
-            epoch_local,
-            adjusted_day_local,
-            adjusted_month_local,
-            adjusted_year_local,
-            days_local,
-            weeks_local,
-            months_local,
-            years_local,
-            subsecond_local,
-            seconds_local,
-            date_sign_local,
-            other_total_local,
-            total_local,
-            quantum_local,
             other_calendar_payload_local,
             calendar_payload_local,
             options_tag_local,
@@ -3112,6 +2371,7 @@ impl<'a> FunctionBuilder<'a> {
             );
             self.emit_temporal_round_iso_date_time(
                 &field_locals,
+                unit_local,
                 quantum_local,
                 mode_local,
                 function,

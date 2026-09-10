@@ -1924,30 +1924,14 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::none(),
             }),
-            StandardBuiltinId::TemporalNowInstant => Some(Self::value_info_from_shape(Some(
-                Self::temporal_instant_instance_shape(),
-            ))),
-            StandardBuiltinId::TemporalNowZonedDateTimeIso => Some(Self::value_info_from_shape(
-                Some(Self::temporal_zoned_date_time_instance_shape()),
-            )),
-            StandardBuiltinId::TemporalInstantConstructor => Some(Self::value_info_from_shape(
-                Some(Self::temporal_instant_instance_shape()),
-            )),
-            StandardBuiltinId::TemporalInstantFrom
+            StandardBuiltinId::TemporalNowInstant
+            | StandardBuiltinId::TemporalInstantConstructor
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+            | StandardBuiltinId::TemporalInstantFrom
             | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
             | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => Some(
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
-            StandardBuiltinId::TemporalInstantCompare => Some(ValueInfo::new(ValueKind::Number)),
-            StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter => {
-                Some(ValueInfo::new(ValueKind::Number))
-            }
-            StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter => {
-                Some(ValueInfo::new(ValueKind::BigInt))
-            }
-            StandardBuiltinId::TemporalInstantPrototypeEquals => {
-                Some(ValueInfo::new(ValueKind::Boolean))
-            }
             StandardBuiltinId::TemporalInstantPrototypeToString
             | StandardBuiltinId::TemporalInstantPrototypeToJson => {
                 Some(ValueInfo::new(ValueKind::String))
@@ -1985,11 +1969,25 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange => {
                 Some(ValueInfo::new(ValueKind::String))
             }
-            StandardBuiltinId::TemporalZonedDateTimeConstructor
+            StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object)
+                        .union(KindSet::from_kind(ValueKind::Null)),
+                    heap_shape: Some(Self::temporal_zoned_date_time_instance_shape()),
+                    function_targets: FunctionTargetKnowledge::none(),
+                })
+            }
+            StandardBuiltinId::TemporalNowZonedDateTimeIso
+            | StandardBuiltinId::TemporalZonedDateTimeConstructor
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
+            | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
             | StandardBuiltinId::TemporalZonedDateTimeFrom => Some(Self::value_info_from_shape(
                 Some(Self::temporal_zoned_date_time_instance_shape()),
             )),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter => {
+            StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter => {
                 Some(ValueInfo::new(ValueKind::BigInt))
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
@@ -1999,7 +1997,10 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToString => {
                 Some(ValueInfo::new(ValueKind::String))
             }
-            StandardBuiltinId::TemporalZonedDateTimeCompare
+            StandardBuiltinId::TemporalInstantCompare
+            | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimeCompare
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter
@@ -2019,7 +2020,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
+            StandardBuiltinId::TemporalInstantPrototypeEquals
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
@@ -2037,9 +2039,6 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::none(),
             }),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => Some(
-                Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
-            ),
             // Same grouping as the kind table above; the two tables must not be
             // able to disagree about which ZonedDateTime data methods return a
             // `Temporal.Duration` and which return a ZonedDateTime.
