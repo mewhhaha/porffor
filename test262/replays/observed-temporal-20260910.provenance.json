@@ -1,0 +1,4377 @@
+{
+  "schema_version": 1,
+  "producer": "lila",
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "aggregate": {
+    "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-aggregate-8622785491567939163.json",
+    "sha256": "ade25956b61eeded320fbad2f529e92e1168d310a58f411d78a71b78c94e09a2"
+  },
+  "exclusion": {
+    "name": "previous-failures.executions",
+    "sha256": "ee9d0bb6412c58a7d2bfd29a0a097042d3f31a57da12f28b332a09b705716bfc",
+    "execution_count": 3695,
+    "observed_execution_count": 3695,
+    "excluded_failure_count": 3695
+  },
+  "completed_leaves": [
+    {
+      "node_id": "annexB",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-annexB-15484637243599110979.json",
+      "sha256": "0307c1e9e74475f1951bba3fae79761a02fa5ca708f85723d0d1d5c039efc58a",
+      "total": 1377,
+      "passed": 866,
+      "failed": 511,
+      "outcomes": {
+        "Success": 866,
+        "NotImplemented": 490,
+        "Bug": 21,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/AbstractModuleSource",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_AbstractModuleSource-8933287897794135200.json",
+      "sha256": "2b07698466f05b7c9663f6af63c8b772c1660eb4a63cdb9e43a27f47d7209c1c",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "outcomes": {
+        "Success": 8,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/AggregateError",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_AggregateError-6668458794204454996.json",
+      "sha256": "c853e7aa7b8dc1c1b214ca265818becf2829d842431b20ccc9675847294bdac2",
+      "total": 50,
+      "passed": 48,
+      "failed": 2,
+      "outcomes": {
+        "Success": 48,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array-108680834906500728.json",
+      "sha256": "fa143e6911464917daf1c542bf9f807d265146f683dc293964b533b09b91220e",
+      "total": 100,
+      "passed": 100,
+      "failed": 0,
+      "outcomes": {
+        "Success": 100,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/Symbol.species",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_Symbol.species-1517042873610711824.json",
+      "sha256": "6514ba6e8b76566357eff6585dcc07b3d6efa28f95ffab33aca23b8962d1d22d",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "outcomes": {
+        "Success": 8,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/from",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_from-17208051911830422991.json",
+      "sha256": "a8e2f994a2a948e450371cd0de4221aa7ad57b4c6d260ac23a3df67fa8c38d52",
+      "total": 90,
+      "passed": 88,
+      "failed": 2,
+      "outcomes": {
+        "Success": 88,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/fromAsync",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_fromAsync-11469362887358618076.json",
+      "sha256": "4e428daf6664eaa6b39c1737e19cdaeaf0e3e360322b2872d39915c2683ee6a5",
+      "total": 186,
+      "passed": 174,
+      "failed": 12,
+      "outcomes": {
+        "Success": 174,
+        "NotImplemented": 0,
+        "Bug": 12,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/isArray",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_isArray-17935257718889306447.json",
+      "sha256": "c2933761121ffcf7c99979a4c835812511f0c97131401d568fc7f7439e50d9de",
+      "total": 58,
+      "passed": 58,
+      "failed": 0,
+      "outcomes": {
+        "Success": 58,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/length",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_length-2308945473117295613.json",
+      "sha256": "d2f56e0071955ed3cd10e5ca80a85e6bc83193e20d870cb4310349b32c343f72",
+      "total": 60,
+      "passed": 60,
+      "failed": 0,
+      "outcomes": {
+        "Success": 60,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/of",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_of-7501044861939171908.json",
+      "sha256": "f60e9a501c076e06681e2e75a856391c3a3f0ef1eae08be6447157187eea9f4a",
+      "total": 32,
+      "passed": 30,
+      "failed": 2,
+      "outcomes": {
+        "Success": 30,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0001-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0001-of-0023-2600789266554500591.json",
+      "sha256": "c021b1069bb64811708d93672a0bc7a146b195947eaecc75fd605b7e051b8856",
+      "total": 250,
+      "passed": 241,
+      "failed": 9,
+      "outcomes": {
+        "Success": 241,
+        "NotImplemented": 0,
+        "Bug": 9,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0002-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0002-of-0023-16882283459167068659.json",
+      "sha256": "ac306ec6185f35d18b15e8a2f0b2c7edd15da5f49c3777283cb418af477f304d",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0003-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0003-of-0023-10354377639224366745.json",
+      "sha256": "55eb1974e946ac231c1340fe7b2c76f0a7975851346a5d2eae9cc183a386284c",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0004-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0004-of-0023-15571381108746533321.json",
+      "sha256": "92ea2bf70b268ea5946f9043a7779391687b99adbae9c14d5fadea33618cd135",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0005-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0005-of-0023-8359213828128071058.json",
+      "sha256": "219c16a8b1a4abb2985288b8c8cc8991bd9e7cf80a9e93751f07f391268cefbb",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0006-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0006-of-0023-10513811554147949095.json",
+      "sha256": "adc3d944f4fe309b2e042649072eda792bfa76e91ff286b89065bf1eab964569",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0007-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0007-of-0023-6653643909441684901.json",
+      "sha256": "0426cf6c5a6148ef26186698ebb038aebc124c558dbd70b822f0f1081636bb36",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0008-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0008-of-0023-8778185304685951964.json",
+      "sha256": "622c77e2acee06f1e13afbcd47e9f7683bc98b7f17047cd04b0be2e8584e21f2",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0009-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0009-of-0023-14607998777956540391.json",
+      "sha256": "7b36642a20ff6d18803f6d2e83ffaf853cf3f680f78d6c0b8c04021a7ccee540",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0010-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0010-of-0023-17571805162250285138.json",
+      "sha256": "904e1babed944ae22e5016a5253850be623c2435471c9dbb695cfa850c23c53d",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0011-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0011-of-0023-927642200960479530.json",
+      "sha256": "e1ef0638f24c4494fb00043e3f6c1484968b328f1b67ba183bf8b59834a76edb",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0012-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0012-of-0023-358106834007270274.json",
+      "sha256": "9c9c66a79f63f58dc1d69e3422ac4ef67b4f37da3ba2be18b20146d28ba6da01",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0013-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0013-of-0023-11574078790221318377.json",
+      "sha256": "eddd7cb2c74c66839a7f3185ebbeed1cb9d8b8de9c15b7f356bca26bf61def3a",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0014-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0014-of-0023-6078860835435414639.json",
+      "sha256": "f1758a113dbb7210c34bf1ce066fb8ca3ab36623bd9f67899b42a385670b8fe7",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0015-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0015-of-0023-1474819774444731142.json",
+      "sha256": "74672ab6078947fba8ab1f94c21bfb42acf8240fcadc34b449ba2735ff20370e",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0016-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0016-of-0023-5937946870019583148.json",
+      "sha256": "c3f2cfa2ff942245223002cfdd63876b02cafbf970497adcd92d663e035e1398",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0017-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0017-of-0023-11407955498400742077.json",
+      "sha256": "066a4d0a795d3396d8d9d08264c8417b8d019eeea5ee729b5c7cb0483d7bf158",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0018-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0018-of-0023-229402323860010767.json",
+      "sha256": "32ce2838bae416fecf95ff1c588a3b9cbb561ff182824f78614611ae0b71790e",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0019-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0019-of-0023-13106541142751318177.json",
+      "sha256": "5b4e4f6f09b144547b773dd4e511cd37e2847638ca66c155888b53568f475dbe",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0020-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0020-of-0023-10930652545986602584.json",
+      "sha256": "0e228ee7b6626ea796c3c54881e608b92783604c0415a5d6e578dcffc7ae3731",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0021-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0021-of-0023-6670449647970194787.json",
+      "sha256": "58a5a7c7fb8537d94a11b23aeedb6b170b6ff556b1bc1c0bccb6260c1f6beb03",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0022-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0022-of-0023-13161993969878543910.json",
+      "sha256": "0417d65edaedc5b71efe9f1bbfd436bbd87c3d48d8b97d910e5a6fad26976ba0",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Array/prototype@chunk-0023-of-0023",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Array_prototype@chunk-0023-of-0023-4142096003678276029.json",
+      "sha256": "3357620689858a8c811785d2fc8b5f791c7ea1c417356ab657876543f839cebe",
+      "total": 81,
+      "passed": 81,
+      "failed": 0,
+      "outcomes": {
+        "Success": 81,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/ArrayBuffer",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_ArrayBuffer-4217189727204831577.json",
+      "sha256": "5cfdb1a7256d083e6576d9cf8d972c88e63d48d651a0a1f23d3e16e4ae5c3dca",
+      "total": 392,
+      "passed": 392,
+      "failed": 0,
+      "outcomes": {
+        "Success": 392,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/ArrayIteratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_ArrayIteratorPrototype-831955633376408531.json",
+      "sha256": "86568082ea48b9c4c3373a5bda6af1941dfb0b245b36095d05c28a6b15d9719f",
+      "total": 46,
+      "passed": 46,
+      "failed": 0,
+      "outcomes": {
+        "Success": 46,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/AsyncDisposableStack",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_AsyncDisposableStack-1869473895769565114.json",
+      "sha256": "e021bd7b5a0f36106484218c8a6528190269ff494efb644e3b71baddc1768ebe",
+      "total": 208,
+      "passed": 206,
+      "failed": 2,
+      "outcomes": {
+        "Success": 206,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/AsyncFromSyncIteratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_AsyncFromSyncIteratorPrototype-9327790356521472976.json",
+      "sha256": "c057d8984fe30665d0a6c1c7214699fdc4a2cc26345a9735f09dcbabe16e9fd7",
+      "total": 76,
+      "passed": 66,
+      "failed": 10,
+      "outcomes": {
+        "Success": 66,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 6
+      }
+    },
+    {
+      "node_id": "built-ins/AsyncFunction",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_AsyncFunction-8647085569297120762.json",
+      "sha256": "137732afedb09c81f17d8c17924cfae1232552f1bc417a7fa2cd267a37d80f14",
+      "total": 36,
+      "passed": 28,
+      "failed": 8,
+      "outcomes": {
+        "Success": 28,
+        "NotImplemented": 6,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/AsyncGeneratorFunction",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_AsyncGeneratorFunction-17334967537704321943.json",
+      "sha256": "cefb8d6b7cfee78eca8a7794d1d091c58ea3e6b28deb5423ef95414d45339eca",
+      "total": 46,
+      "passed": 18,
+      "failed": 28,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 16,
+        "Bug": 12,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/AsyncGeneratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_AsyncGeneratorPrototype-6623241577885893396.json",
+      "sha256": "4f3e1ca12a7db646ab0ea3151c4dbb14f2f626242a5278fe3b37a422cde68180",
+      "total": 96,
+      "passed": 96,
+      "failed": 0,
+      "outcomes": {
+        "Success": 96,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/AsyncIteratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_AsyncIteratorPrototype-10084740115803824364.json",
+      "sha256": "9691d47b0a9679520c9a32b54246cb2b31c280908aad050b7d3477a48f70bbe3",
+      "total": 26,
+      "passed": 26,
+      "failed": 0,
+      "outcomes": {
+        "Success": 26,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics-6808190864996672013.json",
+      "sha256": "30d568953dd01522b68ba737898abde0381172acccab5e1d15715bbf5108c3bb",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "outcomes": {
+        "Success": 6,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/add",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_add-3104576756858284515.json",
+      "sha256": "6a837bd05699d86909e207441d6c29e5081241f04812de35c8386f65cf193513",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "outcomes": {
+        "Success": 30,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/and",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_and-14388370908973689760.json",
+      "sha256": "c559adc7a3230b800a5bbb8d3703f8e5173fd5724735e3042a611314ad192e7b",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "outcomes": {
+        "Success": 30,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/compareExchange",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_compareExchange-13162186535424168867.json",
+      "sha256": "f376fb3aadfa451d3208032c699ecb0dd398b2c9ca151639bed8228c79d9cf66",
+      "total": 32,
+      "passed": 32,
+      "failed": 0,
+      "outcomes": {
+        "Success": 32,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/exchange",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_exchange-13065715723265162942.json",
+      "sha256": "a0c50787adea6badca967293e2b856285fe788077c0ebf29debd29c8991ec336",
+      "total": 32,
+      "passed": 32,
+      "failed": 0,
+      "outcomes": {
+        "Success": 32,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/isLockFree",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_isLockFree-2758152384435334435.json",
+      "sha256": "e44e7d21e7d6201f05995640bebda9238bc3b44a1d1aaa0ff6bdc7f9ac9ea118",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "outcomes": {
+        "Success": 14,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/load",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_load-9367580945071704747.json",
+      "sha256": "8156f95cc8bcc2d51dab0be004a1e6fb895060903889414944e0fded35acddf0",
+      "total": 28,
+      "passed": 28,
+      "failed": 0,
+      "outcomes": {
+        "Success": 28,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/notify",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_notify-11997769890195764381.json",
+      "sha256": "e6206ef26a4fff5b6770f5d104f0a7db724836abe958248d13f57173c7a6efc9",
+      "total": 102,
+      "passed": 102,
+      "failed": 0,
+      "outcomes": {
+        "Success": 102,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/or",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_or-11349147483551199904.json",
+      "sha256": "c60ce434211d08d4aae2a22cbed0f549f7751633e2de56392cddfc2af0b94eec",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "outcomes": {
+        "Success": 30,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/pause",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_pause-7522947780938250788.json",
+      "sha256": "672281b4ccba70941c2291d28e5596ee2bb5da93152a5758e9a8a1795ab42df0",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "outcomes": {
+        "Success": 12,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/store",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_store-16551319040047730399.json",
+      "sha256": "034a8b6bbc1449597f1df546726231a099b7a767c6050468d23f9bf11a8b660e",
+      "total": 32,
+      "passed": 32,
+      "failed": 0,
+      "outcomes": {
+        "Success": 32,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/sub",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_sub-6366075145066711161.json",
+      "sha256": "5992df44c946512bb62f20682722181bcb56265c2ae80d5209b359c186754119",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "outcomes": {
+        "Success": 30,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/wait",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_wait-16984349037489944113.json",
+      "sha256": "495fdbf752107b435fe8a6843b95e471e0e92a9ff8426fb29a6e72c4d65f4910",
+      "total": 154,
+      "passed": 154,
+      "failed": 0,
+      "outcomes": {
+        "Success": 154,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/waitAsync",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_waitAsync-18040653548189910498.json",
+      "sha256": "fb229782dbf1485437665286c58ac112cda0ae45b77b8477f7efbdb1d16e9bd7",
+      "total": 202,
+      "passed": 198,
+      "failed": 4,
+      "outcomes": {
+        "Success": 198,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Atomics/xor",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Atomics_xor-6194920047770100740.json",
+      "sha256": "d9466d357d89a14caaae27842f3a70663cf3b179bc187dba4575cb5ebc427ffd",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "outcomes": {
+        "Success": 30,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/BigInt",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_BigInt-11496157781125888712.json",
+      "sha256": "01501453901c24dec8d31e762ef1e07c35fcbac5ed68ef541ff34001cd031750",
+      "total": 154,
+      "passed": 154,
+      "failed": 0,
+      "outcomes": {
+        "Success": 154,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Boolean",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Boolean-13011551389026611067.json",
+      "sha256": "daf0f03ce18633e1a0a77f6b3970d8f9a2d9402ac07c5727c33713335d73a8b4",
+      "total": 101,
+      "passed": 99,
+      "failed": 2,
+      "outcomes": {
+        "Success": 99,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/DataView",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_DataView-14468338862717586783.json",
+      "sha256": "b44488d01c07f5164f99e86d0bcd70ded4df12f126f28d53f4e2c2e919771098",
+      "total": 124,
+      "passed": 124,
+      "failed": 0,
+      "outcomes": {
+        "Success": 124,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/DataView/prototype@chunk-0001-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_DataView_prototype@chunk-0001-of-0004-15061391226813980677.json",
+      "sha256": "8df29e7f1a96ab9c9ec34f1aeb2c0f5556d5ba74cf1aceeecea302239ab68ed9",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/DataView/prototype@chunk-0002-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_DataView_prototype@chunk-0002-of-0004-10212334672343679998.json",
+      "sha256": "07ae2bd8f81dc32af67f4b2c042a9faa7c3a8824edd802d2b086e2df27426d8b",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/DataView/prototype@chunk-0003-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_DataView_prototype@chunk-0003-of-0004-16827461557214056437.json",
+      "sha256": "5c42454588f73de461b7edf1b58c8b68af6c7b37b6e04315400eae67e311721b",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/DataView/prototype@chunk-0004-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_DataView_prototype@chunk-0004-of-0004-16222927245268257692.json",
+      "sha256": "6036ad49a3a3ef1f6012c43d03cb9eb6c424e42c3939c79d633b96c4a1673157",
+      "total": 248,
+      "passed": 248,
+      "failed": 0,
+      "outcomes": {
+        "Success": 248,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Date",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Date-5633103114881276560.json",
+      "sha256": "7972dbe5edd47c14254c60ff97967a6f144cd7e0def759cf0091adc23aa91fd9",
+      "total": 156,
+      "passed": 156,
+      "failed": 0,
+      "outcomes": {
+        "Success": 156,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Date/UTC",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Date_UTC-4763511983022595471.json",
+      "sha256": "34fbb2df6c1ad5437e8aa24cf4caee5d8adc6828e0bc2355ea72740be069eea7",
+      "total": 34,
+      "passed": 34,
+      "failed": 0,
+      "outcomes": {
+        "Success": 34,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Date/now",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Date_now-15877909275394183811.json",
+      "sha256": "15aae79b88ef1845eb84ff90fb85b3bba9e15a616ed78749532971667157be49",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "outcomes": {
+        "Success": 12,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Date/parse",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Date_parse-641485334952163313.json",
+      "sha256": "48675e3bd98e12c902038dcfee3bddf2b5b7af9bec39dc408eedc97a1eac3890",
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "outcomes": {
+        "Success": 16,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Date/prototype@chunk-0001-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Date_prototype@chunk-0001-of-0004-1689437866054294884.json",
+      "sha256": "53f645b9553500b932f5d21c0a576561778cadebf91a94bca2e121ec68acd766",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Date/prototype@chunk-0002-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Date_prototype@chunk-0002-of-0004-12955307763399573450.json",
+      "sha256": "0cfc13d2a7469c5e9a98b6c6013b6fa0d2ebcb04b2c71e1251f3ff81e855656f",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Date/prototype@chunk-0003-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Date_prototype@chunk-0003-of-0004-5458926522340951634.json",
+      "sha256": "e5054172350169f4d2e534f230d1ef2f829801c4eb15bc8a49fccb3dfdb358f4",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Date/prototype@chunk-0004-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Date_prototype@chunk-0004-of-0004-1135732742551522676.json",
+      "sha256": "2053daff51560de016cd6c165be10de04eb6eeb949db56a8c880e97c0490b4e1",
+      "total": 220,
+      "passed": 220,
+      "failed": 0,
+      "outcomes": {
+        "Success": 220,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/DisposableStack",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_DisposableStack-5019812097065654440.json",
+      "sha256": "3683046445e747725f8e146e0772011a3929a6a7437e16e6ccb00465f236e4a8",
+      "total": 186,
+      "passed": 184,
+      "failed": 2,
+      "outcomes": {
+        "Success": 184,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Error",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Error-4934534822533325842.json",
+      "sha256": "4030f698e837ebdba32de0d73c1348d55296fe5cabc1d66a0b295008b596a825",
+      "total": 116,
+      "passed": 114,
+      "failed": 2,
+      "outcomes": {
+        "Success": 114,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/FinalizationRegistry",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_FinalizationRegistry-12416988473687196351.json",
+      "sha256": "8cb43ec199ed7848d10428973bfe4c68d29d4b1a31cc280b50cb793386f343fe",
+      "total": 94,
+      "passed": 94,
+      "failed": 0,
+      "outcomes": {
+        "Success": 94,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Function",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Function-9524297333075123616.json",
+      "sha256": "26709d5552758bbbbf27c62e21e63f1ce90ec4f68fd53df8ea7759703bc88c89",
+      "total": 249,
+      "passed": 86,
+      "failed": 163,
+      "outcomes": {
+        "Success": 86,
+        "NotImplemented": 145,
+        "Bug": 18,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Function/internals",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Function_internals-13750674710743826942.json",
+      "sha256": "2f93013d9495e675f5a8dbb10677998b3735bb5a430d707dc81bfcfee9d4190d",
+      "total": 16,
+      "passed": 10,
+      "failed": 6,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 6,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Function/length",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Function_length-5408343288533285218.json",
+      "sha256": "aef4ea8996bd599bf0e84db409b50600f17bb247878455ed8a9e439215c10b43",
+      "total": 26,
+      "passed": 2,
+      "failed": 24,
+      "outcomes": {
+        "Success": 2,
+        "NotImplemented": 24,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Function/prototype@chunk-0001-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Function_prototype@chunk-0001-of-0003-13865674659378245357.json",
+      "sha256": "c35511998fa44ee87139b1bf2154a5cc64ca1691bc998bd648740c693ba0a7be",
+      "total": 250,
+      "passed": 191,
+      "failed": 59,
+      "outcomes": {
+        "Success": 191,
+        "NotImplemented": 59,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Function/prototype@chunk-0002-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Function_prototype@chunk-0002-of-0003-9705320959988647609.json",
+      "sha256": "00029190ff4ea7c85ea6b29ca002d17eac4ca7ecea1b0bbfc503a6ef293c27b6",
+      "total": 250,
+      "passed": 147,
+      "failed": 103,
+      "outcomes": {
+        "Success": 147,
+        "NotImplemented": 63,
+        "Bug": 40,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Function/prototype@chunk-0003-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Function_prototype@chunk-0003-of-0003-14076843785666625847.json",
+      "sha256": "815b6c9ad66a5af20623cd377f19427b266065841165ca835b80a9729bf33f19",
+      "total": 102,
+      "passed": 94,
+      "failed": 8,
+      "outcomes": {
+        "Success": 94,
+        "NotImplemented": 2,
+        "Bug": 6,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/GeneratorFunction",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_GeneratorFunction-10485958538073392785.json",
+      "sha256": "214b9dae08789e63a4fc340e889e2c38c98794475976adbdae59d7c9e1c6c482",
+      "total": 46,
+      "passed": 18,
+      "failed": 28,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 28,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/GeneratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_GeneratorPrototype-11177188672946090241.json",
+      "sha256": "2ec92a19cb6ec169f5623847adca8e389c825f3bed7ae46d272ecaf47b3069db",
+      "total": 122,
+      "passed": 122,
+      "failed": 0,
+      "outcomes": {
+        "Success": 122,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Infinity",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Infinity-6729308759980875333.json",
+      "sha256": "3b5686ce392648fb8c278cc08e489eb910a033683fa083a167de2e4cd63211aa",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Iterator",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Iterator-18320177251570245784.json",
+      "sha256": "3d710eb68448757228529411991f8b99af5bf396ac3c1b2beb9f2ca4a43a1edc",
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "outcomes": {
+        "Success": 16,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Iterator/concat",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Iterator_concat-13890485820726494822.json",
+      "sha256": "9b66c0808a588395d09087bace8188559bc2159ee4a3baaf44e0b556b3493c79",
+      "total": 64,
+      "passed": 64,
+      "failed": 0,
+      "outcomes": {
+        "Success": 64,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Iterator/from",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Iterator_from-17066953760578619145.json",
+      "sha256": "b1e8f6bcd0fa8d12cee60e4ff0c72ecba266dc30ba550135709475195bc6c8af",
+      "total": 38,
+      "passed": 36,
+      "failed": 2,
+      "outcomes": {
+        "Success": 36,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Iterator/prototype@chunk-0001-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Iterator_prototype@chunk-0001-of-0003-9377686808489709168.json",
+      "sha256": "2648701cb0381789f14719ee89142eac5667087a2839c982a87bad9c58af612a",
+      "total": 250,
+      "passed": 243,
+      "failed": 7,
+      "outcomes": {
+        "Success": 243,
+        "NotImplemented": 0,
+        "Bug": 7,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Iterator/prototype@chunk-0002-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Iterator_prototype@chunk-0002-of-0003-1671865708779945526.json",
+      "sha256": "b10534448e74ad8137cf0db81ee48474158e4f0c29caac7eb1b27b605b67e136",
+      "total": 250,
+      "passed": 244,
+      "failed": 6,
+      "outcomes": {
+        "Success": 244,
+        "NotImplemented": 0,
+        "Bug": 6,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Iterator/prototype@chunk-0003-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Iterator_prototype@chunk-0003-of-0003-4138508779056416692.json",
+      "sha256": "2eba5ef5f525c4afa9d7841680682b6e543c33d8a21b93ee26920329c47a6577",
+      "total": 246,
+      "passed": 240,
+      "failed": 6,
+      "outcomes": {
+        "Success": 240,
+        "NotImplemented": 0,
+        "Bug": 6,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Iterator/zip",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Iterator_zip-738734146763716117.json",
+      "sha256": "f893a8fe4a6d99fa7904883dc26efece57b2e907be3bd601463a0bc98530b7b2",
+      "total": 72,
+      "passed": 72,
+      "failed": 0,
+      "outcomes": {
+        "Success": 72,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Iterator/zipKeyed",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Iterator_zipKeyed-11021351825235674675.json",
+      "sha256": "7f42b4601ebf820a36a1c87e1b24edb95d2d8d0a9f32f178a1dee223e3a9b5aa",
+      "total": 84,
+      "passed": 82,
+      "failed": 2,
+      "outcomes": {
+        "Success": 82,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/JSON",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_JSON-11550425609846463193.json",
+      "sha256": "2b79f58400a161da3e2e153eaf01705c0d50cf9f97e42f89189b8dbece0e0537",
+      "total": 330,
+      "passed": 330,
+      "failed": 0,
+      "outcomes": {
+        "Success": 330,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Map",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Map-11040157899642371071.json",
+      "sha256": "5e7e7d9f7e80fdbba43ea858d3f4dfd763f3f85de2b3d3442d52455069f66a60",
+      "total": 405,
+      "passed": 403,
+      "failed": 2,
+      "outcomes": {
+        "Success": 403,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/MapIteratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_MapIteratorPrototype-2962843304682625971.json",
+      "sha256": "bd61ccd9ce488f54e0bc0620704cc9760eb3905fdf8cea5094ff9aa0f163e4ff",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "outcomes": {
+        "Success": 22,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math-8087245582867393704.json",
+      "sha256": "44184c5cfc4f5c97af1587befa4b63fb7df7ae6e4b1963e3e81d1f9e4689708a",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "outcomes": {
+        "Success": 6,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/E",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_E-16152187262663819937.json",
+      "sha256": "f20479e6daef630570f84f2a0c1c9e9020095f6931a5867ce0db50fb20b561ed",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "outcomes": {
+        "Success": 4,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/LN10",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_LN10-1896566253341748036.json",
+      "sha256": "5388b553d63f9d97b1afa9692f6bbea05f3af9f73efbf9852d49eb7c2bdf66d3",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "outcomes": {
+        "Success": 4,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/LN2",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_LN2-7155055368071078925.json",
+      "sha256": "46c1590a979e9e7249b820edfdde9b38e6eb31edfb2cec6dff8887e5a47a535d",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "outcomes": {
+        "Success": 4,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/LOG10E",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_LOG10E-17169210181398486567.json",
+      "sha256": "a4303b4d14597532eae2ea8039c28b2685a30c0031e1a3f3b4af3e31786d7baa",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "outcomes": {
+        "Success": 4,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/LOG2E",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_LOG2E-15604956752994354928.json",
+      "sha256": "4ee9176c1d79a69795f8e32c3df8d793cf0ee3e8055a710d79f453280cbafe19",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "outcomes": {
+        "Success": 4,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/PI",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_PI-9754713820180049917.json",
+      "sha256": "528aedd7207c6a6b14ffb0eec376349230021cd8956775424f0ec7aef400b181",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "outcomes": {
+        "Success": 4,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/SQRT1_2",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_SQRT1_2-13813875563706373721.json",
+      "sha256": "a4231202a34ece49c6acc5f6129b6093cbdbff467ebc742d27d9e4a271994308",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "outcomes": {
+        "Success": 4,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/SQRT2",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_SQRT2-17069362854283468972.json",
+      "sha256": "e458351e09e4b0806b8802febff49d0bce865ca2be47f25364fd0a41efef729e",
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "outcomes": {
+        "Success": 4,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/abs",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_abs-2780577070254524569.json",
+      "sha256": "2ea5c5d98022fe9fe7b51c782621565eaa4451970258ce1136836f8016bbb5ef",
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "outcomes": {
+        "Success": 16,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/acos",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_acos-6205194639068218262.json",
+      "sha256": "37bb9e6c305926b5681e34639c822e285cb91ef82f7cf56d597b4f217a517422",
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "outcomes": {
+        "Success": 16,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/acosh",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_acosh-3802570431903657488.json",
+      "sha256": "cb61ba42739380c691af36a4dd3f412fcc98715357a4c1d119703af7a3ffeb34",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "outcomes": {
+        "Success": 14,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/asin",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_asin-6620043159273582410.json",
+      "sha256": "bc2dfbdb03367dbe1f2d317113c76f64c06f88ceb456b17e9bb35f7c564a2cb4",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/asinh",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_asinh-11151313423440637334.json",
+      "sha256": "e2cbc64eed25613b0cdff5a13b298132368e224a61195d818e3ffbafda7f873c",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/atan",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_atan-3534131883927470511.json",
+      "sha256": "5452674fd0374cf232c3181bdb696bd0997c491bee7129871c81817aee5012e7",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "outcomes": {
+        "Success": 14,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/atan2",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_atan2-7907775180115907392.json",
+      "sha256": "a5ebeb2b8e48758a0d1213f2b26d7077c90be34afcb547cc597ff032349afe4b",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "outcomes": {
+        "Success": 22,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/atanh",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_atanh-7416882738909557586.json",
+      "sha256": "2351304a19b9a259612a6c64b3b2d5a4c8fc3ddd564198cbca0a3a2f74b7c845",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/cbrt",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_cbrt-1546247564399230758.json",
+      "sha256": "3ab53955ed085f0c22bf49357b23514da0fe31fbf299b992e489ae222ac326d5",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/ceil",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_ceil-17761318254798290764.json",
+      "sha256": "d2e918973aba1459542deff3210038c5507ec1d37e944380e0ff0bf403694bed",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "outcomes": {
+        "Success": 22,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/clz32",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_clz32-956941483436256243.json",
+      "sha256": "5a4b0519b5c34e62223ed9fb329112dcedd5de27e15f158afd61fcd56c0b44b3",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "outcomes": {
+        "Success": 20,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/cos",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_cos-782600360384110898.json",
+      "sha256": "7f8f23cb6224546dab959fc75b5b5ecbfd6e772cfc35ea397dbe04e0a6518db3",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/cosh",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_cosh-11312167873746667275.json",
+      "sha256": "26e2b10d9dec41a335b1c304313cf586cf449dd489403b334762e34db8e0d542",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/exp",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_exp-9587895406273534358.json",
+      "sha256": "b852a08423ea5074b9d7ab643336c4deb6dc81590df14f646f98758b4d85faf5",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/expm1",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_expm1-4908098118888184012.json",
+      "sha256": "2e45acf9b364a6640c79cfdf915508c7d978ab2ef2b4d619290d6377e1cf2226",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/f16round",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_f16round-16634477979657895911.json",
+      "sha256": "f0596a4996323c73f923497ab8673d2ae96201906e7f46b8212c66e36055e950",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/floor",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_floor-13855005350544413528.json",
+      "sha256": "dc208edd57258a386b5727912d035f873b86cd89a92937d8614b11381408ab61",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "outcomes": {
+        "Success": 22,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/fround",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_fround-6592056910219933790.json",
+      "sha256": "5daa951dc5c4614bfca00aef4decd8cb39848afa14c054b7ad72b8e8ab1f8e96",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/hypot",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_hypot-15005776977534549226.json",
+      "sha256": "f5241532b6fac211b5116abdd76f52c2d7bc0b9091115a56175c657e22cc9732",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "outcomes": {
+        "Success": 24,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/imul",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_imul-15397027433447486694.json",
+      "sha256": "34bae2190cf70433239ea2c5672ef800bf3bc293e4e15c66885e6aec68e4180d",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/log",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_log-3930279521736734647.json",
+      "sha256": "5514e0e66f96b921ce0910c0404f0ff1b2e3ef8c1b403db34954855b62c84c5b",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/log10",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_log10-10311141872258349742.json",
+      "sha256": "6d2c5af84e3456f65d81cb9540c3db9c0dc14c75b0b5ecdc64b8cc914e9da7e3",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/log1p",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_log1p-12067122680358054143.json",
+      "sha256": "c07b1fea1a09ac49215ad3b7c5a88e79ea15f89dad22399cd5f6414dee236390",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/log2",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_log2-4072070000046338912.json",
+      "sha256": "3a54754bceb20e954a09e0ff0f18d51aaedcc3136a1390baa89846fa3ff9dc84",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/max",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_max-4938432434473035788.json",
+      "sha256": "807284a31747b67f4338435d366239ce92b11aca1bbe270dee206f885c9394bd",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "outcomes": {
+        "Success": 20,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/min",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_min-4516226752532979807.json",
+      "sha256": "bc8511fdb509ea6b6609d038ebad09dfa78906418251d191501442840b1e4b29",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "outcomes": {
+        "Success": 20,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/pow",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_pow-6467000038322680231.json",
+      "sha256": "4c700cbec66922257c7566bb785da79039aeb20f1f931b4d6c6a351970a7918d",
+      "total": 56,
+      "passed": 56,
+      "failed": 0,
+      "outcomes": {
+        "Success": 56,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/random",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_random-13550114043041305172.json",
+      "sha256": "1e007426bdb26e63ec8dab51a3c955305e6a8098dd4a20f656f6681929a9d447",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/round",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_round-784649680716015722.json",
+      "sha256": "b3a51a817e49ba719202e1cf00e4febcec98b4e7f907f41c00806900c7f9df0b",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "outcomes": {
+        "Success": 22,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/sign",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_sign-1501051361728582308.json",
+      "sha256": "f99f5c9ead30b3099c0b01ac9854852d4c88ae6f465624799f031ab3814a5bdf",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/sin",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_sin-10759378311939567792.json",
+      "sha256": "64735387509d06a59212b070352787447f6bdafa97bda2c9cc695036fb310add",
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "outcomes": {
+        "Success": 16,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/sinh",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_sinh-15419696871038530251.json",
+      "sha256": "0e3cbc95cd917f31a964dd21478c397e83b914d70a29e926b50a9c29367afd23",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/sqrt",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_sqrt-15019513133872612750.json",
+      "sha256": "6c494700b37d3f899fa8ffbf84fedf07bad8ff4d16890d973d78a18afc799cb9",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "outcomes": {
+        "Success": 20,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/sumPrecise",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_sumPrecise-13537409017450228647.json",
+      "sha256": "d1a53932eae9a2dd22af715f6ee873ad8d0b757dd87aeb0744e8608f5e7e4fe6",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "outcomes": {
+        "Success": 20,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/tan",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_tan-10366320347220296930.json",
+      "sha256": "6dd6a0da6954c7144357581f50f7adacc8dacea260d163e1c76889e5e2a27435",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/tanh",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_tanh-13662836027455674813.json",
+      "sha256": "fcb2c4dcbc99d22d986a8752ec674be0f06d45fb293bb1c957427025da611c17",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Math/trunc",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Math_trunc-6003891418745903191.json",
+      "sha256": "23075e262a202a5b7069a0ed44e1fbf60e8eefbc1249694ae663bf8494eeb9a3",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "outcomes": {
+        "Success": 24,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/NaN",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_NaN-16019297205317284450.json",
+      "sha256": "9f0ae88e6a61ad157b131a89676d1597da4899fb6e1822c2861705a02c8d93cf",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/NativeErrors",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_NativeErrors-16097655199832236446.json",
+      "sha256": "f5f19b897612285a0f8c8bfdab35200e9b1a840f55457cad4c373a822cc5b5f6",
+      "total": 188,
+      "passed": 188,
+      "failed": 0,
+      "outcomes": {
+        "Success": 188,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number-9300517314814541704.json",
+      "sha256": "05c713dbbf3b162fa77a5e1cfe6692d721e1a8d62ebd7175018e0edda31634b7",
+      "total": 240,
+      "passed": 236,
+      "failed": 4,
+      "outcomes": {
+        "Success": 236,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/MAX_VALUE",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_MAX_VALUE-14923753805640798792.json",
+      "sha256": "c2394e2d6cb953bd2cae01d28388e07185c556fc4079c608f5bf6efc9e9c76a2",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "outcomes": {
+        "Success": 6,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/MIN_VALUE",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_MIN_VALUE-7837582810330329213.json",
+      "sha256": "56ef34753f786cc36297ab270d61a93f97de876e0cf64e22d140d950af5bf4a2",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "outcomes": {
+        "Success": 6,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/NEGATIVE_INFINITY",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_NEGATIVE_INFINITY-16298191569700468961.json",
+      "sha256": "676f6873bff7ed3433d59b866e065ce5ec01531db30a36c0d68c32624bf0bc22",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "outcomes": {
+        "Success": 8,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/POSITIVE_INFINITY",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_POSITIVE_INFINITY-10960343938379794188.json",
+      "sha256": "122499777b11997e3f7c3eb3e35c27872f69da6c4d0b509ee1969eb09d391145",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "outcomes": {
+        "Success": 8,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/isFinite",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_isFinite-18165238746984176355.json",
+      "sha256": "7c0492befa9643deee8c6bdf06541be418b634789b51788e1b6ddef96a2a11e8",
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "outcomes": {
+        "Success": 16,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/isInteger",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_isInteger-16279027234441001546.json",
+      "sha256": "59714e0aa5cba965f5df8ff165a20913c2a5ab25b401408ae615d2b99ca92db5",
+      "total": 18,
+      "passed": 18,
+      "failed": 0,
+      "outcomes": {
+        "Success": 18,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/isNaN",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_isNaN-9096915210490409709.json",
+      "sha256": "b3108037c638eb401547fea848e0d335b16a583063beda2fa7104c81136743b8",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "outcomes": {
+        "Success": 14,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/isSafeInteger",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_isSafeInteger-10158305203484760453.json",
+      "sha256": "3f73446f774b0b313d09b45408a97b86a43a603cbd51bf8202e1d7b280892b2c",
+      "total": 20,
+      "passed": 20,
+      "failed": 0,
+      "outcomes": {
+        "Success": 20,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/parseFloat",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_parseFloat-3089147934800546722.json",
+      "sha256": "a368e77bc8b820285825e84bfd96953f5d78cb63416f207935f610e24b2e72a3",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "outcomes": {
+        "Success": 2,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/parseInt",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_parseInt-12820246732800100149.json",
+      "sha256": "3de5cf25c5aa3aa4395034fde7e47b25cbd58558747a735abd63ec5bdcc08bc6",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "outcomes": {
+        "Success": 2,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Number/prototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Number_prototype-6930841936026127776.json",
+      "sha256": "67981428e71904e611546c455fd74faa674777a6f95f2ee57e61d50e30e78cb1",
+      "total": 336,
+      "passed": 336,
+      "failed": 0,
+      "outcomes": {
+        "Success": 336,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object-13893886005630698089.json",
+      "sha256": "33dab167b2fd3d5a20285fb26e7e2c7e67535907c4b9e1aca5c9a1757cff6bcc",
+      "total": 122,
+      "passed": 122,
+      "failed": 0,
+      "outcomes": {
+        "Success": 122,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/assign",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_assign-6927841150292821504.json",
+      "sha256": "910a04e5b379a685289b1db2ebcab0078aa57bcbc106eb2a246149d537cc70a4",
+      "total": 76,
+      "passed": 76,
+      "failed": 0,
+      "outcomes": {
+        "Success": 76,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/create@chunk-0001-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_create@chunk-0001-of-0003-4327796970877212725.json",
+      "sha256": "1e18f53b7853fcc185c51e6746b65907b023f37cf291089827cc9e06bd106b86",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/create@chunk-0002-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_create@chunk-0002-of-0003-14058214601599622112.json",
+      "sha256": "582860822a2a54fca4a6b489e699c9aa22959bd2262a0f5766b5711b820c9221",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/create@chunk-0003-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_create@chunk-0003-of-0003-9833557226525541924.json",
+      "sha256": "fc1da18a710f3e6c6f0ed93cb231faa06307efbbd3e929d33c94e510a5f3fb6a",
+      "total": 140,
+      "passed": 140,
+      "failed": 0,
+      "outcomes": {
+        "Success": 140,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperties@chunk-0001-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperties@chunk-0001-of-0006-11953646024811844320.json",
+      "sha256": "d70c04686e000bc7cf9cebc9ff4743bfa3bdf4ada7c4617ad69301ae85fed9c2",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperties@chunk-0002-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperties@chunk-0002-of-0006-4328620942817243690.json",
+      "sha256": "a1177a26b8890ae1585ab34ebc0452202b4bb051b913f3d76acebdea2c24be53",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperties@chunk-0003-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperties@chunk-0003-of-0006-15068766990993317678.json",
+      "sha256": "b2902078d8721ed0483f4bc248db366421bf328deb6d1df4f32f7deae15dc84d",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperties@chunk-0004-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperties@chunk-0004-of-0006-6488810382557285543.json",
+      "sha256": "367e88d9a3db7f829e6d3a255fde940400c6d2015506f9f58f7c17bc0ce85c35",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperties@chunk-0005-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperties@chunk-0005-of-0006-2797688870176223223.json",
+      "sha256": "49c115469a704b822abe49f6fd3707f18ba3ee3c69c4356dfe8d6984d7176dc7",
+      "total": 250,
+      "passed": 234,
+      "failed": 16,
+      "outcomes": {
+        "Success": 234,
+        "NotImplemented": 0,
+        "Bug": 16,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperties@chunk-0006-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperties@chunk-0006-of-0006-8963736215198072949.json",
+      "sha256": "8b6f1a006d7dafeaff849117b990107505694bd3941c7707bc496fa1af5be1c3",
+      "total": 14,
+      "passed": 12,
+      "failed": 2,
+      "outcomes": {
+        "Success": 12,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0001-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0001-of-0009-13102132652709944869.json",
+      "sha256": "ab90e4d80da47cefe366ed48884642c7a65b0441eebaf841cc3507e93b954617",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0002-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0002-of-0009-9913879452910252267.json",
+      "sha256": "1d484e3be4b88bfeae274a1a3bb9e72dce773a8265df8be2a32698ac6ea4a376",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0003-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0003-of-0009-6306784342728763442.json",
+      "sha256": "75cd27fb864f420d78805c044e024a61168aab23157e01bdb850bd0e2263fff4",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0004-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0004-of-0009-2955988389227435757.json",
+      "sha256": "b3f9ba25f7db49caa39130628f4e21853408cf9345ebfd329ce39442a1d8a041",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0005-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0005-of-0009-16829701057849208814.json",
+      "sha256": "85b880d0abddd27decc82a2d9ee51643a0984e0ae23ecaf045fd2a76430fb6da",
+      "total": 250,
+      "passed": 225,
+      "failed": 25,
+      "outcomes": {
+        "Success": 225,
+        "NotImplemented": 0,
+        "Bug": 25,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0006-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0006-of-0009-13762643959000797935.json",
+      "sha256": "959efe26e22094efda9f25783736a5b46f010cb217d430fd025182f938dbccd0",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0007-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0007-of-0009-3419075531015589890.json",
+      "sha256": "ff66d1131a6d91dc421cc5611c11b4f619ae2c15b5a3f6332c700f8a07680eef",
+      "total": 250,
+      "passed": 240,
+      "failed": 10,
+      "outcomes": {
+        "Success": 240,
+        "NotImplemented": 0,
+        "Bug": 10,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0008-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0008-of-0009-6769924389775949070.json",
+      "sha256": "586c768bc01c6cd5742bfdb4543c074290fbe4f7f525b007da05acc906886b87",
+      "total": 250,
+      "passed": 244,
+      "failed": 6,
+      "outcomes": {
+        "Success": 244,
+        "NotImplemented": 0,
+        "Bug": 6,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/defineProperty@chunk-0009-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_defineProperty@chunk-0009-of-0009-3764126692903025564.json",
+      "sha256": "cb842a5ae5815278ab0a77ffbb3436e574500eb1dad7bfb9c70b8fc583b42c20",
+      "total": 250,
+      "passed": 242,
+      "failed": 8,
+      "outcomes": {
+        "Success": 242,
+        "NotImplemented": 6,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/entries",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_entries-10636424305370173439.json",
+      "sha256": "6d80043fd5120dfa54e86613ebd65eea649ce3527b19b92e010d97e872d8597b",
+      "total": 42,
+      "passed": 40,
+      "failed": 2,
+      "outcomes": {
+        "Success": 40,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/freeze",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_freeze-7291995350220204419.json",
+      "sha256": "c12b86d64885b162161f92208d66f6dcd5e18508d1814005d184d44dd383eebc",
+      "total": 104,
+      "passed": 104,
+      "failed": 0,
+      "outcomes": {
+        "Success": 104,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/fromEntries",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_fromEntries-9628337361417821563.json",
+      "sha256": "23a3f2c888ee6b501141d228c0456a976b2b882bde958a3132f6c3fccae4eeae",
+      "total": 50,
+      "passed": 50,
+      "failed": 0,
+      "outcomes": {
+        "Success": 50,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/getOwnPropertyDescriptor@chunk-0001-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_getOwnPropertyDescriptor@chunk-0001-of-0003-3390099711546494379.json",
+      "sha256": "141e2fe32a15eae1753f08570c5bfd7e26dd96f11a714fd755171f348732c6ce",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/getOwnPropertyDescriptor@chunk-0002-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_getOwnPropertyDescriptor@chunk-0002-of-0003-251279177577207646.json",
+      "sha256": "8bd2aa8e118234c8e571565fb763f1bcaccebd7288e1a058c3b52193440dc31c",
+      "total": 250,
+      "passed": 234,
+      "failed": 16,
+      "outcomes": {
+        "Success": 234,
+        "NotImplemented": 4,
+        "Bug": 12,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/getOwnPropertyDescriptor@chunk-0003-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_getOwnPropertyDescriptor@chunk-0003-of-0003-17525445775243780536.json",
+      "sha256": "883875ca0e46be46b44fcaa0c9a36c73cf975815d2e76ddfc60c06a0cfd8f475",
+      "total": 120,
+      "passed": 120,
+      "failed": 0,
+      "outcomes": {
+        "Success": 120,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/getOwnPropertyDescriptors",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_getOwnPropertyDescriptors-15132605143106738551.json",
+      "sha256": "2c02f267352e7edbdd0ce767d4a3075b55312601fc398eb70b67e352f53e48d4",
+      "total": 36,
+      "passed": 36,
+      "failed": 0,
+      "outcomes": {
+        "Success": 36,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/getOwnPropertyNames",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_getOwnPropertyNames-4228524800764679826.json",
+      "sha256": "9c5747bb59303c3b2ec85002096d0b70d8e2d6ed20b3156ee1ba911b51cb1997",
+      "total": 90,
+      "passed": 90,
+      "failed": 0,
+      "outcomes": {
+        "Success": 90,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/getOwnPropertySymbols",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_getOwnPropertySymbols-11601905744289032290.json",
+      "sha256": "79863ebd7301a5cfd58d998886ac5367d552855f6c0e889fc78a4951e7ddbb16",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "outcomes": {
+        "Success": 24,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/getPrototypeOf",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_getPrototypeOf-7763412164952602611.json",
+      "sha256": "286489da9b1d88011fb91d38241f5bd5e1fdcad8bdc5ab59deb32cc8c8c20b6f",
+      "total": 78,
+      "passed": 78,
+      "failed": 0,
+      "outcomes": {
+        "Success": 78,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/groupBy",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_groupBy-16887618076026904651.json",
+      "sha256": "5aef7443f678d1a2e8c5386c571640cdf6ac24c553a1d648beaef74401811ab0",
+      "total": 28,
+      "passed": 28,
+      "failed": 0,
+      "outcomes": {
+        "Success": 28,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/hasOwn",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_hasOwn-9239565981381597212.json",
+      "sha256": "dddec26ad8318e6ed74b289d40e9dc9f414f950e0aa8bdbf209ba1c2789af333",
+      "total": 124,
+      "passed": 124,
+      "failed": 0,
+      "outcomes": {
+        "Success": 124,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/internals",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_internals-943729550524844589.json",
+      "sha256": "4bed6f49965774f453c101bd765e5c2a7d1bd0bf4b3d671b792c0e65d7a0ad8c",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "outcomes": {
+        "Success": 12,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/is",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_is-11370523761045022405.json",
+      "sha256": "e8befc56a40ef25dcd946c94ea08e9bd6d76decc57ddc89097bb70bfe4b839ac",
+      "total": 42,
+      "passed": 42,
+      "failed": 0,
+      "outcomes": {
+        "Success": 42,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/isExtensible",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_isExtensible-13327849202047448334.json",
+      "sha256": "b3392f0c694096d65a4900653d0ac4efdb2f24060da8f66168ad856bb6d499a6",
+      "total": 76,
+      "passed": 76,
+      "failed": 0,
+      "outcomes": {
+        "Success": 76,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/isFrozen",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_isFrozen-6112302684644364290.json",
+      "sha256": "f1aebe80c35302851c8c69a6568c990c55f78da23b4b9a813e64e7ab6c0f472b",
+      "total": 118,
+      "passed": 118,
+      "failed": 0,
+      "outcomes": {
+        "Success": 118,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/isSealed",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_isSealed-8196786066612712940.json",
+      "sha256": "0383f5355c1f545a7f5111520d475442546743d1b3de9689b80af98d7d860c6d",
+      "total": 66,
+      "passed": 66,
+      "failed": 0,
+      "outcomes": {
+        "Success": 66,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/keys",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_keys-14240294038166633099.json",
+      "sha256": "efc53f7cd70f9d0164b28b25a830bf3e3a1b9e5fd44224d6e7a103f23527f7be",
+      "total": 118,
+      "passed": 116,
+      "failed": 2,
+      "outcomes": {
+        "Success": 116,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/preventExtensions",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_preventExtensions-13374152919803573553.json",
+      "sha256": "e65d305a6c136c87e4bdb31a56c50a589992ea9bc7fdbbe373e925b475ec906f",
+      "total": 78,
+      "passed": 78,
+      "failed": 0,
+      "outcomes": {
+        "Success": 78,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/prototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_prototype-6538698758155328090.json",
+      "sha256": "9bc1d557d033c3c7f208ef35c1809a363008dd2d439b65c3a41b9f0f0e9df214",
+      "total": 494,
+      "passed": 446,
+      "failed": 48,
+      "outcomes": {
+        "Success": 446,
+        "NotImplemented": 0,
+        "Bug": 48,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/seal",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_seal-14143073355816020695.json",
+      "sha256": "56991cb34566bf44fe0280f3aa309d50714cfd771c0322d5bc206d0ef66a7208",
+      "total": 186,
+      "passed": 176,
+      "failed": 10,
+      "outcomes": {
+        "Success": 176,
+        "NotImplemented": 10,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/setPrototypeOf",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_setPrototypeOf-17526193780850628700.json",
+      "sha256": "65abbc9c35738273105987350c3174ac4a999bd7f66997605d6fecd2d193f4ad",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "outcomes": {
+        "Success": 24,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Object/values",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Object_values-14545413803907995870.json",
+      "sha256": "c70bdfafc51593b7fbfa6df6e62eab05e24bd5611ed5574de1e104c2dd9afc3a",
+      "total": 40,
+      "passed": 38,
+      "failed": 2,
+      "outcomes": {
+        "Success": 38,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise-14122317478375830819.json",
+      "sha256": "65a8d0d927210ce4675ff21911da8bc573f755544764d7d939232a30be7d04d3",
+      "total": 114,
+      "passed": 114,
+      "failed": 0,
+      "outcomes": {
+        "Success": 114,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/Symbol.species",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_Symbol.species-10561689426799900168.json",
+      "sha256": "82e3d651c7f1bc0908a1004d990e0469f90721cffe926ce5aff4d368acbf1036",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/all",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_all-4336102013556207623.json",
+      "sha256": "8958c58adb70aba8e4cc76267c8d5da19c3526c81ee2c7554439746e3910d215",
+      "total": 196,
+      "passed": 182,
+      "failed": 14,
+      "outcomes": {
+        "Success": 182,
+        "NotImplemented": 0,
+        "Bug": 14,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/allKeyed",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_allKeyed-11845640233188869867.json",
+      "sha256": "7038b367949b979d79db005033ef086436f087226bb8ed11440c4489521f3002",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "outcomes": {
+        "Success": 12,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/allSettled",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_allSettled-11421227262766821633.json",
+      "sha256": "68fb02461985c6c58237d922ad342e1b34c9696e5ea0624b774b26bff9374007",
+      "total": 208,
+      "passed": 196,
+      "failed": 12,
+      "outcomes": {
+        "Success": 196,
+        "NotImplemented": 0,
+        "Bug": 12,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/allSettledKeyed",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_allSettledKeyed-4249555559732989676.json",
+      "sha256": "4c05432133b2e1cd62a4964b0f2bb7be88427d5ac7b47d53694f1438e49d6f08",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "outcomes": {
+        "Success": 12,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/any",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_any-18243636686690074031.json",
+      "sha256": "e8cbc8727e94bdfe4abdf89e6dc842e5f3216463245e18f9bdf9b582f5a49038",
+      "total": 188,
+      "passed": 184,
+      "failed": 4,
+      "outcomes": {
+        "Success": 184,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/prototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_prototype-9832975986177837635.json",
+      "sha256": "1a75907f80d3031aa608ccf56cabea5a2fdb386d5544b6732685a7ea12c4761d",
+      "total": 244,
+      "passed": 238,
+      "failed": 6,
+      "outcomes": {
+        "Success": 238,
+        "NotImplemented": 0,
+        "Bug": 6,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/race",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_race-2674015447519068581.json",
+      "sha256": "f7f1f2308bf88f854c6d40201ae7206f63916c59f969ce8e6010d866a60a0c68",
+      "total": 188,
+      "passed": 178,
+      "failed": 10,
+      "outcomes": {
+        "Success": 178,
+        "NotImplemented": 0,
+        "Bug": 10,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/reject",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_reject-13120612956850296321.json",
+      "sha256": "7f01eeea6df3b089435e87655abd844a242887e8dfb0890455304f3e9d1c7ef1",
+      "total": 30,
+      "passed": 28,
+      "failed": 2,
+      "outcomes": {
+        "Success": 28,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/resolve",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_resolve-3405419997716596877.json",
+      "sha256": "c5eb1d511eb68601e19457992cff26c30d72064b136c06521bf57dfb5e9710c7",
+      "total": 60,
+      "passed": 58,
+      "failed": 2,
+      "outcomes": {
+        "Success": 58,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/try",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_try-11553966994948406139.json",
+      "sha256": "5684c13be3ccbb92b41ce9aad33e6c5df24a1d8b844d5f277c32e8499138e3b0",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "outcomes": {
+        "Success": 24,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Promise/withResolvers",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Promise_withResolvers-510636211172315411.json",
+      "sha256": "37fff2e45fcea02a40d1af0e1dabc0e874fa4fe4bc4cce060d33c134b7df027a",
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "outcomes": {
+        "Success": 12,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy-13113707366062711580.json",
+      "sha256": "b05ebbd5b1aafb7ed406667fd05e1252abb74bc47bf60c19da8ea25c189b999b",
+      "total": 56,
+      "passed": 52,
+      "failed": 4,
+      "outcomes": {
+        "Success": 52,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/apply",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_apply-10103108810262562986.json",
+      "sha256": "3ed92fa1bf94d9568038778bb5e8f7bb8b2ce91ca473f3b0ba7a09f80ecc569d",
+      "total": 28,
+      "passed": 26,
+      "failed": 2,
+      "outcomes": {
+        "Success": 26,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/construct",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_construct-14071721024211734691.json",
+      "sha256": "6bdbbadaa30da149a6a8934f2d0620042f72e06187b92c8b4ac8b0f348d04afa",
+      "total": 58,
+      "passed": 52,
+      "failed": 6,
+      "outcomes": {
+        "Success": 52,
+        "NotImplemented": 6,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/defineProperty",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_defineProperty-5710688776489611688.json",
+      "sha256": "bb53ce6ba5d0815b4d1932b2eecfbab66391dec7bbc3bc46075dffb093b6445b",
+      "total": 48,
+      "passed": 48,
+      "failed": 0,
+      "outcomes": {
+        "Success": 48,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/deleteProperty",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_deleteProperty-11337128265765978147.json",
+      "sha256": "7db212efca1f786ac5611850f98bf00ffe27b557c54da81aa737f6b8c9b5c973",
+      "total": 30,
+      "passed": 30,
+      "failed": 0,
+      "outcomes": {
+        "Success": 30,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/enumerate",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_enumerate-16373229900566874334.json",
+      "sha256": "c349f3a570df453241ea5b7aa6e68426e8088ad17e9f0f6bd62499baf2f64585",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "outcomes": {
+        "Success": 2,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/get",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_get-6220024583185842974.json",
+      "sha256": "d3a142c0b70f975e5f96c59eeff108cd28e63625f8e722dfb8970b00c0dd4545",
+      "total": 38,
+      "passed": 38,
+      "failed": 0,
+      "outcomes": {
+        "Success": 38,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/getOwnPropertyDescriptor",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_getOwnPropertyDescriptor-2785069102123643332.json",
+      "sha256": "9e88c02cc7b2f8548d33be39f146fd7ed3d029ea8e55f2dcec7ea31067d2e42a",
+      "total": 42,
+      "passed": 42,
+      "failed": 0,
+      "outcomes": {
+        "Success": 42,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/getPrototypeOf",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_getPrototypeOf-3472532849490271280.json",
+      "sha256": "9b1324535df80ba87e1fd713885a00a201b4ec45809c2b86b658c46878a5915f",
+      "total": 38,
+      "passed": 38,
+      "failed": 0,
+      "outcomes": {
+        "Success": 38,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/has",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_has-10461537458452359195.json",
+      "sha256": "d1dce6fe721e8e75d7f12b59fab82e488badab9d475fd8c3b578a96549340bbb",
+      "total": 43,
+      "passed": 43,
+      "failed": 0,
+      "outcomes": {
+        "Success": 43,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/isExtensible",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_isExtensible-13618668023935073388.json",
+      "sha256": "003ec3ae1ab6c00747e673885be90504b0c949f8e1472dd31bfd7adf8040703a",
+      "total": 24,
+      "passed": 24,
+      "failed": 0,
+      "outcomes": {
+        "Success": 24,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/ownKeys",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_ownKeys-7221817187614287022.json",
+      "sha256": "22c4e58b07f9584d8d83c46a3d295b651d4d0179c914066fa65a9d3a63656ccf",
+      "total": 54,
+      "passed": 54,
+      "failed": 0,
+      "outcomes": {
+        "Success": 54,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/preventExtensions",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_preventExtensions-3112485675552205989.json",
+      "sha256": "d456d6cc6e456b35dfe9ccef4f2743b93bed2e655700c0616a93cba1cfd08a0f",
+      "total": 23,
+      "passed": 23,
+      "failed": 0,
+      "outcomes": {
+        "Success": 23,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/revocable",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_revocable-6034613374955321612.json",
+      "sha256": "c6b8d6579a84cefdfb3d1bfb5bccd48a1aee35e8dbf650f1efb26e3d8cac7c3c",
+      "total": 35,
+      "passed": 34,
+      "failed": 1,
+      "outcomes": {
+        "Success": 34,
+        "NotImplemented": 0,
+        "Bug": 1,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/set",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_set-11169712359451851601.json",
+      "sha256": "79711d401c3f4a77a959ee322efe94314a0ba217cdd24ffdaa086574e9c0ca8a",
+      "total": 54,
+      "passed": 54,
+      "failed": 0,
+      "outcomes": {
+        "Success": 54,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Proxy/setPrototypeOf",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Proxy_setPrototypeOf-8778288326758792213.json",
+      "sha256": "a3fdc334397151d57a6742c8bab558505ea8ee5b63185e69f51e8bd4fc97b72d",
+      "total": 34,
+      "passed": 34,
+      "failed": 0,
+      "outcomes": {
+        "Success": 34,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Reflect",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Reflect-4289497032254315763.json",
+      "sha256": "d3ba771a08f24be8f6ff69cc69dd4404ce61d5611769cf0b808796c4847d378a",
+      "total": 306,
+      "passed": 304,
+      "failed": 2,
+      "outcomes": {
+        "Success": 304,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/CharacterClassEscapes",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_CharacterClassEscapes-3779030067479016346.json",
+      "sha256": "cabf42c230b16b1ae10cc1fe882810717a2ab090819645a78edd7fbedeceab1c",
+      "total": 24,
+      "passed": 12,
+      "failed": 12,
+      "outcomes": {
+        "Success": 12,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 12
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/Symbol.species",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_Symbol.species-11348476344399637653.json",
+      "sha256": "7d437f93fa1d7bdcf111d2bd51edd7d88724796973329099a655b6b75e46e9d0",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "outcomes": {
+        "Success": 8,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/dotall",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_dotall-10976919458423828687.json",
+      "sha256": "3fe5b9b5ee6998cda83e735043f5b8925005d80f414bad749d5481d717fd06e0",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "outcomes": {
+        "Success": 8,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/escape",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_escape-2369149425863331286.json",
+      "sha256": "a176650418a134b2f76e1162aa36c8e3d2f3bcc93c77b6f48a828a4a8ad661cb",
+      "total": 40,
+      "passed": 40,
+      "failed": 0,
+      "outcomes": {
+        "Success": 40,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/lookBehind",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_lookBehind-7586757136273413327.json",
+      "sha256": "8f93ee5e1a16e7220e680f6c593494f0c1a8aa631ac78f997e8c5b56c99cbf28",
+      "total": 34,
+      "passed": 14,
+      "failed": 20,
+      "outcomes": {
+        "Success": 14,
+        "NotImplemented": 18,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/match-indices",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_match-indices-1943060533060544360.json",
+      "sha256": "d2955f067464926943d20f4aa450af43b5575cb3c81a9c985f379ee3d511e8ee",
+      "total": 28,
+      "passed": 26,
+      "failed": 2,
+      "outcomes": {
+        "Success": 26,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/named-groups",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_named-groups-12740469171994657819.json",
+      "sha256": "9797a5ed049aed031a71a79105062a018049dd1037c3b4a027a02a442b37e902",
+      "total": 72,
+      "passed": 62,
+      "failed": 10,
+      "outcomes": {
+        "Success": 62,
+        "NotImplemented": 4,
+        "Bug": 6,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/property-escapes@chunk-0001-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_property-escapes@chunk-0001-of-0005-9018899001770234050.json",
+      "sha256": "d66441e8d39e40d264355087b3cbe8d2a3a6ce96964313e38683a77346d45daa",
+      "total": 250,
+      "passed": 38,
+      "failed": 212,
+      "outcomes": {
+        "Success": 38,
+        "NotImplemented": 10,
+        "Bug": 80,
+        "Crash": 122
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/property-escapes@chunk-0002-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_property-escapes@chunk-0002-of-0005-8325190231899324601.json",
+      "sha256": "da66da294769bb6497c408d30274e8111818d90e655cac698fb492317fe5c0d4",
+      "total": 250,
+      "passed": 0,
+      "failed": 250,
+      "outcomes": {
+        "Success": 0,
+        "NotImplemented": 2,
+        "Bug": 12,
+        "Crash": 236
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/property-escapes@chunk-0003-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_property-escapes@chunk-0003-of-0005-1382748107961887104.json",
+      "sha256": "9ef23f6415f7308706b3a81f1d7133e52eca64212964fbc8f00350e43e0df6d7",
+      "total": 250,
+      "passed": 0,
+      "failed": 250,
+      "outcomes": {
+        "Success": 0,
+        "NotImplemented": 6,
+        "Bug": 18,
+        "Crash": 226
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/property-escapes@chunk-0004-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_property-escapes@chunk-0004-of-0005-13356076922846648605.json",
+      "sha256": "c89de83a86ffde414eb848d07e17557a0331df7e0f577d2bbde473bf7a87164d",
+      "total": 250,
+      "passed": 68,
+      "failed": 182,
+      "outcomes": {
+        "Success": 68,
+        "NotImplemented": 18,
+        "Bug": 26,
+        "Crash": 138
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/property-escapes@chunk-0005-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_property-escapes@chunk-0005-of-0005-2088497520103624896.json",
+      "sha256": "35576eb1864859a05ef9bedce182a50c1d3963664d2c0f5f9e03fc61f3498a69",
+      "total": 226,
+      "passed": 226,
+      "failed": 0,
+      "outcomes": {
+        "Success": 226,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/prototype@chunk-0001-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_prototype@chunk-0001-of-0004-13840958710192812285.json",
+      "sha256": "27579e88c4acb8f0385d8653155657c40798f33dd058875fefb16649263ee56f",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/prototype@chunk-0002-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_prototype@chunk-0002-of-0004-10042963190821253643.json",
+      "sha256": "a53ce15450fe69d34c4d18a631a8108d9ee0bcfa55dfbdaf5c6faf7aa959a857",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 4,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/prototype@chunk-0003-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_prototype@chunk-0003-of-0004-15727239022625149587.json",
+      "sha256": "b9292a563098d4a6697357a53a93d64fd7cff5935fa2b77c64a7fde6b8687382",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 4,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/prototype@chunk-0004-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_prototype@chunk-0004-of-0004-6817516713397535487.json",
+      "sha256": "89f58ef29a89d6a38d753f235981d7525ebe1f12edbad3b3a8a631ed4b46f896",
+      "total": 222,
+      "passed": 216,
+      "failed": 6,
+      "outcomes": {
+        "Success": 216,
+        "NotImplemented": 6,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/regexp-modifiers",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_regexp-modifiers-806696101485440086.json",
+      "sha256": "29eeaeab8bf5798c309f2d9b5975cf16d98a528f4c9e7a5b9edc8d52ecbb891c",
+      "total": 140,
+      "passed": 74,
+      "failed": 66,
+      "outcomes": {
+        "Success": 74,
+        "NotImplemented": 56,
+        "Bug": 10,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp/unicodeSets",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp_unicodeSets-12955140007079137029.json",
+      "sha256": "8619f8ed42a1b34125d18ccfbfe49ac9671b803833efb129261a5f0cd9122d9b",
+      "total": 228,
+      "passed": 216,
+      "failed": 12,
+      "outcomes": {
+        "Success": 216,
+        "NotImplemented": 12,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp@chunk-0001-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp@chunk-0001-of-0004-9976265263673629029.json",
+      "sha256": "c0def09e12dfb446322b0d224eb3eaa1dab2b54f17612c7d774c15145d190b76",
+      "total": 250,
+      "passed": 232,
+      "failed": 18,
+      "outcomes": {
+        "Success": 232,
+        "NotImplemented": 14,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp@chunk-0002-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp@chunk-0002-of-0004-11563101728703606399.json",
+      "sha256": "a651e8d928d843460143815cd7e46120ee18d432a154f19cd4a55cc9e0caa70d",
+      "total": 250,
+      "passed": 206,
+      "failed": 44,
+      "outcomes": {
+        "Success": 206,
+        "NotImplemented": 4,
+        "Bug": 40,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp@chunk-0003-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp@chunk-0003-of-0004-15775181585188623107.json",
+      "sha256": "9ee018750bcc222c7f512a857a82304ee9d2a5b1251cc1775411428466e3e399",
+      "total": 250,
+      "passed": 172,
+      "failed": 78,
+      "outcomes": {
+        "Success": 172,
+        "NotImplemented": 36,
+        "Bug": 42,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExp@chunk-0004-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExp@chunk-0004-of-0004-15295251246589155306.json",
+      "sha256": "4d1ca1985c319e5de922ca1ae0e793cb78cf13c8ce4ab1731c475458124e7705",
+      "total": 226,
+      "passed": 142,
+      "failed": 84,
+      "outcomes": {
+        "Success": 142,
+        "NotImplemented": 4,
+        "Bug": 80,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/RegExpStringIteratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_RegExpStringIteratorPrototype-1622651443227392085.json",
+      "sha256": "7173be4081ae8b8882f7e168cddb4e2fb354cc7db13e1de74c15d6828fe84b01",
+      "total": 34,
+      "passed": 32,
+      "failed": 2,
+      "outcomes": {
+        "Success": 32,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Set",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Set-9569900473561979389.json",
+      "sha256": "eb336d9aee9e28471358f6e559cf40c3bc589b0d718615ee38665ec1847cd20e",
+      "total": 44,
+      "passed": 44,
+      "failed": 0,
+      "outcomes": {
+        "Success": 44,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Set/Symbol.species",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Set_Symbol.species-7859916848996728927.json",
+      "sha256": "ec785cfec5b6f3375a35ebb4d06dcd6bf2148cc90e4795178d5403213ccd8208",
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "outcomes": {
+        "Success": 8,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Set/prototype@chunk-0001-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Set_prototype@chunk-0001-of-0003-12623300426296271388.json",
+      "sha256": "06aeb508989bb98d2829f824dae541ae2bdf13de02514a961d44448d0b07c503",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Set/prototype@chunk-0002-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Set_prototype@chunk-0002-of-0003-7423839799551093499.json",
+      "sha256": "64c3ccef0d8019126801650f44fb8195a69d2d28fa5e1531f456c9af705e3317",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Set/prototype@chunk-0003-of-0003",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Set_prototype@chunk-0003-of-0003-16321826228785953260.json",
+      "sha256": "890154b7b8fb734e72095d977af6893062cb2cc9b0b8622cd9d335601bf8aa17",
+      "total": 212,
+      "passed": 212,
+      "failed": 0,
+      "outcomes": {
+        "Success": 212,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/SetIteratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_SetIteratorPrototype-16080563433023411897.json",
+      "sha256": "1b73ff02730c24dbc87a41ffedc32845df213f48f5a2f158e790417b28aa9f7e",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "outcomes": {
+        "Success": 22,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/ShadowRealm",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_ShadowRealm-3773613820077771582.json",
+      "sha256": "2ebb823c7cca3b20634d468f2054f485ccec18d885b5975a5c9e9f20409b9af6",
+      "total": 124,
+      "passed": 0,
+      "failed": 124,
+      "outcomes": {
+        "Success": 0,
+        "NotImplemented": 0,
+        "Bug": 124,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/SharedArrayBuffer",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_SharedArrayBuffer-15580583851867408634.json",
+      "sha256": "771d276e656273afd37f5d10d3428a7c1f60964c9f9519c551366d24135dbc3e",
+      "total": 208,
+      "passed": 206,
+      "failed": 2,
+      "outcomes": {
+        "Success": 206,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String-1874864614758508987.json",
+      "sha256": "c0ee1925103240c56c64a7ba0474026a51ddcfe312cc03cb4b9fad62dae16e6e",
+      "total": 183,
+      "passed": 174,
+      "failed": 9,
+      "outcomes": {
+        "Success": 174,
+        "NotImplemented": 2,
+        "Bug": 7,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/fromCharCode",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_fromCharCode-7518928067509190353.json",
+      "sha256": "63efc2bc765a6060df11870739cf50827eac42298b7532d87cf624f6bc2ab83b",
+      "total": 34,
+      "passed": 34,
+      "failed": 0,
+      "outcomes": {
+        "Success": 34,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/fromCodePoint",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_fromCodePoint-9920553279933652724.json",
+      "sha256": "d86932a44345ddd6cc9c177d46e4ba721c1c4d055fa176ae88e297ec893b2b4f",
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "outcomes": {
+        "Success": 22,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0001-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0001-of-0009-4893350334304469804.json",
+      "sha256": "192cfda79f1c7cf2e0482dc03847ee10733d95b00c535200f12d62185ad99cfe",
+      "total": 250,
+      "passed": 244,
+      "failed": 6,
+      "outcomes": {
+        "Success": 244,
+        "NotImplemented": 4,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0002-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0002-of-0009-10629101626995882569.json",
+      "sha256": "2be3a922e834e49ffefe9f05a20e05766d4e40d38e31d70a36d3c1355a90de0d",
+      "total": 250,
+      "passed": 248,
+      "failed": 2,
+      "outcomes": {
+        "Success": 248,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0003-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0003-of-0009-16622552574088622607.json",
+      "sha256": "f04c0f4d078071de576c0d86d970b2acb3175587194bf52b5e0dc8b9e1785b52",
+      "total": 250,
+      "passed": 248,
+      "failed": 2,
+      "outcomes": {
+        "Success": 248,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0004-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0004-of-0009-22270218684088128.json",
+      "sha256": "dde9e108307ba5b2024223ff2d282d05bc3081b6b23d285edd0d2bbfe980cb30",
+      "total": 250,
+      "passed": 242,
+      "failed": 8,
+      "outcomes": {
+        "Success": 242,
+        "NotImplemented": 4,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0005-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0005-of-0009-8860032497498277125.json",
+      "sha256": "d96621dca89ad21a1793d883e941f71b938422cd7f805cccbb3d4f7757fb4f11",
+      "total": 250,
+      "passed": 248,
+      "failed": 2,
+      "outcomes": {
+        "Success": 248,
+        "NotImplemented": 2,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0006-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0006-of-0009-2895585004703619679.json",
+      "sha256": "fd89f0bcbb900c215c33673db954695a90e28afba3df006e802fbf37601c9e70",
+      "total": 250,
+      "passed": 244,
+      "failed": 6,
+      "outcomes": {
+        "Success": 244,
+        "NotImplemented": 6,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0007-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0007-of-0009-11129060215859751836.json",
+      "sha256": "a1e566a3a85d4cce0cf7c778e549ec63b3eb0ce9afb79413326f3a4254697c9a",
+      "total": 250,
+      "passed": 242,
+      "failed": 8,
+      "outcomes": {
+        "Success": 242,
+        "NotImplemented": 8,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0008-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0008-of-0009-16597817076940935167.json",
+      "sha256": "c89b06dde9b0930b79ef3ecdbf106deb4622d639a0aadcffdaad22a81201316f",
+      "total": 250,
+      "passed": 248,
+      "failed": 2,
+      "outcomes": {
+        "Success": 248,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/prototype@chunk-0009-of-0009",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_prototype@chunk-0009-of-0009-16193288595136087824.json",
+      "sha256": "e3aebe9f4d80340535949bf93f4a9e71dd2ec52b024bc7bfbabf838182887309",
+      "total": 144,
+      "passed": 144,
+      "failed": 0,
+      "outcomes": {
+        "Success": 144,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/String/raw",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_String_raw-2834593984416140884.json",
+      "sha256": "22c974680230f7727be245627b855fdee60d92e4c79287c9bda6ecf62a72366d",
+      "total": 60,
+      "passed": 60,
+      "failed": 0,
+      "outcomes": {
+        "Success": 60,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/StringIteratorPrototype",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_StringIteratorPrototype-7277038800396276750.json",
+      "sha256": "7560002922f0444f8e3a16602c7e5e7ee850ee0322a59b2a7c445cb32492f645",
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "outcomes": {
+        "Success": 14,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/SuppressedError",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_SuppressedError-10333134585949901471.json",
+      "sha256": "a5f0a05ed87903defad1332813e057a5b9f0d30065ef79bb17541f79efbfaa2a",
+      "total": 44,
+      "passed": 40,
+      "failed": 4,
+      "outcomes": {
+        "Success": 40,
+        "NotImplemented": 2,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Symbol",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Symbol-9376752307796295065.json",
+      "sha256": "2249c6a3c2405daf40c0b40d4ad119010957b218ccc085accd0bdcc8503fe64a",
+      "total": 192,
+      "passed": 192,
+      "failed": 0,
+      "outcomes": {
+        "Success": 192,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal-7987059170120594216.json",
+      "sha256": "3649f9a6a1f67559a621b3a1b0af4eb9d048f43ed6d7e09f266f873fde48683a",
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "outcomes": {
+        "Success": 6,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Duration@chunk-0001-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Duration@chunk-0001-of-0005-18245497044707703111.json",
+      "sha256": "8ad0d542de9858f44e970a13dffbe9ce6978771da45b354f12e02774b44a56bf",
+      "total": 250,
+      "passed": 202,
+      "failed": 48,
+      "outcomes": {
+        "Success": 202,
+        "NotImplemented": 0,
+        "Bug": 48,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Duration@chunk-0002-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Duration@chunk-0002-of-0005-35019992249370585.json",
+      "sha256": "1f9cc4f528464c119c04de383ddedcb0d9d89ae8038f87b3bd3e96c15e781525",
+      "total": 250,
+      "passed": 186,
+      "failed": 64,
+      "outcomes": {
+        "Success": 186,
+        "NotImplemented": 0,
+        "Bug": 64,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Duration@chunk-0003-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Duration@chunk-0003-of-0005-4134302313994255175.json",
+      "sha256": "f31048b9c022b25f31710ee8591471946721cea51beb9727afc606a7943c5f63",
+      "total": 250,
+      "passed": 186,
+      "failed": 64,
+      "outcomes": {
+        "Success": 186,
+        "NotImplemented": 0,
+        "Bug": 64,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Duration@chunk-0004-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Duration@chunk-0004-of-0005-13920460093819016238.json",
+      "sha256": "503a8642b6ae6546ab8d22ca6cf1feeea4aa80c2fcd997d81600b61d96edec04",
+      "total": 250,
+      "passed": 170,
+      "failed": 80,
+      "outcomes": {
+        "Success": 170,
+        "NotImplemented": 0,
+        "Bug": 80,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Duration@chunk-0005-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Duration@chunk-0005-of-0005-10915767137228541225.json",
+      "sha256": "475d4d375ab70f64a1406fed29e60531e13d6594207444b23ec2ab151f495152",
+      "total": 66,
+      "passed": 66,
+      "failed": 0,
+      "outcomes": {
+        "Success": 66,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Instant@chunk-0001-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Instant@chunk-0001-of-0004-12703291446899105383.json",
+      "sha256": "3de8f301e03e3f761154c7681566bf8f2695d90acd8564f9d5b2049de1a30025",
+      "total": 250,
+      "passed": 194,
+      "failed": 56,
+      "outcomes": {
+        "Success": 194,
+        "NotImplemented": 0,
+        "Bug": 56,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Instant@chunk-0002-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Instant@chunk-0002-of-0004-4666388196288939705.json",
+      "sha256": "52dfedaa7207c54ed9b35cd856190c0c4a9be5c50f477e1f2d91d12f8fc1bc4c",
+      "total": 250,
+      "passed": 74,
+      "failed": 176,
+      "outcomes": {
+        "Success": 74,
+        "NotImplemented": 0,
+        "Bug": 176,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Instant@chunk-0003-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Instant@chunk-0003-of-0004-7275230598384475750.json",
+      "sha256": "dc19480d3a082c25033105156cdd044649012d7477154e5dd63f21886a13cfb3",
+      "total": 250,
+      "passed": 70,
+      "failed": 180,
+      "outcomes": {
+        "Success": 70,
+        "NotImplemented": 0,
+        "Bug": 180,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Instant@chunk-0004-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Instant@chunk-0004-of-0004-1767040406157276643.json",
+      "sha256": "d060762ae3eb016b2e976a0426e05d8ec879d6a16b363e66827fbb19927b4b24",
+      "total": 180,
+      "passed": 24,
+      "failed": 156,
+      "outcomes": {
+        "Success": 24,
+        "NotImplemented": 0,
+        "Bug": 156,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/Now",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_Now-14640688540068215224.json",
+      "sha256": "b156bafb63b3c8fc38c0892a06bacb8ef66d587a153b0862dda4c7efdeab4783",
+      "total": 132,
+      "passed": 70,
+      "failed": 62,
+      "outcomes": {
+        "Success": 70,
+        "NotImplemented": 0,
+        "Bug": 62,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDate@chunk-0001-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDate@chunk-0001-of-0006-14321989368147878221.json",
+      "sha256": "bf5b802cb22f6bde241104ba514693eafd65352dfaf8759cebba58108cd8ffc1",
+      "total": 250,
+      "passed": 238,
+      "failed": 12,
+      "outcomes": {
+        "Success": 238,
+        "NotImplemented": 0,
+        "Bug": 12,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDate@chunk-0002-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDate@chunk-0002-of-0006-693297837049516389.json",
+      "sha256": "cb6d52507d772aaee705026fcc9dac08a3df8d2ffa114d003092bff261a906ba",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDate@chunk-0003-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDate@chunk-0003-of-0006-8594403380661246311.json",
+      "sha256": "88ebc6ee627ce2df57db7d88f514f67c89dfcbf1d5507360c35ec8fe5ea0e9ac",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDate@chunk-0004-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDate@chunk-0004-of-0006-16603172733448519468.json",
+      "sha256": "575792c6767baf8f179f800544db16852d2af64031481008b0dd55eb7bc8f778",
+      "total": 250,
+      "passed": 176,
+      "failed": 74,
+      "outcomes": {
+        "Success": 176,
+        "NotImplemented": 0,
+        "Bug": 74,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDate@chunk-0005-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDate@chunk-0005-of-0006-16017608303967620862.json",
+      "sha256": "42ecdcfe749c3146f305172ec60c40300cd6dfd44ecf2665f767ea47793f3161",
+      "total": 250,
+      "passed": 236,
+      "failed": 14,
+      "outcomes": {
+        "Success": 236,
+        "NotImplemented": 0,
+        "Bug": 14,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDate@chunk-0006-of-0006",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDate@chunk-0006-of-0006-5666108221686783422.json",
+      "sha256": "0f6c79290430091477beff94344c5ef51680319a42ea8417c3685bb34df6c626",
+      "total": 42,
+      "passed": 42,
+      "failed": 0,
+      "outcomes": {
+        "Success": 42,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDateTime@chunk-0001-of-0007",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDateTime@chunk-0001-of-0007-11963304019222538371.json",
+      "sha256": "884f2164c9fc6467697fbf7a721c5b905014e0ef4c9ebd8fb0de4ed847268f45",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDateTime@chunk-0002-of-0007",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDateTime@chunk-0002-of-0007-10595166504091791369.json",
+      "sha256": "9b2a3cd69a36bf42a9e64c0bf3c8dd935e25441db61a763848e26bc23dee9765",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDateTime@chunk-0003-of-0007",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDateTime@chunk-0003-of-0007-17894501630528495773.json",
+      "sha256": "4cd5e770e8b63202627d070a3267beb576bc2bd7fe551ee90cf1f15df1747e8b",
+      "total": 250,
+      "passed": 248,
+      "failed": 2,
+      "outcomes": {
+        "Success": 248,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDateTime@chunk-0004-of-0007",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDateTime@chunk-0004-of-0007-5315501808025696827.json",
+      "sha256": "dbd51d2811bcd01607ed14184008f78af0cf40d78af2b581446a2423430507db",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDateTime@chunk-0005-of-0007",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDateTime@chunk-0005-of-0007-13308478453871922745.json",
+      "sha256": "4492638fe5c2c8957e7f2d69b93ec9fa3b13b330aa53eb7eac5631fe77c97f20",
+      "total": 250,
+      "passed": 238,
+      "failed": 12,
+      "outcomes": {
+        "Success": 238,
+        "NotImplemented": 0,
+        "Bug": 12,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDateTime@chunk-0006-of-0007",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDateTime@chunk-0006-of-0007-13728117993790875821.json",
+      "sha256": "faa759f91c651c168ac7521282fb9ae8f3c413d1d69f6f55a4daf4bafa765b5a",
+      "total": 250,
+      "passed": 244,
+      "failed": 6,
+      "outcomes": {
+        "Success": 244,
+        "NotImplemented": 0,
+        "Bug": 6,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainDateTime@chunk-0007-of-0007",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainDateTime@chunk-0007-of-0007-813885215303282855.json",
+      "sha256": "8a4479d86aec67b5f0304c1237cc484e6d6439bb7b394c8c4608be3f827ba53c",
+      "total": 34,
+      "passed": 34,
+      "failed": 0,
+      "outcomes": {
+        "Success": 34,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainMonthDay",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainMonthDay-6385553363037008079.json",
+      "sha256": "a7e0a6ed755d424d764b0444fdbaecfbb3638cf1f5bbbece8875486df65082d3",
+      "total": 398,
+      "passed": 398,
+      "failed": 0,
+      "outcomes": {
+        "Success": 398,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainTime@chunk-0001-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainTime@chunk-0001-of-0004-62773847275619480.json",
+      "sha256": "da45e718c98032aa2268dc90940d5ea785a9d9a88e51c5492342bb3b21000b28",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainTime@chunk-0002-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainTime@chunk-0002-of-0004-2458557960418674670.json",
+      "sha256": "97c0ca5d168e4c5dba42603e520a3a34e12d93c88ac065df3446ec08302c017c",
+      "total": 250,
+      "passed": 250,
+      "failed": 0,
+      "outcomes": {
+        "Success": 250,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainTime@chunk-0003-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainTime@chunk-0003-of-0004-6447588934092477440.json",
+      "sha256": "bae5d27ac86f7970aef036801dfcee1e108a40f999e8dbe15ce7bd45773965ca",
+      "total": 250,
+      "passed": 248,
+      "failed": 2,
+      "outcomes": {
+        "Success": 248,
+        "NotImplemented": 0,
+        "Bug": 2,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainTime@chunk-0004-of-0004",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainTime@chunk-0004-of-0004-10870133734166955444.json",
+      "sha256": "6df600dc861e7919957ee241dd7c61a2175467413db3fa72cf8f6afc889e8a48",
+      "total": 236,
+      "passed": 236,
+      "failed": 0,
+      "outcomes": {
+        "Success": 236,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainYearMonth@chunk-0001-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainYearMonth@chunk-0001-of-0005-4681367285988314820.json",
+      "sha256": "fe4dc03a0ab1756e7fade858e2fe37a3490bda8edeed1dacc734ca21d77b4642",
+      "total": 250,
+      "passed": 246,
+      "failed": 4,
+      "outcomes": {
+        "Success": 246,
+        "NotImplemented": 0,
+        "Bug": 4,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainYearMonth@chunk-0002-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainYearMonth@chunk-0002-of-0005-14420230823249855870.json",
+      "sha256": "a96b9a735fc28813571006691450ead3f3797856df16fe4b64459529d5ec6971",
+      "total": 250,
+      "passed": 242,
+      "failed": 8,
+      "outcomes": {
+        "Success": 242,
+        "NotImplemented": 0,
+        "Bug": 8,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainYearMonth@chunk-0003-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainYearMonth@chunk-0003-of-0005-10299395772267931893.json",
+      "sha256": "e848f0532eff6c2b9fa305f5f35f04f9fb2b3a4e4e7cd37b7b2fe89e2c70a708",
+      "total": 250,
+      "passed": 240,
+      "failed": 10,
+      "outcomes": {
+        "Success": 240,
+        "NotImplemented": 0,
+        "Bug": 10,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainYearMonth@chunk-0004-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainYearMonth@chunk-0004-of-0005-11475363735457935803.json",
+      "sha256": "46f10fa5de641d03eb5994ae59a98ec90ead3fb3e2273a89581ae5b3301209f9",
+      "total": 250,
+      "passed": 242,
+      "failed": 8,
+      "outcomes": {
+        "Success": 242,
+        "NotImplemented": 0,
+        "Bug": 8,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/PlainYearMonth@chunk-0005-of-0005",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_PlainYearMonth@chunk-0005-of-0005-613711767583769801.json",
+      "sha256": "20a9b8d5ba3a5875f3b39934b0e4cf98adc4e7bbd2bed804eacb7769225615f4",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "outcomes": {
+        "Success": 10,
+        "NotImplemented": 0,
+        "Bug": 0,
+        "Crash": 0
+      }
+    },
+    {
+      "node_id": "built-ins/Temporal/ZonedDateTime@chunk-0001-of-0008",
+      "name": "current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-built-ins_Temporal_ZonedDateTime@chunk-0001-of-0008-14491656290217164194.json",
+      "sha256": "13e04e48fc1d286b7b8962445ccd0fe8fbef46756e184ae935400f1e961f5da8",
+      "total": 250,
+      "passed": 146,
+      "failed": 104,
+      "outcomes": {
+        "Success": 146,
+        "NotImplemented": 0,
+        "Bug": 104,
+        "Crash": 0
+      }
+    }
+  ],
+  "observed": {
+    "completed_nodes": 309,
+    "total": 40795,
+    "passed": 36966,
+    "failed": 3829,
+    "outcomes": {
+      "Success": 36966,
+      "NotImplemented": 1119,
+      "Bug": 1970,
+      "Crash": 740
+    }
+  },
+  "collected": {
+    "failed": 134,
+    "outcomes": {
+      "Success": 0,
+      "NotImplemented": 0,
+      "Bug": 134,
+      "Crash": 0
+    }
+  },
+  "outputs": {
+    "failures.executions": {
+      "sha256": "18e3265df8fdb0fb1be9e7d8bf36bd07fa1edb2eb6f5b0dbe0b50948616e5761"
+    },
+    "failures.json": {
+      "sha256": "87e85772ac0dc167b3f27994daebdc8bba4e0aabfce402ab79af681f72647a2e"
+    }
+  }
+}

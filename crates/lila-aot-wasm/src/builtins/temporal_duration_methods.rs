@@ -111,10 +111,9 @@ impl<'a> FunctionBuilder<'a> {
         );
     }
 
-    /// `GetTemporalUnitValuedOption`. Leaves a unit code in `output_local`:
-    /// `TemporalUnitSlot::Unset.code()` when the property is absent, `TemporalUnitSlot::Auto.code()`
-    /// for `"auto"` when the property permits it, `TemporalUnitSlot::Invalid.code()` for a
-    /// string that names no unit.
+    /// `GetTemporalUnitValuedOption` rejects unknown spellings during option
+    /// reading. Recognized units, `auto` and absence reach the caller, which
+    /// validates its allowed unit range after reading the remaining options.
     pub(crate) fn emit_temporal_duration_unit_option(
         &mut self,
         options_payload_local: u32,
@@ -146,13 +145,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::I64Const(TemporalUnitSlot::Invalid.code()));
         function.instruction(&Instruction::LocalSet(output_local));
-        if property.allows_auto() {
-            self.emit_temporal_string_matches(value_payload_local, "auto", scratch_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
-            function.instruction(&Instruction::LocalSet(output_local));
-            function.instruction(&Instruction::End);
-        }
+        self.emit_temporal_string_matches(value_payload_local, "auto", scratch_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Auto.code()));
+        function.instruction(&Instruction::LocalSet(output_local));
+        function.instruction(&Instruction::End);
         for unit in TemporalUnit::ALL {
             for spelling in [unit.singular(), unit.plural()] {
                 self.emit_temporal_string_matches(
@@ -167,6 +164,18 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
         }
+        function.instruction(&Instruction::LocalGet(output_local));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Invalid.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Invalid Temporal.Duration unit option",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         self.release_temp_local(scratch_local);

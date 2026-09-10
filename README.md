@@ -54,6 +54,13 @@ execution failures repaired relative to main, including ten separately recorded
 timeout rechecks. The notes distinguish that checkpoint from the subsequent CI
 repair and retain the exact scope and remaining failures.
 
+The [Temporal baseline follow-up](docs/rust-rewrite/temporal-baseline-follow-up.md)
+tracks the next 134 observed failures after PR #45, reproduced on fresh main.
+It repairs PlainYearMonth parsing, arithmetic and rounding, and adds missing
+ZonedDateTime comparison, calendar getters and exact epoch string formatting.
+The notes retain the frozen observation and focused verification separately
+from the generated full-suite status.
+
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace

@@ -20,23 +20,14 @@ enum TemporalPlainYearMonthFieldReadMode {
     With,
 }
 
-/// Which partial-date goal [`FunctionBuilder::emit_temporal_partial_date_rewrite_string`]
-/// is rewriting for — and, for the month-day goal only, where to leave the
-/// `result.[[Year]] is empty` answer the rewrite already computes.
-///
-/// This is one closed value rather than a `year_month: bool` beside an
-/// `Option<u32>` because the two are not independent. "The source carried no
-/// year" is a fact only the `TemporalMonthDayString` goal establishes: under
-/// the year-month goal the same internal flag means "the source carried no
-/// *day*", and handing that to `ToTemporalMonthDay`'s step (g) would reject
-/// `2021-12` for a non-ISO calendar. Spelling the goal as an enum whose
-/// month-day arm is the only one carrying an out-slot makes that pairing
-/// unrepresentable instead of merely unwritten.
+/// The partial-date parse goal and the missing source field its rewrite can
+/// report. The two goals add different reference fields, so their output slots
+/// remain named by the corresponding grammar field.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TemporalPartialDateRewrite {
     /// `ParseTemporalYearMonthString`: a bare `YYYY-MM` / `YYYYMM` gains the
     /// reference day `01`.
-    YearMonth,
+    YearMonth { day_empty_out: Option<u32> },
     /// `ParseTemporalMonthDayString`: a bare `--MM-DD` / `--MMDD` / `MM-DD` /
     /// `MMDD` gains the reference year `1972`.
     ///
@@ -44,9 +35,9 @@ pub(crate) enum TemporalPartialDateRewrite {
     /// spellings and `0` for every form that already carried a year — i.e.
     /// `ParseISODateTime`'s `result.[[Year]] is empty`, which
     /// `ToTemporalMonthDay` steps (g) and (k) both consult and which this
-    /// rewrite is the only thing in the backend that can still tell apart. The
-    /// `ToTemporalCalendarIdentifier` probe in `temporal.rs` only wants the
-    /// normalised string and passes `None`.
+    /// rewrite is the only thing in the backend that can still tell apart.
+    /// The calendar-identifier probe uses the same fact to enforce the
+    /// partial-date grammar's ISO-only calendar annotation restriction.
     MonthDay { year_empty_out: Option<u32> },
 }
 
@@ -573,10 +564,13 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let rewritten_local = self.reserve_temp_local();
+        let day_empty_local = self.reserve_temp_local();
 
         self.emit_temporal_partial_date_rewrite_string(
             string_payload_local,
-            TemporalPartialDateRewrite::YearMonth,
+            TemporalPartialDateRewrite::YearMonth {
+                day_empty_out: Some(day_empty_local),
+            },
             rewritten_local,
             function,
         )?;
@@ -590,6 +584,25 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        // ParseISODateTime rejects a non-ISO annotation when the year-month
+        // grammar omitted DateDay, before callers read overflow options.
+        self.emit_temporal_calendar_is_default_i32(calendar_payload_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::LocalGet(day_empty_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Temporal.PlainYearMonth year-month string with a non-ISO calendar requires a day",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.release_temp_local(day_empty_local);
         self.release_temp_local(rewritten_local);
         Ok(())
     }
@@ -718,7 +731,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(signed_local));
 
         match goal {
-            TemporalPartialDateRewrite::YearMonth => {
+            TemporalPartialDateRewrite::YearMonth { .. } => {
                 // `±YYYYYY-MM` (10) / `±YYYYYYMM` (9) / `YYYY-MM` (7) / `YYYYMM` (6).
                 function.instruction(&Instruction::LocalGet(head_end_local));
                 function.instruction(&Instruction::I64Const(0));
@@ -857,7 +870,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(tail_local));
 
         match goal {
-            TemporalPartialDateRewrite::YearMonth => {
+            TemporalPartialDateRewrite::YearMonth { .. } => {
                 function.instruction(&Instruction::LocalGet(head_local));
                 function.instruction(&Instruction::LocalSet(rewritten_local));
             }
@@ -879,7 +892,7 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         match goal {
-            TemporalPartialDateRewrite::YearMonth => {
+            TemporalPartialDateRewrite::YearMonth { .. } => {
                 function.instruction(&Instruction::LocalGet(extended_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::I32Eqz);
@@ -901,18 +914,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(rewritten_local));
         function.instruction(&Instruction::End);
 
-        // Outside the `bare` branch on purpose: `bare_local` holds the answer on
-        // both sides (1 for the four year-less spellings the branch rewrote, 0
-        // for every form handed through), so the out-slot is written on every
-        // path that does not throw.
-        match goal {
-            TemporalPartialDateRewrite::YearMonth => {}
-            TemporalPartialDateRewrite::MonthDay { year_empty_out } => {
-                if let Some(year_empty_local) = year_empty_out {
-                    function.instruction(&Instruction::LocalGet(bare_local));
-                    function.instruction(&Instruction::LocalSet(year_empty_local));
-                }
-            }
+        // Preserve the grammar fact before the inserted reference field makes
+        // an omitted field indistinguishable from an explicit one.
+        let missing_field_out = match goal {
+            TemporalPartialDateRewrite::YearMonth { day_empty_out } => day_empty_out,
+            TemporalPartialDateRewrite::MonthDay { year_empty_out } => year_empty_out,
+        };
+        if let Some(missing_field_local) = missing_field_out {
+            function.instruction(&Instruction::LocalGet(bare_local));
+            function.instruction(&Instruction::LocalSet(missing_field_local));
         }
 
         for local in [
@@ -938,9 +948,9 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// `year_empty_out` is passed straight through to
     /// [`TemporalPartialDateRewrite::MonthDay`]. `ToTemporalMonthDay` supplies a
-    /// slot because steps (g) and (k) need `result.[[Year]] is empty`; the
-    /// `ToTemporalCalendarIdentifier` probe supplies `None` because it only
-    /// wants the normalised string and must not acquire either throw.
+    /// slot because steps (g) and (k) need `result.[[Year]] is empty`. The
+    /// calendar-identifier probe also requests that syntax fact, without
+    /// applying MonthDay's constructor-specific reference-year checks.
     pub(crate) fn emit_temporal_month_day_rewrite_string(
         &mut self,
         string_payload_local: u32,
@@ -1392,7 +1402,6 @@ impl<'a> FunctionBuilder<'a> {
         let options_payload_local = self.reserve_temp_local();
         let options_tag_local = self.reserve_temp_local();
         let overflow_local = self.reserve_temp_local();
-        let sign_local = self.reserve_temp_local();
         let seconds_local = self.reserve_temp_local();
         let subsecond_local = self.reserve_temp_local();
         let day_delta_local = self.reserve_temp_local();
@@ -1426,7 +1435,6 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
         }
-        self.emit_temporal_duration_sign(&duration_locals, sign_local, function);
 
         // The options are read before any algorithmic validation - Test262's
         // `add/options-read-before-algorithmic-validation.js` observes the
@@ -1471,18 +1479,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(day_delta_local));
 
-        // Date the receiver: first of the month, or its last day when the
-        // duration runs backwards. `CalendarDateFromFields` range-checks that
-        // intermediate date, and `-271821-04-01` is outside it even though
-        // `-271821-04` is a representable year-month.
+        // CalendarDateFromFields uses day 1 for either duration sign. Its date
+        // range is narrower than the representable year-month range.
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(day_local));
-        function.instruction(&Instruction::LocalGet(sign_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_iso_days_in_month(year_local, month_local, day_local, function);
-        function.instruction(&Instruction::End);
         self.emit_temporal_reject_iso_date(year_local, month_local, day_local, function)?;
 
         self.emit_temporal_add_iso_date(
@@ -1514,7 +1514,6 @@ impl<'a> FunctionBuilder<'a> {
             day_delta_local,
             subsecond_local,
             seconds_local,
-            sign_local,
             overflow_local,
             options_tag_local,
             options_payload_local,
@@ -1560,6 +1559,8 @@ impl<'a> FunctionBuilder<'a> {
         let total_local = self.reserve_temp_local();
         let quantum_local = self.reserve_temp_local();
         let anchor_local = self.reserve_temp_local();
+        let retained_months_local = self.reserve_temp_local();
+        let quotient_local = self.reserve_temp_local();
         let sign_local = self.reserve_temp_local();
         let remainder_local = self.reserve_temp_local();
         let start_days_local = self.reserve_temp_local();
@@ -1695,7 +1696,37 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_temporal_duration_zero_fields(&duration_locals, function);
 
-        // `CalendarDateUntil` on two first-of-month dates is a month count.
+        // CompareISODate precedes conversion to first-of-month dates. In
+        // particular, the minimum year-month can differ from itself by zero
+        // even though its first day is outside the PlainDate range.
+        for (index, (left, right)) in [
+            (year_local, other_year_local),
+            (month_local, other_month_local),
+            (day_local, other_day_local),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            function.instruction(&Instruction::LocalGet(left));
+            function.instruction(&Instruction::LocalGet(right));
+            function.instruction(&Instruction::I64Eq);
+            if index != 0 {
+                function.instruction(&Instruction::I32And);
+            }
+        }
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(one_local));
+        self.emit_temporal_reject_iso_date(year_local, month_local, one_local, function)?;
+        self.emit_temporal_reject_iso_date(
+            other_year_local,
+            other_month_local,
+            one_local,
+            function,
+        )?;
+
+        // CalendarDateUntil on two first-of-month dates is a month count.
         function.instruction(&Instruction::LocalGet(other_year_local));
         function.instruction(&Instruction::LocalGet(year_local));
         function.instruction(&Instruction::I64Sub);
@@ -1707,18 +1738,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(total_local));
 
-        // `quantum` is the rounding step measured in months.
+        // RoundRelativeDuration is omitted only for unrounded month precision.
         function.instruction(&Instruction::LocalGet(smallest_unit_local));
         function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(12));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(increment_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(quantum_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
 
         function.instruction(&Instruction::LocalGet(total_local));
         function.instruction(&Instruction::I64Const(0));
@@ -1730,46 +1758,59 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalSet(sign_local));
 
-        // `anchor` is the truncated multiple of `quantum`; `remainder` is what
-        // is left over, in months.
+        // Month rounding retains the whole-year component when years are the
+        // largest unit; only the remaining months are rounded to the increment.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(retained_months_local));
+        function.instruction(&Instruction::LocalGet(largest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(smallest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Month.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(total_local));
+        function.instruction(&Instruction::I64Const(12));
+        function.instruction(&Instruction::I64DivS);
+        function.instruction(&Instruction::I64Const(12));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(retained_months_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(smallest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(12));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(increment_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(quantum_local));
+        function.instruction(&Instruction::LocalGet(total_local));
+        function.instruction(&Instruction::LocalGet(retained_months_local));
+        function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalGet(quantum_local));
         function.instruction(&Instruction::I64DivS);
+        function.instruction(&Instruction::LocalTee(quotient_local));
         function.instruction(&Instruction::LocalGet(quantum_local));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalSet(anchor_local));
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::LocalGet(anchor_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // The rounding boundary is measured in days between the two bracketing
-        // months, not in months, because months are not all the same length.
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(one_local));
-        for (offset_local, days_local) in [
-            (anchor_local, start_days_local),
-            (quantum_local, end_days_local),
-        ] {
+        // NudgeToCalendarUnit constructs and validates both bracketing dates,
+        // even when the destination is exactly the first one or rounds down.
+        // Distances are measured in days because calendar months vary in length.
+        for (expand, days_local) in [(false, start_days_local), (true, end_days_local)] {
             function.instruction(&Instruction::LocalGet(year_local));
             function.instruction(&Instruction::LocalSet(scratch_year_local));
             function.instruction(&Instruction::LocalGet(month_local));
+            function.instruction(&Instruction::LocalGet(retained_months_local));
+            function.instruction(&Instruction::I64Add);
             function.instruction(&Instruction::LocalGet(anchor_local));
             function.instruction(&Instruction::I64Add);
-            if offset_local == quantum_local {
+            if expand {
                 function.instruction(&Instruction::LocalGet(quantum_local));
                 function.instruction(&Instruction::LocalGet(sign_local));
                 function.instruction(&Instruction::I64Mul);
@@ -1781,6 +1822,12 @@ impl<'a> FunctionBuilder<'a> {
                 scratch_month_local,
                 function,
             );
+            self.emit_temporal_reject_iso_date(
+                scratch_year_local,
+                scratch_month_local,
+                one_local,
+                function,
+            )?;
             self.emit_temporal_plain_date_epoch_days(
                 scratch_year_local,
                 scratch_month_local,
@@ -1803,8 +1850,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(end_days_local));
         function.instruction(&Instruction::LocalGet(start_days_local));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(quantum_local));
-        for local in [remainder_local, quantum_local] {
+        function.instruction(&Instruction::LocalSet(end_days_local));
+        for local in [remainder_local, end_days_local] {
             function.instruction(&Instruction::LocalGet(local));
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
@@ -1815,34 +1862,79 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(local));
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::LocalSet(dest_days_local));
         self.emit_temporal_duration_round_up_i32(
             remainder_local,
-            quantum_local,
-            anchor_local,
+            end_days_local,
+            quotient_local,
             sign_local,
             mode_local,
             function,
         );
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(smallest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(12));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(increment_local));
-        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(quantum_local));
         function.instruction(&Instruction::LocalGet(sign_local));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalGet(anchor_local));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(anchor_local));
+
+        // BubbleRelativeDuration visits the next larger unit only after the
+        // nudge expands. For this year/month domain that is one year boundary,
+        // whose date must be valid even when the nudged date has not reached it.
+        function.instruction(&Instruction::LocalGet(smallest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Month.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(largest_unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let next_year_days_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(retained_months_local));
+        function.instruction(&Instruction::I64Const(12));
+        function.instruction(&Instruction::I64DivS);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(year_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(scratch_year_local));
+        self.emit_temporal_reject_iso_date(scratch_year_local, month_local, one_local, function)?;
+        self.emit_temporal_plain_date_epoch_days(
+            scratch_year_local,
+            month_local,
+            one_local,
+            next_year_days_local,
+            function,
+        );
+        // The expanded nudge is the far bracket: recover its signed epoch day
+        // from the retained start and the absolute bracket distance.
+        function.instruction(&Instruction::LocalGet(end_days_local));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(start_days_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(next_year_days_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(retained_months_local));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Const(12));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(retained_months_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(anchor_local));
         function.instruction(&Instruction::End);
+        self.release_temp_local(next_year_days_local);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(retained_months_local));
         function.instruction(&Instruction::LocalGet(anchor_local));
+        function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(total_local));
         function.instruction(&Instruction::End);
 
@@ -1861,6 +1953,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(total_local));
         function.instruction(&Instruction::LocalSet(duration_locals[1]));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         match operation {
@@ -1886,6 +1979,8 @@ impl<'a> FunctionBuilder<'a> {
             start_days_local,
             remainder_local,
             sign_local,
+            quotient_local,
+            retained_months_local,
             anchor_local,
             quantum_local,
             total_local,

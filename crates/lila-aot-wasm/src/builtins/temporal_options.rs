@@ -257,7 +257,7 @@ const _: () = {
     }
 };
 
-/// The property and `auto` policy for `GetTemporalUnitValuedOption`.
+/// The property read by `GetTemporalUnitValuedOption`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum TemporalUnitOptionProperty {
     LargestUnit,
@@ -273,13 +273,6 @@ impl TemporalUnitOptionProperty {
             TemporalUnitOptionProperty::Unit => "unit",
         }
     }
-
-    pub(crate) const fn allows_auto(self) -> bool {
-        match self {
-            TemporalUnitOptionProperty::LargestUnit => true,
-            TemporalUnitOptionProperty::SmallestUnit | TemporalUnitOptionProperty::Unit => false,
-        }
-    }
 }
 
 /// What a `GetTemporalUnitValuedOption` read can produce. The reader is the one
@@ -288,7 +281,7 @@ impl TemporalUnitOptionProperty {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum TemporalUnitSlot {
     Unit(TemporalUnit),
-    /// `"auto"`, accepted only for [`TemporalUnitOptionProperty::LargestUnit`].
+    /// `"auto"`; each algorithm decides whether it is suitable.
     Auto,
     /// The property was absent.
     Unset,

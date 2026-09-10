@@ -6,6 +6,8 @@ const PLAIN_DATE_TIME_SOURCE: &str =
 const PLAIN_TIME_SOURCE: &str = include_str!("../src/builtins/temporal_plain_time_methods.rs");
 const PLAIN_YEAR_MONTH_SOURCE: &str =
     include_str!("../src/builtins/temporal_plain_year_month_methods.rs");
+const ZONED_DATE_TIME_FORMAT_SOURCE: &str =
+    include_str!("../src/builtins/temporal_zoned_date_time_format.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -25,7 +27,7 @@ fn normalized(source: &str) -> String {
 }
 
 #[test]
-fn temporal_unit_option_property_projects_name_and_auto_policy_exhaustively() {
+fn temporal_unit_option_property_projects_only_the_name_exhaustively() {
     let domain = normalized(bounded(
         OPTIONS_SOURCE,
         "pub(crate) enum TemporalUnitOptionProperty {",
@@ -35,20 +37,19 @@ fn temporal_unit_option_property_projects_name_and_auto_policy_exhaustively() {
         "TemporalUnitOptionProperty::LargestUnit=>\"largestUnit\"",
         "TemporalUnitOptionProperty::SmallestUnit=>\"smallestUnit\"",
         "TemporalUnitOptionProperty::Unit=>\"unit\"",
-        "TemporalUnitOptionProperty::LargestUnit=>true",
-        "TemporalUnitOptionProperty::SmallestUnit|TemporalUnitOptionProperty::Unit=>false",
     ] {
         assert_eq!(domain.matches(mapping).count(), 1, "mapping `{mapping}`");
     }
-    assert_eq!(domain.matches("matchself{").count(), 2);
-    assert_eq!(domain.matches("=>").count(), 5);
+    assert_eq!(domain.matches("matchself{").count(), 1);
+    assert_eq!(domain.matches("=>").count(), 3);
+    assert!(!domain.contains("allows_auto"));
     assert!(!domain.contains("_=>"));
     assert!(!domain.contains("unreachable!"));
     assert!(!domain.contains("implDefault"));
 }
 
 #[test]
-fn temporal_unit_option_reader_accepts_only_the_closed_property_domain() {
+fn temporal_unit_option_reader_validates_spelling_before_returning_to_its_consumer() {
     let signature = bounded(
         DURATION_SOURCE,
         "pub(crate) fn emit_temporal_duration_unit_option(",
@@ -64,7 +65,32 @@ fn temporal_unit_option_reader_accepts_only_the_closed_property_domain() {
         "pub(crate) fn emit_temporal_duration_rounding_mode_option(",
     ));
     assert_eq!(reader.matches("property.name()").count(), 1);
-    assert_eq!(reader.matches("property.allows_auto()").count(), 1);
+    assert!(!reader.contains("allows_auto"));
+    assert!(!reader.contains("TemporalUnitOptionProperty::"));
+    let auto = reader
+        .find("self.emit_temporal_string_matches(value_payload_local,\"auto\",scratch_local,function);")
+        .expect("auto is a recognized spelling for every property");
+    let units = reader
+        .find("forunitinTemporalUnit::ALL{")
+        .expect("the parser recognizes every unit before the consumer restricts its range");
+    let rejection = reader
+        .find(concat!(
+            "function.instruction(&Instruction::LocalGet(output_local));",
+            "function.instruction(&Instruction::I64Const(TemporalUnitSlot::Invalid.code()));",
+            "function.instruction(&Instruction::I64Eq);",
+            "function.instruction(&Instruction::If(BlockType::Empty));",
+        ))
+        .expect("unknown spellings are rejected within the reader");
+    let rejection_body = &reader[rejection..];
+    let throw = rejection_body
+        .find("self.emit_throw_current_function_realm_range_error(")
+        .expect("unknown spellings throw RangeError in the active builtin realm");
+    let abrupt_return = rejection_body
+        .find("self.emit_return_current_completion(function);")
+        .expect("a spelling error cannot reach the consumer's later option reads");
+    assert!(auto < units && units < rejection);
+    assert!(throw < abrupt_return);
+    assert!(!reader.contains("emit_temporal_require_unit_range("));
 }
 
 #[test]
@@ -75,6 +101,7 @@ fn temporal_unit_option_callers_use_named_properties() {
         (PLAIN_DATE_TIME_SOURCE, 4),
         (PLAIN_TIME_SOURCE, 4),
         (PLAIN_YEAR_MONTH_SOURCE, 2),
+        (ZONED_DATE_TIME_FORMAT_SOURCE, 1),
     ];
     let mut calls = Vec::new();
     for (source, expected_count) in callers {
@@ -93,7 +120,7 @@ fn temporal_unit_option_callers_use_named_properties() {
         calls.extend(source_calls);
     }
 
-    assert_eq!(calls.len(), 16);
+    assert_eq!(calls.len(), 17);
     assert_eq!(
         calls
             .iter()
@@ -106,7 +133,7 @@ fn temporal_unit_option_callers_use_named_properties() {
             .iter()
             .filter(|call| call.contains("TemporalUnitOptionProperty::SmallestUnit"))
             .count(),
-        10
+        11
     );
     assert_eq!(
         calls

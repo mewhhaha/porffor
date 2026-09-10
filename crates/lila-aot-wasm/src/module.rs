@@ -1615,6 +1615,17 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalInstantPrototypeToJson
         | StandardBuiltinId::TemporalInstantPrototypeValueOf
         | StandardBuiltinId::TemporalZonedDateTimeFrom
+        | StandardBuiltinId::TemporalZonedDateTimeCompare
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
