@@ -79,6 +79,7 @@ mod temporal_plain_year_month_methods;
 /// `temporal_plain_date_time`: record/constructor/accessors on one side,
 /// prototype method bodies on the other. `check-module-boundaries.sh` requires
 /// both, so the split cannot silently collapse back.
+mod temporal_zoned_date_time_format;
 mod temporal_zoned_date_time_methods;
 mod uri;
 mod weak_ref;

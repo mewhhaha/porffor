@@ -1,0 +1,3016 @@
+{
+  "schema_version": 1,
+  "test262_tree_pin": "aa55200d1310384c5cf69ea95b2a2ecba457007b",
+  "baseline": {
+    "executions": 40795,
+    "completed_nodes": 309
+  },
+  "base_commit": "30c745c7bc165dc6f5513abc58288778288e15c6",
+  "origin_compiler_sha256": "e58d1ff48d75e6ca6fac5f8bbaf8b75a96dc62022993abcd470154a7511962fa",
+  "candidate_compiler_sha256": "ce71114b944924a8e847037d66ad251d3949be67710a8fa29017e2c889f82d7e",
+  "candidate_source_manifest_sha256": "90bb6c931f71afa0bd2cc629cb16fffcfbd348ae6a806bbbad76919283463d8b",
+  "execution_list_sha256": "a82ea506855e5608496a7e4a7e275d33f3654a65d1c00123a932f3436a4c3639",
+  "native_summary_sha256": "0dcdf7b82ce1fed42297a80f6d3fd51d265bd030a64dbc3a81b24c17a9c1ff7b",
+  "total": 346,
+  "outcomes": {
+    "Success": 346
+  },
+  "timeouts": 0,
+  "cohorts": {
+    "observed_year_month": {
+      "total": 30,
+      "outcomes": {
+        "Success": 30
+      }
+    },
+    "observed_zoned_date_time": {
+      "total": 104,
+      "outcomes": {
+        "Success": 104
+      }
+    },
+    "passing_neighbors": {
+      "total": 68,
+      "outcomes": {
+        "Success": 68
+      }
+    },
+    "formatter_surface": {
+      "total": 124,
+      "outcomes": {
+        "Success": 124
+      }
+    },
+    "additional_unit_controls": {
+      "total": 20,
+      "outcomes": {
+        "Success": 20
+      }
+    }
+  },
+  "repaired_origin_failures": 134,
+  "rows": [
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/Duration/prototype/round/succeeds-with-largest-unit-auto.js",
+      "outcome": "Success",
+      "source_sha256": "a608570e0a5f1345e771db0f6542a03e60614e82b9a56d8c071859a5f345b2c3",
+      "snapshot_sha256": "2fe0bc655d4f867e4be24313a257fe022cee232bd7e3ae755bf7655e8109f84b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/Duration/prototype/toString/smallestunit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "f3c9ec947abfcf408f134add6a63e8245c7c1a98494701ba1d9d707f339d82c4",
+      "snapshot_sha256": "dd4b8cd92fc109ec955853d12b9ba4421ec9c8b8e75d487810fd7b3759948dab",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/Duration/prototype/total/unit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "d587c9330f500105cff5459e8532c1f3fa14b6e5a9edb2966c3570afaf6fe096",
+      "snapshot_sha256": "f17d7bee271aeba81530156b97ed02d7a31bf788d434dcb48a8c2a472233947f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainDate/prototype/until/largestunit-default.js",
+      "outcome": "Success",
+      "source_sha256": "e47f679621b56571193b694c4f6fbd3a5be183bca90fbdbe2e8ce2d810f665f2",
+      "snapshot_sha256": "8f7a9eeabe1a5f12c1f476e3624dc29ae75b9793c421e586e42a2eefcecd46b5",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainDateTime/prototype/round/smallestunit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "a56be7056a1fcc6853ad20354cf2d69790bd272537bfb061ab993929323a2722",
+      "snapshot_sha256": "30b4a460c2aa8bc0d10c11adda60af735c4bc652a37217daf7ba5913230a53a4",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainDateTime/prototype/until/returns-days.js",
+      "outcome": "Success",
+      "source_sha256": "89877f6322d7dbc39262256d3b8fa7af28d9a6b2aaf6f407bd1ef13fdf83da9f",
+      "snapshot_sha256": "9af93e5237911b22c026862dce7501380ce5c3265b71a013b1a746ab022a9603",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainTime/prototype/round/smallestunit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "c8db3cee8b5337e251d19092169a260604b5babe1640c93c599f645379a6414a",
+      "snapshot_sha256": "5dbf8c0b8b6d6f9dc96c09ed418c3f772302578e101b2790c8f8e1b0c42c62f7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainTime/prototype/until/largestunit.js",
+      "outcome": "Success",
+      "source_sha256": "ac3b7745ad1c3e4aac008e488398b9e39b6864aa6139298a67bbcf5300602f18",
+      "snapshot_sha256": "dae50f0ed26ec494dde2e5d7a0a6e15a4d7e2d819f9a2cdf6b12d1a38cb5a312",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/compare/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "76e53975c64a0e3e25adfc8c42d26fc9081e0a07424a9a475ec2a1953e0f67a4",
+      "snapshot_sha256": "fecb9a1567ff69d3e83d3d0608f2ce64660e27f884f7dc938a370d8c155a0733",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/compare/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "a8a65a7d69cf5b4d73d10ebec3ee939ff9ec97fc28f3c80ed85abad0fa28afba",
+      "snapshot_sha256": "bf70421cb8014d71f017160c880d1e320341d9f2bc9e4a86f72e13e6dd86cbd8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/compare/argument-string.js",
+      "outcome": "Success",
+      "source_sha256": "7c3cf8681e2a7826994e7a6cabc80f1c38349be5712456464e613c27a243f1ea",
+      "snapshot_sha256": "d96efb3d4c86052d961fb8d60f4588ac550b2e5a1b242a0892e38125bf75370f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/from/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "853980a6d15baeee60789ad94d53ff3454a1bc37332e3e745bcecf0e1a49bb23",
+      "snapshot_sha256": "6f6669eecff83fa9fdcb693b32bcc1299462a42fcf6d41b8064d0626a525c38d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/from/argument-string.js",
+      "outcome": "Success",
+      "source_sha256": "a10994c0dc84f70c277332f8196f2003e8c9f620a9ac77efc711ba50f96201d8",
+      "snapshot_sha256": "4d474697190b0f78962161a778e8784f539c4f23c84362ad11bdb80bc7a86591",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/from/month-code-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "308806c8d9fe9390fbe38155da0475a564f0809fb205d7ee377f7c6d9a2f5038",
+      "snapshot_sha256": "77fd85e399b3b51fabe1d2d01f90f1a0e106719b0f8663f7a1b55963f1f2a5af",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/from/monthcode-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "b904034525fa121b6b02ddf766afaf617f78fba979ecd36b97ca92e41105e90e",
+      "snapshot_sha256": "6fb3f3baa8a142d5f692e62014f80ce9bbaf6c016f18134e5fd7b3ae5a43266c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/from/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "6c8783a488ec83ea7c0b2d04cbb651f7ede0ebf148c89edd10a14c26ad595c21",
+      "snapshot_sha256": "47549953bb0a76d453d48c6ca22a6debc782175ab0466b3e20e22cca088a4dee",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/add/limits.js",
+      "outcome": "Success",
+      "source_sha256": "14e38798a6cf9b346d1f10a994833df36ace5e916540f15c086e6ed6b972f444",
+      "snapshot_sha256": "482365e273b2788a0ce684062051e18692d936e715bfa3be11a4df388fd75227",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/add/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "630704965f9969f4333a82df78fe9778fc69cf38f7f4c2057fdc488d50a5125f",
+      "snapshot_sha256": "9304df9940ec9ea6dd6b2a2de330b151e9c0be1020d918d1c93ac1485c216c88",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/add/overflow-adding-months-to-max-year.js",
+      "outcome": "Success",
+      "source_sha256": "21f14a4d91c74904c6a812a9b37c90ae7d5ee53cf6b7060446224b839431ceeb",
+      "snapshot_sha256": "46acc9a10b49fa8180536361b9740fdc12205d1a507848fd2d319e6afee952dc",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/add/overflow.js",
+      "outcome": "Success",
+      "source_sha256": "e185b2da5575903dcd71c28ff81055128c40ba0d7338742cf0f79b97d3f48a4b",
+      "snapshot_sha256": "4843ddb6e2f56f2f0871397d3b320dfe0c75190ee46cab3ccca6e7ed87e7375d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/add/subtract-from-last-representable-month.js",
+      "outcome": "Success",
+      "source_sha256": "ae8c2397233e33b362d866ca2afec931de255d02c86c41e4b993bfbde68d47dd",
+      "snapshot_sha256": "47e28d2968f8cf9d0ae643a9a45ced51c4037636134987b055ee568c9aee355c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/equals/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "dd4b552c0d78bbcd6fb135aa9c83afc85f2ff214ab37279665a7c3b416c30133",
+      "snapshot_sha256": "fe8364be57e1e84ee580932d4ece13112b4926c4d6ff711851ec234b514e659f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/equals/argument-string.js",
+      "outcome": "Success",
+      "source_sha256": "abeca53d9954385fab7174c1d28fcb1b2c6877b3cc0e3493bde017085c791ae8",
+      "snapshot_sha256": "a0308e5571b8bf3521987f3d3562cfdab7dcfa4a557e0f9766f080ffae06b06f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/since/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "9a19639d618a43d48ccc6a3248a8cd8923d5174e31027e82e7566e49e4ba0de1",
+      "snapshot_sha256": "fd9ebca953617281c37013630c58943096dc01afa44c60001577f0cacdaad77b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/since/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "abbe5ef27085476f0943a8e18edfd8c1132d1fb27f644d374cac06217585d4b6",
+      "snapshot_sha256": "e923524fed1fb4894a38307e504166126420a1d2c167c5f93c89ae808556f494",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/since/roundingincrement-as-expected.js",
+      "outcome": "Success",
+      "source_sha256": "eeb26a354cff25acef1579987bb58f105fbced2023eefebcc0bb70fe0e4387ab",
+      "snapshot_sha256": "5dcdc9a0edb3d252293f178513ba52d7213a798a8157084f553dca9c3aab7a1f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/since/roundingincrement-non-integer.js",
+      "outcome": "Success",
+      "source_sha256": "1330b892c7cfe51ad21d5aaf66218617852adb8a5a33085c8136d390725eff04",
+      "snapshot_sha256": "431f0f0293392d73d7f594eaab83aaa7a99c460b6c2721e0f19bac8146ae7eb7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/since/roundingmode-halfEven.js",
+      "outcome": "Success",
+      "source_sha256": "4b5daeacddaf5e7abe12fe106b774d35b10f25e480f4081fa7b7f0326ddb71ce",
+      "snapshot_sha256": "eb5d2fce76d58fcc75d109afc48cd923d603c8a2bd260fcd306c1c3b6167fc60",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/since/throws-if-rounded-date-outside-valid-iso-range.js",
+      "outcome": "Success",
+      "source_sha256": "f6d15df256b1653f80a347e3ca82bb14a5b6b42e4e772c203f4bed2461d53e45",
+      "snapshot_sha256": "205ce1d39fcc420ed4ddbaf07b88d45f651c155bc7cd27be9dd6d46c52c0f8bb",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/since/throws-if-year-outside-valid-iso-range.js",
+      "outcome": "Success",
+      "source_sha256": "56ba926ec98e9e64b4d0144c55b8ec7f3106e84f92e735c98c02eb779329440e",
+      "snapshot_sha256": "32bfdbfef016b11fe07ce7fab377ab973fd30cfbb8466fd888e4ea7cdaeeec70",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/limits.js",
+      "outcome": "Success",
+      "source_sha256": "8c846f1e906b5e5d31b31231a54599c36f46e79683d6eaa73a4ec3182efc6d0f",
+      "snapshot_sha256": "61aed11287e6d87238648115dfd807979b0d254bb8eec26672de8b754ab2485d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "298ac4a4c477a82460566f4927b479cf3c80cdce28e9bc483396e6f745b23f32",
+      "snapshot_sha256": "b059178c9e4db424b02449aa0c66343f14036d3db47ef0d0e1d10c9dc11e7968",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/overflow-subtracting-months-from-min-year.js",
+      "outcome": "Success",
+      "source_sha256": "d17a9a7100f36056d601a3461976f888e856ba1192ff83de7e9565e5c020b4e4",
+      "snapshot_sha256": "339051d9509f099844cb0699f2a2e437c583517dccf06791fcd14612354d2c60",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/overflow.js",
+      "outcome": "Success",
+      "source_sha256": "032d7c179df448bbe387d73da62dcd4f3bbd2eb1b0f8c52d308909af66bc6630",
+      "snapshot_sha256": "f35a9675abd91b487eef1e5bd0776164ff1a38b77a1980c6e4bb1d6b6a0a7792",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/subtract-from-last-representable-month.js",
+      "outcome": "Success",
+      "source_sha256": "e07c2c1820004e3202726d52b7a482096f27d42156d8a5a13c6dfc3614fc37f7",
+      "snapshot_sha256": "e970e0f4c63d5ebab6c9144d967057f4edd9b85def53b99417733ee1681b3826",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/until/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "879074353189472e0b6e8f44449c45ef9c4ce24b3dc86234f4e04cc52c80d86b",
+      "snapshot_sha256": "d62b523536b28c6a3630de52b8517fea071b5c13192ba25bad13e7e1f8882824",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/until/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "ea145b3bc2470ce7a5e311931861f2e916f21f0aadc1878cc3f668a8ff01586d",
+      "snapshot_sha256": "f0b335bbdf901a004fd42dc1824ba0e20ce3cfb728146bd965c2c0ee59f27221",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/until/largestunit-auto.js",
+      "outcome": "Success",
+      "source_sha256": "8a1d0ddae1b43ec7c25567d8a18abef68ed19d21ec03f03602a97c8faf8ae93b",
+      "snapshot_sha256": "a956b48e7f4d34650a89ac6e61f5b05297fcdf0f3c7dc136e3f0fe789197d0de",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/until/roundingincrement-as-expected.js",
+      "outcome": "Success",
+      "source_sha256": "1e895239fe41a9bdc98efc48bf170f67af3af9048751990cf877c83e2db43b48",
+      "snapshot_sha256": "32a496246e1c0df2ce70bd9bd82bf2191cdbae25d5e6b892da0cc56599c6e681",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/until/roundingincrement-non-integer.js",
+      "outcome": "Success",
+      "source_sha256": "6007ef8f8ab4f5ea1b25914e057aa7cf36853d671589104d4bd6795c7803af61",
+      "snapshot_sha256": "fc331d5b82d715694948ac4f53b9415928896934e5ef062f97b49c670a644ac0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/until/roundingmode-halfEven.js",
+      "outcome": "Success",
+      "source_sha256": "15c75ee16fc93f96b22f512396fb7d09a08d286d4cc3e093fa5e6ab4d5643ae1",
+      "snapshot_sha256": "b205e1bc5a3fc1d39f0007ceb81919303b8f748ab3f11924b1c54a2431ece266",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/until/throws-if-rounded-date-outside-valid-iso-range.js",
+      "outcome": "Success",
+      "source_sha256": "6cbc69c26be795fecdd7850082243fa43e5fae2689ebe721b507858b62a93225",
+      "snapshot_sha256": "81565bda8c1ec5b0e593cab02ced74ed9ca44f6bd116050183aa40285022257e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/until/throws-if-year-outside-valid-iso-range.js",
+      "outcome": "Success",
+      "source_sha256": "6abaaedc688f3315326a1b8ae5b38daf07b381102dc845aeb601fb951c986596",
+      "snapshot_sha256": "cc8d19c3b0a48b6f5ddfd127d3421e7dc7a270e1f338a0700a7a8b3934598c72",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-case-insensitive.js",
+      "outcome": "Success",
+      "source_sha256": "2189584cae1e94ba2570cc8e7e6a654941791e0dcab933223f60428743e48d43",
+      "snapshot_sha256": "ddff6e5c3bfe69b7c88e4a3f9b33280e5fd603082a1fd9903782e726e9075e6a",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-invalid-iso-string.js",
+      "outcome": "Success",
+      "source_sha256": "38608f6fdf8c09f2334522016b4782f7501a169df28b1fb9ca38c887dac0dcd3",
+      "snapshot_sha256": "82c26dd299598266e68acb630b8925ffa92c3b68903c6798725fb9536e611d35",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-iso-string.js",
+      "outcome": "Success",
+      "source_sha256": "388efef99acf97ed463cffb25f87aba3eb7c023d244ca95c92fd5fcaf33fa633",
+      "snapshot_sha256": "32ec9b703a3d5703c67fa790a5666ffd8e86f627f1a459b234cca92dc99d3009",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-leap-second.js",
+      "outcome": "Success",
+      "source_sha256": "abdbfa90f3731aec3d7f3313b0c36083fac596434c87ce6c5b967dcf1315d6e8",
+      "snapshot_sha256": "72e40a19e4fd3cd74cda6dd29112d3d7ac63d8ec5ddd202322519f3830ec0df6",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-string.js",
+      "outcome": "Success",
+      "source_sha256": "8325362b660b4190e9c7883a7383b4ace4cdc03e867b21d49650040368ee2c45",
+      "snapshot_sha256": "7ef64fdeef68391d913f5403c09de9b26281a7e06580d2d0a6d7b4329b4288bd",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "8924b6661ca4bdf55f3665873db11ff70f1e88fc685595a4f0c7fa1e294fc59d",
+      "snapshot_sha256": "c574418d2557819b6b5361beb72ab908323c9942fde6a21cf0faa9c2dff3ab57",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-year-zero.js",
+      "outcome": "Success",
+      "source_sha256": "d14d6151d55166106ee9653ed438d0683a18de72bb0feb08f801b4cf78c60cf2",
+      "snapshot_sha256": "9a7b1fd0627a75375306a2ac94a88713175a13f1c5cf55e6274b42c1c3740834",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-invalid-offset-string.js",
+      "outcome": "Success",
+      "source_sha256": "c9d885d5e369db171748ae7b1dc86b4f2a59bc995c979e888aa171cb70381bf2",
+      "snapshot_sha256": "8c0c3ed777b0166f8bd7280c5be3af426a5eb6a42ad5cba35c8e02b27b1a08e7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-offset-not-agreeing-with-timezone.js",
+      "outcome": "Success",
+      "source_sha256": "7c74f6188344b67018a256c7f249308502d3df90e8731c8302304153543dc2d8",
+      "snapshot_sha256": "66c2c7a4f8adf1a4c0aeaa3c29f99cb2cba9da81c755193489b6214301dafbd7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-optional-properties.js",
+      "outcome": "Success",
+      "source_sha256": "2ae3ff2763bca6e729cc343a289987b825909941e0abecbd8761238394182589",
+      "snapshot_sha256": "55232a4f5df884b83638043366d7e9af7e3f4ce0a9d7279c2e1c63fd6a86a390",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-datetime.js",
+      "outcome": "Success",
+      "source_sha256": "ba6f582c55580fefd6a78c1ec58e64efe7919eca854863dbeb17102154778857",
+      "snapshot_sha256": "1285f5153e7cde0112530ff45942cb8a5738cb21da276f5635c72aec8596a871",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-leap-second.js",
+      "outcome": "Success",
+      "source_sha256": "5fc448c328257b92704ace461552d9d0e796aef81f25ff2e061f2fcaa4401ca2",
+      "snapshot_sha256": "740a827f87c03f8b387ec51555aa8b13e9647c7b1c0ca74fe9675dff39543ad1",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-multiple-offsets.js",
+      "outcome": "Success",
+      "source_sha256": "acb2bbc9cd4eb45d9cdae535b1ad9233c96b3c1342dbcdb5439765d84e71e478",
+      "snapshot_sha256": "086c561be49049f27f35257b350409115516733f181c470611f74d9933c7a51b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-sub-minute-offset.js",
+      "outcome": "Success",
+      "source_sha256": "a36537e4169558778edf48432482e270fae0f8ddeab27cf8b9b7ea9218107e93",
+      "snapshot_sha256": "ddea6f21ff8ac344431f0dc2b2965c9f9a108e31bd43f4e5efd372ec19e4f656",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-year-zero.js",
+      "outcome": "Success",
+      "source_sha256": "6e4afe44985e36b5e220b146566a3a658787e3f1c57e2f6d46c88bcdd1e3e342",
+      "snapshot_sha256": "deea9d8f39e52a58ebad0df65974a3318c72fabb742887642cd546482e273172",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string.js",
+      "outcome": "Success",
+      "source_sha256": "daca52a1a9835394fd3f8dcc1b9c39614f9d4be72a0a585d850d1a8d11b01aef",
+      "snapshot_sha256": "c70bf9dd16e0b8d2d45cf51def626c224ee67835ebf8dc9a77567f1d719de020",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "35c0c85a8068380b575896597b30d8066c2a001e2184d1bffff11b08e43679e7",
+      "snapshot_sha256": "30acb8d3b79945d44542fe838aeb48e9aedc684d31df6a1da1337a0069136dc8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-calendar-annotation-invalid-key.js",
+      "outcome": "Success",
+      "source_sha256": "d6175224f9e5451f64100c26446e147562752eb8ed5a54467367c7acd0f35bc3",
+      "snapshot_sha256": "b7f002c9253ad9c3be09f995566b6c026b6b1d6fdfc497d8d9efd3fe55848e30",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-calendar-annotation.js",
+      "outcome": "Success",
+      "source_sha256": "066a5e0aee51d6ca25a88df9fa329450ea5ca0da3cce48dd171022b35783c2c7",
+      "snapshot_sha256": "198ded538a77cb378cd86a84c3150492e2b760217ce811c6632cb54205d7546e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-calendar-invalid-iso-string.js",
+      "outcome": "Success",
+      "source_sha256": "1ecabaaa9d3fe26dd05c661ac10d21f2f9c82d338b0ebba8e16a4549731c05bd",
+      "snapshot_sha256": "6c11129bd071870ff949fc11f0e3589ec48e4a0f1acd7460c83fab82ae495b89",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-critical-unknown-annotation.js",
+      "outcome": "Success",
+      "source_sha256": "787151189c8bb7d862b6af246cff3a7a385feea9d9037bc0f8271ef9f8baf55b",
+      "snapshot_sha256": "aa9b88b539fa5e974008a84a202e17849716f607a43ac3cfca0da948d4e5c8ff",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-date-with-utc-offset.js",
+      "outcome": "Success",
+      "source_sha256": "055188cd4ac369bc0b64929280deaeeab14af5c659367c70c817935f6b9c0ef2",
+      "snapshot_sha256": "6011ba6dbb0db38b8995cfd661f495d6155d73c2ca43fc35eb8e9fd0a5cf6d07",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "6a81e64836eb59284e8233ea1a1b0eb6d81295e78b96ea2c66546314ba3449fe",
+      "snapshot_sha256": "b22e5585966f56d30ff7b910f36927d391bcaa8b91fc83e2cf2e6c791b7e7c85",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-minus-sign.js",
+      "outcome": "Success",
+      "source_sha256": "6b8eb5477d88a90a31d4c1266bba0fe03c1f7dd4bcb948be0e6cb3527ea6b8a1",
+      "snapshot_sha256": "939ad538f9a5edfe4261fe21cc6de355c9ac9cf52759cf47bf6f600562fbbbc6",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-multiple-calendar.js",
+      "outcome": "Success",
+      "source_sha256": "2a9d77323e361eea3e755941d772d1fa0384ebc67c00e15aae8d9f356b678c6c",
+      "snapshot_sha256": "de8050fa434240b8f986e1f59af123a366cba5e44083b57bdb3be925866c8770",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-multiple-time-zone.js",
+      "outcome": "Success",
+      "source_sha256": "7ba75ec7b783bb50a4b488484ae69d15690b7884392c82944aab570474c5fa0f",
+      "snapshot_sha256": "97a37559cf33067780386a38e3ff80daa0f93d48f48350e7b66c3a8c78919ed0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-sub-minute-offset.js",
+      "outcome": "Success",
+      "source_sha256": "d829b56ea0af4b927e3f59bebdb5e9d23febc92499b10ddff8f85643bcda7077",
+      "snapshot_sha256": "f574f71deddc4c63717e66b48eacc4752314f929516b140244fc8fbe1f2f666c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-time-separators.js",
+      "outcome": "Success",
+      "source_sha256": "12fc4c5b40fd9e72ad075dc75c751bae33a5a933d1a2bf1de96903c4eca50717",
+      "snapshot_sha256": "4152758799067c288d53b86d43d36493099419cb7a414f3b759b3931cdd64743",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-time-zone-annotation.js",
+      "outcome": "Success",
+      "source_sha256": "68c25cc1db94cf033e5420e84be3093726d3cfb03636a8cf0421926e2163bba2",
+      "snapshot_sha256": "b278bbeb8804d330b8ec59c3138de5a977a2de6a94b127a2d767e12451c92dc8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-too-many-decimals.js",
+      "outcome": "Success",
+      "source_sha256": "cfca2c1e7a4b8943d246142af2e98911aeb44ae9cf908fd294ece5585b2ec0bf",
+      "snapshot_sha256": "79cd1740fda0e46a643c084e0722fa78276e5470d770b4be5ac2d7726e0f32bd",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-unknown-annotation.js",
+      "outcome": "Success",
+      "source_sha256": "9f40e4b2ec7ea3776a84feff95d6813f404bb4db19555ff4cfe51ddeaa7494d9",
+      "snapshot_sha256": "326441e9512d8d389d53e9281603333982c4e551e011e747677a6eefb4467629",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/argument-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "3a0ab3276e617296adc2a6fc1eb0c6cf9a7c67ea9457cae5452e7b5cbadd9ead",
+      "snapshot_sha256": "ff536dd0b811125e45a4192fab2cbe87d17179bd2fa25ad04f170316bb9a1a6d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/basic.js",
+      "outcome": "Success",
+      "source_sha256": "a136f2892cc30bf658c8f6b7931c91f15cffe6464e8d2b20b2d4974b3aa91701",
+      "snapshot_sha256": "ec2add7be0d2c491240ee10eddc03ee0045cef3b5a868ad660c871814d0c337f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/builtin.js",
+      "outcome": "Success",
+      "source_sha256": "1fec64302134d91851bf9e464e43bf04db979d89795585310acc5a140bcac9b1",
+      "snapshot_sha256": "1585b38f238f9504c9c1fb09e468418a766fdc0f4aced8b1b848e9742081f4fa",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/calendar-temporal-object.js",
+      "outcome": "Success",
+      "source_sha256": "93e8d442e2f43de58d7a60a553878f7145b05a7e506369986b57f31162144482",
+      "snapshot_sha256": "6530f601c3effae520405b65f2e8e2f9aaef320c1bc5ea32fabd4d710470b7e9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/casts-arguments.js",
+      "outcome": "Success",
+      "source_sha256": "a4799a432080e1d227116c3c5bbb2598e463bf075469c7e8d391e132008b4d7b",
+      "snapshot_sha256": "5529945178baae2b9ded1f36c61ff84c485f7858246e0855b66e1b6312dcda88",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/compares-exact-time-not-clock-time.js",
+      "outcome": "Success",
+      "source_sha256": "92b67dba60d3deb708f5fe7d13f16435068232db783a34064038580301030dcf",
+      "snapshot_sha256": "2c962958df386a98bc34050ccff796bc107dd3851cd5a5050aa0fbbd9885ac48",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/disregard-time-zone-ids-if-exact-times-are-equal.js",
+      "outcome": "Success",
+      "source_sha256": "38b13b7f7e4ea59febd9e86de6902f2462fc553979c2dd09e30f30105df08d18",
+      "snapshot_sha256": "ccfa064cebf755d6fcbadc8e51fc8f21c320e1d80932fab7820fbc10bf5c8ac9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/infinity-throws-rangeerror.js",
+      "outcome": "Success",
+      "source_sha256": "1212165ee8675504469d783da11cf19cfdd0efb295a6ee7f3469a56a77ee60da",
+      "snapshot_sha256": "a980fb71a07b7f95fea0ce108e28370ae17c1d6fae865fac591be5e42ddfd449",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/leap-second.js",
+      "outcome": "Success",
+      "source_sha256": "7d7b0df39dab00a433da434b7a53d92ebad6e3f6f64297d67aa75f38c332a4c3",
+      "snapshot_sha256": "66e2e1ff496acdb6d613f87556d544dc0cefd72885e44529fcf541f49b68faf9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/length.js",
+      "outcome": "Success",
+      "source_sha256": "0be6413477095c165fbdfc102b74a0a5d65950f7fb215743d0d008d075a2c8c6",
+      "snapshot_sha256": "7afa21a065ded2a222367d6ccc7b81c15f1c81e70296c1768cc4ca027f5404b3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/name.js",
+      "outcome": "Success",
+      "source_sha256": "253cb5ce89b62d931f99c1b3e8fb12daa1383a564a9068f414075991c64d794a",
+      "snapshot_sha256": "2e1c86555cac1ffc812ab96c2da4590012f3b6af80adb2020417073fc727e0ef",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/no-fractional-minutes-hours.js",
+      "outcome": "Success",
+      "source_sha256": "7f189c6b92538b4f9ea144173785ffa6a661859ef9afd37506ad58bd51e19fb6",
+      "snapshot_sha256": "e2dce5e55811ebc24ec64631839bbe9133fda3adb534e3440d901dc805c7a4d4",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/not-a-constructor.js",
+      "outcome": "Success",
+      "source_sha256": "851697b96ab7ffd0e1939dd758f9ff3830bb9624d99cf7fd69b05c937e314140",
+      "snapshot_sha256": "9a4707069c1f6f8069334e82e93896e68a7f8b7e70551e8dea727309aff6a686",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "db93f88bd8b33fb2c30afa573c51d4d61964945d34704a242eb2cdb376458f6e",
+      "snapshot_sha256": "26cc43f02374fd1d5b148ca8675116b31007fd6ac1131ba475b54b0efa3459a7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/prop-desc.js",
+      "outcome": "Success",
+      "source_sha256": "9f5018a45bcbdd619fbc03aab8a3e6168903c733dac2d6857f948acb26ee3db8",
+      "snapshot_sha256": "f32f86bc8ad39375f07deece8a3ed47e92164a396affe2ab42fe69d62c000b60",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/requires-properties.js",
+      "outcome": "Success",
+      "source_sha256": "7e154191eb8ecc10fe5207f6481e39df34d6675ef418fd6680a50d9d91419777",
+      "snapshot_sha256": "00e84b8bf93522ae58699eeb0f37ed36a0ae845444ab4c4e884fa7997465bdea",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/year-zero.js",
+      "outcome": "Success",
+      "source_sha256": "3ca5e715b6573d5aadf584971261317018aa61312ba1cc8e6d65a8bf2fdb3c7b",
+      "snapshot_sha256": "422b27c4862bef9eb570fa0423d05d521f3c658a34313230bc09922acbcbea9e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/zoneddatetime-string-multiple-offsets.js",
+      "outcome": "Success",
+      "source_sha256": "05e4e038e30d425d621c71bd35719556d38e70065eeed577ba229c274b4fafea",
+      "snapshot_sha256": "a59fa57cef43021a4ca694f52d787f33ba93d5028bf9f6123fac62f2f1a376da",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/compare/zoneddatetime-string.js",
+      "outcome": "Success",
+      "source_sha256": "07032adf0442b4cedd040980c7554777fe8c4f7a4e67b5d91bd3a50464072331",
+      "snapshot_sha256": "1bdc3888ed0009f38b53cf6dc17c91f78130c1298d153e0b99c293f051195cab",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/construction-and-properties.js",
+      "outcome": "Success",
+      "source_sha256": "f6eaa40e6b4b191fb185c3c0064e9589151fef16e9160f661c0839b874ec7fa3",
+      "snapshot_sha256": "a3704f18dc630563f48a3b0ca080b4c9239542613165475564b6da8ea1ab354e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/constructor.js",
+      "outcome": "Success",
+      "source_sha256": "3ec5d9d93d57af86a5151c38e9b52a736ca6bf9399b539737077adae4f947c8a",
+      "snapshot_sha256": "9474f453a40578ff1cd2f8a7a85cccd6ef50d4b6ec23c100c5275462ef2b6937",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-string.js",
+      "outcome": "Success",
+      "source_sha256": "019b7c591826cc6d4cc44da7d945321b453f27a7279c0e7f295868b5672ac544",
+      "snapshot_sha256": "775340ab9ee35b19512843dc7d7fb026bdf50a58973e74296fba0860986e7e9c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "2585d935a07abe3a557f7e703801765e6e1d11a558eb0dc3864657d643b54865",
+      "snapshot_sha256": "eddadb94aeaeb254352fb5641edade6673305eccc6265b2884f37547b7f1ecc3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-monthcode-month.js",
+      "outcome": "Success",
+      "source_sha256": "5ca31bbd4d03cb8ab20c314e4a02383d2e28a910eb53c0437f4fcdbb032a5af1",
+      "snapshot_sha256": "eef0e99d0cf206a5b5bc8968294970d5c7d715dd06697b04d12f02ddcdc57d7f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-offset-not-agreeing-with-timezone.js",
+      "outcome": "Success",
+      "source_sha256": "ecfb1f9ec81f692ccf35c8a682b8dabd5e16bbbf6d03c2464ab491d0814897f4",
+      "snapshot_sha256": "614631088b7d54a6d7f425b9e577a330b6d26b85caca7c51ffd7d3b31b1bc8b2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-optional-properties.js",
+      "outcome": "Success",
+      "source_sha256": "397549e40ed7da9cda49fc577e4b9964a0d9f4b8c6d5e1217348cdf5f4ed4820",
+      "snapshot_sha256": "85ff05b3d6610e2b0d430c1d8cc905929ed1813270bf7d241783283c19e82187",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-sub-minute-offset.js",
+      "outcome": "Success",
+      "source_sha256": "7569cf695d997b84563cc54890d1de7ed307ed0b116606476856f7e77e6c2ae0",
+      "snapshot_sha256": "cba1f485c6a508adef81fbd8565817477b71d08c449a21a189fc86e85262b437",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "ca2139cebba43b54e9f01362eae48f897877afce4a55cc68c618b476cea8e7ef",
+      "snapshot_sha256": "eb54e4fd698722cc4bb93d3c9e34f679d0c5eb805c8cb8809bb0ed9c9eb32911",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "8c2ed5f48b8f85cbc5383746be5556a21ad03eed1e6dd8c3b150571307cb0dd2",
+      "snapshot_sha256": "fb0fc9bf85ddbcb0a2e319ef74effd92d55badc856b76ece1d211583d2671af5",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "bb42db1e4f2f2dd15de1428500e12acab98cc3b088208b3d875fbded6ceb80f7",
+      "snapshot_sha256": "3683df378d22ed1e708be596f6d8b99c7ed6d25add2988b2a6aa31d7af194cf2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-string-negative-extended-year.js",
+      "outcome": "Success",
+      "source_sha256": "29f5c8ff3214c86334bf6bd9879ceba2165741727e6edd4b80a9c83e467a5298",
+      "snapshot_sha256": "8191a425c7306046ab945f481f52b4951b91b7c53d12d2f596e7e6965f513782",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-string-start-of-day-not-valid-epoch-nanoseconds.js",
+      "outcome": "Success",
+      "source_sha256": "1537ebff3de70daa224f3ffc8254c919afe4b0bc96b7b0f19b0ba9b8b0f826a5",
+      "snapshot_sha256": "7eb48c5484ac3b23710ee6addb5b402ca711fa6678acfa0c7309b598b9a07757",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/argument-string-sub-minute-offset.js",
+      "outcome": "Success",
+      "source_sha256": "e028446f4e1d8be39f7fb862be0f84c59bd6b01ec88ff3111ec3449b580514dd",
+      "snapshot_sha256": "46d00b138d503b09fe999936d9450133b9551dae3515130983eb395ede3380e9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/calendarresolvefields-error-ordering.js",
+      "outcome": "Success",
+      "source_sha256": "25d61067acadeb95d8b395f5ba3b0acb8f0b402e094dba7452519cbe2f769f1d",
+      "snapshot_sha256": "991e9445c0fe080fa1066716fa4aa4636e5a3c8b665dc9fe66bf69c7d7740f05",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/month-code-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "33057f4077a6418a93f37b413cb7572b01d10c530ee006fecdaff27905efe852",
+      "snapshot_sha256": "367d56d9df69b4a3a08fe1f1528d41c46e81d579110b347f7b2a0f1ed06f4e50",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/from/monthcode-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "bf28a4ec3da6d3de1e2f4351bee9bdb9b02c01baffba76798cbaf4dc33fac345",
+      "snapshot_sha256": "8ffc88c042631beb241a1b1e6e68a76d9e6e0a912a0335b39ae852433cee3ef7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/balance-negative-time-units.js",
+      "outcome": "Success",
+      "source_sha256": "3ed9d7f782ae67afe051662ae0fe80039899029a97d52ae6ee8c8df4ca1afcef",
+      "snapshot_sha256": "f808f76bab6c36661224edea07e69200027161da86d614f84b631bd9c8843174",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/branding.js",
+      "outcome": "Success",
+      "source_sha256": "929d2c5a4385064b8905178b89b212a654692bf53c2db56f072db6bed6f3329f",
+      "snapshot_sha256": "1771a3fc7cde204e4b8dcc06e0ba3790de5f99789efccc43067000859e99bf73",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/builtin.js",
+      "outcome": "Success",
+      "source_sha256": "935aab76e6233321375cd8be9c861c9a179fa239ee2e319745678a2c94273e30",
+      "snapshot_sha256": "bcd88edb89caf6816e902e551904841add0ba2fb0c7510e9b01be7b155d4ad7d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-always.js",
+      "outcome": "Success",
+      "source_sha256": "d910d61639a3b7ffb94942d3aca3f8362add89d400406fb9aac67cbc7608d922",
+      "snapshot_sha256": "424ee6792ccd9caed4a927f49f7a93482e0d7c60335ff92e496a7523f1ade59d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-auto.js",
+      "outcome": "Success",
+      "source_sha256": "20baf70aeb53eb0507a19ccd3dd45ec2e6c0b0c44a7f3f6701995e41e3d1285d",
+      "snapshot_sha256": "045409697cf56df5e197b5644a7e17dcefe9c85b669808112e999d493c5bd0cb",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-critical.js",
+      "outcome": "Success",
+      "source_sha256": "038ad40888d4828343b32bea9ecd7754b18b385dae3abef38536411dab39d095",
+      "snapshot_sha256": "33accf68413f5a993f30bb95662730858d7f4f10a26efb79ceca655c427bdb34",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "c3c563f32e57ad9b3a20d8d2312a25c47552e246afa9ffcfeefdb761e12f8a70",
+      "snapshot_sha256": "fa1bff216eaa63b90720416917c2b712e215eb1ba4876c5659c93b6dc7625ec9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-never.js",
+      "outcome": "Success",
+      "source_sha256": "fb55b20f133992a22fef4533ba3039cf5c37ee338ea88779015a2fb7f86fedf0",
+      "snapshot_sha256": "5527664dafbdbe6a552d4778e5d69362b36a6de3e383c8d9ece0a00c6572fbf0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "a5353c4e3ecb93dfa2cf26088f7826351c3b9bfd5d085d9d9002a37500fa7653",
+      "snapshot_sha256": "35e78113165083bd8fa3b81439fa0c4a6da99d93458af1dd2620d35e7a070e96",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "4b1a6b3ca6cc1bff0233754c1a7006e1257b58d74d957a51471abd4b6e6fd8ed",
+      "snapshot_sha256": "25ca729aa8d330829692660f8cdae08c0cb68450ea9435e3eb6c6ce2c685c602",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-auto.js",
+      "outcome": "Success",
+      "source_sha256": "53d5de166ac6aa14e571ec7074a42f5b1c6f0e05fbb4a46747b6e16cf757406b",
+      "snapshot_sha256": "76dce1c31ec7c092910c55d4c44ded288ac696df5c1c591cfd4493934766680f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "ae4720ffff793c7f14407a6327fc850c44300518722192105e43df0ce949ce6a",
+      "snapshot_sha256": "f1e95aaaa281d6af57580e980388624083c3df4d09dd406222441fd74b54f567",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-nan.js",
+      "outcome": "Success",
+      "source_sha256": "8e6bd161f38eea0f2f26d183d53e350c610a72532657295ffa89be82beb9ad77",
+      "snapshot_sha256": "0ecc28df01405d68b260aa6cf8be116706abf733d4da1276c5216a299279c486",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-negative.js",
+      "outcome": "Success",
+      "source_sha256": "6367183533b776b83cd66db25bee018d52d20dc28004004053fb0bbe4da3617a",
+      "snapshot_sha256": "07369dead54b23fc11821aff9dc71fef1a63e57e300d9802762dc6fb90021dd4",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-non-integer.js",
+      "outcome": "Success",
+      "source_sha256": "92f20e2a7fdd406a39c78ffa430ea60c30fe6a84900c0ac1abd695a360b7742a",
+      "snapshot_sha256": "88ca653ded542bda2c4c0da2a79b44b4fac8129f89527a0f2b7a79ff58982f23",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-number.js",
+      "outcome": "Success",
+      "source_sha256": "e79e7fd57bff05bb690a835a9144bc2c2e6abe6002ba56de32f7674066d66225",
+      "snapshot_sha256": "6d30ed63f159f58f1643517849a5b2e65b61c667308b2b8aaddaaaaf5390bb1b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-out-of-range.js",
+      "outcome": "Success",
+      "source_sha256": "d8767f3e870546202a31d1ed9645c7fb4213415e9d56e4700bd0e55837ffcf17",
+      "snapshot_sha256": "e943dbdbe44a084f1524a12c49ed0c8f40c9280702deb973cbefd6da97a00c31",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "77a600e22d41a93ad267dbc8de94197ed03135531dd9a27c1ac942e23aa75aac",
+      "snapshot_sha256": "367832a12fb8b6002ea59807f398e6741bf4774ff7936872f303cc8f85a31322",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "0808908d87509bcdc05e7023645fc3e0cd5a9f6eeea51f5de5487c62e8b6772c",
+      "snapshot_sha256": "74d66adad22eaf42655085bcdece4c1d48de72db3abbe7382901153c5fd40b46",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/length.js",
+      "outcome": "Success",
+      "source_sha256": "5b129d486937f2f981e9114b7ee9b4bb89639e0e6effe969d609907a13f7b65e",
+      "snapshot_sha256": "07739ad11b9f89d5180fd361e1ea0ecbea5ccec2a18bbf145c07991fc3b128d4",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/name.js",
+      "outcome": "Success",
+      "source_sha256": "1876c82a31731e08937c842e437a6da0770e0e79c949710cb1e6f715cab33c33",
+      "snapshot_sha256": "42b79d3544f073035f71ffc49eb15cd6ca10fe2b6f9588e3efb16baf6bace826",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/negative-epochnanoseconds.js",
+      "outcome": "Success",
+      "source_sha256": "a65f47759cd7046187ffa862c0e9d6bbe729d1603ae0f5195e4aa5bdd10c7a3a",
+      "snapshot_sha256": "80544dc58fa5578f50a7f0cd75c58a47df09d3dfe8bf8548389284d56e2ec2b9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/negative-zoneddatetime-rounding.js",
+      "outcome": "Success",
+      "source_sha256": "d3fcd65db012112ab7fba22b45eef14a533b77a442c4090513d7a2e1e2ee1340",
+      "snapshot_sha256": "5ab4c286ad30467316950d1fb84170102d2b5565b5910f800670461b89157d27",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/not-a-constructor.js",
+      "outcome": "Success",
+      "source_sha256": "e75d5e9937fa54b7bd6cb65a5712147880e6ef1b422c4113d7eba04c31bcb01d",
+      "snapshot_sha256": "0a6922368d85b9caabb6e375d992da3949b597b3eac94f6b6d71657aaac441ce",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-auto.js",
+      "outcome": "Success",
+      "source_sha256": "5cdab1635d4e57ce5c5710d71cd67c7ad8fdfc87814bda451e4d1361a35d2ebf",
+      "snapshot_sha256": "f4b56da1fa79ecce7a14c5c5b567374126efb312d1222d11c4964b028ef410d0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "68a2dc2cbb25c7c57e84a5abd88b79b1964878a3ff4accd96ebe73e98ea51149",
+      "snapshot_sha256": "c3aa8157a277459966d39d1473a8343630a48dd9725a1c5346211338627dd518",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-never.js",
+      "outcome": "Success",
+      "source_sha256": "5ce0001664527be265abcec173677a998c08cac8f437549de8360565b5bde5dd",
+      "snapshot_sha256": "2ffc6e92703b27ee933a9e1565fda94a169e0d92a931a6cdaafca02cfbb00e22",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "773359664b5d7358890de94b3efcad7e0aa07357edc8f669aff366396f59e71a",
+      "snapshot_sha256": "6450baa30052bb927801493106565b93f517b0df5d438d40ef0da5f9860b64ff",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "1f81c1cfa3aa8993202c7ad237ce0e491ad5939f09b795b1fe0d743ad4932025",
+      "snapshot_sha256": "ce74502ccd015e8f94706efde9c7d82703823cfcf20f90697c8f82f284eb8db6",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset.js",
+      "outcome": "Success",
+      "source_sha256": "f66dc943a35582744ff47e50fb77b1174f512aca28a333cb459808da8282d1da",
+      "snapshot_sha256": "10727cf5d825ae136f4d55a8ef18dff319b4e75651d84eea099b880940c51df0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/options-object.js",
+      "outcome": "Success",
+      "source_sha256": "c2ae345644d2f348f3aad38df5327c5a05cdf5312008e3b81c836539787cbbf9",
+      "snapshot_sha256": "fb35ea01a43db7a94df772b485d78f441c59a7da0b95c848534e0b05fc9a8d6f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/options-read-before-algorithmic-validation.js",
+      "outcome": "Success",
+      "source_sha256": "f7434931484a575e91e313bafe2d372b997522032e7df7ccabfc5c74e32e6839",
+      "snapshot_sha256": "be12abf0592fda66ac446e72c504840cd87ced02ef282dd0c780cc99a9fb4fe8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/options-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "698e469dfba3301af2d54f55782d540bef15fe7c8176f5825166e2810e70d069",
+      "snapshot_sha256": "d1f477d2bfbbc9cfcc07b591ed53db3bf60897a309de02e5d8899368627b1ac2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "a52fe9716ba51347e96c2080213738a45f5d3a44412eed7cd91cc80812240b46",
+      "snapshot_sha256": "3fabaf1365a67f226e9b33beed440e7e377ac80c92035226a04eac8bdef552ee",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/prop-desc.js",
+      "outcome": "Success",
+      "source_sha256": "cb35f0656ba94c6e84d637469643c03ce720572fcc27bcda5399cc9046126258",
+      "snapshot_sha256": "327d418866efc99ac1bf5201f538a2c462815bd71a4893bc703a0ea2289f2ce4",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/rounding-cross-midnight.js",
+      "outcome": "Success",
+      "source_sha256": "0bd85cc3f36b63e031c789a417c6f2e67f05f4872b1d0374b377530bab8011ee",
+      "snapshot_sha256": "bb643e9a7ec86e184a72ded64bd01304ec3e245b94fefef2250bb54bfaa74959",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/rounding-direction.js",
+      "outcome": "Success",
+      "source_sha256": "e7d918735c7fb5c51e333fc02cca1ed037e5fc877573c75760eaa2ecedbd971b",
+      "snapshot_sha256": "a9d6a2a4019e23c5cc4b97cdf39d72a98a156b195fa4fa10988f053d09ecbd01",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-ceil.js",
+      "outcome": "Success",
+      "source_sha256": "e00310a4d9d16e946311a8c44de2afc2849e479e025f347ba1eda3801970ff12",
+      "snapshot_sha256": "cf6767c487788f08b38323e88d9ece7bec4eac8eacc31055bfadfb2cee88d1a8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-expand.js",
+      "outcome": "Success",
+      "source_sha256": "51e7e217aafb9b0b243e5381e311650a6abf0cb747931400671f7bd5ac0eb00a",
+      "snapshot_sha256": "311dc59984aba40f7f7ef67599859149d4ebcb2f19f6917b7fae78af16f7badb",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-floor.js",
+      "outcome": "Success",
+      "source_sha256": "c4c5ad2f223c222d54825a3fec07b6c16e38ad9ecad562b629a792cb254799dd",
+      "snapshot_sha256": "4e150a74e6db839f68d70fada4f25ec4b58d8d7b1e6af02bae7812b1ff95f88f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfCeil.js",
+      "outcome": "Success",
+      "source_sha256": "2aa47ac41f3865e335c392382c2d79a7f7968cb1dfce0322c866ce24fa7cf9e2",
+      "snapshot_sha256": "6513c253006c57b6dd63bfe61dd06e676766eaa2821205a26537b2f7298be8c2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfEven.js",
+      "outcome": "Success",
+      "source_sha256": "70aa909124db9ebd9e9f559a2c30338b040a781a0d0c1ac2478be653c75a9d00",
+      "snapshot_sha256": "7281f05f8d178097cdd060a9ba56eeeddbac27523d897159b6f417cd1af53039",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfExpand.js",
+      "outcome": "Success",
+      "source_sha256": "a8eefd49d93bca2fe2150bed02fa6253a5afcc718bb8e79da8e2365722546109",
+      "snapshot_sha256": "0375a28390c19351e0bfbb9f12152541246bbb0ee3ab8efd3d2e95b2d3c214f9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfFloor.js",
+      "outcome": "Success",
+      "source_sha256": "2272628762ba95c8c23bf463dd0bdd78b6ae50dbdbca350331a153f8c048f1c1",
+      "snapshot_sha256": "74a575edbd374da6ba30199562e2f321dc01cd6b870288bbd66d69bbc389dff2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfTrunc.js",
+      "outcome": "Success",
+      "source_sha256": "796dfb5a3e0e6bcbb7b7a18f305bdeed4980152d157a857020ce789a46cc6c12",
+      "snapshot_sha256": "3f1a146c0d3631323d2652a327dd2b31fd7b9bcb663c65cdbfb338d40ac7d6cf",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "26d8133fdb29c7487b2136915279f9e63a459bc968ae1a373cb2b2e0a48e36ca",
+      "snapshot_sha256": "365f5776b7633f82253d69d1a58a8bb95b99cf23aad058759d93f381ea404220",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-trunc.js",
+      "outcome": "Success",
+      "source_sha256": "659ddbd84d985350920a7a5aa4309c084b32977779c85042b07af053a89bd2eb",
+      "snapshot_sha256": "c3448f502532be603473bf07586ccaae915423526f994b580c0ca3c882eb36be",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "bff62581396410f78379bd23ca68672c64cc161efe413346640369241d517a94",
+      "snapshot_sha256": "834b5128c2b161fa30b77013bcd0eddf0218cdfc3bb3c5b28476c9acc4fdea0c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "8754c0df314805ec411507ff02cd6bfbda2b0acb609bf39a859a30e60a3846b4",
+      "snapshot_sha256": "701539088f5a1a555dac4b74b1281af0c410f0ab512d6fc291f076bce95aaade",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-fractionalseconddigits.js",
+      "outcome": "Success",
+      "source_sha256": "a6d6f244158cc58bcab892879666fc15321ad6e779ccf7fdbb52184fc8b98027",
+      "snapshot_sha256": "8747e11d44bc6860db2ce2be9822b4e99b6e54301cbaf9e2d23bec2a1222bd61",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "29f3228e50b4b375618516cb5b833925253205508f77241ddd01d17cd0954bd3",
+      "snapshot_sha256": "1b17e01b214808323e7d7cb72c2baf42999dd9e499c35111eed195ee822c4fc3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-plurals-accepted.js",
+      "outcome": "Success",
+      "source_sha256": "11c857007c763e7e4477aa7689db8dfb5eb0928acda900ee3360369a3c5e13f8",
+      "snapshot_sha256": "324f22604f2c6dbca697c163c496fb84d9e3065b8c2a503b451b85a31d9a2078",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "a3de83b947e0423924b62d9eba253be2355d4ff5f2186f06ecb28b9eb406fa51",
+      "snapshot_sha256": "41b610446f0e2bd3aada05227ca1f3453a5f0f2bc5ca9bcfc1d23bad04b76d9e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-valid-units.js",
+      "outcome": "Success",
+      "source_sha256": "52ba6ad009fcf6f09a518a2221ce4120c69ddbbb043a4b79447a7474945128f2",
+      "snapshot_sha256": "e2285ecd1b74747f2e2ec1e46a2e12cc36f609d4726be834b8e7e50230bcb064",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "dd789cd103ec5e11d324b6b967f4f33558bb3160c7ef03ae1620086cca799ceb",
+      "snapshot_sha256": "a44dc596bd87d70d137cfd4cc609f67ec591c9fa887ed514d35a07c2cafda713",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-auto.js",
+      "outcome": "Success",
+      "source_sha256": "4a2fad076c63cab949c396a1b1517afcfc8cdec1ef900d44d3a0288374aa9cb5",
+      "snapshot_sha256": "7901119fd895099ff0c31c700ffe55c0c825fc1c52fa7e42510abbf25d0ab661",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-critical.js",
+      "outcome": "Success",
+      "source_sha256": "222d2f7b4c02beae7533f3f36c16741efda18fe2c862b5db534dab751de8fac5",
+      "snapshot_sha256": "430e922e469553d31f43bdf2409ee7a714a35a4b8d64988fabb979c063c67d9f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "ea6f38b4fe56b88e15675a92091761f7a796f2ec96c08cc26dd4f0d70b92af96",
+      "snapshot_sha256": "58c72e979505b5336a18b63ee5891c9ac2c89b60198d2c0fb1576091e8240740",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-never.js",
+      "outcome": "Success",
+      "source_sha256": "35638ba0317ce8f8bf310f11a85343fc7db8b8117f984d5e7d8c98ea8a19f3e1",
+      "snapshot_sha256": "3571a5472d1f07e930f29ec5d5db7fdd1cbb0d19ac0f2914e200aadd4bcbe41d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "9eca9d5970bcb4b38cebf4c156f15eddc2dab8936f17d4e37d65a338589c5142",
+      "snapshot_sha256": "de2b82b321fa4960f96070da4e6340d088c1323e429dd7bbd19f607cb154b3d9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "7367dc006dc3d2a766bf343d63f4bf5d744e00a4f03632d9ae08b8d2f1e01247",
+      "snapshot_sha256": "e719d60adb27ed9a8e9c948cd0164e63cecdb76ca4c78c50474cfe9a7d0f7ca0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/year-format.js",
+      "outcome": "Success",
+      "source_sha256": "31d22113800e33ab1bbc30a4cc2ecb674e167138ab2098231ded5e25bfba1897",
+      "snapshot_sha256": "454fc9424612cc89179005b5548366a5a81fd146f2632dce206bf2c763327568",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/until/defaults-to-returning-hours.js",
+      "outcome": "Success",
+      "source_sha256": "b14d01429c8b2c8d7c625b2f9728bd37a0b3c715882bdfa4f0ce1b5588134d0c",
+      "snapshot_sha256": "f8cd73fdcf87751eb30ddd9d011ed7710f7415b1ed15d04d5e973769eae3704e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/Duration/prototype/round/succeeds-with-largest-unit-auto.js",
+      "outcome": "Success",
+      "source_sha256": "a608570e0a5f1345e771db0f6542a03e60614e82b9a56d8c071859a5f345b2c3",
+      "snapshot_sha256": "329ac903a6ea4532ccdb30c3fe47db47be39f2b81fa54fce271209de3b282ebf",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/Duration/prototype/toString/smallestunit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "f3c9ec947abfcf408f134add6a63e8245c7c1a98494701ba1d9d707f339d82c4",
+      "snapshot_sha256": "35f0c01eef464bf920338d01171bfbd01264685452768f6f925d1fb231236818",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/Duration/prototype/total/unit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "d587c9330f500105cff5459e8532c1f3fa14b6e5a9edb2966c3570afaf6fe096",
+      "snapshot_sha256": "7876a32d2fe8dc33c2eefafc95d669265e78c5c7edae4f046185973b113b844a",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainDate/prototype/until/largestunit-default.js",
+      "outcome": "Success",
+      "source_sha256": "e47f679621b56571193b694c4f6fbd3a5be183bca90fbdbe2e8ce2d810f665f2",
+      "snapshot_sha256": "79c1fbfe620e611c2c12c14155df151caa514f4d320aff8ca6d43e4a57e10552",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainDateTime/prototype/round/smallestunit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "a56be7056a1fcc6853ad20354cf2d69790bd272537bfb061ab993929323a2722",
+      "snapshot_sha256": "1faa5638ebec32102e993a058855058248cdb5940c8b27dd7d17bb7d40c5c437",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainDateTime/prototype/until/returns-days.js",
+      "outcome": "Success",
+      "source_sha256": "89877f6322d7dbc39262256d3b8fa7af28d9a6b2aaf6f407bd1ef13fdf83da9f",
+      "snapshot_sha256": "5d0284fa79e249004eb1e391788da612f3a05a943beea9e4a3fefdb4a8f53e84",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainTime/prototype/round/smallestunit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "c8db3cee8b5337e251d19092169a260604b5babe1640c93c599f645379a6414a",
+      "snapshot_sha256": "5af992ec239f41563189f89b10cca78ac5513c2b23bb6307a082668ef27d659c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainTime/prototype/until/largestunit.js",
+      "outcome": "Success",
+      "source_sha256": "ac3b7745ad1c3e4aac008e488398b9e39b6864aa6139298a67bbcf5300602f18",
+      "snapshot_sha256": "e37568b52ae2a5b6709520df527496fbcd373b0736240359718c269536e91f0c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/compare/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "76e53975c64a0e3e25adfc8c42d26fc9081e0a07424a9a475ec2a1953e0f67a4",
+      "snapshot_sha256": "0064d0bb04861d2206d441c04ec979e0b67f4c3501b321de02de572e1523107d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/compare/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "a8a65a7d69cf5b4d73d10ebec3ee939ff9ec97fc28f3c80ed85abad0fa28afba",
+      "snapshot_sha256": "0464434c5aec093904acd62649a823eff526464fccab78f2a484460580fd5557",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/compare/argument-string.js",
+      "outcome": "Success",
+      "source_sha256": "7c3cf8681e2a7826994e7a6cabc80f1c38349be5712456464e613c27a243f1ea",
+      "snapshot_sha256": "273c27f3c849664e95df7fbd632247dd818cfd70b591895f52da3b048a61a55c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/from/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "853980a6d15baeee60789ad94d53ff3454a1bc37332e3e745bcecf0e1a49bb23",
+      "snapshot_sha256": "d526cee83ef345456ea7ec1a2cf4575edf2eeacacb3a213a759f763b9466134b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/from/argument-string.js",
+      "outcome": "Success",
+      "source_sha256": "a10994c0dc84f70c277332f8196f2003e8c9f620a9ac77efc711ba50f96201d8",
+      "snapshot_sha256": "d4a08aa5bf6cc044077fcd0a43e9cec5ee42e98b74cc7df4a9986a9c3d984ea5",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/from/month-code-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "308806c8d9fe9390fbe38155da0475a564f0809fb205d7ee377f7c6d9a2f5038",
+      "snapshot_sha256": "58feb4c21b2b6a05043b9b4de122c29448bf626118af4adba962bdef2dd5c49e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/from/monthcode-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "b904034525fa121b6b02ddf766afaf617f78fba979ecd36b97ca92e41105e90e",
+      "snapshot_sha256": "e8c1b309f48750afbbc1fcd41e860d12a475d05587ed7b40c308d94cd540f814",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/from/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "6c8783a488ec83ea7c0b2d04cbb651f7ede0ebf148c89edd10a14c26ad595c21",
+      "snapshot_sha256": "d563ea1122c250130bf6fb9df94ee5b29978dce7a11270f3042b147cf82282c3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/add/limits.js",
+      "outcome": "Success",
+      "source_sha256": "14e38798a6cf9b346d1f10a994833df36ace5e916540f15c086e6ed6b972f444",
+      "snapshot_sha256": "a73dc100de31182ddc75511f423fc97d8c8fe91f27af57397cf2c8da96797604",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/add/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "630704965f9969f4333a82df78fe9778fc69cf38f7f4c2057fdc488d50a5125f",
+      "snapshot_sha256": "3de71aec9567d8b624bf267bf143c18469323b1d472f9917797a1825c3012db3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/add/overflow-adding-months-to-max-year.js",
+      "outcome": "Success",
+      "source_sha256": "21f14a4d91c74904c6a812a9b37c90ae7d5ee53cf6b7060446224b839431ceeb",
+      "snapshot_sha256": "5270d727c8f97fc35f3114c3ba04bc739dd799950b4994f277e23209befc49f7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/add/overflow.js",
+      "outcome": "Success",
+      "source_sha256": "e185b2da5575903dcd71c28ff81055128c40ba0d7338742cf0f79b97d3f48a4b",
+      "snapshot_sha256": "d39294403190da4fc560b2742f1bef1ed8ca955ccc4af13780e9ba30c48b12db",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/add/subtract-from-last-representable-month.js",
+      "outcome": "Success",
+      "source_sha256": "ae8c2397233e33b362d866ca2afec931de255d02c86c41e4b993bfbde68d47dd",
+      "snapshot_sha256": "74c77c871cb5ca8c9a97aee57af0dc86387705c386f25d5a9e5cf26d4023f41f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/equals/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "dd4b552c0d78bbcd6fb135aa9c83afc85f2ff214ab37279665a7c3b416c30133",
+      "snapshot_sha256": "a8b38acf80a9570322b68209616340d11e66661e2b9a04522901a2fb18cbd31e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/equals/argument-string.js",
+      "outcome": "Success",
+      "source_sha256": "abeca53d9954385fab7174c1d28fcb1b2c6877b3cc0e3493bde017085c791ae8",
+      "snapshot_sha256": "a70f6667dd95f7ce3feab7dd53aadbac9a1a95d2dc028d72f6181e8fb7df962d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/since/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "9a19639d618a43d48ccc6a3248a8cd8923d5174e31027e82e7566e49e4ba0de1",
+      "snapshot_sha256": "25c47f68cc06a86d6e3299e0b7708718e5fca6f915cd17eb7d100f54716049df",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/since/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "abbe5ef27085476f0943a8e18edfd8c1132d1fb27f644d374cac06217585d4b6",
+      "snapshot_sha256": "64cff7c90c52ee682cfdca01864c2c29b0fba66e78d6b3392152f49132081bf5",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/since/roundingincrement-as-expected.js",
+      "outcome": "Success",
+      "source_sha256": "eeb26a354cff25acef1579987bb58f105fbced2023eefebcc0bb70fe0e4387ab",
+      "snapshot_sha256": "efbfb07149dd05d6117b8f3c8727f5baf8c5034a35b75dbd282e7fb6d94c7b11",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/since/roundingincrement-non-integer.js",
+      "outcome": "Success",
+      "source_sha256": "1330b892c7cfe51ad21d5aaf66218617852adb8a5a33085c8136d390725eff04",
+      "snapshot_sha256": "d491f0309e772bbc11c14dfc42137d342afd8ccd3a8fd0f2d32b8556af731524",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/since/roundingmode-halfEven.js",
+      "outcome": "Success",
+      "source_sha256": "4b5daeacddaf5e7abe12fe106b774d35b10f25e480f4081fa7b7f0326ddb71ce",
+      "snapshot_sha256": "c0dea683e3cf92b6555936ec71aed6b11d9a309108e5515e1c7d3e19fb3ae5d8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/since/throws-if-rounded-date-outside-valid-iso-range.js",
+      "outcome": "Success",
+      "source_sha256": "f6d15df256b1653f80a347e3ca82bb14a5b6b42e4e772c203f4bed2461d53e45",
+      "snapshot_sha256": "c31df8b4cd12173c29f2d0c856794b6f1547990a86b303c6ad6905a031e3722b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/since/throws-if-year-outside-valid-iso-range.js",
+      "outcome": "Success",
+      "source_sha256": "56ba926ec98e9e64b4d0144c55b8ec7f3106e84f92e735c98c02eb779329440e",
+      "snapshot_sha256": "fb2756fb7aa74667e1f0fe19c9e64b0427a4a15e2893fbec05429e2163867e20",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/limits.js",
+      "outcome": "Success",
+      "source_sha256": "8c846f1e906b5e5d31b31231a54599c36f46e79683d6eaa73a4ec3182efc6d0f",
+      "snapshot_sha256": "f116a5cc11f47ff0cbc2d0ce6d2990db2ea488d6613fa45a62852f35b871ce03",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "298ac4a4c477a82460566f4927b479cf3c80cdce28e9bc483396e6f745b23f32",
+      "snapshot_sha256": "27b81d08bae721ff2793ee5ed4f46fe11c82d8dda243b2fd35e26f883ba06e72",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/overflow-subtracting-months-from-min-year.js",
+      "outcome": "Success",
+      "source_sha256": "d17a9a7100f36056d601a3461976f888e856ba1192ff83de7e9565e5c020b4e4",
+      "snapshot_sha256": "a2e72023d131f8756818465be82e9221c8b87d610b0b1bd33e3bfbc37407f1ca",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/overflow.js",
+      "outcome": "Success",
+      "source_sha256": "032d7c179df448bbe387d73da62dcd4f3bbd2eb1b0f8c52d308909af66bc6630",
+      "snapshot_sha256": "697df6b9218e2cfaf307e5ac2fc8f39aa1bf3ddf6724957832e941d1fb3a07d2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/subtract/subtract-from-last-representable-month.js",
+      "outcome": "Success",
+      "source_sha256": "e07c2c1820004e3202726d52b7a482096f27d42156d8a5a13c6dfc3614fc37f7",
+      "snapshot_sha256": "6be24847cbb2beb41949ee21f0ec8af5d3f0d70afd401a2075c195b4674d8349",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/until/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "879074353189472e0b6e8f44449c45ef9c4ce24b3dc86234f4e04cc52c80d86b",
+      "snapshot_sha256": "3137f614f1257eaff8523dccbdeb0a309e8d2c7ff545d1fec9f58fb2c30411ef",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/until/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "ea145b3bc2470ce7a5e311931861f2e916f21f0aadc1878cc3f668a8ff01586d",
+      "snapshot_sha256": "f9ce8658f766c7f1e29a839a915f914aee68d537ab548a94ea7261da23258ff8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/until/largestunit-auto.js",
+      "outcome": "Success",
+      "source_sha256": "8a1d0ddae1b43ec7c25567d8a18abef68ed19d21ec03f03602a97c8faf8ae93b",
+      "snapshot_sha256": "c7aca6bf5c430733c2cc05fd21de300bcd260f6fa69db9ba408c8744c55bcef4",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/until/roundingincrement-as-expected.js",
+      "outcome": "Success",
+      "source_sha256": "1e895239fe41a9bdc98efc48bf170f67af3af9048751990cf877c83e2db43b48",
+      "snapshot_sha256": "80591542fb0b641a35713a18d13b015cebef2e311e9066d47d3d0a89259a3946",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/until/roundingincrement-non-integer.js",
+      "outcome": "Success",
+      "source_sha256": "6007ef8f8ab4f5ea1b25914e057aa7cf36853d671589104d4bd6795c7803af61",
+      "snapshot_sha256": "2ea1449d5d44c1dfabaf7e996b0b31b57d03a95a848f719d9a0175f79bd558a2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/until/roundingmode-halfEven.js",
+      "outcome": "Success",
+      "source_sha256": "15c75ee16fc93f96b22f512396fb7d09a08d286d4cc3e093fa5e6ab4d5643ae1",
+      "snapshot_sha256": "93248f0af4f018259782cdefbf1b42776d0b9c71950586e0952f186cfc8620eb",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/until/throws-if-rounded-date-outside-valid-iso-range.js",
+      "outcome": "Success",
+      "source_sha256": "6cbc69c26be795fecdd7850082243fa43e5fae2689ebe721b507858b62a93225",
+      "snapshot_sha256": "16b93c4e5e29480c783dc93f947dbca663cb95902e117c9d3d000971c97b0e6c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/until/throws-if-year-outside-valid-iso-range.js",
+      "outcome": "Success",
+      "source_sha256": "6abaaedc688f3315326a1b8ae5b38daf07b381102dc845aeb601fb951c986596",
+      "snapshot_sha256": "1942ac31007106f4795cda0d30ba0c6ed68d33ab364a80754ed730047b636ca3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-case-insensitive.js",
+      "outcome": "Success",
+      "source_sha256": "2189584cae1e94ba2570cc8e7e6a654941791e0dcab933223f60428743e48d43",
+      "snapshot_sha256": "eb810e2d2290f1881ebd4b223d1de48d402260abb98ca6546723598deb171be0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-invalid-iso-string.js",
+      "outcome": "Success",
+      "source_sha256": "38608f6fdf8c09f2334522016b4782f7501a169df28b1fb9ca38c887dac0dcd3",
+      "snapshot_sha256": "894229c8a61dd87cb1d8a54742c3053a470cc394e497f3e2f5ceaf59ff8ad3ab",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-iso-string.js",
+      "outcome": "Success",
+      "source_sha256": "388efef99acf97ed463cffb25f87aba3eb7c023d244ca95c92fd5fcaf33fa633",
+      "snapshot_sha256": "a28161fd848d0bb693c106d8161aca17975d30f07363177df4e0ebb9c90c20e8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-leap-second.js",
+      "outcome": "Success",
+      "source_sha256": "abdbfa90f3731aec3d7f3313b0c36083fac596434c87ce6c5b967dcf1315d6e8",
+      "snapshot_sha256": "b571057ff07c1a73f137ced3f0e140b68bdcbee0c6da115b6ffd8d0aab68db3a",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-string.js",
+      "outcome": "Success",
+      "source_sha256": "8325362b660b4190e9c7883a7383b4ace4cdc03e867b21d49650040368ee2c45",
+      "snapshot_sha256": "d12ffd162fd5598e107443cc1761525899bb9896f855f61869451793d3c779f3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "8924b6661ca4bdf55f3665873db11ff70f1e88fc685595a4f0c7fa1e294fc59d",
+      "snapshot_sha256": "4f554446c3786611d5fb18276b14c311258760b5b015c496914e9d229d480eca",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-calendar-year-zero.js",
+      "outcome": "Success",
+      "source_sha256": "d14d6151d55166106ee9653ed438d0683a18de72bb0feb08f801b4cf78c60cf2",
+      "snapshot_sha256": "3114d92fe62426a3d4717b0895414354f96b4623ebc79e45f87d0ffc9abc61bd",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-invalid-offset-string.js",
+      "outcome": "Success",
+      "source_sha256": "c9d885d5e369db171748ae7b1dc86b4f2a59bc995c979e888aa171cb70381bf2",
+      "snapshot_sha256": "d8d6fe0fa4de84aa33dcbc92659619a683cfe63de9154e509eb928e0b6a3cf11",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-offset-not-agreeing-with-timezone.js",
+      "outcome": "Success",
+      "source_sha256": "7c74f6188344b67018a256c7f249308502d3df90e8731c8302304153543dc2d8",
+      "snapshot_sha256": "7ea3db57f0fa909b4c751e708745f666222ddc59f4274081f8d27741c7615213",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-optional-properties.js",
+      "outcome": "Success",
+      "source_sha256": "2ae3ff2763bca6e729cc343a289987b825909941e0abecbd8761238394182589",
+      "snapshot_sha256": "7d9a1368523953c274e457649b1a0e338e482cddc45a13c9e252fda150565346",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-datetime.js",
+      "outcome": "Success",
+      "source_sha256": "ba6f582c55580fefd6a78c1ec58e64efe7919eca854863dbeb17102154778857",
+      "snapshot_sha256": "6ee0a9e6351476cd08c8fd74592b3181eeb4e0cc6e7d049cdfec93671e032512",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-leap-second.js",
+      "outcome": "Success",
+      "source_sha256": "5fc448c328257b92704ace461552d9d0e796aef81f25ff2e061f2fcaa4401ca2",
+      "snapshot_sha256": "9fd699fce02d71fcf21d5091b8aeefdb66121419a61205fa616b76944d4175a5",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-multiple-offsets.js",
+      "outcome": "Success",
+      "source_sha256": "acb2bbc9cd4eb45d9cdae535b1ad9233c96b3c1342dbcdb5439765d84e71e478",
+      "snapshot_sha256": "ed8f985dc8383db47c2de9dabe37105fdfa89be627036e1fb0aac0d98ec4a79e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-sub-minute-offset.js",
+      "outcome": "Success",
+      "source_sha256": "a36537e4169558778edf48432482e270fae0f8ddeab27cf8b9b7ea9218107e93",
+      "snapshot_sha256": "06498096ddb1443bcd562846f95617605d7256817b2f8cfe33b39ea6f13461d9",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string-year-zero.js",
+      "outcome": "Success",
+      "source_sha256": "6e4afe44985e36b5e220b146566a3a658787e3f1c57e2f6d46c88bcdd1e3e342",
+      "snapshot_sha256": "e278200dee06146d01574e792b2b01587d02b5de0ebabe246935917a5dbf581f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-string.js",
+      "outcome": "Success",
+      "source_sha256": "daca52a1a9835394fd3f8dcc1b9c39614f9d4be72a0a585d850d1a8d11b01aef",
+      "snapshot_sha256": "1650ae12ed21dba0dfbd4b51f1683d7465e3da8f86b4bb33819ee71840407cb3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-propertybag-timezone-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "35c0c85a8068380b575896597b30d8066c2a001e2184d1bffff11b08e43679e7",
+      "snapshot_sha256": "674768a4cfc2e35dca45d288142b102c34b57d8aaebfc470c5a9e2c31bd97e41",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-calendar-annotation-invalid-key.js",
+      "outcome": "Success",
+      "source_sha256": "d6175224f9e5451f64100c26446e147562752eb8ed5a54467367c7acd0f35bc3",
+      "snapshot_sha256": "61291135bb3080f74a870f767543dc3682067dcc5bea6cdd497e7aee375e09d5",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-calendar-annotation.js",
+      "outcome": "Success",
+      "source_sha256": "066a5e0aee51d6ca25a88df9fa329450ea5ca0da3cce48dd171022b35783c2c7",
+      "snapshot_sha256": "89c1b5294db49913af7c16780176839d6b09148a3a94eeddb66ef379e21c80d1",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-calendar-invalid-iso-string.js",
+      "outcome": "Success",
+      "source_sha256": "1ecabaaa9d3fe26dd05c661ac10d21f2f9c82d338b0ebba8e16a4549731c05bd",
+      "snapshot_sha256": "0d9dbe8aa2accca61b45abd5565a104b68cf1cee7ebf18f7f49a1bc8dabf10c0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-critical-unknown-annotation.js",
+      "outcome": "Success",
+      "source_sha256": "787151189c8bb7d862b6af246cff3a7a385feea9d9037bc0f8271ef9f8baf55b",
+      "snapshot_sha256": "30e3fd6e26206b09b13672d980c62e090265664cb3ca32b895606e8732c1ae73",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-date-with-utc-offset.js",
+      "outcome": "Success",
+      "source_sha256": "055188cd4ac369bc0b64929280deaeeab14af5c659367c70c817935f6b9c0ef2",
+      "snapshot_sha256": "8184076e136d0ac2b3fdf46acbc039d273c37096072819101a6f0c3942b71f45",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "6a81e64836eb59284e8233ea1a1b0eb6d81295e78b96ea2c66546314ba3449fe",
+      "snapshot_sha256": "9a49d62608724391887dbd4ed52b6fc54a70d4d618a0b67b5a5be52b318dcfeb",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-minus-sign.js",
+      "outcome": "Success",
+      "source_sha256": "6b8eb5477d88a90a31d4c1266bba0fe03c1f7dd4bcb948be0e6cb3527ea6b8a1",
+      "snapshot_sha256": "bc19bf0349f241f5800cc7c224599d76675e3897584731da83d6b6e3ec387e20",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-multiple-calendar.js",
+      "outcome": "Success",
+      "source_sha256": "2a9d77323e361eea3e755941d772d1fa0384ebc67c00e15aae8d9f356b678c6c",
+      "snapshot_sha256": "b52debf7abf07831c30d40ad9cb2de2dc49e834228d232d6970c6f04d520662c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-multiple-time-zone.js",
+      "outcome": "Success",
+      "source_sha256": "7ba75ec7b783bb50a4b488484ae69d15690b7884392c82944aab570474c5fa0f",
+      "snapshot_sha256": "e2d3bbcd61678af1f73a0ddd01ef3c3d7887cd3a37614b13d7a0aac542d84dec",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-sub-minute-offset.js",
+      "outcome": "Success",
+      "source_sha256": "d829b56ea0af4b927e3f59bebdb5e9d23febc92499b10ddff8f85643bcda7077",
+      "snapshot_sha256": "0088035058b82b60e59978ba14f3050e447d42559b6e8462493ac41a1295defa",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-time-separators.js",
+      "outcome": "Success",
+      "source_sha256": "12fc4c5b40fd9e72ad075dc75c751bae33a5a933d1a2bf1de96903c4eca50717",
+      "snapshot_sha256": "2bba3d3adce92b3fbfecba205792738f659d7e47548b1903b0d63ec710faa0a6",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-time-zone-annotation.js",
+      "outcome": "Success",
+      "source_sha256": "68c25cc1db94cf033e5420e84be3093726d3cfb03636a8cf0421926e2163bba2",
+      "snapshot_sha256": "9e56562a7808996d081b20eb754959e144361899c5076b0cc2c0332b9a8ed359",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-too-many-decimals.js",
+      "outcome": "Success",
+      "source_sha256": "cfca2c1e7a4b8943d246142af2e98911aeb44ae9cf908fd294ece5585b2ec0bf",
+      "snapshot_sha256": "ab35c3050ea7b502d9e1a8c60251dd9305da60ba7b8788acd79773641cdaadc3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-string-unknown-annotation.js",
+      "outcome": "Success",
+      "source_sha256": "9f40e4b2ec7ea3776a84feff95d6813f404bb4db19555ff4cfe51ddeaa7494d9",
+      "snapshot_sha256": "64eb918b82e7076fc6c6732b55709b8f0b576fdedb2baad7098a67c8083ca1f1",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/argument-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "3a0ab3276e617296adc2a6fc1eb0c6cf9a7c67ea9457cae5452e7b5cbadd9ead",
+      "snapshot_sha256": "68eac1e6c4604fc5e623c081a2b6a04f78f14250c135f24cc7ca5767e7b943f2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/basic.js",
+      "outcome": "Success",
+      "source_sha256": "a136f2892cc30bf658c8f6b7931c91f15cffe6464e8d2b20b2d4974b3aa91701",
+      "snapshot_sha256": "0083aee8b7d135b699cb2bb2e4c35d32de2af436e6f185937a01c30096a2ae13",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/builtin.js",
+      "outcome": "Success",
+      "source_sha256": "1fec64302134d91851bf9e464e43bf04db979d89795585310acc5a140bcac9b1",
+      "snapshot_sha256": "5cabf2973f6c37ac8aa3d401f07c165d9ff128e16cdb59fa5578ea8330e08522",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/calendar-temporal-object.js",
+      "outcome": "Success",
+      "source_sha256": "93e8d442e2f43de58d7a60a553878f7145b05a7e506369986b57f31162144482",
+      "snapshot_sha256": "eb3fe2c618b508f5b02161c3bdfc31cb683ce283cdd23b92ebd15c805380b4ab",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/casts-arguments.js",
+      "outcome": "Success",
+      "source_sha256": "a4799a432080e1d227116c3c5bbb2598e463bf075469c7e8d391e132008b4d7b",
+      "snapshot_sha256": "1561e10550356b74fb2e0b88adda0442989fe063606af3762898fd82da02d1af",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/compares-exact-time-not-clock-time.js",
+      "outcome": "Success",
+      "source_sha256": "92b67dba60d3deb708f5fe7d13f16435068232db783a34064038580301030dcf",
+      "snapshot_sha256": "983938b3c71d30393106f1fe50052aef61d64d2fae08f8f875a2cb66a99c68cf",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/disregard-time-zone-ids-if-exact-times-are-equal.js",
+      "outcome": "Success",
+      "source_sha256": "38b13b7f7e4ea59febd9e86de6902f2462fc553979c2dd09e30f30105df08d18",
+      "snapshot_sha256": "c99820cdd5b74146c4ee1ab73c857f4838c067ee664168a66a9d45c98a4137de",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/infinity-throws-rangeerror.js",
+      "outcome": "Success",
+      "source_sha256": "1212165ee8675504469d783da11cf19cfdd0efb295a6ee7f3469a56a77ee60da",
+      "snapshot_sha256": "f9a72190ab56afbfe62f0023f94fba621da12b25faeaf4be9e63d0a64e50547a",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/leap-second.js",
+      "outcome": "Success",
+      "source_sha256": "7d7b0df39dab00a433da434b7a53d92ebad6e3f6f64297d67aa75f38c332a4c3",
+      "snapshot_sha256": "8a129455712320d1eb87792240545ff223e785543c840c34dd82a1471a37cddc",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/length.js",
+      "outcome": "Success",
+      "source_sha256": "0be6413477095c165fbdfc102b74a0a5d65950f7fb215743d0d008d075a2c8c6",
+      "snapshot_sha256": "84bebf17078b88381974eb7be56cf9cb9d5b6a8d39aff5876b54843e64170a3a",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/name.js",
+      "outcome": "Success",
+      "source_sha256": "253cb5ce89b62d931f99c1b3e8fb12daa1383a564a9068f414075991c64d794a",
+      "snapshot_sha256": "220d7dcd0aa5ed6b9db7e4327966613a60d816cffb2c216a347fd8ab148d3197",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/no-fractional-minutes-hours.js",
+      "outcome": "Success",
+      "source_sha256": "7f189c6b92538b4f9ea144173785ffa6a661859ef9afd37506ad58bd51e19fb6",
+      "snapshot_sha256": "8fad5ec2bf9ae4873f09948d8dd2b71b1a24491489148699424dd847fd93e6a4",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/not-a-constructor.js",
+      "outcome": "Success",
+      "source_sha256": "851697b96ab7ffd0e1939dd758f9ff3830bb9624d99cf7fd69b05c937e314140",
+      "snapshot_sha256": "22fa1160aaa46f20aeb4d9f2fbece91056976e780cc8b9daa8bf5dd1fcd1903c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "db93f88bd8b33fb2c30afa573c51d4d61964945d34704a242eb2cdb376458f6e",
+      "snapshot_sha256": "a107352c48c3c95000b5ae49ad6499a4f57eab2baad26b6a5ff93ea5eb8f0173",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/prop-desc.js",
+      "outcome": "Success",
+      "source_sha256": "9f5018a45bcbdd619fbc03aab8a3e6168903c733dac2d6857f948acb26ee3db8",
+      "snapshot_sha256": "f2b18dfd5199948f6419135089c6a0fb3d4932d5b990e7d17ce9e6acc32f88ec",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/requires-properties.js",
+      "outcome": "Success",
+      "source_sha256": "7e154191eb8ecc10fe5207f6481e39df34d6675ef418fd6680a50d9d91419777",
+      "snapshot_sha256": "8a87d832356083e5c9d141c6b9e31185b23cb017ad2c9fa34f61ad28d202abd2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/year-zero.js",
+      "outcome": "Success",
+      "source_sha256": "3ca5e715b6573d5aadf584971261317018aa61312ba1cc8e6d65a8bf2fdb3c7b",
+      "snapshot_sha256": "08feddeffed605e3b8d7c5a78b22b4d76556fdf2e27a6dfd953d1a936bf81f17",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/zoneddatetime-string-multiple-offsets.js",
+      "outcome": "Success",
+      "source_sha256": "05e4e038e30d425d621c71bd35719556d38e70065eeed577ba229c274b4fafea",
+      "snapshot_sha256": "e960fb2dcb72464bf7acb9e9b95957b49aaa290fad3cfaec3ed33b6e0f04073a",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/compare/zoneddatetime-string.js",
+      "outcome": "Success",
+      "source_sha256": "07032adf0442b4cedd040980c7554777fe8c4f7a4e67b5d91bd3a50464072331",
+      "snapshot_sha256": "18aa05f96add7caafa9c416a21c79f3f560050ea7b545d98676e21a5643e3024",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/construction-and-properties.js",
+      "outcome": "Success",
+      "source_sha256": "f6eaa40e6b4b191fb185c3c0064e9589151fef16e9160f661c0839b874ec7fa3",
+      "snapshot_sha256": "2159423af0403576c1682ad3018aef48cbd14c554581122bdc00cb3ec03d26c2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/constructor.js",
+      "outcome": "Success",
+      "source_sha256": "3ec5d9d93d57af86a5151c38e9b52a736ca6bf9399b539737077adae4f947c8a",
+      "snapshot_sha256": "4361d819113b41a0c762655f81d904ced082f9ee6aae96d6247f2f13d4a6046f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-string.js",
+      "outcome": "Success",
+      "source_sha256": "019b7c591826cc6d4cc44da7d945321b453f27a7279c0e7f295868b5672ac544",
+      "snapshot_sha256": "4db0df6531e23a9b1ffbdc691c9d3ac68004f5d09c34639b52514decd29cb850",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-calendar-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "2585d935a07abe3a557f7e703801765e6e1d11a558eb0dc3864657d643b54865",
+      "snapshot_sha256": "d6e02789486b9e204a16d135542211f288bf666907b27f7628a05e84ff239ecd",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-monthcode-month.js",
+      "outcome": "Success",
+      "source_sha256": "5ca31bbd4d03cb8ab20c314e4a02383d2e28a910eb53c0437f4fcdbb032a5af1",
+      "snapshot_sha256": "89e8254606a43d797cc4c0221ac0fd618870f597934befa228d6427e77608092",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-offset-not-agreeing-with-timezone.js",
+      "outcome": "Success",
+      "source_sha256": "ecfb1f9ec81f692ccf35c8a682b8dabd5e16bbbf6d03c2464ab491d0814897f4",
+      "snapshot_sha256": "1521855e3f905f2b3bdb446df25a2c42b9f9160030eac8875c50dd6eed3349e7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-optional-properties.js",
+      "outcome": "Success",
+      "source_sha256": "397549e40ed7da9cda49fc577e4b9964a0d9f4b8c6d5e1217348cdf5f4ed4820",
+      "snapshot_sha256": "823908a2fcea98b7cf8c0d0088a565aec050a4ecbce36289c084a5096adf6d92",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-string-sub-minute-offset.js",
+      "outcome": "Success",
+      "source_sha256": "7569cf695d997b84563cc54890d1de7ed307ed0b116606476856f7e77e6c2ae0",
+      "snapshot_sha256": "e18ddbf233534210fede4c5e57b67fa46118029bfe894f6bd306b543b4f8b07e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-propertybag-timezone-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "ca2139cebba43b54e9f01362eae48f897877afce4a55cc68c618b476cea8e7ef",
+      "snapshot_sha256": "70d1e48eedb3089466a2d2d92d9569c0c6a8e81c98ac7e4b463750946d63ba0e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-string-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "8c2ed5f48b8f85cbc5383746be5556a21ad03eed1e6dd8c3b150571307cb0dd2",
+      "snapshot_sha256": "8846dfe77ff02ce7e2d0e4fadf3f94939037c51f81c5abc238aad59644f8218e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-string-limits.js",
+      "outcome": "Success",
+      "source_sha256": "bb42db1e4f2f2dd15de1428500e12acab98cc3b088208b3d875fbded6ceb80f7",
+      "snapshot_sha256": "1480a2a97f67b1db122aad48f5d6336f7db780aa3f0c4a4cce64aa2ea4ca6143",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-string-negative-extended-year.js",
+      "outcome": "Success",
+      "source_sha256": "29f5c8ff3214c86334bf6bd9879ceba2165741727e6edd4b80a9c83e467a5298",
+      "snapshot_sha256": "b1234b944848ba3b64355b2c99a06b2aea0a1d5b9921f6174d3657104d2b3b55",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-string-start-of-day-not-valid-epoch-nanoseconds.js",
+      "outcome": "Success",
+      "source_sha256": "1537ebff3de70daa224f3ffc8254c919afe4b0bc96b7b0f19b0ba9b8b0f826a5",
+      "snapshot_sha256": "f13b100047b919d0ad81968f1bd85918cdcd08960224e9738d31c20b567e4635",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/argument-string-sub-minute-offset.js",
+      "outcome": "Success",
+      "source_sha256": "e028446f4e1d8be39f7fb862be0f84c59bd6b01ec88ff3111ec3449b580514dd",
+      "snapshot_sha256": "127a1e468a612e6d85c06d5852615da0d48789d3330546938ecbe344c94adb0e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/calendarresolvefields-error-ordering.js",
+      "outcome": "Success",
+      "source_sha256": "25d61067acadeb95d8b395f5ba3b0acb8f0b402e094dba7452519cbe2f769f1d",
+      "snapshot_sha256": "8ef7f8606c5fadd956bdaee37779a26ce0eca2a52472370827e6a16d28820b25",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/month-code-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "33057f4077a6418a93f37b413cb7572b01d10c530ee006fecdaff27905efe852",
+      "snapshot_sha256": "559b2b55ba606ee62f62d509dd56b12d0afb615e2cc3e6d21a2e584b537791b7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/from/monthcode-invalid.js",
+      "outcome": "Success",
+      "source_sha256": "bf28a4ec3da6d3de1e2f4351bee9bdb9b02c01baffba76798cbaf4dc33fac345",
+      "snapshot_sha256": "1a698a420e2a39ad4360cfb9b1d98272065af5fbb5d4258e7c458347951ec80e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false,
+      "origin_outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/balance-negative-time-units.js",
+      "outcome": "Success",
+      "source_sha256": "3ed9d7f782ae67afe051662ae0fe80039899029a97d52ae6ee8c8df4ca1afcef",
+      "snapshot_sha256": "39d14d1601dfa2f755f3429621fbc333b739f3cecadd1ace4ab7526177180541",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/branding.js",
+      "outcome": "Success",
+      "source_sha256": "929d2c5a4385064b8905178b89b212a654692bf53c2db56f072db6bed6f3329f",
+      "snapshot_sha256": "ab409bab23efbc1c18b3764edf8399cf694848c118c205c0e5bfc21644db4006",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/builtin.js",
+      "outcome": "Success",
+      "source_sha256": "935aab76e6233321375cd8be9c861c9a179fa239ee2e319745678a2c94273e30",
+      "snapshot_sha256": "62288522bbe9f92341cd4e1f5f7ede831e18d7590a373076f3d0186953a5ee7b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-always.js",
+      "outcome": "Success",
+      "source_sha256": "d910d61639a3b7ffb94942d3aca3f8362add89d400406fb9aac67cbc7608d922",
+      "snapshot_sha256": "fb02474d33ce5cf77a26f00c3d2f00c5e07d2e15afcc605349620b8f87273437",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-auto.js",
+      "outcome": "Success",
+      "source_sha256": "20baf70aeb53eb0507a19ccd3dd45ec2e6c0b0c44a7f3f6701995e41e3d1285d",
+      "snapshot_sha256": "002a5031338c5dc13311e7a94ec02f9418f11072269f162e3c5c7a840867e69a",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-critical.js",
+      "outcome": "Success",
+      "source_sha256": "038ad40888d4828343b32bea9ecd7754b18b385dae3abef38536411dab39d095",
+      "snapshot_sha256": "4ada9f2f7454ec311d5f5b95736acb5053244a8d0214c40066d38d525195387c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "c3c563f32e57ad9b3a20d8d2312a25c47552e246afa9ffcfeefdb761e12f8a70",
+      "snapshot_sha256": "95e0c970e89cc63b088586266592e95336b218c69d20b6c270e5c9e4842fb857",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-never.js",
+      "outcome": "Success",
+      "source_sha256": "fb55b20f133992a22fef4533ba3039cf5c37ee338ea88779015a2fb7f86fedf0",
+      "snapshot_sha256": "e2c737afc8607c6aa5b5ea6a34d89e977fcd4abcb612a8e1e93f9a7df8d03b6f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "a5353c4e3ecb93dfa2cf26088f7826351c3b9bfd5d085d9d9002a37500fa7653",
+      "snapshot_sha256": "8010c2734bda2ba94cc1b8be06ba8872dbf7a980dfb494516cbbca31fbfdf29d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/calendarname-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "4b1a6b3ca6cc1bff0233754c1a7006e1257b58d74d957a51471abd4b6e6fd8ed",
+      "snapshot_sha256": "c8f094572bcda4b3cf830bb636387055976ee90266c37f7aced07812c857ad2d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-auto.js",
+      "outcome": "Success",
+      "source_sha256": "53d5de166ac6aa14e571ec7074a42f5b1c6f0e05fbb4a46747b6e16cf757406b",
+      "snapshot_sha256": "70b9addfe19a1c1d6146c4f93bc3764b5b6187a4471db25258f0b45f7b64d04a",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "ae4720ffff793c7f14407a6327fc850c44300518722192105e43df0ce949ce6a",
+      "snapshot_sha256": "983878e800089c10ca3db247829117d0b92d2fd3464571f3c1178cebe782670e",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-nan.js",
+      "outcome": "Success",
+      "source_sha256": "8e6bd161f38eea0f2f26d183d53e350c610a72532657295ffa89be82beb9ad77",
+      "snapshot_sha256": "b16e3db0e4e36464485828f9680593c29f65aa68a6642a96ad886d851ee8ee1c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-negative.js",
+      "outcome": "Success",
+      "source_sha256": "6367183533b776b83cd66db25bee018d52d20dc28004004053fb0bbe4da3617a",
+      "snapshot_sha256": "6b3b5482ddfd9dde0da59984f26d256318385508d75a15a309531fab180498b6",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-non-integer.js",
+      "outcome": "Success",
+      "source_sha256": "92f20e2a7fdd406a39c78ffa430ea60c30fe6a84900c0ac1abd695a360b7742a",
+      "snapshot_sha256": "511002168f224e6fda06f8e297ce29ec6cd1cee2d7d70b5de3eca538c71faa97",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-number.js",
+      "outcome": "Success",
+      "source_sha256": "e79e7fd57bff05bb690a835a9144bc2c2e6abe6002ba56de32f7674066d66225",
+      "snapshot_sha256": "6d1abe91eebb63bccca4304dfede59ff569771e5308a395f07384517b237d467",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-out-of-range.js",
+      "outcome": "Success",
+      "source_sha256": "d8767f3e870546202a31d1ed9645c7fb4213415e9d56e4700bd0e55837ffcf17",
+      "snapshot_sha256": "ffed38f98e8fe6b7288b3b8bc121962333c6a858b031b11f562f348c9e4817c0",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "77a600e22d41a93ad267dbc8de94197ed03135531dd9a27c1ac942e23aa75aac",
+      "snapshot_sha256": "88b3a003837b5a21c921413c2b2fcd9f6035ece4af90ae24629861b3fd344b7f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/fractionalseconddigits-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "0808908d87509bcdc05e7023645fc3e0cd5a9f6eeea51f5de5487c62e8b6772c",
+      "snapshot_sha256": "b68c29bc9ce43ceca001146868c57db17236f45ff3f7598e71e2b3992ec5ff37",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/length.js",
+      "outcome": "Success",
+      "source_sha256": "5b129d486937f2f981e9114b7ee9b4bb89639e0e6effe969d609907a13f7b65e",
+      "snapshot_sha256": "f58455cb82795f1f47a08344cfc1f946737f79c991d466e0a37f89e38378562d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/name.js",
+      "outcome": "Success",
+      "source_sha256": "1876c82a31731e08937c842e437a6da0770e0e79c949710cb1e6f715cab33c33",
+      "snapshot_sha256": "b031702e70a3ad17fa5a7d29f02f9df354e3b9a5ee920ea6c286c637b096bd7c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/negative-epochnanoseconds.js",
+      "outcome": "Success",
+      "source_sha256": "a65f47759cd7046187ffa862c0e9d6bbe729d1603ae0f5195e4aa5bdd10c7a3a",
+      "snapshot_sha256": "bc61e2203155187d83cfc0f69940010124fd466f9524b8a4254463f93fc5dd46",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/negative-zoneddatetime-rounding.js",
+      "outcome": "Success",
+      "source_sha256": "d3fcd65db012112ab7fba22b45eef14a533b77a442c4090513d7a2e1e2ee1340",
+      "snapshot_sha256": "7d7cec5d16d68e2de48a68d7246949c965abe9bba5e69575523084cc34e27e75",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/not-a-constructor.js",
+      "outcome": "Success",
+      "source_sha256": "e75d5e9937fa54b7bd6cb65a5712147880e6ef1b422c4113d7eba04c31bcb01d",
+      "snapshot_sha256": "c23fa779d27040e61c8e1438b366499685190c629a502f5ccc5872050f01dc6b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-auto.js",
+      "outcome": "Success",
+      "source_sha256": "5cdab1635d4e57ce5c5710d71cd67c7ad8fdfc87814bda451e4d1361a35d2ebf",
+      "snapshot_sha256": "3c2d4c1f5b3cac89299ac9e2d258ec8749d559f2f4fadd624743ecd2272927e7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "68a2dc2cbb25c7c57e84a5abd88b79b1964878a3ff4accd96ebe73e98ea51149",
+      "snapshot_sha256": "c300cf11adcf80acc5b94d2cf3586f641e0132103549b7fe387c293bc0063f39",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-never.js",
+      "outcome": "Success",
+      "source_sha256": "5ce0001664527be265abcec173677a998c08cac8f437549de8360565b5bde5dd",
+      "snapshot_sha256": "13c28329b04b329e6398382889737668ce662c211b3d40eda01bd05e1aff3dfd",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "773359664b5d7358890de94b3efcad7e0aa07357edc8f669aff366396f59e71a",
+      "snapshot_sha256": "de103c90e93641511e6b10b7641829538232f303adc7028ffc4463c1730146e2",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "1f81c1cfa3aa8993202c7ad237ce0e491ad5939f09b795b1fe0d743ad4932025",
+      "snapshot_sha256": "bebc27b583b4b597a747e198d233a3e8bd2928050d2c76843e2f446f9fe3997d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/offset.js",
+      "outcome": "Success",
+      "source_sha256": "f66dc943a35582744ff47e50fb77b1174f512aca28a333cb459808da8282d1da",
+      "snapshot_sha256": "677f6eb736ed66b3df437049ac63eb42448b92a747d183645fe81e20511a3d8b",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/options-object.js",
+      "outcome": "Success",
+      "source_sha256": "c2ae345644d2f348f3aad38df5327c5a05cdf5312008e3b81c836539787cbbf9",
+      "snapshot_sha256": "2776f29761f8e7b22d6b452c9a547b7c1a0878c6b3a6955f03f737f1dd2f2b82",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/options-read-before-algorithmic-validation.js",
+      "outcome": "Success",
+      "source_sha256": "f7434931484a575e91e313bafe2d372b997522032e7df7ccabfc5c74e32e6839",
+      "snapshot_sha256": "ac0369d0e09a7fade5307caa77f9abd96c3f8c2fea9ebc09885c2d8ac31513f6",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/options-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "698e469dfba3301af2d54f55782d540bef15fe7c8176f5825166e2810e70d069",
+      "snapshot_sha256": "5c8655196a8bb409e06f5868611d329e6ae4a145b380252070c9aa47cd00fa9f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/order-of-operations.js",
+      "outcome": "Success",
+      "source_sha256": "a52fe9716ba51347e96c2080213738a45f5d3a44412eed7cd91cc80812240b46",
+      "snapshot_sha256": "94a81b6a4e9eb27ccd482ad1941402b9b082b773774c705e93aa45b02e1f6cde",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/prop-desc.js",
+      "outcome": "Success",
+      "source_sha256": "cb35f0656ba94c6e84d637469643c03ce720572fcc27bcda5399cc9046126258",
+      "snapshot_sha256": "5d9008cda4e64b3a09ccac4da81f5ef0d3dfd5c2f7b9112358fde5e0590bf6ee",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/rounding-cross-midnight.js",
+      "outcome": "Success",
+      "source_sha256": "0bd85cc3f36b63e031c789a417c6f2e67f05f4872b1d0374b377530bab8011ee",
+      "snapshot_sha256": "6600e53ea0b1d38172bd203215b1637eb483b0ab126547207bb05464956ae869",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/rounding-direction.js",
+      "outcome": "Success",
+      "source_sha256": "e7d918735c7fb5c51e333fc02cca1ed037e5fc877573c75760eaa2ecedbd971b",
+      "snapshot_sha256": "1677f08ad6791a40bbcbebf5ffa5f4be31349d89f16935e4ef1129084c053fac",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-ceil.js",
+      "outcome": "Success",
+      "source_sha256": "e00310a4d9d16e946311a8c44de2afc2849e479e025f347ba1eda3801970ff12",
+      "snapshot_sha256": "1c8c92a4006ae6d0d30df82a838fce675633d82f8286fed59ccc9a0e871710e8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-expand.js",
+      "outcome": "Success",
+      "source_sha256": "51e7e217aafb9b0b243e5381e311650a6abf0cb747931400671f7bd5ac0eb00a",
+      "snapshot_sha256": "5e7b6574786d823cb0c9ee8c758c83fee1eddefbb3f79a80aef006124a819634",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-floor.js",
+      "outcome": "Success",
+      "source_sha256": "c4c5ad2f223c222d54825a3fec07b6c16e38ad9ecad562b629a792cb254799dd",
+      "snapshot_sha256": "134f6b56315bc202aa72dc82dbda30cc01e35d9595d8cbb121d9c7e050ca637d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfCeil.js",
+      "outcome": "Success",
+      "source_sha256": "2aa47ac41f3865e335c392382c2d79a7f7968cb1dfce0322c866ce24fa7cf9e2",
+      "snapshot_sha256": "80e1cd4f107655fe82f05cf3ce435e59adcdec82f8e382771b9d0609f5e81690",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfEven.js",
+      "outcome": "Success",
+      "source_sha256": "70aa909124db9ebd9e9f559a2c30338b040a781a0d0c1ac2478be653c75a9d00",
+      "snapshot_sha256": "b3d4325910c1c7feb90305f55521be846746ac9f57eb23b4a0296c903a700877",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfExpand.js",
+      "outcome": "Success",
+      "source_sha256": "a8eefd49d93bca2fe2150bed02fa6253a5afcc718bb8e79da8e2365722546109",
+      "snapshot_sha256": "f084529a97d49538300cc9fa0b19bce59a30425c5d99a6c1fbca72b638232a24",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfFloor.js",
+      "outcome": "Success",
+      "source_sha256": "2272628762ba95c8c23bf463dd0bdd78b6ae50dbdbca350331a153f8c048f1c1",
+      "snapshot_sha256": "e9f091fbf8163fad507df587d68b8bdc9dacc4a29fc5e192b7c1a1bd215dbdcb",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-halfTrunc.js",
+      "outcome": "Success",
+      "source_sha256": "796dfb5a3e0e6bcbb7b7a18f305bdeed4980152d157a857020ce789a46cc6c12",
+      "snapshot_sha256": "cbd7e3dd7d8bb1f2fb17ef1769b115a8e3ee943208763cf26ad6705e8ad8dd27",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "26d8133fdb29c7487b2136915279f9e63a459bc968ae1a373cb2b2e0a48e36ca",
+      "snapshot_sha256": "dd09d2991aeff8c308c536a6b12b440bc099cfe7195de09e1a3256bfa5eb32f8",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-trunc.js",
+      "outcome": "Success",
+      "source_sha256": "659ddbd84d985350920a7a5aa4309c084b32977779c85042b07af053a89bd2eb",
+      "snapshot_sha256": "c784657b6799dc448bfb4d06c59933e4d455e89b04dca58f4845e06bd07dfb41",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "bff62581396410f78379bd23ca68672c64cc161efe413346640369241d517a94",
+      "snapshot_sha256": "81d1b102f9fe111ec9714e8da1602d5f52f5907bd4756076e111f2068613c10c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/roundingmode-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "8754c0df314805ec411507ff02cd6bfbda2b0acb609bf39a859a30e60a3846b4",
+      "snapshot_sha256": "218215a70af1c7f66e7a4ae489a4c155de96191754d87aac4a4a24360e0f1070",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-fractionalseconddigits.js",
+      "outcome": "Success",
+      "source_sha256": "a6d6f244158cc58bcab892879666fc15321ad6e779ccf7fdbb52184fc8b98027",
+      "snapshot_sha256": "0b1d3302f8770c14ad94762a499113bbf40bdca537d26234344db41b528aada3",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "29f3228e50b4b375618516cb5b833925253205508f77241ddd01d17cd0954bd3",
+      "snapshot_sha256": "f655c50962dc07036b0545fc10fdb06efd8bdb6d9468e1fdfcff29bbe6f1bc44",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-plurals-accepted.js",
+      "outcome": "Success",
+      "source_sha256": "11c857007c763e7e4477aa7689db8dfb5eb0928acda900ee3360369a3c5e13f8",
+      "snapshot_sha256": "9f5a271ffaf6bfd8f33eb387021036da01bc67654bd45bffbf932cfa3e68f914",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "a3de83b947e0423924b62d9eba253be2355d4ff5f2186f06ecb28b9eb406fa51",
+      "snapshot_sha256": "f5e059a4c5dcde7ed663fd8e755362cb8c678e6d606d899caeaafa6b6d91438c",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-valid-units.js",
+      "outcome": "Success",
+      "source_sha256": "52ba6ad009fcf6f09a518a2221ce4120c69ddbbb043a4b79447a7474945128f2",
+      "snapshot_sha256": "985e6c3f336a7fa6ce416631234e327538ab8b8f877bf1d7f901d320a019d80f",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/smallestunit-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "dd789cd103ec5e11d324b6b967f4f33558bb3160c7ef03ae1620086cca799ceb",
+      "snapshot_sha256": "7f9ae22a1043c6e3b6c3b9231eb58a50e1df140a8ba1f0046669ad57ce8b8daa",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-auto.js",
+      "outcome": "Success",
+      "source_sha256": "4a2fad076c63cab949c396a1b1517afcfc8cdec1ef900d44d3a0288374aa9cb5",
+      "snapshot_sha256": "e5acf08a027c2041487cd6be46ce57c31a32152f331ea1789769ab169aba27d7",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-critical.js",
+      "outcome": "Success",
+      "source_sha256": "222d2f7b4c02beae7533f3f36c16741efda18fe2c862b5db534dab751de8fac5",
+      "snapshot_sha256": "8cf3eeed3071e821365e2e6da3ccc2a91b0dbf54a404344789c54f7405c070af",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-invalid-string.js",
+      "outcome": "Success",
+      "source_sha256": "ea6f38b4fe56b88e15675a92091761f7a796f2ec96c08cc26dd4f0d70b92af96",
+      "snapshot_sha256": "25bb22b9855aff07d1ba142d925cf053dccff567f8b79a129e9d357068b995b4",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-never.js",
+      "outcome": "Success",
+      "source_sha256": "35638ba0317ce8f8bf310f11a85343fc7db8b8117f984d5e7d8c98ea8a19f3e1",
+      "snapshot_sha256": "1893a1b498c99c9c0909f7edad9d8f2c9cdbfbd831b68eb09a8084bc39a69752",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-undefined.js",
+      "outcome": "Success",
+      "source_sha256": "9eca9d5970bcb4b38cebf4c156f15eddc2dab8936f17d4e37d65a338589c5142",
+      "snapshot_sha256": "cdc439464b468f15048c012fdfc418f993dfd7b65370c296e2057390d0b15c67",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/timezonename-wrong-type.js",
+      "outcome": "Success",
+      "source_sha256": "7367dc006dc3d2a766bf343d63f4bf5d744e00a4f03632d9ae08b8d2f1e01247",
+      "snapshot_sha256": "a1689e49cad871a1f25bf5dcbcb1bde51159648cf84b9f8e3595aad395d5cb35",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/toString/year-format.js",
+      "outcome": "Success",
+      "source_sha256": "31d22113800e33ab1bbc30a4cc2ecb674e167138ab2098231ded5e25bfba1897",
+      "snapshot_sha256": "3eae60775079b487b0f87a9a951bd13cdf75213bbeefdcfc1ae5c200355024ae",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    },
+    {
+      "execution_id": "strict-script:built-ins/Temporal/ZonedDateTime/prototype/until/defaults-to-returning-hours.js",
+      "outcome": "Success",
+      "source_sha256": "b14d01429c8b2c8d7c625b2f9728bd37a0b3c715882bdfa4f0ce1b5588134d0c",
+      "snapshot_sha256": "31d2e18c0ea6fea10bbf83b96fd8ab1a87bfa3606029c2bd03c7bf5deb25666d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+      "timeout": false
+    }
+  ],
+  "source_commit": "0a91694545ee6b727bd830827e727e8b78497b75",
+  "source_entries_verified_against_commit": 1658,
+  "verification_date_utc": "2026-09-10",
+  "native_evidence_audit_sha256": "cac60572ff67a8b3fdfcc1b8eac9738288f40a22958906c8801dff2f5afb5b81",
+  "native_regressions": {
+    "passed": 23,
+    "failed": 0,
+    "ignored": 0,
+    "targets": {
+      "aot_temporal_month_code": 3,
+      "aot_temporal_plain_year_month": 8,
+      "aot_temporal_zoned_date_time_format": 6,
+      "aot_temporal_zoned_date_time_surface": 6
+    },
+    "transcript_sha256": "3071ec298f762e9bd1dae9715d1b4faff33d73d1d009a56789d8a5b2d4094715"
+  },
+  "broader_checks": {
+    "ir": {
+      "passed": 1122,
+      "failed": 0,
+      "ignored": 0,
+      "targets": 1,
+      "transcript_sha256": "6a4cad74e9c89a7cbc72228d0cef1eefcabd04131a72210e4b3d73b6ca804ead"
+    },
+    "backend": {
+      "passed": 427,
+      "failed": 0,
+      "ignored": 0,
+      "targets": 1,
+      "transcript_sha256": "463a2d6dab6fe4e22a2cdfa2e3e873d5906b9aa33e73de7857bc66d2e99c1591"
+    },
+    "structure": {
+      "passed": 102,
+      "failed": 0,
+      "ignored": 0,
+      "targets": 30,
+      "transcript_sha256": "3a7473a2ece243b0074e6b041c1d0b47b078ba051ee64a918c79bed479872673",
+      "test_only_repairs": {
+        "crates/lila-aot-wasm/tests/temporal_duration_field_transform_structure.rs": "e610d4d03cb5cc67e6d20e9248e5cb48c6d5328adaba77d4a088a0a9b1905e29",
+        "crates/lila-aot-wasm/tests/temporal_plain_year_month_field_read_mode_structure.rs": "5e27b1d0402ddde276418ae3d72039e0c431968db65f7775544380b9cfc4c078"
+      }
+    },
+    "workspace": {
+      "command": "cargo check --release --locked -j2 --workspace --all-targets",
+      "result": "success",
+      "transcript_sha256": "6302d4c3a39967dff685308bc455a93b9be5451e896ba8742aa44cda32f7d213"
+    },
+    "fake_suite": {
+      "total": 191,
+      "outcomes": {
+        "Bug": 0,
+        "Crash": 0,
+        "NotImplemented": 0,
+        "Success": 191
+      },
+      "snapshot_sha256": "4690ac0ae986ce297accc52c83557d61d60500e9418cafef89c4931bfe60fee7",
+      "transcript_sha256": "cb9af493fe29aaff738a30b73480f5bd41f381f2168fc286084c9ce794a57329",
+      "scope": "Complete fake fixture suite, separate from pinned real Test262"
+    }
+  }
+}

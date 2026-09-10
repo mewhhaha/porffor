@@ -1387,8 +1387,91 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    /// Temporal proposal 4.3.x `toString` and `toJSON`. Only `toString` reads
-    /// options; `toJSON` is fixed at `"auto"` precision.
+    /// `ToSecondsStringPrecisionRecord`, shared by time and date-time formatters.
+    pub(crate) fn emit_temporal_seconds_string_precision(
+        &mut self,
+        digits_local: u32,
+        unit_local: u32,
+        precision_local: u32,
+        increment_local: u32,
+        invalid_unit_message: &'static str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::LocalGet(unit_local));
+        function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_temporal_require_unit_range(
+            unit_local,
+            TemporalUnit::Minute,
+            TemporalUnit::Nanosecond,
+            invalid_unit_message,
+            function,
+        )?;
+        // `ToSecondsStringPrecisionRecord`: a named smallestUnit fixes both
+        // the precision and the rounding unit, and `fractionalSecondDigits`
+        // is then ignored.
+        for (unit, precision) in [
+            (TemporalUnit::Minute, TEMPORAL_PRECISION_MINUTE),
+            (TemporalUnit::Second, 0),
+            (TemporalUnit::Millisecond, 3),
+            (TemporalUnit::Microsecond, 6),
+            (TemporalUnit::Nanosecond, 9),
+        ] {
+            function.instruction(&Instruction::LocalGet(unit_local));
+            function.instruction(&Instruction::I64Const(unit.code()));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(precision));
+            function.instruction(&Instruction::LocalSet(precision_local));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(increment_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(digits_local));
+        function.instruction(&Instruction::LocalSet(precision_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
+        function.instruction(&Instruction::LocalSet(unit_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(increment_local));
+        // A digit count picks the coarsest unit that can still show it,
+        // with the increment making up the difference: 2 digits is
+        // milliseconds rounded to the nearest 10. `scale` is the digit
+        // count that unit already provides, so zero digits means whole
+        // seconds at increment 1 — not tens of seconds.
+        for (low, high, unit, scale) in [
+            (0_i64, 0_i64, TemporalUnit::Second, 0_i64),
+            (1, 3, TemporalUnit::Millisecond, 3),
+            (4, 6, TemporalUnit::Microsecond, 6),
+            (7, 9, TemporalUnit::Nanosecond, 9),
+        ] {
+            function.instruction(&Instruction::LocalGet(digits_local));
+            function.instruction(&Instruction::I64Const(low));
+            function.instruction(&Instruction::I64GeS);
+            function.instruction(&Instruction::LocalGet(digits_local));
+            function.instruction(&Instruction::I64Const(high));
+            function.instruction(&Instruction::I64LeS);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(unit.code()));
+            function.instruction(&Instruction::LocalSet(unit_local));
+            for digits in low..=high {
+                function.instruction(&Instruction::LocalGet(digits_local));
+                function.instruction(&Instruction::I64Const(digits));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(10_i64.pow((scale - digits) as u32)));
+                function.instruction(&Instruction::LocalSet(increment_local));
+                function.instruction(&Instruction::End);
+            }
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// `toString` reads options; `toJSON` is fixed at `"auto"` precision.
     pub(crate) fn emit_temporal_plain_time_to_string(
         &mut self,
         builtin: StandardBuiltinId,
@@ -1439,78 +1522,14 @@ impl<'a> FunctionBuilder<'a> {
                 unit_local,
                 function,
             )?;
-            function.instruction(&Instruction::LocalGet(unit_local));
-            function.instruction(&Instruction::I64Const(TemporalUnitSlot::Unset.code()));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_temporal_require_unit_range(
+            self.emit_temporal_seconds_string_precision(
+                digits_local,
                 unit_local,
-                TemporalUnit::Minute,
-                TemporalUnit::Nanosecond,
+                precision_local,
+                increment_local,
                 "Invalid Temporal.PlainTime unit option",
                 function,
             )?;
-            // `ToSecondsStringPrecisionRecord`: a named smallestUnit fixes both
-            // the precision and the rounding unit, and `fractionalSecondDigits`
-            // is then ignored.
-            for (unit, precision) in [
-                (TemporalUnit::Minute, TEMPORAL_PRECISION_MINUTE),
-                (TemporalUnit::Second, 0),
-                (TemporalUnit::Millisecond, 3),
-                (TemporalUnit::Microsecond, 6),
-                (TemporalUnit::Nanosecond, 9),
-            ] {
-                function.instruction(&Instruction::LocalGet(unit_local));
-                function.instruction(&Instruction::I64Const(unit.code()));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(precision));
-                function.instruction(&Instruction::LocalSet(precision_local));
-                function.instruction(&Instruction::End);
-            }
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(increment_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(digits_local));
-            function.instruction(&Instruction::LocalSet(precision_local));
-            function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
-            function.instruction(&Instruction::LocalSet(unit_local));
-            function.instruction(&Instruction::I64Const(1));
-            function.instruction(&Instruction::LocalSet(increment_local));
-            // A digit count picks the coarsest unit that can still show it,
-            // with the increment making up the difference: 2 digits is
-            // milliseconds rounded to the nearest 10. `scale` is the digit
-            // count that unit already provides, so zero digits means whole
-            // seconds at increment 1 — not tens of seconds.
-            for (low, high, unit, scale) in [
-                (0_i64, 0_i64, TemporalUnit::Second, 0_i64),
-                (1, 3, TemporalUnit::Millisecond, 3),
-                (4, 6, TemporalUnit::Microsecond, 6),
-                (7, 9, TemporalUnit::Nanosecond, 9),
-            ] {
-                function.instruction(&Instruction::LocalGet(digits_local));
-                function.instruction(&Instruction::I64Const(low));
-                function.instruction(&Instruction::I64GeS);
-                function.instruction(&Instruction::LocalGet(digits_local));
-                function.instruction(&Instruction::I64Const(high));
-                function.instruction(&Instruction::I64LeS);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(unit.code()));
-                function.instruction(&Instruction::LocalSet(unit_local));
-                for digits in low..=high {
-                    function.instruction(&Instruction::LocalGet(digits_local));
-                    function.instruction(&Instruction::I64Const(digits));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function
-                        .instruction(&Instruction::I64Const(10_i64.pow((scale - digits) as u32)));
-                    function.instruction(&Instruction::LocalSet(increment_local));
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::End);
-            }
-            function.instruction(&Instruction::End);
 
             self.emit_temporal_plain_time_rounding_quantum(
                 unit_local,

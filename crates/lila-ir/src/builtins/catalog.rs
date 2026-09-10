@@ -5753,6 +5753,83 @@ standard_builtin_catalog! {
         installer: None,
         native: "next",
     }
+    TemporalZonedDateTimeCompare {
+        function: FunctionOrdinal(790) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_COMPARE_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.compare",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "compare",
+    }
+    TemporalZonedDateTimePrototypeDayOfWeekGetter {
+        function: FunctionOrdinal(791) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.dayOfWeek",
+        flags: [],
+        installer: None,
+        native: "get dayOfWeek",
+    }
+    TemporalZonedDateTimePrototypeDayOfYearGetter {
+        function: FunctionOrdinal(792) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.dayOfYear",
+        flags: [],
+        installer: None,
+        native: "get dayOfYear",
+    }
+    TemporalZonedDateTimePrototypeWeekOfYearGetter {
+        function: FunctionOrdinal(793) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.weekOfYear",
+        flags: [],
+        installer: None,
+        native: "get weekOfYear",
+    }
+    TemporalZonedDateTimePrototypeYearOfWeekGetter {
+        function: FunctionOrdinal(794) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.yearOfWeek",
+        flags: [],
+        installer: None,
+        native: "get yearOfWeek",
+    }
+    TemporalZonedDateTimePrototypeDaysInWeekGetter {
+        function: FunctionOrdinal(795) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.daysInWeek",
+        flags: [],
+        installer: None,
+        native: "get daysInWeek",
+    }
+    TemporalZonedDateTimePrototypeDaysInMonthGetter {
+        function: FunctionOrdinal(796) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.daysInMonth",
+        flags: [],
+        installer: None,
+        native: "get daysInMonth",
+    }
+    TemporalZonedDateTimePrototypeDaysInYearGetter {
+        function: FunctionOrdinal(797) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.daysInYear",
+        flags: [],
+        installer: None,
+        native: "get daysInYear",
+    }
+    TemporalZonedDateTimePrototypeMonthsInYearGetter {
+        function: FunctionOrdinal(798) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.monthsInYear",
+        flags: [],
+        installer: None,
+        native: "get monthsInYear",
+    }
+    TemporalZonedDateTimePrototypeInLeapYearGetter {
+        function: FunctionOrdinal(799) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID,
+        debug: "get Temporal.ZonedDateTime.prototype.inLeapYear",
+        flags: [],
+        installer: None,
+        native: "get inLeapYear",
+    }
+    TemporalZonedDateTimePrototypeToString {
+        function: FunctionOrdinal(800) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.toString",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "toString",
+    }
 }
 
 impl StandardBuiltinId {

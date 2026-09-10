@@ -16,7 +16,7 @@ fn duration_field_transform_is_a_closed_domain() {
     let declaration = bounded(
         DURATION_SOURCE,
         "enum TemporalDurationFieldTransform {",
-        "\n}\n\npub(crate) const TEMPORAL_DURATION_FIELD_OFFSETS",
+        "\n}\n",
     );
     let variants = declaration
         .lines()

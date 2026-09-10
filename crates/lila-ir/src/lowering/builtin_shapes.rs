@@ -1195,6 +1195,42 @@ impl<'a> ScriptLowerer<'a> {
                 "nanosecond",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
             ),
+            (
+                "dayOfWeek",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter,
+            ),
+            (
+                "dayOfYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter,
+            ),
+            (
+                "weekOfYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter,
+            ),
+            (
+                "yearOfWeek",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter,
+            ),
+            (
+                "daysInWeek",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter,
+            ),
+            (
+                "daysInMonth",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter,
+            ),
+            (
+                "daysInYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter,
+            ),
+            (
+                "monthsInYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
+            ),
+            (
+                "inLeapYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter,
+            ),
         ] {
             properties.insert(
                 name.to_string(),
@@ -3779,6 +3815,13 @@ impl<'a> ScriptLowerer<'a> {
                         "from".to_string(),
                         ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
                             StandardBuiltinId::TemporalZonedDateTimeFrom.function_id(),
+                            false,
+                        )),
+                    );
+                    object.properties.insert(
+                        "compare".to_string(),
+                        ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                            StandardBuiltinId::TemporalZonedDateTimeCompare.function_id(),
                             false,
                         )),
                     );
@@ -6515,13 +6558,21 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter => (
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
+            StandardBuiltinId::TemporalZonedDateTimeCompare
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter
@@ -6563,14 +6614,17 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => (
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => (
                 ValueKind::Dynamic,
                 KindSet::from_kind(ValueKind::Number)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => (
+            StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
                 None,

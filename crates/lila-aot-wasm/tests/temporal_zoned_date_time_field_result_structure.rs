@@ -267,7 +267,9 @@ fn zdt_field_result_is_private_and_capability_free() {
         &temporal.code,
         concat!(
             "pub(crate)enumZonedDateTimeField{Era,EraYear,Year,Month,MonthCode,Day,",
-            "Hour,Minute,Second,Millisecond,Microsecond,Nanosecond,}"
+            "Hour,Minute,Second,Millisecond,Microsecond,Nanosecond,",
+            "DayOfWeek,DayOfYear,WeekOfYear,YearOfWeek,DaysInWeek,DaysInMonth,",
+            "DaysInYear,MonthsInYear,InLeapYear,}"
         ),
         "#[derive(Clone,Copy)]enumZonedDateTimeOptionKey{",
     );
@@ -279,8 +281,8 @@ fn zdt_field_result_is_private_and_capability_free() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "ZdtFieldResult"),
-        15,
-        "one declaration, twelve producers and two consumer arms own the domain"
+        24,
+        "one declaration, twenty-one producers and two consumer arms own the domain"
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "delivery"),
@@ -293,7 +295,7 @@ fn zdt_field_result_is_private_and_capability_free() {
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "ZdtFieldResult::WrittenByCallee"),
-        4
+        13
     );
 
     for forbidden in [
@@ -320,6 +322,93 @@ fn zdt_field_result_binds_every_field_to_its_complete_delivery_body() {
     let delivery = bounded(&temporal.code, "letdelivery=matchfield{", "forlocalin[");
     let expected = normalize_rust(
         r###"
+            ZonedDateTimeField::DayOfWeek => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DayOfWeek,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::DayOfYear => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DayOfYear,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::WeekOfYear => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::WeekOfYear,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::YearOfWeek => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::YearOfWeek,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::DaysInWeek => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DaysInWeek,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::DaysInMonth => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DaysInMonth,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::DaysInYear => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DaysInYear,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::MonthsInYear => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::MonthsInYear,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::InLeapYear => {
+                let year_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(year_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(year_local));
+                self.emit_temporal_iso_year_is_leap_i32(year_local, function);
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.release_temp_local(year_local);
+                ZdtFieldResult::WrittenByCallee
+            }
+
             ZonedDateTimeField::Year => {
                 function.instruction(&Instruction::LocalGet(year_payload_local));
                 ZdtFieldResult::NumberOnStack

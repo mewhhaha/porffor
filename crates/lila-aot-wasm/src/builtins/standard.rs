@@ -22616,6 +22616,66 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimeFrom => {
                 self.emit_temporal_zoned_date_time_from(function)?;
             }
+            StandardBuiltinId::TemporalZonedDateTimeCompare => {
+                self.emit_temporal_zoned_date_time_compare(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToString => {
+                self.emit_temporal_zoned_date_time_to_string(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::DayOfWeek,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::DayOfYear,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::WeekOfYear,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::YearOfWeek,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::DaysInWeek,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::DaysInMonth,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::DaysInYear,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::MonthsInYear,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter => {
+                self.emit_temporal_zoned_date_time_iso_field(
+                    ZonedDateTimeField::InLeapYear,
+                    function,
+                )?;
+            }
             StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {
                 self.emit_temporal_zoned_date_time_epoch_milliseconds(function)?;
             }

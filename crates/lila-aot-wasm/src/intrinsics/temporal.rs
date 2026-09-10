@@ -935,15 +935,15 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
         } = *context;
 
-        let from_meta = self
-            .functions
-            .get(&StandardBuiltinId::TemporalZonedDateTimeFrom.function_id())
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.from`",
-                )
+        for (name, builtin) in [
+            ("from", StandardBuiltinId::TemporalZonedDateTimeFrom),
+            ("compare", StandardBuiltinId::TemporalZonedDateTimeCompare),
+        ] {
+            let method_meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
+                EmitError::unsupported(format!("missing builtin meta `{}`", builtin.debug_name()))
             })?;
-        self.emit_object_define_function_data(object_local, "from", from_meta, function)?;
+            self.emit_object_define_function_data(object_local, name, method_meta, function)?;
+        }
         function.instruction(&Instruction::GlobalGet(prototype_global_index));
         function.instruction(&Instruction::LocalSet(prototype_object_local));
         for (name, builtin) in [
@@ -1028,6 +1028,42 @@ impl<'a> FunctionBuilder<'a> {
             (
                 "nanosecond",
                 StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
+            ),
+            (
+                "dayOfWeek",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter,
+            ),
+            (
+                "dayOfYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter,
+            ),
+            (
+                "weekOfYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter,
+            ),
+            (
+                "yearOfWeek",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter,
+            ),
+            (
+                "daysInWeek",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter,
+            ),
+            (
+                "daysInMonth",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter,
+            ),
+            (
+                "daysInYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter,
+            ),
+            (
+                "monthsInYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
+            ),
+            (
+                "inLeapYear",
+                StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter,
             ),
         ] {
             let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {

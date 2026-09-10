@@ -286,6 +286,10 @@ pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId
         "since",
         StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
     ),
+    (
+        "toString",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToString,
+    ),
 ];
 
 pub const REGEXP_NAME: &str = "RegExp";
@@ -1109,6 +1113,28 @@ pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID: &str =
 pub const BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_VALUE_OF_FUNCTION_ID: &str =
     "$builtin.Temporal.Instant.prototype.valueOf";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID: &str = "$builtin.Temporal.ZonedDateTime";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_COMPARE_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.compare";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.dayOfWeek.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.dayOfYear.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.weekOfYear.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.yearOfWeek.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.daysInWeek.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.daysInMonth.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.daysInYear.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.monthsInYear.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.inLeapYear.get";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.toString";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.from";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EPOCH_MILLISECONDS_GETTER_FUNCTION_ID: &str =

@@ -1985,28 +1985,30 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange => {
                 Some(ValueInfo::new(ValueKind::String))
             }
-            StandardBuiltinId::TemporalZonedDateTimeConstructor => Some(
-                Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
-            ),
-            StandardBuiltinId::TemporalZonedDateTimeFrom => Some(Self::value_info_from_shape(
+            StandardBuiltinId::TemporalZonedDateTimeConstructor
+            | StandardBuiltinId::TemporalZonedDateTimeFrom => Some(Self::value_info_from_shape(
                 Some(Self::temporal_zoned_date_time_instance_shape()),
             )),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter => {
-                Some(ValueInfo::new(ValueKind::Number))
-            }
             StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter => {
                 Some(ValueInfo::new(ValueKind::BigInt))
-            }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter => {
-                Some(ValueInfo::new(ValueKind::Number))
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter => {
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString => {
                 Some(ValueInfo::new(ValueKind::String))
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
+            StandardBuiltinId::TemporalZonedDateTimeCompare
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter
@@ -2017,7 +2019,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => {
+            StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             // Same declaration as the PlainDate / PlainDateTime / PlainYearMonth
@@ -2025,7 +2028,9 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter => {
                 Some(ValueInfo::new(ValueKind::Undefined))
             }
-            StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => Some(ValueInfo {
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::from_kind(ValueKind::Number)
                     .union(KindSet::from_kind(ValueKind::Undefined)),

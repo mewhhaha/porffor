@@ -2676,6 +2676,17 @@ impl RuntimeBootstrapPlan {
             }
             StandardBuiltinId::TemporalZonedDateTimeConstructor
             | StandardBuiltinId::TemporalZonedDateTimeFrom
+            | StandardBuiltinId::TemporalZonedDateTimeCompare
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter
@@ -2781,6 +2792,17 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalInstantConstructor,
                     StandardBuiltinId::TemporalZonedDateTimeConstructor,
                     StandardBuiltinId::TemporalZonedDateTimeFrom,
+                    StandardBuiltinId::TemporalZonedDateTimeCompare,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeToString,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeEpochNanosecondsGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter,
@@ -6842,7 +6864,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::TemporalInstantCompare => 2,
         StandardBuiltinId::TemporalPlainDateCompare => 2,
         StandardBuiltinId::TemporalPlainTimeCompare => 2,
-        StandardBuiltinId::TemporalPlainDateTimeCompare => 2,
+        StandardBuiltinId::TemporalPlainDateTimeCompare
+        | StandardBuiltinId::TemporalZonedDateTimeCompare => 2,
         StandardBuiltinId::TemporalPlainDateTimeConstructor => 3,
         StandardBuiltinId::TemporalPlainDateConstructor => 3,
         StandardBuiltinId::TemporalDurationConstructor => 0,
@@ -7002,6 +7025,16 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => 0,
         StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape

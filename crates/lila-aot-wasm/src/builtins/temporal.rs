@@ -6,6 +6,33 @@ use super::temporal_plain_date::{
 use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
 use crate::operations::BigIntNumberPolicy;
 
+#[derive(Clone, Copy)]
+enum ZonedDateTimeCalendarField {
+    DayOfWeek,
+    DayOfYear,
+    WeekOfYear,
+    YearOfWeek,
+    DaysInWeek,
+    DaysInMonth,
+    DaysInYear,
+    MonthsInYear,
+}
+
+impl ZonedDateTimeCalendarField {
+    const fn date_accessor(self) -> StandardBuiltinId {
+        match self {
+            Self::DayOfWeek => StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter,
+            Self::DayOfYear => StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter,
+            Self::WeekOfYear => StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter,
+            Self::YearOfWeek => StandardBuiltinId::TemporalPlainDatePrototypeYearOfWeekGetter,
+            Self::DaysInWeek => StandardBuiltinId::TemporalPlainDatePrototypeDaysInWeekGetter,
+            Self::DaysInMonth => StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter,
+            Self::DaysInYear => StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter,
+            Self::MonthsInYear => StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter,
+        }
+    }
+}
+
 /// Which `Temporal.ZonedDateTime.prototype` accessor
 /// [`FunctionBuilder::emit_temporal_zoned_date_time_iso_field`] is producing.
 ///
@@ -13,7 +40,7 @@ use crate::operations::BigIntNumberPolicy;
 /// `_ => unreachable!()` — a catch-all over a several-hundred-variant enum,
 /// which is precisely the shape `AGENTS.md` bans: "you added a getter and
 /// forgot an arm" became a live `unreachable!()` in the compiler instead of a
-/// compile error. The parameter is now a closed twelve-variant domain matched
+/// compile error. The parameter is now a closed field domain matched
 /// with no catch-all, so the omission fails to build.
 ///
 /// The other direction — `StandardBuiltinId -> ZonedDateTimeField` — lives in
@@ -34,11 +61,20 @@ pub(crate) enum ZonedDateTimeField {
     Millisecond,
     Microsecond,
     Nanosecond,
+    DayOfWeek,
+    DayOfYear,
+    WeekOfYear,
+    YearOfWeek,
+    DaysInWeek,
+    DaysInMonth,
+    DaysInYear,
+    MonthsInYear,
+    InLeapYear,
 }
 
 /// Where a [`ZonedDateTimeField`] arm leaves its answer.
 ///
-/// Nine arms push exactly one `i64` that is an `f64` bit pattern and let the
+/// Numeric stack arms push one `i64` that is an `f64` bit pattern and let the
 /// tail of the emitter tag it `Number`. `MonthCode` writes a String result pair
 /// itself; `Era` and `EraYear` delegate to
 /// [`FunctionBuilder::emit_temporal_calendar_era_field`], which writes the pair
@@ -592,6 +628,103 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_temporal_zoned_date_time_compare(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let argument_payload_local = self.reserve_temp_local();
+        let argument_tag_local = self.reserve_temp_local();
+        let zoned_payload_local = self.reserve_temp_local();
+        let zoned_tag_local = self.reserve_temp_local();
+        let record_local = self.reserve_temp_local();
+        let left_epoch_payload_local = self.reserve_temp_local();
+        let left_epoch_tag_local = self.reserve_temp_local();
+        let right_epoch_payload_local = self.reserve_temp_local();
+        let right_epoch_tag_local = self.reserve_temp_local();
+        let comparison_local = self.reserve_temp_local();
+
+        let zoned_from_meta = self
+            .functions
+            .get(&StandardBuiltinId::TemporalZonedDateTimeFrom.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Temporal.ZonedDateTime.from`",
+                )
+            })?;
+
+        for (index, epoch_payload_local, epoch_tag_local) in [
+            (0, left_epoch_payload_local, left_epoch_tag_local),
+            (1, right_epoch_payload_local, right_epoch_tag_local),
+        ] {
+            self.emit_builtin_arg_to_locals(
+                index,
+                argument_payload_local,
+                argument_tag_local,
+                function,
+            );
+            self.emit_direct_js_call(
+                &zoned_from_meta,
+                None,
+                &[(argument_payload_local, argument_tag_local)],
+                zoned_payload_local,
+                zoned_tag_local,
+                function,
+            )?;
+            self.load_i64_to_local_from_offset(
+                zoned_payload_local,
+                HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+                record_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                record_local,
+                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+                epoch_payload_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                record_local,
+                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
+                epoch_tag_local,
+                function,
+            );
+        }
+
+        // Compare exact epoch BigInts without rounding through Number.
+        self.emit_bigint_compare_i64(
+            left_epoch_payload_local,
+            left_epoch_tag_local,
+            right_epoch_payload_local,
+            right_epoch_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(comparison_local));
+
+        function.instruction(&Instruction::LocalGet(comparison_local));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+
+        for local in [
+            comparison_local,
+            right_epoch_tag_local,
+            right_epoch_payload_local,
+            left_epoch_tag_local,
+            left_epoch_payload_local,
+            record_local,
+            zoned_tag_local,
+            zoned_payload_local,
+            argument_tag_local,
+            argument_payload_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
     pub(crate) fn emit_temporal_zoned_date_time_from(
         &mut self,
         function: &mut Function,
@@ -972,10 +1105,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(month_code_present_local));
-        self.emit_temporal_property_bag_string(
+        self.emit_temporal_month_code_string(
             value_payload_local,
             value_tag_local,
             "Temporal.ZonedDateTime monthCode must be a string",
+            "Invalid Temporal.ZonedDateTime monthCode",
             function,
         )?;
         function.instruction(&Instruction::LocalGet(value_payload_local));
@@ -1218,6 +1352,22 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        let adjusted_year_local = self.reserve_temp_local();
+        let era_local = self.reserve_temp_local();
+        let month_index_local = self.reserve_temp_local();
+        let days_local = self.reserve_temp_local();
+        let seconds_local = self.reserve_temp_local();
+        let subsecond_local = self.reserve_temp_local();
+        self.emit_temporal_days_from_civil(
+            year_local,
+            month_local,
+            day_local,
+            adjusted_year_local,
+            era_local,
+            month_index_local,
+            days_local,
+            function,
+        );
         let time_zone_offset_seconds_local = self.reserve_temp_local();
         let offset_seconds_local = self.reserve_temp_local();
         let selected_offset_seconds_local = self.reserve_temp_local();
@@ -1235,6 +1385,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_fixed_time_zone_offset_seconds(
             offset_payload_local,
             offset_seconds_local,
+            function,
+        )?;
+        self.emit_temporal_zoned_date_time_offset_date_range(
+            days_local,
+            offset_option_local,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(offset_option_local));
@@ -1261,22 +1416,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        let adjusted_year_local = self.reserve_temp_local();
-        let era_local = self.reserve_temp_local();
-        let month_index_local = self.reserve_temp_local();
-        let days_local = self.reserve_temp_local();
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
-        self.emit_temporal_days_from_civil(
-            year_local,
-            month_local,
-            day_local,
-            adjusted_year_local,
-            era_local,
-            month_index_local,
-            days_local,
-            function,
-        );
         function.instruction(&Instruction::LocalGet(days_local));
         function.instruction(&Instruction::I64Const(SECONDS_PER_DAY));
         function.instruction(&Instruction::I64Mul);
@@ -1334,15 +1473,15 @@ impl<'a> FunctionBuilder<'a> {
         )?;
 
         for local in [
+            selected_offset_seconds_local,
+            offset_seconds_local,
+            time_zone_offset_seconds_local,
             subsecond_local,
             seconds_local,
             days_local,
             month_index_local,
             era_local,
             adjusted_year_local,
-            selected_offset_seconds_local,
-            offset_seconds_local,
-            time_zone_offset_seconds_local,
             year_local,
             second_local,
             offset_present_local,
@@ -1780,6 +1919,35 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_string_payload(value_payload_local, value_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(value_payload_local));
         self.emit_return_current_completion_if_throw(function);
+        Ok(())
+    }
+
+    fn emit_temporal_zoned_date_time_offset_date_range(
+        &mut self,
+        days_local: u32,
+        offset_option_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // Explicit offsets with prefer/reject check the original ISO date.
+        // Use/ignore instead check the date after applying the selected offset.
+        function.instruction(&Instruction::LocalGet(offset_option_local));
+        function.instruction(&Instruction::I64Const(OffsetOption::Prefer.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(offset_option_local));
+        function.instruction(&Instruction::I64Const(OffsetOption::Reject.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(days_local));
+        function.instruction(&Instruction::I64Const(-100_000_000));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::LocalGet(days_local));
+        function.instruction(&Instruction::I64Const(100_000_000));
+        function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_temporal_instant_range_error(function)?;
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
@@ -2519,7 +2687,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_temporal_format_fixed_time_zone_offset(
+    pub(super) fn emit_temporal_format_fixed_time_zone_offset(
         &mut self,
         offset_seconds_local: u32,
         output_payload_local: u32,
@@ -2677,7 +2845,7 @@ impl<'a> FunctionBuilder<'a> {
     /// a plain non-negative `i64` nanosecond count inside the millisecond.
     /// Callers that want integers must reinterpret and truncate.
     #[allow(clippy::too_many_arguments)]
-    fn emit_temporal_zoned_date_time_local_components(
+    pub(super) fn emit_temporal_zoned_date_time_local_components(
         &mut self,
         record_local: u32,
         nanoseconds_payload_local: u32,
@@ -2844,6 +3012,93 @@ impl<'a> FunctionBuilder<'a> {
         // must state both what it emits and how it delivered it, in the same
         // place.
         let delivery = match field {
+            ZonedDateTimeField::DayOfWeek => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DayOfWeek,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::DayOfYear => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DayOfYear,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::WeekOfYear => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::WeekOfYear,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::YearOfWeek => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::YearOfWeek,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::DaysInWeek => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DaysInWeek,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::DaysInMonth => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DaysInMonth,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::DaysInYear => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::DaysInYear,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::MonthsInYear => {
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::MonthsInYear,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
+            }
+            ZonedDateTimeField::InLeapYear => {
+                let year_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(year_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::I64TruncF64S);
+                function.instruction(&Instruction::LocalSet(year_local));
+                self.emit_temporal_iso_year_is_leap_i32(year_local, function);
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                self.release_temp_local(year_local);
+                ZdtFieldResult::WrittenByCallee
+            }
+
             ZonedDateTimeField::Year => {
                 function.instruction(&Instruction::LocalGet(year_payload_local));
                 ZdtFieldResult::NumberOnStack
@@ -2967,6 +3222,71 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(local);
         }
         Ok(())
+    }
+
+    fn emit_temporal_zoned_date_time_calendar_numeric_field(
+        &mut self,
+        field: ZonedDateTimeCalendarField,
+        record_local: u32,
+        date_payload_locals: [u32; 3],
+        function: &mut Function,
+    ) {
+        let date_locals = [
+            self.reserve_temp_local(),
+            self.reserve_temp_local(),
+            self.reserve_temp_local(),
+        ];
+        let value_local = self.reserve_temp_local();
+        for (payload_local, local) in date_payload_locals.into_iter().zip(date_locals) {
+            function.instruction(&Instruction::LocalGet(payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::I64TruncF64S);
+            function.instruction(&Instruction::LocalSet(local));
+        }
+        function.instruction(&Instruction::LocalGet(date_locals[1]));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(date_locals[1]));
+        self.emit_temporal_plain_date_numeric_field(
+            field.date_accessor(),
+            date_locals[0],
+            date_locals[1],
+            date_locals[2],
+            value_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        if matches!(
+            field,
+            ZonedDateTimeCalendarField::WeekOfYear | ZonedDateTimeCalendarField::YearOfWeek
+        ) {
+            self.load_i64_to_local_from_offset(
+                record_local,
+                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+                value_local,
+                function,
+            );
+            // Calendar canonicalization stores these interned payloads. Gregory
+            // has no single week-year convention; ISO defines ISOWeekOfYear.
+            function.instruction(&Instruction::LocalGet(value_local));
+            function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(self.result_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            function.instruction(&Instruction::End);
+        }
+        self.release_temp_local(value_local);
+        for local in date_locals.into_iter().rev() {
+            self.release_temp_local(local);
+        }
     }
 
     /// `era` / `eraYear` for a `Temporal.ZonedDateTime`, from the receiver's
@@ -4541,6 +4861,16 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
 
+        self.emit_temporal_days_from_civil(
+            year_local,
+            month_local,
+            day_local,
+            adjusted_year_local,
+            era_local,
+            month_index_local,
+            days_local,
+            function,
+        );
         if let TemporalIsoParseGoal::ZonedDateTime {
             offset_option_local,
             ..
@@ -4558,6 +4888,11 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(2));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_temporal_zoned_date_time_offset_date_range(
+                days_local,
+                offset_option_local,
+                function,
+            )?;
             function.instruction(&Instruction::LocalGet(selected_offset_seconds_local));
             function.instruction(&Instruction::LocalGet(time_zone_offset_seconds_local));
             function.instruction(&Instruction::I64Eq);
@@ -4602,16 +4937,6 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
-        self.emit_temporal_days_from_civil(
-            year_local,
-            month_local,
-            day_local,
-            adjusted_year_local,
-            era_local,
-            month_index_local,
-            days_local,
-            function,
-        );
         function.instruction(&Instruction::LocalGet(days_local));
         function.instruction(&Instruction::I64Const(SECONDS_PER_DAY));
         function.instruction(&Instruction::I64Mul);
@@ -7173,6 +7498,9 @@ impl<'a> FunctionBuilder<'a> {
         let day_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let calendar_tag_local = self.reserve_temp_local();
+        let partial_field_empty_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(partial_field_empty_local));
 
         function.instruction(&Instruction::LocalGet(0));
         function.instruction(&Instruction::LocalSet(normalized_local));
@@ -7182,7 +7510,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_partial_date_rewrite_string(
             0,
-            TemporalPartialDateRewrite::YearMonth,
+            TemporalPartialDateRewrite::YearMonth {
+                day_empty_out: Some(partial_field_empty_local),
+            },
             normalized_local,
             &mut function,
         )?;
@@ -7191,11 +7521,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        // `None`: this is a calendar *probe*, not `ToTemporalMonthDay`. It
-        // reports the annotation a candidate string carries and its caller
-        // discards a `Throw` completion, so it must not acquire the step (g)
-        // and (k) RangeErrors that depend on `result.[[Year]] is empty`.
-        self.emit_temporal_month_day_rewrite_string(0, normalized_local, None, &mut function)?;
+        self.emit_temporal_month_day_rewrite_string(
+            0,
+            normalized_local,
+            Some(partial_field_empty_local),
+            &mut function,
+        )?;
         function.instruction(&Instruction::End);
 
         self.emit_temporal_parse_plain_date_string(
@@ -7208,11 +7539,31 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         )?;
 
+        // ParseISODateTime rejects non-ISO partial-date annotations before
+        // their omitted field can be replaced by the rewrite's reference date.
+        function.instruction(&Instruction::LocalGet(partial_field_empty_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::LocalGet(calendar_payload_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Invalid Temporal.PlainDate calendar",
+            self.result_local,
+            self.result_tag_local,
+            &mut function,
+        )?;
+        self.emit_return_current_completion(&mut function);
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::LocalGet(calendar_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
+        self.release_temp_local(partial_field_empty_local);
         self.release_temp_local(calendar_tag_local);
         self.release_temp_local(calendar_payload_local);
         self.release_temp_local(day_local);
