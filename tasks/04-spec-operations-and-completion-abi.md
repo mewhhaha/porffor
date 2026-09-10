@@ -151,8 +151,8 @@ statically known BigInt or the runtime-dispatched result of `ToNumeric`. The
 Wasm delta emitter matches those three variants exhaustively; the former
 one-caller static delta emitter and every defensive impossible-kind
 `unreachable!` arm are deleted. The bounded contract is
-`docs/rust-rewrite/contracts/numeric-update-value-kind.md`. This changes no
-coercion, Reference lifecycle, prefix/postfix result, completion route,
+`docs/rust-rewrite/contracts/numeric-update-value-kind.md`. That initial domain
+closure changed no coercion, Reference lifecycle, prefix/postfix result, completion route,
 emitted numeric operation or ABI. The closed-domain target passes `4/4`; the
 four neighboring numeric-update targets pass `21/21`. The ordinary-property,
 script-global nested-update and global-object-environment CLI controls pass
@@ -160,6 +160,16 @@ script-global nested-update and global-object-environment CLI controls pass
 control is not green: Wasmtime rejects its existing 6,630,529-byte generated
 function as too large before execution. The shared
 `cargo xc`, formatting, diff, module-boundary and task-plan checks are green.
+
+The subsequent BigInt update repair replaces wrapping payload-only arithmetic
+with the canonical tagged Add/Sub helper. All Reference consumers retain the
+old numeric pair through PutValue, then return the old pair for postfix or the
+new pair for prefix. Static BigInt updates keep their runtime representation
+tags, and temporary budgets include both pairs and the helper's `1n` operand.
+The `aot_bigint_numeric_updates` target covers standalone updates, inline/heap
+boundaries, property and Super receivers, prepared-eval environments, typed
+array element conversion, and abrupt coercion/Set ordering. The checkpoint
+counts above predate this repair.
 
 The Number half of coercive arithmetic now matches the complete
 `ArithmeticBinaryOp::{Add, Sub, Mul, Div, Mod, Exp}` domain in one exhaustive

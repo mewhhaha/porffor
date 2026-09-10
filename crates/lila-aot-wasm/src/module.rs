@@ -209,6 +209,7 @@ pub(crate) const ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 137;
 pub(crate) const DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX: u32 = 138;
 pub(crate) const DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 139;
 pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX: u32 = 140;
+pub(crate) const REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 141;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
@@ -826,6 +827,10 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "throw_error_constructor_name_heap",
         index: THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "%RegExpStringIteratorPrototype%",
+        index: REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -1158,6 +1163,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ArrayIteratorNext
         | StandardBuiltinId::ArrayIteratorIdentity
         | StandardBuiltinId::StringIteratorNext
+        | StandardBuiltinId::RegExpStringIteratorNext
         | StandardBuiltinId::GeneratorPrototypeNext
         | StandardBuiltinId::GeneratorPrototypeReturn
         | StandardBuiltinId::GeneratorPrototypeThrow

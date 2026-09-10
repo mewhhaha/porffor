@@ -470,6 +470,8 @@ pub const BUILTIN_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID: &str = "$builtin.Array.pro
 pub const BUILTIN_ARRAY_ITERATOR_NEXT_FUNCTION_ID: &str = "$builtin.ArrayIterator.next";
 pub const BUILTIN_ARRAY_ITERATOR_IDENTITY_FUNCTION_ID: &str = "$builtin.ArrayIterator.identity";
 pub const BUILTIN_STRING_ITERATOR_NEXT_FUNCTION_ID: &str = "$builtin.StringIterator.next";
+pub const BUILTIN_REGEXP_STRING_ITERATOR_NEXT_FUNCTION_ID: &str =
+    "$builtin.RegExpStringIterator.next";
 pub const BUILTIN_GENERATOR_PROTOTYPE_NEXT_FUNCTION_ID: &str = "$builtin.Generator.prototype.next";
 pub const BUILTIN_GENERATOR_PROTOTYPE_RETURN_FUNCTION_ID: &str =
     "$builtin.Generator.prototype.return";

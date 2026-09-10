@@ -1090,25 +1090,15 @@ impl<'a> FunctionBuilder<'a> {
         let new_value_tag = self.reserve_temp_local();
         let set_result = self.reserve_temp_local();
 
-        match update.op() {
-            NumericUpdateOp::Increment => self.emit_update_delta_from_locals(
-                NumericUpdateOp::Increment,
-                update.value_kind(),
-                old_value_payload,
-                old_value_tag,
-                function,
-            ),
-            NumericUpdateOp::Decrement => self.emit_update_delta_from_locals(
-                NumericUpdateOp::Decrement,
-                update.value_kind(),
-                old_value_payload,
-                old_value_tag,
-                function,
-            ),
-        }
-        function.instruction(&Instruction::LocalSet(new_value_payload));
-        function.instruction(&Instruction::LocalGet(old_value_tag));
-        function.instruction(&Instruction::LocalSet(new_value_tag));
+        self.emit_numeric_update_to_locals(
+            update.op(),
+            update.value_kind(),
+            old_value_payload,
+            old_value_tag,
+            new_value_payload,
+            new_value_tag,
+            function,
+        )?;
 
         Ok(ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
             base_and_receiver_payload,
@@ -1602,59 +1592,28 @@ impl<'a> FunctionBuilder<'a> {
                     }
                     NumericUpdateValueKind::BigInt => {}
                 }
-                match return_mode {
-                    UpdateReturnMode::Prefix => {
-                        self.emit_update_delta_from_locals(
-                            *op,
-                            *value_kind,
-                            value_local,
-                            tag_local,
-                            function,
-                        );
-                        function.instruction(&Instruction::LocalSet(self.scratch_local));
-                        if *value_kind == NumericUpdateValueKind::Dynamic {
-                            function.instruction(&Instruction::LocalGet(tag_local));
-                        } else {
-                            function.instruction(&Instruction::I64Const(
-                                value_kind.value_kind().tag() as i64,
-                            ));
-                        }
-                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                        self.write_binding_from_locals(
-                            storage,
-                            self.scratch_local,
-                            self.result_tag_local,
-                            function,
-                        );
-                        self.mirror_binding_to_global_object(name, storage, function)?;
-                        function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    }
-                    UpdateReturnMode::Postfix => {
-                        let old_value_local = self.reserve_temp_local();
-                        function.instruction(&Instruction::LocalGet(value_local));
-                        function.instruction(&Instruction::LocalSet(old_value_local));
-                        self.emit_update_delta_from_locals(
-                            *op,
-                            *value_kind,
-                            value_local,
-                            tag_local,
-                            function,
-                        );
-                        function.instruction(&Instruction::LocalSet(value_local));
-                        if *value_kind != NumericUpdateValueKind::Dynamic {
-                            function.instruction(&Instruction::I64Const(
-                                value_kind.value_kind().tag() as i64,
-                            ));
-                            function.instruction(&Instruction::LocalSet(tag_local));
-                        }
-                        self.write_binding_from_locals(storage, value_local, tag_local, function);
-                        self.mirror_binding_to_global_object(name, storage, function)?;
-                        function.instruction(&Instruction::LocalGet(tag_local));
-                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                        function.instruction(&Instruction::LocalGet(old_value_local));
-                        self.release_temp_local(old_value_local);
-                    }
+                let new_value_local = self.reserve_temp_local();
+                let new_tag_local = self.reserve_temp_local();
+                self.emit_numeric_update_to_locals(
+                    *op,
+                    *value_kind,
+                    value_local,
+                    tag_local,
+                    new_value_local,
+                    new_tag_local,
+                    function,
+                )?;
+                self.write_binding_from_locals(storage, new_value_local, new_tag_local, function);
+                self.mirror_binding_to_global_object(name, storage, function)?;
+                let (result_payload, result_tag) = match return_mode {
+                    UpdateReturnMode::Prefix => (new_value_local, new_tag_local),
+                    UpdateReturnMode::Postfix => (value_local, tag_local),
                 };
+                function.instruction(&Instruction::LocalGet(result_tag));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::LocalGet(result_payload));
+                self.release_temp_local(new_tag_local);
+                self.release_temp_local(new_value_local);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
             }
@@ -1798,64 +1757,33 @@ impl<'a> FunctionBuilder<'a> {
                     }
                     NumericUpdateValueKind::BigInt => {}
                 }
-                match return_mode {
-                    UpdateReturnMode::Prefix => {
-                        self.emit_update_delta_from_locals(
-                            *op,
-                            *value_kind,
-                            value_local,
-                            tag_local,
-                            function,
-                        );
-                        function.instruction(&Instruction::LocalSet(value_local));
-                        if *value_kind != NumericUpdateValueKind::Dynamic {
-                            function.instruction(&Instruction::I64Const(
-                                value_kind.value_kind().tag() as i64,
-                            ));
-                            function.instruction(&Instruction::LocalSet(tag_local));
-                        }
-                        self.emit_reference_global_property_write(
-                            name,
-                            value_local,
-                            tag_local,
-                            *strictness,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalGet(tag_local));
-                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                        function.instruction(&Instruction::LocalGet(value_local));
-                    }
-                    UpdateReturnMode::Postfix => {
-                        let old_value_local = self.reserve_temp_local();
-                        function.instruction(&Instruction::LocalGet(value_local));
-                        function.instruction(&Instruction::LocalSet(old_value_local));
-                        self.emit_update_delta_from_locals(
-                            *op,
-                            *value_kind,
-                            value_local,
-                            tag_local,
-                            function,
-                        );
-                        function.instruction(&Instruction::LocalSet(value_local));
-                        if *value_kind != NumericUpdateValueKind::Dynamic {
-                            function.instruction(&Instruction::I64Const(
-                                value_kind.value_kind().tag() as i64,
-                            ));
-                            function.instruction(&Instruction::LocalSet(tag_local));
-                        }
-                        self.emit_reference_global_property_write(
-                            name,
-                            value_local,
-                            tag_local,
-                            *strictness,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalGet(tag_local));
-                        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                        function.instruction(&Instruction::LocalGet(old_value_local));
-                        self.release_temp_local(old_value_local);
-                    }
-                }
+                let new_value_local = self.reserve_temp_local();
+                let new_tag_local = self.reserve_temp_local();
+                self.emit_numeric_update_to_locals(
+                    *op,
+                    *value_kind,
+                    value_local,
+                    tag_local,
+                    new_value_local,
+                    new_tag_local,
+                    function,
+                )?;
+                self.emit_reference_global_property_write(
+                    name,
+                    new_value_local,
+                    new_tag_local,
+                    *strictness,
+                    function,
+                )?;
+                let (result_payload, result_tag) = match return_mode {
+                    UpdateReturnMode::Prefix => (new_value_local, new_tag_local),
+                    UpdateReturnMode::Postfix => (value_local, tag_local),
+                };
+                function.instruction(&Instruction::LocalGet(result_tag));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                function.instruction(&Instruction::LocalGet(result_payload));
+                self.release_temp_local(new_tag_local);
+                self.release_temp_local(new_value_local);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
             }

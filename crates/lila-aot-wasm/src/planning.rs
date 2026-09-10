@@ -93,6 +93,41 @@ mod tests {
     }
 
     #[test]
+    fn numeric_updates_keep_runtime_tags_and_both_value_pairs_live() {
+        let script = lower_script("let value = 9223372036854775807n; ++value;");
+        let Some(StatementIr::Expression(update)) = script.body.statements.last() else {
+            panic!("numeric update must remain the script result");
+        };
+        assert!(matches!(
+            update.expr,
+            ExprIr::UpdateIdentifier {
+                value_kind: NumericUpdateValueKind::BigInt,
+                ..
+            }
+        ));
+        assert_eq!(update.possible_kinds, KindSet::from_kind(ValueKind::BigInt));
+        assert!(expr_result_tag_is_runtime_dynamic(&update.expr));
+        assert_eq!(
+            count_expr_temp_locals(update),
+            4 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
+        );
+
+        const DEPTH: usize = 1010;
+        let expression = (0..DEPTH).fold(update.clone(), |value, _| {
+            TypedExpr::from_info(
+                value.value_info(),
+                ExprIr::AssignIdentifier {
+                    name: "published".to_string(),
+                    value: Box::new(value),
+                },
+            )
+        });
+        let expected = DEPTH * 2 + 4 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
+        assert!(expected > 2048);
+        assert_eq!(count_expr_temp_locals(&expression), expected);
+    }
+
+    #[test]
     fn global_identifier_reads_preserve_runtime_tags_despite_static_bigint_inference() {
         let script = lower_script("var value = 9223372036854775808n; value;");
         let Some(StatementIr::Expression(read)) = script.body.statements.last() else {
@@ -1800,6 +1835,14 @@ impl RuntimeBootstrapPlan {
                 self.require_standard_builtin(dependency);
             }
         }
+        if matches!(
+            builtin,
+            StandardBuiltinId::RegExpConstructor
+                | StandardBuiltinId::StringPrototypeMatchAll
+                | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
+        ) {
+            self.require_standard_builtin(StandardBuiltinId::RegExpStringIteratorNext);
+        }
         if builtin == StandardBuiltinId::AsyncIteratorPrototypeAsyncDispose {
             for dependency in [
                 StandardBuiltinId::AsyncIteratorPrototypeAsyncDisposeFulfilled,
@@ -3140,6 +3183,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::RegExpPrototypeToString
             | StandardBuiltinId::RegExpPrototypeSymbolMatch
             | StandardBuiltinId::RegExpPrototypeSymbolMatchAll
+            | StandardBuiltinId::RegExpStringIteratorNext
             | StandardBuiltinId::RegExpPrototypeSymbolReplace
             | StandardBuiltinId::RegExpPrototypeSymbolSearch
             | StandardBuiltinId::RegExpPrototypeSymbolSplit => {
@@ -4530,6 +4574,7 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
         return false;
     }
     if (builtin == StandardBuiltinId::RegExpPrototypeExec
+        || builtin == StandardBuiltinId::RegExpStringIteratorNext
         || builtin == StandardBuiltinId::RegExpPrototypeSymbolMatch
         || builtin == StandardBuiltinId::RegExpPrototypeSymbolMatchAll
         || builtin == StandardBuiltinId::RegExpPrototypeSymbolReplace
@@ -5265,7 +5310,8 @@ pub(crate) fn optimized_call_method_references_function(
     }
     if name == "next" {
         return StandardBuiltinId::ArrayIteratorNext.function_id() == *target
-            || StandardBuiltinId::StringIteratorNext.function_id() == *target;
+            || StandardBuiltinId::StringIteratorNext.function_id() == *target
+            || StandardBuiltinId::RegExpStringIteratorNext.function_id() == *target;
     }
     let builtin = match name.as_str() {
         "join" => StandardBuiltinId::ArrayPrototypeJoin,
@@ -6384,6 +6430,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ArrayIteratorNext => 0,
         StandardBuiltinId::ArrayIteratorIdentity => 0,
         StandardBuiltinId::StringIteratorNext => 0,
+        StandardBuiltinId::RegExpStringIteratorNext => 0,
         StandardBuiltinId::GeneratorPrototypeNext
         | StandardBuiltinId::GeneratorPrototypeReturn
         | StandardBuiltinId::GeneratorPrototypeThrow
@@ -7019,11 +7066,11 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         | ExprIr::UnaryMinusNumeric { .. }
         | ExprIr::UnaryBitwiseNumeric { .. } => true,
         ExprIr::UpdateIdentifier {
-            value_kind: NumericUpdateValueKind::Dynamic,
+            value_kind: NumericUpdateValueKind::BigInt | NumericUpdateValueKind::Dynamic,
             ..
         }
         | ExprIr::GlobalPropertyUpdate {
-            value_kind: NumericUpdateValueKind::Dynamic,
+            value_kind: NumericUpdateValueKind::BigInt | NumericUpdateValueKind::Dynamic,
             ..
         }
         | ExprIr::This
@@ -7055,14 +7102,14 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         } => true,
         ExprIr::SuperPropertyMutation(mutation) => match mutation.operation() {
             SuperPropertyMutationOperationIr::NumericUpdate { value_kind, .. } => {
-                *value_kind == NumericUpdateValueKind::Dynamic
+                *value_kind != NumericUpdateValueKind::Number
             }
             SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
                 expr_result_tag_is_runtime_dynamic(&result.expr)
             }
         },
         ExprIr::OrdinaryPropertyNumericUpdate(update) => {
-            update.value_kind() == NumericUpdateValueKind::Dynamic
+            update.value_kind() != NumericUpdateValueKind::Number
         }
         ExprIr::OrdinaryPropertyAssignment(assignment) => {
             expr_result_tag_is_runtime_dynamic(&assignment.rhs().expr)
@@ -7762,6 +7809,14 @@ const GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS: usize = 2 + 4 + 3 + 1 + 4 + 3 + 12
 // flags, twelve array named-property locals and six buffer-growth locals.
 const COERCIVE_NUMERIC_ERROR_TEMP_LOCALS: usize = 4 + 3 + 12 + 6;
 
+// The canonical BigInt delta retains the payload/tag pair for 1n. Number-only
+// updates need no helper locals; this phase cannot exceed the tagged pair.
+const NUMERIC_UPDATE_DELTA_TEMP_LOCALS: usize = 2;
+// The widest checked global PutValue branch holds four write locals, three
+// lexical-write locals and one lexical-read local across an error allocation.
+const GLOBAL_PROPERTY_UPDATE_WRITE_TEMP_LOCALS: usize =
+    4 + 3 + 1 + COERCIVE_NUMERIC_ERROR_TEMP_LOCALS;
+
 // Four captured-completion locals, seven disposal-walker locals, and the same
 // 64-local indirect-call allowance used by `ExprIr::CallIndirect` below. The
 // phases do not overlap initializer/body child temporaries, so their maximum
@@ -7946,7 +8001,9 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     operation: EnvironmentCompoundOperationIr::Add,
                     ..
                 } => (10 + operands).max(96),
-                EnvironmentIdentifierOperationIr::Update { .. } => 1 + operands.max(64),
+                EnvironmentIdentifierOperationIr::Update { .. } => {
+                    2 + operands.max(64).max(NUMERIC_UPDATE_DELTA_TEMP_LOCALS)
+                }
                 EnvironmentIdentifierOperationIr::Read
                 | EnvironmentIdentifierOperationIr::Typeof
                 | EnvironmentIdentifierOperationIr::Assign { .. }
@@ -7978,17 +8035,11 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::GlobalPropertyWrite { value, .. } => {
             count_expr_temp_locals(value).max(12) + REFERENCE_STRICTNESS_FLAG_LOCALS
         }
-        // These two additionally moved their write-back from the *unchecked*
-        // `emit_global_property_write` (3 temps) to
-        // `emit_global_property_write_checked` (4: it also holds
-        // `has_property_local` for PutValue 2.a's presence test), so their base
-        // is one higher than it was as well.
-        ExprIr::GlobalPropertyUpdate { return_mode, .. } => {
-            let base = match return_mode {
-                UpdateReturnMode::Prefix => 13,
-                UpdateReturnMode::Postfix => 14,
-            };
-            base + REFERENCE_STRICTNESS_FLAG_LOCALS
+        // Both numeric pairs survive the checked PutValue. Its lexical-error
+        // branch is wider than the delta helper's temporary 1n pair.
+        ExprIr::GlobalPropertyUpdate { .. } => {
+            4 + NUMERIC_UPDATE_DELTA_TEMP_LOCALS
+                .max(REFERENCE_STRICTNESS_FLAG_LOCALS + GLOBAL_PROPERTY_UPDATE_WRITE_TEMP_LOCALS)
         }
         ExprIr::GlobalPropertyCompoundAssign { value, .. } => {
             count_expr_temp_locals(value).max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
@@ -8169,6 +8220,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     .max(to_numeric_temps);
             let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
                 + ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS
+                    .max(NUMERIC_UPDATE_DELTA_TEMP_LOCALS)
                     .max(ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS);
             read_phase.max(write_phase)
         }
@@ -8193,10 +8245,9 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         }
         ExprIr::DeleteIdentifier { .. } => 0,
         ExprIr::DeleteGlobalProperty { .. } => 12,
-        ExprIr::UpdateIdentifier { return_mode, .. } => match return_mode {
-            UpdateReturnMode::Prefix => 2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS,
-            UpdateReturnMode::Postfix => 3 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS,
-        },
+        ExprIr::UpdateIdentifier { .. } => {
+            4 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS.max(NUMERIC_UPDATE_DELTA_TEMP_LOCALS)
+        }
         ExprIr::CompoundAssignIdentifier { op, value, .. } => {
             let child = count_expr_temp_locals(value);
             let operation = if matches!(op, ArithmeticBinaryOp::Add) {
@@ -8753,7 +8804,9 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 }
             };
             let operation_child = match mutation.operation() {
-                SuperPropertyMutationOperationIr::NumericUpdate { .. } => 0,
+                SuperPropertyMutationOperationIr::NumericUpdate { .. } => {
+                    NUMERIC_UPDATE_DELTA_TEMP_LOCALS
+                }
                 SuperPropertyMutationOperationIr::EagerCompound { result, .. } => {
                     count_expr_temp_locals(result)
                 }

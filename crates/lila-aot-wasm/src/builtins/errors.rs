@@ -1,4 +1,5 @@
 use super::super::*;
+use super::standard::ActiveStandardBuiltinFunction;
 use crate::functions::{
     ErrorMessageConstructorKind, FunctionRealmRevokedRoute, NewTargetPrototypeFallback,
     OrdinaryDefaultPrototype,
@@ -82,6 +83,10 @@ impl<'a> FunctionBuilder<'a> {
             }
             ErrorBuiltin::Constructor(error_kind) => match error_kind {
                 NativeErrorKind::AggregateError => {
+                    self.emit_normalize_undefined_new_target_to_active_standard_builtin(
+                        ActiveStandardBuiltinFunction::AggregateErrorConstructor,
+                        function,
+                    );
                     let errors_arg_payload_local = self.reserve_temp_local();
                     let errors_arg_tag_local = self.reserve_temp_local();
                     let message_arg_payload_local = self.reserve_temp_local();
@@ -132,6 +137,10 @@ impl<'a> FunctionBuilder<'a> {
                     return Ok(());
                 }
                 NativeErrorKind::SuppressedError => {
+                    self.emit_normalize_undefined_new_target_to_active_standard_builtin(
+                        ActiveStandardBuiltinFunction::SuppressedErrorConstructor,
+                        function,
+                    );
                     let error_arg_payload_local = self.reserve_temp_local();
                     let error_arg_tag_local = self.reserve_temp_local();
                     let suppressed_arg_payload_local = self.reserve_temp_local();
@@ -158,12 +167,17 @@ impl<'a> FunctionBuilder<'a> {
                         message_arg_tag_local,
                         function,
                     );
-                    self.emit_error_new_target_prototype_to_local(
+                    let prototype_tag_local = self.reserve_temp_local();
+                    self.emit_new_target_prototype_to_locals(
                         SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
-                        Some(HEAP_FUNCTION_REALM_SUPPRESSED_ERROR_PROTOTYPE_OFFSET),
+                        NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
+                            OrdinaryDefaultPrototype::SuppressedError,
+                        ),
                         prototype_payload_local,
+                        prototype_tag_local,
                         function,
                     )?;
+                    self.release_temp_local(prototype_tag_local);
                     function.instruction(&Instruction::LocalGet(message_arg_tag_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                     function.instruction(&Instruction::I64Eq);

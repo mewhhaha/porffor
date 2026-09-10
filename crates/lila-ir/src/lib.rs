@@ -1995,8 +1995,7 @@ mod tests {
         assert!(
             matches!(
                 value.expr,
-                ExprIr::Identifier(ref value_name)
-                    | ExprIr::GlobalPropertyRead { name: ref value_name }
+                ExprIr::GlobalIdentifierRead { name: ref value_name }
                     if value_name == "b"
             ),
             "expected materialized source receiver b: {value:?}"
@@ -2096,7 +2095,7 @@ mod tests {
                 ExprIr::String(name) if name == "push"
             ) || matches!(
                 &operands[1].expr,
-                ExprIr::GlobalPropertyRead { name } if name == "key"
+                ExprIr::GlobalIdentifierRead { name } if name == "key"
             ),
             "unexpected key operand: {:?}",
             operands[1]
@@ -3654,7 +3653,7 @@ mod tests {
         assert!(temporary_name.starts_with("$destructure.internal."));
         assert!(matches!(
             init.expr,
-            ExprIr::Identifier(ref name) | ExprIr::GlobalPropertyRead { ref name }
+            ExprIr::GlobalIdentifierRead { ref name }
                 if name == "receiver"
         ));
 
@@ -14403,7 +14402,7 @@ invoke();
 
     #[test]
     fn pure_exact_source_candidates_preserve_a_later_receiver_shape() {
-        let source = "class A extends Array { join() { return 'custom join'; } } const a = new A(); function left() { return 1; } function right() { return 2; } const candidate = unknown ? left : right; candidate(); a.join();";
+        let source = "class A extends Array { join() { return 'custom join'; } } const left = function () { return 1; }; const right = function () { return 2; }; const candidate = unknown ? left : right; const a = new A(); candidate(); a.join();";
         let program = lower_script(source);
         assert!(
             program.is_wasm_supported(),
@@ -14416,6 +14415,23 @@ invoke();
         };
 
         assert_eq!(call.kind, ValueKind::String, "{call:?}");
+    }
+
+    #[test]
+    fn mutable_global_candidates_invalidate_a_later_receiver_shape() {
+        let source = "class A extends Array { join() { return 'custom join'; } } const a = new A(); function left() { return 1; } function right() { return 2; } const candidate = unknown ? left : right; candidate(); a.join();";
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        let StatementIr::Expression(call) = script.body.statements.last().unwrap() else {
+            panic!("expected the call after the mutable global candidates");
+        };
+
+        assert_eq!(call.kind, ValueKind::Dynamic, "{call:?}");
     }
 
     #[test]

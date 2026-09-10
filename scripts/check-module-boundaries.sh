@@ -6649,13 +6649,13 @@ ordinary_default_prototype_domain="$(sed -n '/^pub(crate) enum OrdinaryDefaultPr
 require_text_regex_count \
   "$ordinary_default_prototype_domain" \
   '^[[:space:]]{4}([[:alnum:]]+|MessageError\(ErrorMessageConstructorKind\)),[[:space:]]*$' \
-  11 \
+  12 \
   'complete ordinary default-prototype domain'
 ordinary_default_prototype_offsets="$(sed -n '/^impl OrdinaryDefaultPrototype {$/,/^}$/p' "$wasm_required_resolved_realm_ordinary_prototype")"
 if grep -Eq '(^|[^[:alnum:]])_[[:space:]]*=>' <<<"$ordinary_default_prototype_offsets"; then
   fail "$wasm_required_resolved_realm_ordinary_prototype must map every ordinary default prototype exhaustively"
 fi
-for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError; do
+for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError; do
   require_text_regex_count \
     "$ordinary_default_prototype_offsets" \
     "Self::${ordinary_default_prototype_variant}(\\(kind\\))?[[:space:]]*=>" \

@@ -65,7 +65,7 @@ fn every_numeric_update_ir_carrier_stores_the_closed_kind() {
 fn backend_consumers_are_exhaustive_and_have_no_impossible_kind_branch() {
     let delta = bounded(
         BACKEND_OPERATIONS_SOURCE,
-        "pub(crate) fn emit_update_delta_from_locals(",
+        "pub(crate) fn emit_numeric_update_to_locals(",
         "pub(crate) fn compile_truthy_i32(",
     );
     for variant in ["Number", "BigInt", "Dynamic"] {
@@ -78,6 +78,20 @@ fn backend_consumers_are_exhaustive_and_have_no_impossible_kind_branch() {
     }
     assert!(!delta.contains("unreachable!"));
     assert!(!delta.contains("_ =>"));
+    assert!(delta.contains("self.emit_is_bigint_tag_i32(old_tag_local, function)"));
+    assert_eq!(
+        delta
+            .matches("self.emit_bigint_binary_op_to_locals(")
+            .count(),
+        1
+    );
+    assert!(delta.contains("NumericUpdateOp::Increment => BigIntHelperOp::Add"));
+    assert!(delta.contains("NumericUpdateOp::Decrement => BigIntHelperOp::Sub"));
+    assert!(delta.contains("new_payload_local,"));
+    assert!(delta.contains("new_tag_local,"));
+    assert!(!delta.contains("Instruction::I64Add"));
+    assert!(!delta.contains("Instruction::I64Sub"));
+    assert!(!BACKEND_OPERATIONS_SOURCE.contains("fn emit_update_delta_from_locals("));
     assert!(!BACKEND_OPERATIONS_SOURCE.contains("fn emit_update_delta("));
 
     for source in [

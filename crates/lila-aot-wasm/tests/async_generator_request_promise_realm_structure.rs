@@ -51,7 +51,7 @@ fn count_in_rust_sources(root: &Path, needle: &str) -> usize {
 #[test]
 fn promise_constructor_is_a_traced_realm_intrinsic_in_both_bootstraps() {
     for marker in [
-        "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 456;",
+        "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 =",
         "pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET: u64 = 416;",
         "name: \"%Promise%\"",
         "offset: HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET",

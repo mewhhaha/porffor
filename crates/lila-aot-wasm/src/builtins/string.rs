@@ -1647,6 +1647,107 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_validate_regexp_flags(
+        &mut self,
+        flags_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let offset_local = self.reserve_temp_local();
+        let length_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let bit_local = self.reserve_temp_local();
+        let seen_local = self.reserve_temp_local();
+        self.emit_unpack_string_payload(flags_payload_local, offset_local, length_local, function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(seen_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(length_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_load_string_byte(offset_local, index_local, byte_local, function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(bit_local));
+        for (index, flag) in b"dgimsuvy".iter().enumerate() {
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const(i64::from(*flag)));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(1 << index));
+            function.instruction(&Instruction::LocalSet(bit_local));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(bit_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_error(
+            SYNTAX_ERROR_NAME,
+            "invalid regular-expression flag",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(seen_local));
+        function.instruction(&Instruction::LocalGet(bit_local));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_error(
+            SYNTAX_ERROR_NAME,
+            "duplicate regular-expression flag",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(seen_local));
+        function.instruction(&Instruction::LocalGet(bit_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(seen_local));
+        const UNICODE_MODES: i64 = (1 << 5) | (1 << 6);
+        function.instruction(&Instruction::LocalGet(seen_local));
+        function.instruction(&Instruction::I64Const(UNICODE_MODES));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(UNICODE_MODES));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_error(
+            SYNTAX_ERROR_NAME,
+            "invalid regular-expression flag",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        for local in [
+            seen_local,
+            bit_local,
+            byte_local,
+            index_local,
+            length_local,
+            offset_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
     pub(crate) fn emit_regexp_prototype_compile_builtin(
         &mut self,
         function: &mut Function,
@@ -1672,12 +1773,6 @@ impl<'a> FunctionBuilder<'a> {
         let receiver_prototype_local = self.reserve_temp_local();
         let defining_realm_local = self.reserve_temp_local();
         let expected_prototype_local = self.reserve_temp_local();
-        let flags_offset_local = self.reserve_temp_local();
-        let flags_length_local = self.reserve_temp_local();
-        let flag_index_local = self.reserve_temp_local();
-        let prior_flag_index_local = self.reserve_temp_local();
-        let flag_byte_local = self.reserve_temp_local();
-        let prior_flag_byte_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
         let zero_payload_local = self.reserve_temp_local();
         let zero_tag_local = self.reserve_temp_local();
@@ -1794,89 +1889,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::End);
 
-        self.emit_unpack_string_payload(
-            flags_payload_local,
-            flags_offset_local,
-            flags_length_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(flag_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(flag_index_local));
-        function.instruction(&Instruction::LocalGet(flags_length_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(flags_offset_local));
-        function.instruction(&Instruction::LocalGet(flag_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(flag_byte_local));
-        for (index, flag) in b"dgimsuvy".iter().enumerate() {
-            function.instruction(&Instruction::LocalGet(flag_byte_local));
-            function.instruction(&Instruction::I64Const(i64::from(*flag)));
-            function.instruction(&Instruction::I64Eq);
-            if index != 0 {
-                function.instruction(&Instruction::I32Or);
-            }
-        }
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            SYNTAX_ERROR_NAME,
-            "invalid regular-expression flag",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(prior_flag_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(prior_flag_index_local));
-        function.instruction(&Instruction::LocalGet(flag_index_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(flags_offset_local));
-        function.instruction(&Instruction::LocalGet(prior_flag_index_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(prior_flag_byte_local));
-        function.instruction(&Instruction::LocalGet(prior_flag_byte_local));
-        function.instruction(&Instruction::LocalGet(flag_byte_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            SYNTAX_ERROR_NAME,
-            "duplicate regular-expression flag",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(prior_flag_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(prior_flag_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(flag_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(flag_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        self.emit_validate_regexp_flags(flags_payload_local, function)?;
 
         function.instruction(&Instruction::LocalGet(pattern_is_regexp_local));
         function.instruction(&Instruction::I64Eqz);
@@ -1948,12 +1961,6 @@ impl<'a> FunctionBuilder<'a> {
             zero_tag_local,
             zero_payload_local,
             key_local,
-            prior_flag_byte_local,
-            flag_byte_local,
-            prior_flag_index_local,
-            flag_index_local,
-            flags_length_local,
-            flags_offset_local,
             expected_prototype_local,
             defining_realm_local,
             receiver_prototype_local,

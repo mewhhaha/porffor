@@ -726,17 +726,20 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_update_delta_from_locals(
-        &self,
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_numeric_update_to_locals(
+        &mut self,
         op: NumericUpdateOp,
         value_kind: NumericUpdateValueKind,
-        value_local: u32,
-        tag_local: u32,
+        old_payload_local: u32,
+        old_tag_local: u32,
+        new_payload_local: u32,
+        new_tag_local: u32,
         function: &mut Function,
-    ) {
+    ) -> Result<(), EmitError> {
         match value_kind {
             NumericUpdateValueKind::Number => {
-                function.instruction(&Instruction::LocalGet(value_local));
+                function.instruction(&Instruction::LocalGet(old_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
                 match op {
@@ -744,38 +747,56 @@ impl<'a> FunctionBuilder<'a> {
                     NumericUpdateOp::Decrement => function.instruction(&Instruction::F64Sub),
                 };
                 function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(new_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(new_tag_local));
+                return Ok(());
             }
             NumericUpdateValueKind::BigInt => {
-                function.instruction(&Instruction::LocalGet(value_local));
-                function.instruction(&Instruction::I64Const(1));
-                match op {
-                    NumericUpdateOp::Increment => function.instruction(&Instruction::I64Add),
-                    NumericUpdateOp::Decrement => function.instruction(&Instruction::I64Sub),
-                };
+                function.instruction(&Instruction::I32Const(1));
             }
             NumericUpdateValueKind::Dynamic => {
-                function.instruction(&Instruction::LocalGet(tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                function.instruction(&Instruction::LocalGet(value_local));
-                function.instruction(&Instruction::I64Const(1));
-                match op {
-                    NumericUpdateOp::Increment => function.instruction(&Instruction::I64Add),
-                    NumericUpdateOp::Decrement => function.instruction(&Instruction::I64Sub),
-                };
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(value_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
-                match op {
-                    NumericUpdateOp::Increment => function.instruction(&Instruction::F64Add),
-                    NumericUpdateOp::Decrement => function.instruction(&Instruction::F64Sub),
-                };
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::End);
+                self.emit_is_bigint_tag_i32(old_tag_local, function);
             }
         }
+        let unit_payload_local = self.reserve_temp_local();
+        let unit_tag_local = self.reserve_temp_local();
+        self.open_frame(ControlFrameKind::If, function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(unit_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+        function.instruction(&Instruction::LocalSet(unit_tag_local));
+        let operation = match op {
+            NumericUpdateOp::Increment => BigIntHelperOp::Add,
+            NumericUpdateOp::Decrement => BigIntHelperOp::Sub,
+        };
+        self.emit_bigint_binary_op_to_locals(
+            operation,
+            old_payload_local,
+            old_tag_local,
+            unit_payload_local,
+            unit_tag_local,
+            new_payload_local,
+            new_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(old_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
+        match op {
+            NumericUpdateOp::Increment => function.instruction(&Instruction::F64Add),
+            NumericUpdateOp::Decrement => function.instruction(&Instruction::F64Sub),
+        };
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(new_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(new_tag_local));
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(unit_tag_local);
+        self.release_temp_local(unit_payload_local);
+        Ok(())
     }
 
     pub(crate) fn compile_truthy_i32(
@@ -5117,7 +5138,20 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64ConvertI64S);
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        let decimal_payload_local = self.reserve_temp_local();
+        // The heap BigInt formatter is exact, and StringToNumber performs the
+        // single binary64 rounding. Primitive dispatch cannot invoke user hooks.
+        self.emit_value_to_string_payload(payload_local, tag_local, function)?;
+        function.instruction(&Instruction::LocalSet(decimal_payload_local));
+        self.emit_string_to_number_payload(decimal_payload_local, function)?;
+        self.release_temp_local(decimal_payload_local);
+        function.instruction(&Instruction::Else);
         self.emit_primitive_to_number_payload(tag_local, payload_local, function)?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -6029,7 +6063,7 @@ impl<'a> FunctionBuilder<'a> {
         let index_local = self.reserve_temp_local();
         let byte_local = self.reserve_temp_local();
         let digit_local = self.reserve_temp_local();
-        let result_local = self.reserve_temp_local();
+        let significand_local = self.reserve_temp_local();
         let saw_digit_local = self.reserve_temp_local();
         let dot_seen_local = self.reserve_temp_local();
         let negative_local = self.reserve_temp_local();
@@ -6039,6 +6073,9 @@ impl<'a> FunctionBuilder<'a> {
         let decimal_start_local = self.reserve_temp_local();
         let decimal_len_local = self.reserve_temp_local();
         let decimal_payload_local = self.reserve_temp_local();
+        let radix_local = self.reserve_temp_local();
+        let radix_scale_local = self.reserve_temp_local();
+        let discarded_nonzero_local = self.reserve_temp_local();
         let output_local = self.reserve_temp_local();
 
         self.emit_unpack_string_payload(string_payload_local, offset_local, len_local, function);
@@ -6161,6 +6198,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(output_local));
         function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(radix_local));
         function.instruction(&Instruction::LocalGet(end_local));
         function.instruction(&Instruction::LocalGet(start_local));
         function.instruction(&Instruction::I64Sub);
@@ -6177,16 +6216,24 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I32Const(b'x' as i32));
-        function.instruction(&Instruction::I32Eq);
-        function.instruction(&Instruction::LocalGet(start_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
-        function.instruction(&Instruction::I32Const(b'X' as i32));
-        function.instruction(&Instruction::I32Eq);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(byte_local));
+        for (lower, upper, radix) in [(b'b', b'B', 2), (b'o', b'O', 8), (b'x', b'X', 16)] {
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const(lower as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::LocalGet(byte_local));
+            function.instruction(&Instruction::I64Const(upper as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I32Or);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(radix));
+            function.instruction(&Instruction::LocalSet(radix_local));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(radix_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I32Const(0));
@@ -6196,9 +6243,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(2));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(start_local));
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(significand_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(discarded_nonzero_local));
+        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::LocalSet(radix_scale_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(saw_digit_local));
         function.instruction(&Instruction::I64Const(0));
@@ -6221,18 +6272,42 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(digit_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::LocalGet(radix_local));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(saw_digit_local));
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(16.0)));
-        function.instruction(&Instruction::F64Mul);
+        // Appending at most four bits below this threshold cannot overflow u64.
+        // Once retained, the integer has guard bits below binary64 precision;
+        // discarded nonzero digits distinguish an exact tie from rounding up.
+        function.instruction(&Instruction::LocalGet(significand_local));
+        function.instruction(&Instruction::I64Const(1_i64 << 57));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(significand_local));
+        function.instruction(&Instruction::LocalGet(radix_local));
+        function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(significand_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(discarded_nonzero_local));
+        function.instruction(&Instruction::LocalGet(digit_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(discarded_nonzero_local));
+        function.instruction(&Instruction::LocalGet(radix_scale_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(radix_local));
         function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::F64Mul);
         function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::LocalSet(radix_scale_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(invalid_local));
@@ -6254,7 +6329,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(result_local));
+        function.instruction(&Instruction::LocalGet(significand_local));
+        function.instruction(&Instruction::LocalGet(discarded_nonzero_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::LocalGet(radix_scale_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Mul);
+        function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(output_local));
         function.instruction(&Instruction::Else);
         self.emit_nan_payload(function);
@@ -6500,6 +6582,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(output_local));
 
         self.release_temp_local(output_local);
+        self.release_temp_local(discarded_nonzero_local);
+        self.release_temp_local(radix_scale_local);
+        self.release_temp_local(radix_local);
         self.release_temp_local(decimal_payload_local);
         self.release_temp_local(decimal_len_local);
         self.release_temp_local(decimal_start_local);
@@ -6509,7 +6594,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(negative_local);
         self.release_temp_local(dot_seen_local);
         self.release_temp_local(saw_digit_local);
-        self.release_temp_local(result_local);
+        self.release_temp_local(significand_local);
         self.release_temp_local(digit_local);
         self.release_temp_local(byte_local);
         self.release_temp_local(index_local);
@@ -9989,7 +10074,7 @@ impl<'a> FunctionBuilder<'a> {
         let search_match_payload_local = self.reserve_temp_local();
         let search_match_tag_local = self.reserve_temp_local();
         let search_match_key_local = self.reserve_temp_local();
-        let search_prototype_local = self.reserve_temp_local();
+        let search_brand_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(search_is_regexp_local));
@@ -10028,12 +10113,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
             search_payload_local,
-            HEAP_PROTOTYPE_OFFSET,
-            search_prototype_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            search_brand_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(search_prototype_local));
-        function.instruction(&Instruction::GlobalGet(REGEXP_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalGet(search_brand_local));
+        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_REGEXP as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(search_is_regexp_local));
@@ -10041,7 +10126,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(search_prototype_local);
+        self.release_temp_local(search_brand_local);
         self.release_temp_local(search_match_key_local);
         self.release_temp_local(search_match_tag_local);
         self.release_temp_local(search_match_payload_local);

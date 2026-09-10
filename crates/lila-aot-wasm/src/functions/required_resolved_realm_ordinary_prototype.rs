@@ -20,6 +20,7 @@ pub(crate) enum OrdinaryDefaultPrototype {
     Promise,
     DisposableStack,
     AggregateError,
+    SuppressedError,
 }
 
 impl OrdinaryDefaultPrototype {
@@ -36,6 +37,7 @@ impl OrdinaryDefaultPrototype {
             Self::Promise => HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
             Self::DisposableStack => HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
             Self::AggregateError => HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+            Self::SuppressedError => HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
         }
     }
 }

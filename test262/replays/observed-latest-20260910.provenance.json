@@ -1,0 +1,22 @@
+{
+  "aggregate_source": "/home/mewhhaha/src/porffor/test262/snapshots/baseline-12g/current-pin-wasm-aot-20260907-c5115bf03-2x1-12g-aggregate-8622785491567939163.json",
+  "aggregate_sha256": "7571e5c1073c778268b6f4b978fc9de63ef1f2c5f2e49c254ee9ce6fabcdc0a6",
+  "total": 39299,
+  "completed_nodes": 302,
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "counts": {
+    "Bug": 1836,
+    "Crash": 740,
+    "NotImplemented": 1119,
+    "Success": 35604
+  },
+  "failures": 3695,
+  "new_failures": 2683,
+  "baseline_commit": "c5115bf03",
+  "compared_origin_main": "9d435d996c8b9f72947007d81467794f8396b3ab",
+  "execution_list": "test262/replays/observed-latest-20260910.executions",
+  "scope": "Completed baseline nodes frozen on 2026-09-10; failures outside the earlier 1,012 identities. These are baseline outcomes, not assertions that every identity still fails origin/main or the PR."
+}

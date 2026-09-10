@@ -2060,6 +2060,7 @@ impl StringPool {
             "</sup>",
             "&quot;",
             "bound ",
+            "RegExp String Iterator",
         ] {
             pool.intern_string(value);
         }

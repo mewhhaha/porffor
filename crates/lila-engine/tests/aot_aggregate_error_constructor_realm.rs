@@ -83,3 +83,22 @@ Object.getPrototypeOf(error) === prototype && caught;
 "#,
     );
 }
+
+#[test]
+fn calls_without_new_use_the_active_foreign_constructor() {
+    assert_aggregate_error(
+        r#"
+var other = __lilaCreateRealm().global;
+var constructor = other.AggregateError;
+var prototype = constructor.prototype;
+other.AggregateError = function replacement() {};
+var direct = constructor([]);
+var called = constructor.call(null, []);
+var applied = constructor.apply(null, [[]]);
+Object.getPrototypeOf(direct) === prototype &&
+  Object.getPrototypeOf(called) === prototype &&
+  Object.getPrototypeOf(applied) === prototype &&
+  prototype !== AggregateError.prototype;
+"#,
+    );
+}

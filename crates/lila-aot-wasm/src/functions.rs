@@ -1,4 +1,5 @@
 use super::*;
+use crate::builtins::ActiveStandardBuiltinFunction;
 use crate::objects::{
     AccessorDescriptorLocals, AccessorGetterLocals, AccessorSetterLocals, TaggedLocals,
 };
@@ -120,6 +121,7 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     SyntaxErrorPrototype,
     URIErrorPrototype,
     AggregateErrorPrototype,
+    SuppressedErrorPrototype,
     PromisePrototype,
     FunctionPrototype,
     PromiseConstructor,
@@ -132,6 +134,7 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     ObjectPrototype,
     ArrayIteratorPrototype,
     StringIteratorPrototype,
+    RegExpStringIteratorPrototype,
     MapIteratorPrototype,
     SetIteratorPrototype,
     IteratorHelperPrototype,
@@ -321,6 +324,9 @@ impl NonArrayRealmIntrinsicSlot {
             Self::SyntaxErrorPrototype => HEAP_REALM_INTRINSICS_SYNTAX_ERROR_PROTOTYPE_OFFSET,
             Self::URIErrorPrototype => HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET,
             Self::AggregateErrorPrototype => HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+            Self::SuppressedErrorPrototype => {
+                HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET
+            }
             Self::PromisePrototype => HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
             Self::FunctionPrototype => HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
             Self::PromiseConstructor => HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
@@ -343,6 +349,9 @@ impl NonArrayRealmIntrinsicSlot {
             Self::ObjectPrototype => HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
             Self::ArrayIteratorPrototype => HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET,
             Self::StringIteratorPrototype => HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET,
+            Self::RegExpStringIteratorPrototype => {
+                HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET
+            }
             Self::MapIteratorPrototype => HEAP_REALM_INTRINSICS_MAP_ITERATOR_PROTOTYPE_OFFSET,
             Self::SetIteratorPrototype => HEAP_REALM_INTRINSICS_SET_ITERATOR_PROTOTYPE_OFFSET,
             Self::IteratorHelperPrototype => HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET,
@@ -4083,6 +4092,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(object_local));
         if meta.host_builtin == Some(HostBuiltinId::RealmEvalScript)
             || meta.standard_builtin == Some(StandardBuiltinId::EvalFunction)
+            || meta
+                .standard_builtin
+                .and_then(ActiveStandardBuiltinFunction::from_builtin)
+                .is_some()
         {
             self.store_i64_local_at_offset(
                 object_local,

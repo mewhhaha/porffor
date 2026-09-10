@@ -277,7 +277,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 312;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 456;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 472;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -712,6 +712,8 @@ pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET: 
 pub(crate) const HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET: u64 = 432;
 pub(crate) const HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET: u64 = 440;
 pub(crate) const HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET: u64 = 448;
+pub(crate) const HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET: u64 = 456;
+pub(crate) const HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET: u64 = 464;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -3566,6 +3568,20 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%SuppressedError.prototype%",
+        offset: HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%RegExpStringIteratorPrototype%",
+        offset: HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -5579,7 +5595,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 456);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 472);
         assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
         assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);

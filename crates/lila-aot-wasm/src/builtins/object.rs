@@ -3488,26 +3488,47 @@ impl<'a> FunctionBuilder<'a> {
                 "unsupported in lila wasm-aot first slice: missing Object.prototype.__proto__ getter receiver",
             )
         })?;
+        let object_payload_local = self.reserve_temp_local();
+        let object_tag_local = self.reserve_temp_local();
+        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Cannot convert undefined or null to object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        self.emit_value_to_current_function_realm_object_locals(
+            receiver_payload_local,
+            receiver_tag_local,
+            object_payload_local,
+            object_tag_local,
+            function,
+        )?;
         if self
             .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
         {
             self.emit_object_get_prototype_of(
-                receiver_payload_local,
-                receiver_tag_local,
+                object_payload_local,
+                object_tag_local,
                 self.result_local,
                 self.result_tag_local,
                 function,
             )?;
         } else {
             self.emit_object_get_prototype_of_without_proxy(
-                receiver_payload_local,
-                receiver_tag_local,
+                object_payload_local,
+                object_tag_local,
                 self.result_local,
                 self.result_tag_local,
                 function,
             )?;
         }
+        self.release_temp_local(object_tag_local);
+        self.release_temp_local(object_payload_local);
         Ok(())
     }
 
@@ -3532,8 +3553,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Object.prototype.__proto__ setter called on null or undefined",
             self.result_local,
             self.result_tag_local,
@@ -3566,8 +3586,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(set_result_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Object.prototype.__proto__ setter could not set prototype",
             self.result_local,
             self.result_tag_local,

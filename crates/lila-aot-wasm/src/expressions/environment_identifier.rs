@@ -77,23 +77,30 @@ impl FunctionBuilder<'_> {
                         return_mode,
                     } => {
                         self.emit_value_to_numeric_locals(value, tag, function)?;
-                        let old = self.reserve_temp_local();
+                        let old_value = self.reserve_temp_local();
+                        let old_tag = self.reserve_temp_local();
                         function.instruction(&Instruction::LocalGet(value));
-                        function.instruction(&Instruction::LocalSet(old));
-                        self.emit_update_delta_from_locals(
+                        function.instruction(&Instruction::LocalSet(old_value));
+                        function.instruction(&Instruction::LocalGet(tag));
+                        function.instruction(&Instruction::LocalSet(old_tag));
+                        self.emit_numeric_update_to_locals(
                             *operation,
                             NumericUpdateValueKind::Dynamic,
+                            old_value,
+                            old_tag,
                             value,
                             tag,
                             function,
-                        );
-                        function.instruction(&Instruction::LocalSet(value));
+                        )?;
                         self.emit_environment_identifier_put(&reference, value, tag, function)?;
                         if *return_mode == UpdateReturnMode::Postfix {
-                            function.instruction(&Instruction::LocalGet(old));
+                            function.instruction(&Instruction::LocalGet(old_value));
                             function.instruction(&Instruction::LocalSet(value));
+                            function.instruction(&Instruction::LocalGet(old_tag));
+                            function.instruction(&Instruction::LocalSet(tag));
                         }
-                        self.release_temp_local(old);
+                        self.release_temp_local(old_tag);
+                        self.release_temp_local(old_value);
                     }
                     Operation::EagerCompound { operation, rhs } => {
                         self.push_scope();

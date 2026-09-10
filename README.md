@@ -44,6 +44,13 @@ replay of those 1,012 recorded failures finished with 994 Success,
 18 NotImplemented, zero Bug and zero Crash; this is a partial failure
 cohort, separate from the published full-suite baseline below.
 
+The [2026-09-10 baseline follow-up](docs/rust-rewrite/latest-baseline-repairs.md)
+compares newly observed failures with freshly fetched `origin/main`. It repairs
+radix-string conversion and rounding, RegExp construction and string-iterator
+identity, Temporal month-code validation order, typed-array Reference reads,
+BigInt numeric updates, and cross-realm error prototypes and accessors. The notes retain the exact replay scope and
+remaining unsupported features and runtime failures.
+
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace

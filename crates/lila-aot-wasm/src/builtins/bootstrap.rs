@@ -1860,6 +1860,55 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn init_regexp_string_iterator_prototype(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let prototype_local = self.reserve_temp_local();
+        let next_meta = self
+            .functions
+            .get(&StandardBuiltinId::RegExpStringIteratorNext.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `RegExp String Iterator.prototype.next`",
+                )
+            })?;
+        function.instruction(&Instruction::GlobalGet(
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        self.emit_object_define_function_data(prototype_local, "next", next_meta, function)?;
+        let key_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(
+            self.strings
+                .property_key_symbol_payload("Symbol.toStringTag"),
+        ));
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("RegExp String Iterator"),
+        ));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_append_data_property_with_flags(
+            prototype_local,
+            key_local,
+            payload_local,
+            tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(key_local);
+        self.release_temp_local(prototype_local);
+        Ok(())
+    }
+
     pub(crate) fn init_map_iterator_prototype(
         &mut self,
         function: &mut Function,
@@ -2631,6 +2680,19 @@ impl<'a> FunctionBuilder<'a> {
             Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_store_current_realm_global_intrinsic(
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::RegExpStringIteratorPrototype,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(ITERATOR_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         function.instruction(&Instruction::GlobalSet(MAP_ITERATOR_PROTOTYPE_GLOBAL_INDEX));
         self.emit_store_current_realm_global_intrinsic(
             MAP_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
@@ -3008,6 +3070,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::SuppressedErrorPrototype,
+            function,
+        );
         function.instruction(&Instruction::GlobalGet(
             SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
         ));
@@ -3348,6 +3415,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.init_array_iterator_prototype(function)?;
         self.init_string_iterator_prototype(function)?;
+        self.init_regexp_string_iterator_prototype(function)?;
         self.init_map_iterator_prototype(function)?;
         self.init_set_iterator_prototype(function)?;
         self.init_generator_prototype(function)?;

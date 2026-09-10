@@ -42,7 +42,7 @@ fn temporal_date_field_read_mode_is_a_closed_four_variant_domain() {
 }
 
 #[test]
-fn temporal_date_field_reader_projects_both_policies_exhaustively() {
+fn temporal_date_field_reader_selects_calendar_policy_and_shares_month_code_validation() {
     let reader = bounded(
         DATE_METHODS_SOURCE,
         "    pub(super) fn emit_temporal_plain_date_read_fields(",
@@ -50,15 +50,22 @@ fn temporal_date_field_reader_projects_both_policies_exhaustively() {
     );
 
     assert!(reader.contains("mode: TemporalDateFieldReadMode,"));
-    assert_eq!(reader.matches("match mode {").count(), 2);
+    assert_eq!(reader.matches("match mode {").count(), 1);
     for variant in [
         "TemporalDateFieldReadMode::DateConversion",
         "TemporalDateFieldReadMode::DateWith",
         "TemporalDateFieldReadMode::MonthDayConversion",
         "TemporalDateFieldReadMode::MonthDayWith",
     ] {
-        assert_eq!(reader.matches(variant).count(), 2, "variant `{variant}`");
+        assert_eq!(reader.matches(variant).count(), 1, "variant `{variant}`");
     }
+    assert_eq!(
+        reader
+            .matches("self.emit_temporal_month_code_string(")
+            .count(),
+        1
+    );
+    assert!(!reader.contains("self.emit_temporal_property_bag_string("));
     assert!(!reader.contains("read_calendar"));
     assert!(!reader.contains("strict_month_code"));
     assert!(!reader.contains(": bool"));

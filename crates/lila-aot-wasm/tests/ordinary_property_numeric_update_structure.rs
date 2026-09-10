@@ -186,7 +186,7 @@ fn lowering_exhaustively_intercepts_simple_updates_before_decomposed_property_ac
     positions_in_order(
         possible_write,
         &[
-            "self.array_prototype_mutated = true;",
+            "self.record_ordinary_property_mutation_authority_effects(",
             "self.possible_ordinary_property_setters(metadata, intervening_user_code);",
             "self.observe_unknown_property_hook(setter);",
             "self.observe_ordinary_property_hook_this(setter, receiver_info.clone());",
@@ -285,14 +285,16 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
         delta,
         &[
             "let ReadOrdinaryPropertyNumericUpdateLocals {",
-            "match update.op() {",
-            "NumericUpdateOp::Increment =>",
-            "NumericUpdateOp::Decrement =>",
-            "Instruction::LocalSet(new_value_payload)",
+            "self.emit_numeric_update_to_locals(",
+            "update.op(),",
+            "update.value_kind(),",
+            "new_value_payload,",
+            "new_value_tag,",
             "Ok(ReadyToWriteOrdinaryPropertyNumericUpdateLocals {",
         ],
     );
     assert!(!delta.contains("_ =>"));
+    assert!(!delta.contains("Instruction::LocalSet(old_value_tag)"));
 
     let put = bounded(
         EXPRESSIONS_SOURCE,
@@ -391,9 +393,24 @@ fn exhaustive_consumers_and_temp_budget_name_each_numeric_update_phase() {
         PLANNING_SOURCE
             .matches("ExprIr::OrdinaryPropertyNumericUpdate(update) =>")
             .count(),
-        7,
+        5,
         "every planning traversal must name the fused update"
     );
+    for owner in [
+        "fn expr_exposes_global_object(",
+        "fn collect_expr_global_property_names(",
+        "fn expr_references_function(",
+        "fn expr_result_tag_is_runtime_dynamic(",
+        "fn count_expr_temp_locals(",
+    ] {
+        assert_eq!(
+            bounded(PLANNING_SOURCE, owner, "\n}\n")
+                .matches("ExprIr::OrdinaryPropertyNumericUpdate(update) =>")
+                .count(),
+            1,
+            "planning owner {owner}",
+        );
+    }
 }
 
 #[test]

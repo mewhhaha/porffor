@@ -326,10 +326,7 @@ impl<'a> ScriptLowerer<'a> {
                     {
                         return_analysis!(Self::boxed_primitive_instance_info(arg.value_info()));
                     }
-                    self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: Object primitive boxing"
-                    ));
-                    None
+                    Some(Self::unknown_construct_result_info())
                 } else {
                     Some(Self::fresh_constructed_instance_info())
                 }
@@ -1342,6 +1339,7 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::ArrayIteratorNext
             | StandardBuiltinId::StringIteratorNext
+            | StandardBuiltinId::RegExpStringIteratorNext
             | StandardBuiltinId::GeneratorPrototypeNext
             | StandardBuiltinId::GeneratorPrototypeReturn
             | StandardBuiltinId::GeneratorPrototypeThrow => Some(ValueInfo {
@@ -1566,13 +1564,10 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::StringPrototypeStartsWith => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
-            StandardBuiltinId::StringPrototypeMatchAll
-            | StandardBuiltinId::RegExpPrototypeSymbolMatchAll => Some(ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Self::array_iterator_instance_shape()),
-                function_targets: FunctionTargetKnowledge::unknown(),
-            }),
+            StandardBuiltinId::StringPrototypeMatchAll => Some(ValueInfo::new(ValueKind::Object)),
+            StandardBuiltinId::RegExpPrototypeSymbolMatchAll => Some(Self::value_info_from_shape(
+                Some(Self::regexp_string_iterator_instance_shape()),
+            )),
             StandardBuiltinId::BooleanConstructor => {
                 if context == BuiltinCallContext::Construct {
                     Some(Self::boxed_primitive_instance_info(ValueInfo::new(

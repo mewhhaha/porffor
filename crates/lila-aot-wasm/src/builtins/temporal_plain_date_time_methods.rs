@@ -794,10 +794,11 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(1));
                     function.instruction(&Instruction::LocalSet(any_present_local));
                     function.instruction(&Instruction::End);
-                    self.emit_temporal_property_bag_string(
+                    self.emit_temporal_month_code_string(
                         value_payload_local,
                         value_tag_local,
                         "Temporal.PlainDate monthCode must be a string",
+                        "Invalid Temporal.PlainDate monthCode",
                         function,
                     )?;
                     function.instruction(&Instruction::LocalGet(value_payload_local));

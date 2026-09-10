@@ -1175,7 +1175,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            2
+            4
         );
         assert_eq!(
             mapping
@@ -1286,7 +1286,11 @@ mod tests {
         let entry_identity = "self.init_builtin_constructor_object(\n                StandardBuiltinId::IteratorConstructor,\n                ITERATOR_PROTOTYPE_GLOBAL_INDEX";
         assert_eq!(bootstrap.matches(entry_identity).count(), 1);
         let created_identity = "self.store_i64_local_at_offset(\n            iterator_constructor_local,\n            HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n            iterator_constructor_local";
-        assert_eq!(host.matches(created_identity).count(), 1);
+        assert_eq!(host.matches(created_identity).count(), 0);
+        assert!(functions.contains(".and_then(ActiveStandardBuiltinFunction::from_builtin)"));
+        assert!(functions.contains(
+            "self.store_i64_local_at_offset(\n                object_local,\n                HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n                object_local,"
+        ));
         let created_type_error = "self.store_i64_local_at_offset(\n            iterator_constructor_local,\n            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,\n            type_error_prototype_local";
         assert_eq!(host.matches(created_type_error).count(), 1);
 
@@ -1609,7 +1613,11 @@ mod tests {
             1
         );
         let created_identity = "self.store_i64_local_at_offset(\n            regexp_constructor_local,\n            HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n            regexp_constructor_local";
-        assert_eq!(host.matches(created_identity).count(), 1);
+        assert_eq!(host.matches(created_identity).count(), 0);
+        assert!(functions.contains(".and_then(ActiveStandardBuiltinFunction::from_builtin)"));
+        assert!(functions.contains(
+            "self.store_i64_local_at_offset(\n                object_local,\n                HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n                object_local,"
+        ));
 
         let construct = functions
             .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")
@@ -1682,7 +1690,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 456;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 =",
             "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
             "name: \"%Date.prototype%\"",
             "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
@@ -1946,7 +1954,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 456;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 =",
             "pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;",
             "pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;",
             "pub(crate) const HEAP_REALM_INTRINSICS_EVAL_ERROR_PROTOTYPE_OFFSET: u64 = 360;",

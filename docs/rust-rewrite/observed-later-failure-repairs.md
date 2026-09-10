@@ -294,11 +294,11 @@ JavaScript parser/interpreter was added. Exact diagnostics, execution modes
 and owner-family evidence are retained in the final cohort and transition
 audits linked above.
 
-## Adjacent issue outside the repair cohorts
+## Adjacent issue at the earlier checkpoint
 
-Foreign `AggregateError` calls without `new` still use the entry realm's
-prototype. This reproducer returns `false`; `.call` and `.apply` have the same
-result:
+At the earlier `37cb9c33...` checkpoint, foreign `AggregateError` calls without
+`new` used the entry realm's prototype. This reproducer returned `false`;
+`.call` and `.apply` had the same result:
 
 ```js
 var other = __lilaCreateRealm().global;
@@ -309,9 +309,13 @@ The owner is `crates/lila-aot-wasm/src/builtins/errors.rs`, specifically
 `emit_aggregate_error_new_target_prototype_to_local` and the undefined-NewTarget
 branch of `emit_new_target_prototype_to_locals`. That branch must use the active
 callee before looking up its prototype. The behavior predates this batch and
-remains unfixed. The original 592-execution cohort contains only the two
+was outside its repaired scope. The original 592-execution cohort contains only the two
 `AggregateError/newtarget-proto-fallback.js` variants; the later 420-execution
 cohort contains no AggregateError cases. The independent reproducer was
 rechecked on the final `37cb9c33...` compiler: direct, call and apply all retain
 the wrong entry-realm prototype. Its transcript is
 `target/failure-review/foreign-aggregate-error-call-final.log`.
+
+The [latest baseline follow-up](latest-baseline-repairs.md) fixes active
+constructor identity centrally and adds direct, call and apply regressions for
+AggregateError and SuppressedError. See that checkpoint for final validation.

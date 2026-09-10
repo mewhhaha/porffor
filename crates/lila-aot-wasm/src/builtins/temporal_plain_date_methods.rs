@@ -157,10 +157,9 @@ impl<'a> FunctionBuilder<'a> {
     /// `order-of-operations.js` pins: `calendar`, then `day`, `era`, `eraYear`,
     /// `month`, `monthCode`, `year`.
     ///
-    /// PlainDate modes leave month-code suitability to
-    /// `emit_temporal_plain_date_resolve_fields`, after the observable
-    /// `GetTemporalOverflowOption`. PlainMonthDay modes perform the earlier
-    /// `ToMonthCode` syntax check required by their field preparation. Era and
+    /// Every mode performs `ToMonthCode` syntax validation during field
+    /// preparation. Month-code suitability remains in the resolve step,
+    /// after the observable `GetTemporalOverflowOption`. Era and
     /// calendar-specific resolution remains in
     /// `emit_temporal_resolve_era_to_year` and the two callers' resolve steps.
     ///
@@ -281,26 +280,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(month_code_present_local));
-        match mode {
-            TemporalDateFieldReadMode::DateConversion | TemporalDateFieldReadMode::DateWith => {
-                self.emit_temporal_property_bag_string(
-                    value_payload_local,
-                    value_tag_local,
-                    "Temporal.PlainDate monthCode must be a string",
-                    function,
-                )?;
-            }
-            TemporalDateFieldReadMode::MonthDayConversion
-            | TemporalDateFieldReadMode::MonthDayWith => {
-                self.emit_temporal_month_code_string(
-                    value_payload_local,
-                    value_tag_local,
-                    "Temporal.PlainDate monthCode must be a string",
-                    "Invalid Temporal.PlainDate monthCode",
-                    function,
-                )?;
-            }
-        }
+        self.emit_temporal_month_code_string(
+            value_payload_local,
+            value_tag_local,
+            "Temporal.PlainDate monthCode must be a string",
+            "Invalid Temporal.PlainDate monthCode",
+            function,
+        )?;
         function.instruction(&Instruction::LocalGet(value_payload_local));
         function.instruction(&Instruction::LocalSet(month_code_payload_local));
 
