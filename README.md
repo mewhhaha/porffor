@@ -62,6 +62,14 @@ All 134 failures are repaired in an audited 346/346 passing pinned replay;
 23 focused Wasmtime regressions also pass. The notes retain this evidence
 separately from the generated full-suite status.
 
+The [ZonedDateTime baseline follow-up](docs/rust-rewrite/zoned-date-time-baseline-follow-up.md)
+compares the next 182 observed failures with merged main: 136 still fail and
+46 already pass. It adds rounding and day operations, PlainDate conversion,
+and exact relative differences for the supported UTC/fixed-offset domain.
+All 49 focused Wasmtime regressions pass; the 408-execution pinned replay and
+broader compiler verification are in progress. This cohort remains separate
+from the published full-suite status.
+
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace

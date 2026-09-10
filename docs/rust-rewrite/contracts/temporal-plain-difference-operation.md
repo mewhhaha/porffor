@@ -7,27 +7,37 @@ Temporal types.
 
 `Temporal.PlainDate`, `Temporal.PlainYearMonth`, `Temporal.PlainTime` and
 `Temporal.PlainDateTime` each have one shared difference emitter for their
-`until` and `since` prototype methods. PlainDateTime already named the
-direction, but the other three emitters received six raw Boolean arguments.
-Those Booleans controlled two correlated decisions inside every emitter:
+`until` and `since` prototype methods. The closed
+`TemporalPlainDifferenceOperation::{Until, Since}` domain owns two correlated
+decisions:
 
 | Operation | Rounding mode | Final duration |
 | --- | --- | --- |
 | `Until` | Use the requested mode directly | Preserve the computed sign |
 | `Since` | Negate the requested mode | Negate the computed result |
 
-All eight standard-builtin producers now construct only
-`TemporalPlainDifferenceOperation::{Until, Since}`. Each of the four emitters
-matches the operation exhaustively for both decisions. The domain is visible
-only within the builtin module tree and has no default, wildcard or Boolean
-projection.
+All eight standard-builtin producers construct this operation directly. The
+domain is visible only within the builtin module tree and has no default,
+wildcard or Boolean projection. PlainDate, PlainYearMonth and PlainTime match
+it exhaustively at their rounding and final-sign decisions.
 
-PlainDateTime maps the operation exhaustively into its existing difference
-settings plan. `TemporalDateTimeDifferenceSettingsPlan::ZonedDelegate` remains
-a distinct internal state: ZonedDateTime passes an unnegated normalized mode to
-the selected PlainDateTime builtin, which still owns the final operation
-direction. Folding that transport state into `Since` would negate the mode
-twice.
+As of 2026-09-10, PlainDateTime maps the operation into
+`TemporalDateTimeDifferenceSettingsPlan::{PlainUntil, PlainSince}`. The shared
+settings reader applies rounding-mode negation once; the direct arithmetic
+consumer `emit_temporal_difference_date_time` owns final-result negation.
+ZonedDateTime selects the corresponding `ZonedUntil` or `ZonedSince` settings
+plan and maps its method direction to the same operation domain. It no longer
+passes an options object to a PlainDateTime difference builtin.
+
+The shared arithmetic lives in `builtins/temporal_difference.rs` and receives
+already converted fields plus a borrowed
+`ResolvedTemporalDateTimeDifferenceSettings` witness. The entry emitter owns
+the four settings locals until arithmetic finishes. A separate closed
+`TemporalDifferenceContext::{Plain, Zoned { offset_seconds_local }}` determines
+calendar-candidate range checks. This keeps operation direction separate from
+the receiver's range rules. The
+[ZonedDateTime difference contract](temporal-zoned-date-time-difference-default.md)
+defines the hour/day fallback and time-zone boundary.
 
 ## Observable witness
 
@@ -44,7 +54,10 @@ The values come from the pinned Test262 `roundingmode-ceil.js` witnesses for
 both methods on all four receiver families. Every assertion identifies the
 receiver and operation whose producer mapping failed.
 
-## Focused verification
+## Current verification requirements
+
+The 2026-09-10 direct-arithmetic batch requires a new native checkpoint. Source
+review and the historical results below do not establish its runtime result.
 
 ```sh
 cargo test -p lila-aot-wasm --test temporal_plain_difference_operation_structure
@@ -56,28 +69,38 @@ cargo fmt --all -- --check
 git diff --check
 ```
 
-The bounded source target owns the exact two-variant domain, four typed
-consumers, two exhaustive decisions per consumer, exact four-plus-four producer
-census and absence of raw operation Booleans. The two neighboring structure
-targets retain the ZonedDateTime settings-plan contract and the arithmetic
-emitter boundaries after the shared type rename.
+The source targets must retain the exact two-variant operation domain, four
+typed plain entry emitters, four-plus-four standard producer census, and
+rounding/final-sign ownership across the shared arithmetic call. The coupled
+ZonedDateTime target must pin all four settings plans and direct witness use,
+including the absence of the retired options transport.
 
-The new structure target passes `3/3`; the updated ZonedDateTime and arithmetic
-targets pass `5/5` and `3/3`; and the exact CLI witness passes `1/1`. The module
-boundary policy, scoped Rust and fixture formatting, scoped diff check and
-`cargo xc` are green.
+## Historical verification: 2026-09-01 checkpoint
 
-The following shared semantic golden passes `2/2` in 697.36 seconds and
-contains 671 dumps. Relative to the preceding 669-dump checkpoint it adds only
+The original operation-domain migration replaced six Boolean call arguments
+in three emitters; PlainDateTime already named its operation. At that
+checkpoint, ZonedDateTime used a separate `ZonedDelegate` settings state and
+passed unnegated settings through an internal options object to the selected
+PlainDateTime builtin. That transport state and its serializers were removed
+by the 2026-09-10 direct-arithmetic batch.
+
+The original structure target passed `3/3`; the then-current ZonedDateTime and
+arithmetic targets passed `5/5` and `3/3`; and the exact CLI witness passed
+`1/1`. The module boundary policy, scoped Rust and fixture formatting, scoped
+diff check and `cargo xc` passed for that checkpoint.
+
+Its shared semantic golden passed `2/2` in 697.36 seconds and
+contained 671 dumps. Relative to the preceding 669-dump checkpoint it added only
 this fixture and the independent `Array.fromAsync` Promise-Realm fixture,
-removes none and leaves all 669 retained dumps equal after accounting
-normalization. This confirms the intended source-equivalent retained output.
+removed none and left all 669 retained dumps equal after accounting
+normalization. This confirmed the intended source-equivalent retained output.
 No Test262 tree was run.
 
-## Deferrals
+## Scope
 
-This closure does not change Temporal difference arithmetic, option access
-order, calendar or time-zone semantics. It does not merge ZonedDateTime's
-operation domain with the plain domain, type the remaining Temporal conversion
-field-reader policies, run the broad Date/Temporal ladder or publish conformance
-status.
+The original domain-only closure did not change arithmetic or observable
+option access. The 2026-09-10 batch does change difference arithmetic and
+ZonedDateTime range/option ordering, so the old source-equivalence result does
+not carry forward to those changes. Neither checkpoint establishes named-zone
+or DST support, completion of the broad Date/Temporal ladder, or a new pinned
+Test262 status publication.
