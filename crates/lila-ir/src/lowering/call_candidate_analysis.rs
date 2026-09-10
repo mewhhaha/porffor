@@ -2,11 +2,6 @@ use super::invocation_effects::{AnalyzedInvocationEffects, InvocationCallerFlowE
 use super::*;
 
 pub(super) enum CallCandidateSource<'a> {
-    DirectSyntax {
-        source_callee: &'a Expression,
-        lowered_callee: &'a TypedExpr,
-        arguments: &'a [Expression],
-    },
     IndirectSyntax(&'a [Expression]),
     AlreadyAccounted,
 }
@@ -14,29 +9,9 @@ pub(super) enum CallCandidateSource<'a> {
 impl<'a> CallCandidateSource<'a> {
     fn arguments(&self) -> Option<&'a [Expression]> {
         match self {
-            Self::DirectSyntax { arguments, .. } | Self::IndirectSyntax(arguments) => {
-                Some(arguments)
-            }
+            Self::IndirectSyntax(arguments) => Some(arguments),
             Self::AlreadyAccounted => None,
         }
-    }
-
-    fn context(
-        &self,
-        lowerer: &ScriptLowerer<'_>,
-        callee: &ValueInfo,
-        function_id: &FunctionId,
-    ) -> BuiltinCallContext {
-        let Self::DirectSyntax {
-            source_callee,
-            lowered_callee,
-            ..
-        } = self
-        else {
-            return BuiltinCallContext::Call;
-        };
-        debug_assert_eq!(lowered_callee.value_info(), *callee);
-        lowerer.resolved_builtin_call_context(source_callee, lowered_callee, function_id)
     }
 }
 
@@ -94,18 +69,15 @@ impl<'a> ScriptLowerer<'a> {
             if !signature.callable {
                 continue;
             }
-            let context = source.context(self, callee, function_id);
-            match self.resolve_dynamic_source_call(
-                function_id,
-                &context,
-                source.arguments(),
-                arguments,
-            ) {
+            match self.resolve_dynamic_source_call(function_id, source.arguments(), arguments) {
                 None => {}
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
-                Some(ResolvedDynamicSourceCall::EmptyFunction(proof)) => {
+                Some(ResolvedDynamicSourceCall::FunctionInvocation(proof)) => {
+                    pass_through_results.insert(function_id.clone(), proof.into_result_info());
+                }
+                Some(ResolvedDynamicSourceCall::CompiledScript(proof)) => {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
                 Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
@@ -361,9 +333,8 @@ impl<'a> ScriptLowerer<'a> {
                         InvocationCallerFlowEffects::may_invalidate(),
                     );
                 }
-                let context = source.context(self, callee, function_id);
                 let Some(candidate_analysis) =
-                    self.standard_builtin_call_info(builtin, arguments, context)
+                    self.standard_builtin_call_info(builtin, arguments, BuiltinCallContext::Call)
                 else {
                     Self::merge_call_candidate_result(
                         self,
@@ -467,17 +438,13 @@ impl<'a> ScriptLowerer<'a> {
             {
                 continue;
             }
-            match self.resolve_dynamic_source_call(
-                function_id,
-                &BuiltinCallContext::Construct,
-                Some(source_arguments),
-                arguments,
-            ) {
+            match self.resolve_dynamic_source_call(function_id, Some(source_arguments), arguments) {
                 None => {}
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(_)) => {
                     unreachable!("the intrinsic eval function is not constructable")
                 }
-                Some(ResolvedDynamicSourceCall::EmptyFunction(_)) => {}
+                Some(ResolvedDynamicSourceCall::FunctionInvocation(_))
+                | Some(ResolvedDynamicSourceCall::CompiledScript(_)) => {}
                 Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
                     self.record_unsupported_dynamic_source(unsupported);
                     rejected_dynamic_source = true;

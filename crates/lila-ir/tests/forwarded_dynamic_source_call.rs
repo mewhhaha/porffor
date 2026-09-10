@@ -1,7 +1,7 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower, DynamicFunctionKind, DynamicSourceGap, DynamicSourceKind, ProgramIr, UnsupportedFeature,
-    ValueKind,
+    lower, DynamicFunctionKind, DynamicSourceGap, DynamicSourceKind, PreparedScriptKind, ProgramIr,
+    UnsupportedFeature, ValueKind,
 };
 
 fn lower_script(source: &str) -> ProgramIr {
@@ -24,12 +24,18 @@ fn dynamic_source_gaps(program: &ProgramIr) -> Vec<DynamicSourceGap> {
 fn intrinsic_call_forwards_aot_known_eval_source_as_indirect_eval() {
     let program = lower_script("eval.call(undefined, 'source');");
 
-    assert_eq!(
-        dynamic_source_gaps(&program),
-        vec![DynamicSourceGap::aot_known_source(
-            DynamicSourceKind::IndirectEval,
-        )]
+    assert!(
+        dynamic_source_gaps(&program).is_empty(),
+        "{:?}",
+        program.diagnostics
     );
+    assert!(program
+        .script
+        .as_ref()
+        .expect("script IR")
+        .prepared_scripts
+        .iter()
+        .any(|prepared| prepared.kind == PreparedScriptKind::IndirectEval));
 }
 
 #[test]
@@ -65,14 +71,21 @@ fn intrinsic_call_forwards_every_function_family_identity() {
         ),
     ] {
         let program = lower_script(source);
-        assert_eq!(
-            dynamic_source_gaps(&program),
-            vec![DynamicSourceGap::aot_known_source(
-                DynamicSourceKind::Function(kind),
-            )],
+        assert!(
+            program.diagnostics.is_empty(),
             "{source}: {:?}",
             program.diagnostics
         );
+        let prepared = &program
+            .script
+            .expect("script IR")
+            .prepared_dynamic_functions;
+        assert_eq!(prepared.len(), 1, "{source}");
+        assert_eq!(prepared[0].kind, kind, "{source}");
+        assert!(matches!(
+            prepared[0].outcome,
+            lila_ir::PreparedDynamicFunctionOutcome::Compiled { .. }
+        ));
     }
 }
 
@@ -102,12 +115,18 @@ fn intrinsic_call_preserves_no_source_eval_result_precision() {
 fn intrinsic_call_keeps_the_receiver_identity_captured_before_arguments() {
     let program = lower_script("eval.call(undefined, 'source', (eval = Math.abs, 0));");
 
-    assert_eq!(
-        dynamic_source_gaps(&program),
-        vec![DynamicSourceGap::aot_known_source(
-            DynamicSourceKind::IndirectEval,
-        )]
+    assert!(
+        dynamic_source_gaps(&program).is_empty(),
+        "{:?}",
+        program.diagnostics
     );
+    assert!(program
+        .script
+        .as_ref()
+        .expect("script IR")
+        .prepared_scripts
+        .iter()
+        .any(|prepared| prepared.kind == PreparedScriptKind::IndirectEval));
 }
 
 #[test]
@@ -115,14 +134,18 @@ fn intrinsic_call_preflights_every_retained_exact_receiver_candidate() {
     let source = "let target = unknown ? eval : Math.abs; target.call(undefined, 'source');";
     let program = lower_script(source);
 
-    assert_eq!(
-        dynamic_source_gaps(&program),
-        vec![DynamicSourceGap::aot_known_source(
-            DynamicSourceKind::IndirectEval,
-        )],
-        "{source}: {:?}",
+    assert!(
+        dynamic_source_gaps(&program).is_empty(),
+        "{:?}",
         program.diagnostics
     );
+    assert!(program
+        .script
+        .as_ref()
+        .expect("script IR")
+        .prepared_scripts
+        .iter()
+        .any(|prepared| prepared.kind == PreparedScriptKind::IndirectEval));
 }
 
 #[test]
@@ -182,6 +205,37 @@ fn replaced_receiver_prototype_does_not_gain_intrinsic_call_authority() {
             dynamic_source_gaps(&program).is_empty(),
             "{source}: {:?}",
             program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn comma_eval_candidates_survive_runtime_named_binding_resolution() {
+    for call in [
+        "(0, eval)('23')",
+        "(0, (1, eval))('23')",
+        "(0, eval).call(undefined, '23')",
+        "(0, eval).apply(undefined, ['23'])",
+        "Reflect.apply((0, eval), undefined, ['23'])",
+    ] {
+        let source = format!("var completion = {call}; eval(''); completion === 23;");
+        let program = lower_script(&source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let prepared = &program.script.expect("Script IR").prepared_scripts;
+        assert!(
+            prepared.iter().any(|entry| entry.source == "23"
+                && entry.kind == PreparedScriptKind::IndirectEval
+                && matches!(entry.outcome, lila_ir::PreparedScriptOutcome::Executable(_))),
+            "comma call lacks its indirect source: {source}"
+        );
+        assert!(
+            !prepared.iter().any(|entry| entry.source == "23"
+                && matches!(entry.kind, PreparedScriptKind::DirectEval(_))),
+            "comma call acquired direct-eval context: {source}"
         );
     }
 }

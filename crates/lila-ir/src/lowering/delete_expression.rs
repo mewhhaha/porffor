@@ -2,6 +2,12 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_delete(&mut self, target: &Expression) -> TypedExpr {
+        if self.uses_runtime_identifier_environment() {
+            if let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(target) {
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                return self.environment_identifier(name, EnvironmentIdentifierOperationIr::Delete);
+            }
+        }
         match target {
             Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
                 if self.is_constructor_prototype_expr(access.target(), ARRAY_NAME) {
@@ -111,10 +117,7 @@ impl<'a> ScriptLowerer<'a> {
                         // successful delete can expose an inherited accessor;
                         // a failed delete cannot be distinguished yet.
                         self.invalidate_ordinary_property_shape_aliases(&target.value_info());
-                        let info = self.lookup_global_property_info(name).cloned();
-                        if info.as_ref().is_none_or(|info| info.configurable) {
-                            self.mark_global_property_deleted(name);
-                        }
+                        self.record_global_property_delete(name);
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::Boolean),
                             ExprIr::DeleteGlobalProperty {
@@ -159,10 +162,21 @@ impl<'a> ScriptLowerer<'a> {
             }
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                if self.is_unshadowed_script_global_binding(&name) {
+                    self.record_global_property_delete(&name);
+                    return TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Boolean),
+                        ExprIr::DeleteGlobalProperty {
+                            name,
+                            strictness: Strictness::Sloppy,
+                        },
+                    );
+                }
                 if name == GLOBAL_THIS_NAME
                     || name == "undefined"
                     || self.lookup_binding(&name).is_some()
-                    || self.visible_function_names.contains_key(&name)
+                    || (self.root_functions_need_body_initialization()
+                        && self.visible_function_names.contains_key(&name))
                     || (name == "arguments"
                         && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some())
                 {
@@ -176,7 +190,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 if let Some(info) = self.lookup_global_property_info(&name).cloned() {
                     if info.proven_present && info.configurable {
-                        self.mark_global_property_deleted(&name);
+                        self.record_global_property_delete(&name);
                         return TypedExpr::from_info(
                             ValueInfo::new(ValueKind::Boolean),
                             // `delete <identifier>` is an early SyntaxError in

@@ -27,14 +27,143 @@ impl<'a> FunctionBuilder<'a> {
         payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let bound_function_local = self.reserve_temp_local();
+        let property_key_local = self.reserve_temp_local();
+        let property_payload_local = self.reserve_temp_local();
+        let property_tag_local = self.reserve_temp_local();
+        let has_length_local = self.reserve_temp_local();
+        let length_local = self.reserve_temp_local();
+        let argument_count_local = self.reserve_temp_local();
+        let name_prefix_local = self.reserve_temp_local();
+
         self.emit_alloc_bound_function_from_exact_source(
             target_payload_local,
             target_tag_local,
             ExactBoundThisSource::BindArgumentZero,
             bound_args_payload_local,
-            payload_local,
+            bound_function_local,
             function,
-        )
+        )?;
+
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(length_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        self.emit_object_own_property_present(
+            target_payload_local,
+            target_tag_local,
+            property_key_local,
+            has_length_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(has_length_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_read(
+            target_payload_local,
+            target_tag_local,
+            target_payload_local,
+            target_tag_local,
+            property_key_local,
+            property_payload_local,
+            property_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(property_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // Non-positive values and NaN yield +0; positive infinity remains
+        // infinite. Keep the calculation in f64 to preserve lengths above i32.
+        function.instruction(&Instruction::LocalGet(property_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Gt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            bound_args_payload_local,
+            HEAP_LEN_OFFSET,
+            argument_count_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(property_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::LocalGet(argument_count_local));
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::F64Sub);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Max);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(length_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(property_tag_local));
+        self.emit_object_append_local_data_property_with_flags(
+            bound_function_local,
+            "length",
+            length_local,
+            property_tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("name")));
+        function.instruction(&Instruction::LocalSet(property_key_local));
+        self.emit_object_read(
+            target_payload_local,
+            target_tag_local,
+            target_payload_local,
+            target_tag_local,
+            property_key_local,
+            property_payload_local,
+            property_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(property_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload("")));
+        function.instruction(&Instruction::LocalSet(property_payload_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::I64Const(self.strings.payload("bound ")));
+        function.instruction(&Instruction::LocalSet(name_prefix_local));
+        self.emit_concat_string_payloads_local(
+            name_prefix_local,
+            property_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(property_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(property_tag_local));
+        self.emit_object_append_local_data_property_with_flags(
+            bound_function_local,
+            "name",
+            property_payload_local,
+            property_tag_local,
+            false,
+            false,
+            true,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(bound_function_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+
+        self.release_temp_local(name_prefix_local);
+        self.release_temp_local(argument_count_local);
+        self.release_temp_local(length_local);
+        self.release_temp_local(has_length_local);
+        self.release_temp_local(property_tag_local);
+        self.release_temp_local(property_payload_local);
+        self.release_temp_local(property_key_local);
+        self.release_temp_local(bound_function_local);
+        Ok(())
     }
 
     /// Create the hidden revocation closure used by `Proxy.revocable`.
@@ -77,6 +206,7 @@ impl<'a> FunctionBuilder<'a> {
         let bound_this_payload_local = self.reserve_temp_local();
         let bound_this_tag_local = self.reserve_temp_local();
         let internal_prototype_local = self.reserve_temp_local();
+        let internal_prototype_tag_local = self.reserve_temp_local();
 
         match source {
             ExactBoundThisSource::BindArgumentZero => {
@@ -86,8 +216,18 @@ impl<'a> FunctionBuilder<'a> {
                     bound_this_tag_local,
                     function,
                 );
-                function.instruction(&Instruction::GlobalGet(FUNCTION_PROTOTYPE_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(internal_prototype_local));
+                self.load_i64_to_local_from_offset(
+                    target_payload_local,
+                    HEAP_PROTOTYPE_OFFSET,
+                    internal_prototype_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    target_payload_local,
+                    HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
+                    internal_prototype_tag_local,
+                    function,
+                );
             }
             ExactBoundThisSource::ProxyRevocationObject {
                 proxy_payload_local,
@@ -99,6 +239,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(bound_this_tag_local));
                 function.instruction(&Instruction::LocalGet(realm.function_prototype_local));
                 function.instruction(&Instruction::LocalSet(internal_prototype_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                function.instruction(&Instruction::LocalSet(internal_prototype_tag_local));
             }
         }
 
@@ -109,10 +251,12 @@ impl<'a> FunctionBuilder<'a> {
             bound_this_tag_local,
             bound_args_payload_local,
             internal_prototype_local,
+            internal_prototype_tag_local,
             payload_local,
             function,
         )?;
 
+        self.release_temp_local(internal_prototype_tag_local);
         self.release_temp_local(internal_prototype_local);
         self.release_temp_local(bound_this_tag_local);
         self.release_temp_local(bound_this_payload_local);
@@ -127,6 +271,7 @@ impl<'a> FunctionBuilder<'a> {
         bound_this_tag_local: u32,
         bound_args_payload_local: u32,
         internal_prototype_local: u32,
+        internal_prototype_tag_local: u32,
         payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -200,10 +345,10 @@ impl<'a> FunctionBuilder<'a> {
             internal_prototype_local,
             function,
         );
-        self.store_i64_const_at_offset(
+        self.store_i64_local_at_offset(
             object_local,
             HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-            ValueKind::Function.tag() as u64,
+            internal_prototype_tag_local,
             function,
         );
         self.store_i64_const_at_offset(

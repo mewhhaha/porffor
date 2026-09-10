@@ -19,7 +19,8 @@ only writer in this batch, through one materializer that installs the defining
 Realm, its `%Function.prototype%`, its TypeError and RangeError prototypes, the
 algorithm capture and the self environment before exposing the destination.
 Standard combinator element functions pass through one typed wrapper that also
-propagates the active Promise combinator's AggregateError prototype snapshot.
+loads AggregateError's prototype from the active Promise combinator's canonical
+Realm intrinsics and stores that validated prototype on each escaping element.
 
 ## Typed lifecycle
 
@@ -47,8 +48,8 @@ The private
 the non-`Copy`, must-use
 `PromiseCombinatorElementFunctionMaterializationContext`, its sole active-
 function factory, sole borrowing materializer and consuming release. The
-carrier couples the shared internal-function context to the same active
-Promise method's AggregateError-prototype snapshot. The Promise parent can
+carrier couples the shared internal-function context to the AggregateError
+prototype in that context's Realm intrinsics. The Promise parent can
 pass the inferred carrier between those child-owned operations. Rust requires
 the carrier name to be `pub(super)` because those sibling-visible method
 signatures expose it, but both fields remain child-private, so the parent
@@ -93,6 +94,23 @@ separate opaque AggregateError allocation context from either its self-backed
 reject-element function or the canonical Promise-constructor fallback for the
 empty-input path. Neither context admits a raw prototype or dynamic current
 Realm.
+
+The 2026-09-08 bootstrap regression repair makes both standard element
+materialization and empty-input `Promise.any` read the canonical AggregateError
+intrinsic slot. Promise methods can be allocated before AggregateError's
+prototype exists, so their allocation-time function-header snapshot can be zero.
+A frozen compiler reproduced `Promise.all([1])` trapping on the explicit
+nonzero check after loading header offset 96. The canonical slot is populated
+when the prototype is allocated, before user code starts. Escaping reject
+elements retain their existing validated snapshot, and all nonzero invariants
+remain enforced. The method's defining Realm determines the error prototype
+even when its receiver supplies a different Promise constructor.
+
+`aot_promise_combinator_intrinsics` covers nonempty `all`/`allSettled`, empty and
+nonempty rejecting `any`, mutable global replacement, and borrowed foreign
+methods whose capability Promise belongs to the entry Realm. The frozen
+pre-repair reproducer and Wasm artifact are under
+`target/failure-review/promise-all-regression/`.
 
 Outer standard-combinator result/error Array ownership is closed separately by
 `promise-combinator-outer-array-realm.md`. General AggregateError construction

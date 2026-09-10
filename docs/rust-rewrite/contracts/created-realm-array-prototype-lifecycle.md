@@ -31,12 +31,17 @@ Constructor linking records the Array payload and tag on `%Array%`, defines
 false }`, and defines `%Array.prototype%.constructor` with `{ writable: true,
 enumerable: false, configurable: true }`.
 
+The bootstrap defines `Symbol.iterator` as the same function object as `values`,
+with writable and configurable set and enumerable unset. It uses the initialized
+Array witness and the well-known symbol key, so literals created in the realm
+inherit a working default iterator.
+
 The recursive call census is one reserve, one initialize, one intrinsic store,
-three property-definition calls, one constructor bind and one release. Two of
-the property-definition calls remain in the host bootstrap; the third is the
+four property-definition calls, one constructor bind and one release. Three of
+the property-definition calls remain in the host bootstrap; the fourth is the
 child-owned `constructor` definition used by the bind method.
 
-## Source-equivalent evidence
+## Original extraction evidence
 
 The exact 16-line state block retains SHA-256
 `d557dc697bfaf3c5b9ac81521126963a18f1c5fbb7cd11ab7afbad94d76d0b0a`.
@@ -55,7 +60,7 @@ module-boundary audit separately enforces the private module, absence of
 imports and re-exports, child and parent line budgets, and the same ownership
 census.
 
-This is an ownership-only extraction. It changes no emitted instruction,
-property attribute, Realm selection, allocation order, caller body or
-observable behavior. CLI fixtures, semantic goldens, workspace compilation
-and broad suites remain deferred to the coordinated shared checkpoint.
+The original extraction changed ownership without changing observable behavior.
+The later iterator-alias repair adds bootstrap publication and is covered by
+`aot_created_realm_array_iterator`, including descriptors, function identity,
+and iteration within and across realms.

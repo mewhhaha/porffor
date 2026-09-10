@@ -65,8 +65,15 @@ mod dynamic_source;
 // The `EarlyErrorCode` -> rejection-stage map. UNRELATED to `early_errors`
 // below, despite the adjacency: this is the diagnostic taxonomy, that is
 // derived-constructor validation over `ExprIr` arms.
+mod direct_eval_context;
+mod environment_identifier;
+pub use environment_identifier::{
+    EnvironmentCompoundOperationIr, EnvironmentIdentifierIr, EnvironmentIdentifierOperationIr,
+};
 mod early_error_code;
 mod early_errors;
+mod eval_environment;
+pub use direct_eval_context::DirectEvalContextIr;
 mod function_protocol;
 mod ir;
 mod iterator_obligations;
@@ -76,6 +83,12 @@ mod modules;
 mod names;
 mod native_error;
 mod operations;
+mod prepared_function;
+pub use eval_environment::{
+    EvalBindingDeclarationIr, EvalDeclarativeEnvironmentKindIr, EvalEnvironmentRoleIr,
+    EvalVisibleBindingIr,
+};
+mod prepared_script;
 /// The Property Descriptor lattice (ECMA-262 6.2.6). See
 /// `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
 pub mod property_descriptor;
@@ -139,6 +152,14 @@ pub use operations::{
     SpecOperationFamily, SpecOperationIr, ToPrimitiveHint, TrackedGapReason, UnaryBitwiseOp,
     UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
 };
+pub(crate) use prepared_function::DynamicFunctionSource;
+pub use prepared_function::{PreparedDynamicFunction, PreparedDynamicFunctionOutcome};
+pub use prepared_script::{
+    AnnexBGlobalDeclarationIr, GlobalFunctionDeclarationIr, PreparedScript,
+    PreparedScriptAdmission, PreparedScriptKind, PreparedScriptOutcome, PreparedScriptUnit,
+    RuntimeGlobalDeclarationPlan, StaticScriptId,
+};
+pub(crate) use prepared_script::{DynamicScriptSource, ScriptInstantiation};
 pub use regexp::{
     RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction,
     RegExpModifierOverride, RegExpNamedGroup, RegExpProgram, RegExpUnicodeMode,
@@ -213,15 +234,15 @@ mod tests {
         lower_with_host_surface_policy(&source, HostSurfacePolicy::Test262)
     }
 
-    fn dynamic_source_gaps(program: &ProgramIr) -> Vec<DynamicSourceGap> {
-        program
-            .diagnostics
-            .iter()
-            .filter_map(|diagnostic| match diagnostic.unsupported_feature() {
-                Some(UnsupportedFeature::DynamicSource(gap)) => Some(gap),
-                _ => None,
-            })
-            .collect()
+    fn assert_prepared_script(program: &ProgramIr, kind: PreparedScriptKind) {
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let prepared = &program.script.as_ref().expect("Script IR").prepared_scripts;
+        assert!(
+            prepared.iter().any(|script| script.kind == kind
+                && script.admission == PreparedScriptAdmission::ResolvedIntrinsic
+                && matches!(script.outcome, PreparedScriptOutcome::Executable(_))),
+            "{prepared:?}"
+        );
     }
 
     fn assert_zero_suspension_generator(function: &FunctionIr) {
@@ -314,6 +335,7 @@ mod tests {
                     source_name,
                     block_storage_name,
                     target,
+                    ..
                 } => copies.push((
                     source_name.clone(),
                     block_storage_name.clone(),
@@ -677,7 +699,7 @@ mod tests {
                         }
                     }
                 }
-                StatementIr::Expression(TypedExpr {
+                StatementIr::DeclarationEvaluation(TypedExpr {
                     expr:
                         ExprIr::ArrayDestructure {
                             pattern,
@@ -693,7 +715,7 @@ mod tests {
                     }
                     ArrayDestructuringEvaluationIr::AssignmentEvaluation => {}
                 },
-                StatementIr::Expression(TypedExpr {
+                StatementIr::DeclarationEvaluation(TypedExpr {
                     expr: ExprIr::ObjectDestructure { pattern, .. },
                     ..
                 }) => {
@@ -703,6 +725,7 @@ mod tests {
                 }
                 StatementIr::Empty
                 | StatementIr::AnnexBFunctionCopy { .. }
+                | StatementIr::DeclarationEvaluation(_)
                 | StatementIr::Expression(_)
                 | StatementIr::GeneratorYield { .. }
                 | StatementIr::AsyncAwait { .. }
@@ -1101,7 +1124,10 @@ mod tests {
                         capture.source_name.as_str()
                     );
                     let environment = &analysis.environment_plans[&capture.environment_id];
-                    assert_eq!(environment.owned_env_slots.get(&capture.source_name), Some(&capture.slot));
+                    assert_eq!(
+                        environment.owned_env_slots.get(&capture.source_name),
+                        Some(&capture.slot)
+                    );
                 }
             },
         );
@@ -1195,9 +1221,11 @@ mod tests {
             "var generator; with ({ x: 1 }) generator = function* generator() { yield x; };",
         );
         assert!(!program.is_wasm_supported());
-        assert!(program.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("resumable function capture of a with Object Environment Record")));
+        assert!(program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("resumable function capture of a with Object Environment Record")
+        }));
     }
 
     #[test]
@@ -1251,7 +1279,7 @@ mod tests {
                 let cleaned = environment_with_binding_suffix(analysis, ".cleaned");
 
                 assert_eq!(tried.kind, EnvironmentKind::Block);
-                assert_eq!(error.kind, EnvironmentKind::CatchParameter);
+                assert_eq!(error.kind, EnvironmentKind::SimpleCatchParameter);
                 assert_eq!(handled.kind, EnvironmentKind::Block);
                 assert_eq!(cleaned.kind, EnvironmentKind::Block);
                 assert_eq!(analysis.catch_parameter_environment_ids.len(), 1);
@@ -2862,7 +2890,7 @@ mod tests {
         let program = lower_script("function f() {} f || 2;");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::Expression(expr) = &script.body.statements[1] else {
+        let Some(StatementIr::Expression(expr)) = script.body.statements.last() else {
             panic!("expected expression statement");
         };
         assert!(matches!(
@@ -2926,7 +2954,7 @@ mod tests {
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(matches!(
             script.body.statements[0],
-            StatementIr::Expression(TypedExpr {
+            StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::ArrayDestructure {
                     evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                     ..
@@ -2950,7 +2978,7 @@ mod tests {
         };
         assert!(matches!(
             statements.get(1),
-            Some(StatementIr::Expression(TypedExpr {
+            Some(StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::ArrayDestructure {
                     evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                     ..
@@ -3017,7 +3045,7 @@ mod tests {
             lower_script("let [, selected = fallback()] = [leading(), , trailing()]; selected;");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script IR should exist");
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     value,
@@ -3158,7 +3186,7 @@ mod tests {
         };
         assert!(matches!(
             block.statements.first(),
-            Some(StatementIr::Expression(TypedExpr {
+            Some(StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::ArrayDestructure {
                     evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                     ..
@@ -3792,7 +3820,7 @@ mod tests {
                 panic!("expected empty destructuring block");
             };
             assert_eq!(bindings.len(), 2);
-            let StatementIr::Expression(coercion) = &bindings[1] else {
+            let StatementIr::DeclarationEvaluation(coercion) = &bindings[1] else {
                 panic!("expected RequireObjectCoercible representation");
             };
             assert!(matches!(
@@ -3814,7 +3842,7 @@ mod tests {
             panic!("expected empty destructuring block");
         };
         assert_eq!(bindings.len(), 2);
-        let StatementIr::Expression(coercion) = &bindings[1] else {
+        let StatementIr::DeclarationEvaluation(coercion) = &bindings[1] else {
             panic!("expected RequireObjectCoercible representation");
         };
         assert!(matches!(
@@ -4271,7 +4299,7 @@ with ({
         else {
             panic!("expected parameter initialization marker");
         };
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
@@ -4310,7 +4338,7 @@ with ({
         else {
             panic!("expected parameter initialization marker");
         };
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ObjectDestructure { pattern, .. },
             ..
         }) = &statements[0]
@@ -4342,7 +4370,7 @@ with ({
         else {
             panic!("expected parameter initialization marker");
         };
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ObjectDestructure { pattern, .. },
             ..
         }) = &statements[0]
@@ -4379,7 +4407,7 @@ with ({
         else {
             panic!("expected first parameter initialization marker");
         };
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ArrayDestructure { pattern: first, .. },
             ..
         }) = &first[0]
@@ -4400,7 +4428,7 @@ with ({
         else {
             panic!("expected second parameter initialization marker");
         };
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ObjectDestructure {
                 pattern: second, ..
             },
@@ -6620,6 +6648,85 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn generator_nullish_property_resume_retains_raw_reference_and_rhs() {
+        let program = lower_script(
+            "function* computedNull() { null[{ toString() { return 'value'; } }] = yield 1; }
+             function* namedUndefined() { undefined.value = yield 2; }
+             async function* computedUndefined() {
+               undefined[{ toString() { return 'value'; } }] = yield 3;
+             }
+             async function* namedNull() { 'use strict'; null.value = yield 4; }",
+        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script ir should exist");
+        for (name, base_kind, computed, expected_rhs, expected_strictness) in [
+            (
+                "computedNull",
+                ValueKind::Null,
+                true,
+                1.0_f64,
+                Strictness::Sloppy,
+            ),
+            (
+                "namedUndefined",
+                ValueKind::Undefined,
+                false,
+                2.0,
+                Strictness::Sloppy,
+            ),
+            (
+                "computedUndefined",
+                ValueKind::Undefined,
+                true,
+                3.0,
+                Strictness::Sloppy,
+            ),
+            ("namedNull", ValueKind::Null, false, 4.0, Strictness::Strict),
+        ] {
+            let function = script
+                .functions
+                .iter()
+                .find(|function| function.name == name)
+                .unwrap_or_else(|| panic!("generator `{name}` should be registered"));
+            let (value, reference) = function
+                .body
+                .statements
+                .iter()
+                .find_map(|statement| match statement {
+                    StatementIr::GeneratorYield {
+                        value,
+                        resume_mode: GeneratorResumeModeIr::AssignProperty(reference),
+                        ..
+                    } => Some((value, reference)),
+                    _ => None,
+                })
+                .expect("nullish Reference must retain its suspended RHS");
+            assert!(
+                matches!(value.expr, ExprIr::Number(number) if number == expected_rhs.to_bits())
+            );
+            match reference.use_view() {
+                SuspendedPropertyReferenceUse::Ordinary {
+                    base_and_receiver,
+                    key,
+                    strictness,
+                } => {
+                    assert_eq!(base_and_receiver.kind, base_kind);
+                    assert_eq!(strictness, expected_strictness);
+                    if computed {
+                        assert!(
+                            matches!(key, PropertyKeyIr::StringExpr(raw) if raw.kind == ValueKind::Object)
+                        );
+                    } else {
+                        assert!(
+                            matches!(key, PropertyKeyIr::StaticString(name) if name == "value")
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn records_discarded_generator_expression_suspensions() {
         let program = lower_script(
             "function* grouping() { (yield 1); }
@@ -6976,9 +7083,11 @@ target[Symbol.iterator];"#,
              }",
         );
         assert!(!composite.is_wasm_supported());
-        assert!(composite.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("async lexical array initializer composite await element")));
+        assert!(composite.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("async lexical array initializer composite await element")
+        }));
 
         let spread = lower_script(
             "async function collect(source, rest) {
@@ -6987,9 +7096,11 @@ target[Symbol.iterator];"#,
              }",
         );
         assert!(!spread.is_wasm_supported());
-        assert!(spread.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("async lexical array initializer spread")));
+        assert!(spread.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("async lexical array initializer spread")
+        }));
     }
 
     #[test]
@@ -7048,7 +7159,7 @@ target[Symbol.iterator];"#,
         ));
         assert!(matches!(
             var_statements.last(),
-            Some(StatementIr::Expression(TypedExpr {
+            Some(StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::AssignIdentifier { name, .. },
                 ..
             })) if name == "variable"
@@ -7122,9 +7233,11 @@ target[Symbol.iterator];"#,
         ] {
             let program = lower_script(source);
             assert!(!program.is_wasm_supported());
-            assert!(program.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("branch-sensitive await expression")));
+            assert!(program.diagnostics.iter().any(|diagnostic| {
+                diagnostic
+                    .message
+                    .contains("branch-sensitive await expression")
+            }));
         }
     }
 
@@ -8119,7 +8232,7 @@ target[Symbol.iterator];"#,
         );
         assert!(matches!(
             plan.before_await(),
-            [StatementIr::Expression(TypedExpr {
+            [StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::ArrayDestructure {
                     evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
                     ..
@@ -8242,7 +8355,7 @@ target[Symbol.iterator];"#,
             Some(environment)
         );
 
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ObjectDestructure { value, pattern },
             ..
         })] = plan.before_await()
@@ -8367,7 +8480,7 @@ target[Symbol.iterator];"#,
             assert!(head_environment.tdz_environment.is_none());
             assert!(head_environment.iteration_environment.is_none());
 
-            let [StatementIr::Expression(initialization)] = plan.before_await() else {
+            let [StatementIr::DeclarationEvaluation(initialization)] = plan.before_await() else {
                 panic!(
                     "`{function_name}` must preserve one semantic initialization: {:?}",
                     plan.before_await()
@@ -9730,6 +9843,28 @@ target[Symbol.iterator];"#,
         ));
     }
 
+    fn instantiated_function_body(function: &FunctionIr) -> &BlockIr {
+        function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| {
+                let StatementIr::Block(body) = statement else {
+                    return None;
+                };
+                body.lexical_environment
+                    .as_ref()
+                    .filter(|environment| {
+                        matches!(
+                            environment.initialization,
+                            LexicalEnvironmentInitializationIr::FunctionBody { .. }
+                        )
+                    })
+                    .map(|_| body)
+            })
+            .unwrap_or(&function.body)
+    }
+
     #[test]
     fn records_instance_and_static_async_class_methods_with_resume_state() {
         let program = lower_script(
@@ -9763,16 +9898,19 @@ target[Symbol.iterator];"#,
             .iter()
             .all(|function| !function.protocol.is_constructable()));
         assert!(async_methods.iter().all(|function| {
-            function.body.statements.iter().any(|statement| {
-                matches!(
-                    statement,
-                    StatementIr::AsyncAwait {
-                        suspend_state: 0,
-                        resume_state: 1,
-                        ..
-                    }
-                )
-            })
+            instantiated_function_body(function)
+                .statements
+                .iter()
+                .any(|statement| {
+                    matches!(
+                        statement,
+                        StatementIr::AsyncAwait {
+                            suspend_state: 0,
+                            resume_state: 1,
+                            ..
+                        }
+                    )
+                })
         }));
         let instance_method = async_methods
             .iter()
@@ -9843,8 +9981,7 @@ target[Symbol.iterator];"#,
         let block = async_arrows
             .iter()
             .find(|function| {
-                function
-                    .body
+                instantiated_function_body(function)
                     .statements
                     .iter()
                     .any(|statement| matches!(statement, StatementIr::AsyncAwait { .. }))
@@ -11707,10 +11844,12 @@ target[Symbol.iterator];"#,
             .map(|accessor| accessor.backing_name.private_name_id())
             .collect::<BTreeSet<_>>();
         assert_eq!(backing_names.len(), 4);
-        assert!(backing_names.iter().all(|backing| !class
-            .private_name_ids
-            .values()
-            .any(|visible| visible == backing)));
+        assert!(backing_names.iter().all(|backing| {
+            !class
+                .private_name_ids
+                .values()
+                .any(|visible| visible == backing)
+        }));
         for accessor in accessors {
             let getter = script
                 .functions
@@ -12115,6 +12254,12 @@ target[Symbol.iterator];"#,
             .global_bindings
             .iter()
             .any(|binding| binding.name == "x" || binding.name == "y"));
+        for name in ["x", "y"] {
+            assert!(script
+                .owned_env_bindings
+                .iter()
+                .any(|binding| binding.name == name));
+        }
         assert!(script.global_bindings.iter().any(|binding| {
             binding.name == "z" && binding.declarations == GlobalDeclarationSetIr::Var
         }));
@@ -12193,7 +12338,7 @@ target[Symbol.iterator];"#,
             .as_ref()
             .expect("script ir should exist")
             .global_bindings;
-        assert!(plan.lexical_names().contains("Infinity"));
+        assert!(plan.lexical_names().any(|name| name == "Infinity"));
         assert!(matches!(
             plan.get("Infinity").map(|binding| &binding.initializer),
             Some(GlobalPropertyInitializerIr::Infinity)
@@ -12605,20 +12750,120 @@ target[Symbol.iterator];"#,
             .iter()
             .find(|function| function.name == "append")
             .expect("append function should be lowered");
-        assert!(append.body.statements.iter().any(|statement| matches!(
-            statement,
-            StatementIr::Expression(TypedExpr {
-                expr: ExprIr::GlobalPropertyCompoundAssign { name, .. },
+        let assert_has_property = |expression: &TypedExpr| {
+            let ExprIr::SpecOperation {
+                operation: SpecOperationIr::HasProperty,
+                operands,
+            } = &expression.expr
+            else {
+                panic!("global Reference resolution must use HasProperty");
+            };
+            assert_eq!(operands.len(), 2);
+            assert!(matches!(&operands[0].expr, ExprIr::Identifier(name) if name == "globalThis"));
+            assert!(matches!(&operands[1].expr, ExprIr::String(name) if name == "trace"));
+        };
+        for (body, suffix) in [(&append.body, "nested;"), (&script.body, "root;")] {
+            let compounds = body
+                .statements
+                .iter()
+                .filter_map(|statement| match statement {
+                    StatementIr::Expression(expression)
+                        if matches!(&expression.expr, ExprIr::Conditional { .. }) =>
+                    {
+                        Some(expression)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                compounds.len(),
+                1,
+                "each owner must retain its compound write"
+            );
+            let ExprIr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } = &compounds[0].expr
+            else {
+                unreachable!();
+            };
+            assert_has_property(condition);
+            assert!(matches!(
+                &else_expr.expr,
+                ExprIr::RuntimeThrow {
+                    name: NativeErrorKind::ReferenceError,
+                    ..
+                }
+            ));
+            let ExprIr::MaterializeBinding {
+                name: old_name,
+                value: old,
+                body: after_get,
+            } = &then_expr.expr
+            else {
+                panic!("the selected old value must be retained before RHS evaluation");
+            };
+            let ExprIr::Conditional {
+                condition,
+                then_expr: get,
+                else_expr: missing,
+            } = &old.expr
+            else {
+                panic!("GetBindingValue must recheck the selected global object");
+            };
+            assert_has_property(condition);
+            assert!(matches!(&get.expr, ExprIr::PropertyRead { target, key }
+                if matches!(&target.expr, ExprIr::Identifier(name) if name == "globalThis")
+                    && matches!(key, PropertyKeyIr::StaticString(name) if name == "trace")));
+            assert!(matches!(&missing.expr, ExprIr::Undefined));
+            let ExprIr::MaterializeBinding {
+                name: result_name,
+                value: applied,
+                body: after_apply,
+            } = &after_get.expr
+            else {
+                panic!("the eager result must be retained across PutValue");
+            };
+            let ExprIr::CoerciveAdd { lhs, rhs } = &applied.expr else {
+                panic!("source-global addition must retain runtime coercion");
+            };
+            assert!(matches!(&lhs.expr, ExprIr::Identifier(name) if name == old_name));
+            assert!(matches!(&rhs.expr, ExprIr::String(value) if value == suffix));
+            let ExprIr::MaterializeBinding {
+                value: write,
+                body: result,
                 ..
-            }) if name == "trace"
-        )));
-        assert!(script.body.statements.iter().any(|statement| matches!(
-            statement,
-            StatementIr::Expression(TypedExpr {
-                expr: ExprIr::GlobalPropertyCompoundAssign { name, .. },
+            } = &after_apply.expr
+            else {
+                panic!("PutValue must finish before returning the compound result");
+            };
+            assert!(matches!(&result.expr, ExprIr::Identifier(name) if name == result_name));
+            let ExprIr::MaterializeBinding {
+                name: write_value_name,
+                value,
+                body: recheck,
+            } = &write.expr
+            else {
+                panic!("SetMutableBinding must retain the applied value");
+            };
+            assert!(matches!(&value.expr, ExprIr::Identifier(name) if name == result_name));
+            let ExprIr::MaterializeBinding {
+                value: condition,
+                body: set,
                 ..
-            }) if name == "trace"
-        )));
+            } = &recheck.expr
+            else {
+                panic!("sloppy SetMutableBinding must recheck after the RHS");
+            };
+            assert_has_property(condition);
+            assert!(
+                matches!(&set.expr, ExprIr::PropertyWrite { target, key, value, strictness: Strictness::Sloppy }
+                if matches!(&target.expr, ExprIr::Identifier(name) if name == "globalThis")
+                    && matches!(key, PropertyKeyIr::StaticString(name) if name == "trace")
+                    && matches!(&value.expr, ExprIr::Identifier(name) if name == write_value_name))
+            );
+        }
     }
 
     #[test]
@@ -13601,7 +13846,7 @@ target[Symbol.iterator];"#,
         let program = lower_script("function key() { return 'x'; } let a; a?.[key()];");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::Expression(expr) = &script.body.statements[2] else {
+        let Some(StatementIr::Expression(expr)) = script.body.statements.last() else {
             panic!("expected optional-chain expression statement");
         };
         let ExprIr::OptionalPropertyChain { chain, .. } = &expr.expr else {
@@ -13628,7 +13873,7 @@ target[Symbol.iterator];"#,
         let program = lower_script("function arg() { return 1; } let fn; fn?.(arg());");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::Expression(expr) = &script.body.statements[2] else {
+        let Some(StatementIr::Expression(expr)) = script.body.statements.last() else {
             panic!("expected optional-call expression statement");
         };
         let ExprIr::OptionalPropertyChain { target, chain } = &expr.expr else {
@@ -13851,7 +14096,7 @@ target[Symbol.iterator];"#,
         let program = lower_script("function arg() { return 1; } let a; (a?.b)(arg());");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::Expression(expr) = &script.body.statements[2] else {
+        let Some(StatementIr::Expression(expr)) = script.body.statements.last() else {
             panic!("expected grouped optional-chain expression");
         };
         let ExprIr::OptionalPropertyChain { chain, .. } = &expr.expr else {
@@ -14005,28 +14250,22 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
-    fn optional_eval_call_remains_explicitly_unsupported() {
+    fn optional_eval_call_registers_an_indirect_script() {
         let program = lower_script("eval?.('source');");
-        assert!(!program.is_wasm_supported());
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::IndirectEval),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::IndirectEval);
     }
 
     #[test]
-    fn proven_no_source_eval_preserves_the_call_and_exact_result_fact() {
-        for (source, expected_kind, expected_arg_count) in [
-            ("eval();", ValueKind::Undefined, 0),
-            ("eval(1);", ValueKind::Number, 1),
-            ("eval(true);", ValueKind::Boolean, 1),
-            ("eval(null);", ValueKind::Null, 1),
-            ("eval({ marker: 1 });", ValueKind::Object, 1),
-            ("eval(new String('source'));", ValueKind::Object, 1),
-            ("eval(function marker() {});", ValueKind::Function, 1),
-            ("eval(1, 2);", ValueKind::Number, 2),
+    fn no_source_eval_preserves_runtime_reference_identity_and_arguments() {
+        for (source, expected_arg_count) in [
+            ("eval();", 0),
+            ("eval(1);", 1),
+            ("eval(true);", 1),
+            ("eval(null);", 1),
+            ("eval({ marker: 1 });", 1),
+            ("eval(new String('source'));", 1),
+            ("eval(function marker() {});", 1),
+            ("eval(1, 2);", 2),
         ] {
             let program = lower_script(source);
             assert!(
@@ -14038,15 +14277,20 @@ target[Symbol.iterator];"#,
             let StatementIr::Expression(expression) = &script.body.statements[0] else {
                 panic!("{source}: eval should remain an expression statement");
             };
-            let call = indirect_call_body(expression)
-                .unwrap_or_else(|| panic!("{source}: eval must remain an indirect call"));
-            assert_eq!(call.kind, expected_kind, "{source}: result kind");
-            let ExprIr::CallIndirect { callee, args, .. } = &call.expr else {
-                unreachable!("indirect_call_body returned a non-call")
+            let ExprIr::EnvironmentIdentifier(identifier) = &expression.expr else {
+                panic!("{source}: eval must retain its runtime Reference");
             };
-            assert!(
-                matches!(&callee.expr, ExprIr::GlobalPropertyRead { name } if name == "eval"),
-                "{source}: the evaluated callee must be retained"
+            assert_eq!(identifier.name, "eval");
+            let EnvironmentIdentifierOperationIr::Call {
+                args,
+                direct_eval: Some(context),
+            } = &identifier.operation
+            else {
+                panic!("{source}: bare eval needs a guarded direct context");
+            };
+            assert_eq!(
+                context.invocation(),
+                lila_front::EvalInvocationContext::Script
             );
             assert_eq!(args.len(), expected_arg_count, "{source}: retained args");
         }
@@ -14087,16 +14331,7 @@ install(globalThis.unknownHook);
 invoke();
 "#;
         let program = lower_script(source);
-        assert!(
-            program.diagnostics.iter().any(|diagnostic| {
-                diagnostic.unsupported_feature()
-                    == Some(UnsupportedFeature::DynamicSource(
-                        DynamicSourceGap::aot_known_source(DynamicSourceKind::IndirectEval),
-                    ))
-            }),
-            "{source}: {:?}",
-            program.diagnostics
-        );
+        assert_prepared_script(&program, PreparedScriptKind::IndirectEval);
     }
 
     #[test]
@@ -14107,43 +14342,24 @@ invoke();
             "var candidate = eval; globalThis.unknownHook(); candidate('source');",
         ] {
             let program = lower_script(source);
-            assert!(
-                program.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.unsupported_feature()
-                        == Some(UnsupportedFeature::DynamicSource(
-                            DynamicSourceGap::aot_known_source(DynamicSourceKind::IndirectEval),
-                        ))
-                }),
-                "{source}: {:?}",
-                program.diagnostics
-            );
+            assert_prepared_script(&program, PreparedScriptKind::IndirectEval);
         }
     }
 
     #[test]
-    fn open_non_eval_candidate_keeps_the_residual_direct_eval_authority() {
-        let source = r#"
-function mark() {}
-eval = mark;
-globalThis.unknownHook();
-eval("source");
-"#;
+    fn replaced_eval_keeps_guarded_direct_and_indirect_source_candidates() {
+        let source = "function mark() {} eval = mark; globalThis.unknownHook(); eval('source');";
         let program = lower_script(source);
-        let matching_diagnostics = program
-            .diagnostics
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.unwrap();
+        assert!(script
+            .prepared_scripts
             .iter()
-            .filter(|diagnostic| {
-                diagnostic.unsupported_feature()
-                    == Some(UnsupportedFeature::DynamicSource(
-                        DynamicSourceGap::aot_known_source(DynamicSourceKind::DirectEval),
-                    ))
-            })
-            .count();
-        assert_eq!(
-            matching_diagnostics, 1,
-            "{source}: {:?}",
-            program.diagnostics
-        );
+            .any(|source| matches!(source.kind, PreparedScriptKind::DirectEval(_))));
+        assert!(script
+            .prepared_scripts
+            .iter()
+            .any(|source| source.kind == PreparedScriptKind::IndirectEval));
     }
 
     #[test]
@@ -14905,17 +15121,11 @@ locale.candidate();
         ] {
             let program = lower_script(source);
             assert!(
-                program.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.unsupported_feature()
-                        == Some(UnsupportedFeature::DynamicSource(
-                            DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
-                                DynamicFunctionKind::Ordinary,
-                            )),
-                        ))
-                }),
+                program.diagnostics.is_empty(),
                 "{source}: {:?}",
                 program.diagnostics
             );
+            assert_eq!(program.script.unwrap().prepared_dynamic_functions.len(), 1);
         }
     }
 
@@ -14970,15 +15180,25 @@ new Target([]);
             "const holder = { f: eval }; class C { static x = (new (unknown ? C : Array)(), holder.f); }",
         ] {
             let program = lower_script(source);
-            assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
             let script = program.script.as_ref().expect("script IR should exist");
             let initializer = script
                 .functions
                 .iter()
                 .find(|function| function.name == "C.field.x")
                 .expect("static field initializer should be lowered");
-            assert!(initializer.return_targets.exact_targets().is_none(), "{source}");
-            assert!(initializer.return_targets.known_targets().is_empty(), "{source}");
+            assert!(
+                initializer.return_targets.exact_targets().is_none(),
+                "{source}"
+            );
+            assert!(
+                initializer.return_targets.known_targets().is_empty(),
+                "{source}"
+            );
         }
     }
 
@@ -14989,7 +15209,11 @@ new Target([]);
             "function A() { return unknown ? {} : 1; } function B() { return []; } let C = unknown ? A : B; new C();",
         ] {
             let program = lower_script(source);
-            assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
             let script = program.script.as_ref().expect("script IR should exist");
             let StatementIr::Expression(construct) = script.body.statements.last().unwrap() else {
                 panic!("construct should be an expression statement");
@@ -15000,8 +15224,14 @@ new Target([]);
                 .union(KindSet::from_kind(ValueKind::Function))
                 .union(KindSet::from_kind(ValueKind::Arguments));
             assert_ne!(construct.possible_kinds, KindSet::EMPTY, "{source}");
-            assert!(construct.possible_kinds.is_subset_of(object_like_kinds), "{source}");
-            assert!(!construct.possible_kinds.contains(ValueKind::Number), "{source}");
+            assert!(
+                construct.possible_kinds.is_subset_of(object_like_kinds),
+                "{source}"
+            );
+            assert!(
+                !construct.possible_kinds.contains(ValueKind::Number),
+                "{source}"
+            );
         }
     }
 
@@ -15080,153 +15310,97 @@ new Target([]);
     }
 
     #[test]
-    fn eval_pass_through_requires_every_dynamic_target_and_excludes_spread_and_string() {
-        for (source, expected) in [
-            (
-                "eval(...[1]);",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
-            ),
-            (
-                "let source = unknown ? 1 : 'source'; eval(source);",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
-            ),
-            (
-                "function plusOne(value) { return value + 1; } let f = unknown ? eval : plusOne; f('source');",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::IndirectEval),
-            ),
-            (
-                "let f = unknown ? eval : Function; f(1);",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
+    fn eval_spread_and_unknown_source_keep_the_runtime_invocation() {
+        for source in [
+            "eval(...[1]);",
+            "let source = unknown ? 1 : 'source'; eval(source);",
         ] {
             let program = lower_script(source);
             assert!(
-                program.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.unsupported_feature()
-                        == Some(UnsupportedFeature::DynamicSource(expected))
-                }),
+                program.is_wasm_supported(),
                 "{source}: {:?}",
                 program.diagnostics
             );
         }
+        let mixed_eval = lower_script(
+            "function plusOne(value) { return value + 1; } let f = unknown ? eval : plusOne; f('source');",
+        );
+        assert_prepared_script(&mixed_eval, PreparedScriptKind::IndirectEval);
+        let mixed_function = lower_script("let f = unknown ? eval : Function; f(1);");
+        assert!(
+            mixed_function.is_wasm_supported(),
+            "{:?}",
+            mixed_function.diagnostics
+        );
+        assert_eq!(
+            mixed_function
+                .script
+                .expect("Script IR")
+                .prepared_dynamic_functions[0]
+                .arguments,
+            ["1"]
+        );
     }
 
     #[test]
-    fn dynamic_source_diagnostics_carry_closed_operation_and_requirement() {
-        for (source, expected) in [
-            (
-                "eval('source');",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::DirectEval),
-            ),
-            (
-                "eval(source);",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
-            ),
-            (
-                "eval(`source`);",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::DirectEval),
-            ),
-            (
-                "eval('sou' + ('rce'));",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::DirectEval),
-            ),
-            (
-                "eval(String('source'));",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
-            ),
-            (
-                "eval(true ? 'source' : 'other');",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval),
-            ),
-            (
-                "Function('return 1');",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "Function('value', `return value`);",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "Function('value', String('return value'));",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "let C = Object.getPrototypeOf(function*() {}).constructor; C('yield 1');",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Generator,
-                )),
-            ),
-            (
-                "Object.getPrototypeOf(async function() {}).constructor(source);",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Async,
-                )),
-            ),
-            (
-                "new (Object.getPrototypeOf(async function*() {}).constructor)('yield 1');",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::AsyncGenerator,
-                )),
-            ),
-            (
-                "Function?.('return 1');",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "Function?.(String('return 1'));",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "Function(...['return 1']);",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "new Function(...['return 1']);",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Ordinary,
-                )),
-            ),
-            (
-                "let C = Object.getPrototypeOf(function*() {}).constructor; C?.('yield 1');",
-                DynamicSourceGap::aot_known_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Generator,
-                )),
-            ),
-            (
-                "let C = Object.getPrototypeOf(function*() {}).constructor; C?.(String('yield 1'));",
-                DynamicSourceGap::runtime_source(DynamicSourceKind::Function(
-                    DynamicFunctionKind::Generator,
-                )),
-            ),
+    fn syntax_proven_function_arguments_register_compiled_sources() {
+        for source in [
+            "Function('return 1');",
+            "Function('value', `return value`);",
+            "let C = Object.getPrototypeOf(function*() {}).constructor; C('yield 1');",
+            "new (Object.getPrototypeOf(async function*() {}).constructor)('yield 1');",
+            "Function?.('return 1');",
+            "let C = Object.getPrototypeOf(function*() {}).constructor; C?.('yield 1');",
         ] {
             let program = lower_script(source);
             assert!(
-                program.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.unsupported_feature()
-                        == Some(UnsupportedFeature::DynamicSource(expected))
-                }),
+                program.diagnostics.is_empty(),
                 "{source}: {:?}",
                 program.diagnostics
             );
+            let prepared = program.script.unwrap().prepared_dynamic_functions;
+            assert_eq!(prepared.len(), 1);
+            assert!(matches!(
+                prepared[0].outcome,
+                PreparedDynamicFunctionOutcome::Compiled { .. }
+            ));
         }
     }
 
     #[test]
-    fn direct_eval_after_a_user_constructor_keeps_its_typed_dynamic_source_gap() {
+    fn direct_eval_sources_keep_runtime_dispatch_and_compile_known_candidates() {
+        for source in [
+            "eval('source');",
+            "eval(`source`);",
+            "eval('sou' + ('rce'));",
+            "eval(source);",
+            "eval(String('source'));",
+            "eval(true ? 'source' : 'other');",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+        }
+        for source in [
+            "eval('source');",
+            "eval(`source`);",
+            "eval('sou' + ('rce'));",
+        ] {
+            let program = lower_script(source);
+            assert!(program
+                .script
+                .unwrap()
+                .prepared_scripts
+                .iter()
+                .any(|source| matches!(source.kind, PreparedScriptKind::DirectEval(_))));
+        }
+    }
+
+    #[test]
+    fn direct_eval_after_a_user_constructor_prepares_caller_source() {
         let program = lower_script(
             r#"
 function Factory() {
@@ -15238,12 +15412,13 @@ instance.charAt(eval("1"));
 "#,
         );
 
-        assert_eq!(
-            dynamic_source_gaps(&program),
-            vec![DynamicSourceGap::aot_known_source(
-                DynamicSourceKind::DirectEval,
-            )]
-        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(program
+            .script
+            .unwrap()
+            .prepared_scripts
+            .iter()
+            .any(|source| matches!(source.kind, PreparedScriptKind::DirectEval(_))));
     }
 
     #[test]
@@ -15257,12 +15432,7 @@ eval((eval = replacement, "source"));
 "#,
         );
 
-        assert_eq!(
-            dynamic_source_gaps(&program),
-            vec![DynamicSourceGap::runtime_source(
-                DynamicSourceKind::DirectEval,
-            )]
-        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
     }
 
     #[test]
@@ -15274,12 +15444,13 @@ eval("source");
 "#,
         );
 
-        assert_eq!(
-            dynamic_source_gaps(&program),
-            vec![DynamicSourceGap::aot_known_source(
-                DynamicSourceKind::DirectEval,
-            )]
-        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(program
+            .script
+            .unwrap()
+            .prepared_scripts
+            .iter()
+            .any(|source| matches!(source.kind, PreparedScriptKind::DirectEval(_))));
     }
 
     #[test]
@@ -15340,67 +15511,56 @@ eval(1);
             .iter()
             .rev()
             .find_map(|statement| match statement {
-                StatementIr::Expression(expression) => indirect_call_body(expression),
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::EnvironmentIdentifier(identifier),
+                    ..
+                }) if identifier.name == "eval" => Some(identifier),
                 _ => None,
             })
-            .expect("the no-source eval call should remain in IR");
-        let ExprIr::CallIndirect { callee, args, .. } = &call.expr else {
-            unreachable!("indirect_call_body returned a non-call")
+            .expect("the no-source eval Reference remains in IR");
+        let EnvironmentIdentifierOperationIr::Call {
+            args,
+            direct_eval: Some(_),
+        } = &call.operation
+        else {
+            panic!("bare call keeps context");
         };
-        assert!(matches!(
-            &callee.expr,
-            ExprIr::GlobalPropertyRead { name } | ExprIr::GlobalIdentifierRead { name }
-                if name == "eval"
-        ));
-        assert!(matches!(
-            args.as_slice(),
-            [TypedExpr {
-                expr: ExprIr::Number(value),
-                ..
-            }] if *value == 1.0f64.to_bits()
-        ));
+        assert!(
+            matches!(args.as_slice(), [TypedExpr { expr: ExprIr::Number(value), .. }] if *value == 1.0f64.to_bits())
+        );
     }
 
     #[test]
     fn a_parenthesized_eval_identifier_keeps_direct_eval_authority() {
         let program = lower_script("(eval)(\"source\");");
-        let gaps = dynamic_source_gaps(&program);
 
-        assert_eq!(
-            gaps,
-            vec![DynamicSourceGap::aot_known_source(
-                DynamicSourceKind::DirectEval,
-            )]
-        );
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(program
+            .script
+            .unwrap()
+            .prepared_scripts
+            .iter()
+            .any(|source| matches!(source.kind, PreparedScriptKind::DirectEval(_))));
     }
 
     #[test]
     fn an_eval_property_call_has_indirect_eval_authority() {
         let program = lower_script("(globalThis.eval)(\"source\");");
-        let gaps = dynamic_source_gaps(&program);
-
-        assert_eq!(
-            gaps,
-            vec![DynamicSourceGap::aot_known_source(
-                DynamicSourceKind::IndirectEval,
-            )]
-        );
+        assert_prepared_script(&program, PreparedScriptKind::IndirectEval);
     }
 
     #[test]
     fn grouped_optional_dynamic_source_prefix_is_accounted_once() {
         let program = lower_script("(Function?.('return 1'))();");
-        let gaps = program
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| {
-                matches!(
-                    diagnostic.unsupported_feature(),
-                    Some(UnsupportedFeature::DynamicSource(_))
-                )
-            })
-            .count();
-        assert_eq!(gaps, 1, "{:?}", program.diagnostics);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert_eq!(
+            program
+                .script
+                .expect("Script IR")
+                .prepared_dynamic_functions
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -15424,12 +15584,7 @@ eval(1);
         let source = format!("let realmEval = {name}; realmEval('source');");
 
         let test262 = lower_test262_script(&source);
-        assert!(test262.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&test262, PreparedScriptKind::RealmScript);
         assert!(test262
             .script
             .as_ref()
@@ -15438,12 +15593,7 @@ eval(1);
             .contains(&HostBuiltinId::RealmEvalScript));
 
         let optional_test262 = lower_test262_script(&format!("{name}?.('source');"));
-        assert!(optional_test262.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&optional_test262, PreparedScriptKind::RealmScript);
         let optional_runtime_test262 =
             lower_test262_script(&format!("{name}?.(String('source'));"));
         assert!(optional_runtime_test262
@@ -15483,12 +15633,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(script.host_builtins.contains(&HostBuiltinId::CreateRealm));
         assert!(script
@@ -15508,12 +15653,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -15527,12 +15667,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -15550,12 +15685,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -15586,12 +15723,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -15616,12 +15755,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -15645,12 +15786,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -15675,12 +15818,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -15701,12 +15846,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -15724,12 +15864,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -15754,12 +15896,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -15781,12 +15925,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(!script
             .host_builtins
@@ -15814,12 +15960,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(!script
             .host_builtins
@@ -15846,12 +15994,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         let script = program.script.as_ref().expect("script ir should exist");
         assert!(!script
             .host_builtins
@@ -15879,12 +16029,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -15907,12 +16059,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -15930,12 +16077,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -15958,12 +16100,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -15980,12 +16117,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -16008,12 +16147,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -16036,12 +16177,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -16064,12 +16207,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -16093,12 +16238,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -16119,12 +16266,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -16143,12 +16285,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -16170,12 +16307,7 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert_prepared_script(&program, PreparedScriptKind::RealmScript);
     }
 
     #[test]
@@ -16196,12 +16328,14 @@ eval(1);
         );
 
         let program = lower_test262_script(&source);
-        assert!(!program.diagnostics.iter().any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::aot_known_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+        assert!(!program
+            .script
+            .as_ref()
+            .expect("Script IR")
+            .prepared_scripts
+            .iter()
+            .any(|prepared| prepared.kind == PreparedScriptKind::RealmScript
+                && prepared.admission == PreparedScriptAdmission::ResolvedIntrinsic));
         assert!(!program
             .script
             .as_ref()
@@ -17674,9 +17808,11 @@ eval(1);
              }",
         );
         assert!(!unsupported.is_wasm_supported());
-        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("suspension inside an await using initializer")));
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("suspension inside an await using initializer")
+        }));
     }
 
     #[test]
@@ -17766,9 +17902,11 @@ eval(1);
              }",
         );
         assert!(!unsupported.is_wasm_supported());
-        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("suspension inside an await using initializer")));
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("suspension inside an await using initializer")
+        }));
     }
 
     #[test]
@@ -18246,9 +18384,11 @@ eval(1);
             "async function owner() { for (await using resource = null; false;) { await 0; } }",
         );
         assert!(!unsupported.is_wasm_supported());
-        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("suspension inside an await using classic-for loop")));
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("suspension inside an await using classic-for loop")
+        }));
     }
 
     #[test]
@@ -18377,9 +18517,11 @@ eval(1);
              }",
         );
         assert!(!unsupported.is_wasm_supported());
-        assert!(unsupported.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("source suspension in await using for-of loop")));
+        assert!(unsupported.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("source suspension in await using for-of loop")
+        }));
     }
 
     #[test]

@@ -8,7 +8,16 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         access: &SuperPropertyAccess,
     ) -> Option<(PropertyKeyIr, Box<TypedExpr>, ValueInfo)> {
-        if self.class_context.is_none() {
+        if self.class_context.is_none()
+            && !matches!(
+                self.direct_eval_invocation(),
+                Some(
+                    lila_front::EvalInvocationContext::Method
+                        | lila_front::EvalInvocationContext::DerivedConstructor
+                        | lila_front::EvalInvocationContext::ClassFieldInitializer
+                )
+            )
+        {
             self.unsupported("object literal method");
             return None;
         }

@@ -41,7 +41,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(active_function_local));
         self.load_i64_to_local_from_offset(
             active_function_local,
-            HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            active_function_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            active_function_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            active_function_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            active_function_local,
+            HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
             prototype_local,
             function,
         );

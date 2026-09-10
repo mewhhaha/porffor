@@ -234,6 +234,10 @@ fn promise_any_context_closes_callback_and_constructor_fallback_authority() {
             < fallback.find("let active_function_local").unwrap()
     );
     assert!(fallback.contains("release_temp_local(active_function_local)"));
+    assert!(fallback.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
+    assert!(fallback.contains("HEAP_REALM_INTRINSICS_OFFSET"));
+    assert!(fallback.contains("HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET"));
+    assert!(!fallback.contains("HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET"));
 
     let consumer = PROMISE_ANY_ERROR_SOURCE
         .split_once("emit_promise_any_aggregate_error_from_context(")
@@ -371,7 +375,9 @@ fn combinator_materialization_propagates_the_aggregate_error_snapshot() {
         "emit_current_function_promise_combinator_element_materialization_context(",
         "pub(super) fn emit_promise_combinator_element_function_value(",
     );
-    assert!(wrapper.contains("HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET"));
+    assert!(wrapper.contains("emit_load_promise_internal_function_realm_intrinsics("));
+    assert!(wrapper.contains("HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET"));
+    assert!(!wrapper.contains("HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET"));
     assert!(!wrapper.contains("CURRENT_REALM_GLOBAL_INDEX"));
     assert!(
         wrapper.find("let aggregate_error_prototype_local").unwrap()

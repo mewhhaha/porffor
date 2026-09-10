@@ -127,7 +127,7 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
             .lines()
             .filter(|line| line.trim_end().ends_with(','))
             .count(),
-        9
+        11
     );
     for (variant, offset) in [
         ("Object", "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET"),
@@ -142,6 +142,14 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
         ),
         ("RegExp", "HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET"),
         ("Promise", "HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET"),
+        (
+            "DisposableStack",
+            "HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET",
+        ),
+        (
+            "AggregateError",
+            "HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET",
+        ),
     ] {
         assert_eq!(
             offsets

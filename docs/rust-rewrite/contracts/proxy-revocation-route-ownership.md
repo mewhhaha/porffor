@@ -12,11 +12,12 @@ selects a revoked-Proxy TypeError Realm and how that completion leaves the
 current body. It has ten exact producers and one consuming exhaustive router:
 
 - Proxy `defineProperty`, `ownKeys`, `getOwnPropertyDescriptor` and direct
-  `Reflect.set` use `CurrentFunctionRealm`;
+  `Reflect.set` use `CurrentFunctionRealm`; the shared `HasProperty` helper
+  uses the same route with its trusted caller Realm argument;
 - Proxy `getPrototypeOf`, `preventExtensions` and `isExtensible` use
   `ActiveHandler`;
 - Proxy `setPrototypeOf` uses `ObjectMutationRealmToActiveHandler`; and
-- Proxy `deleteProperty` and `HasProperty` use `CurrentCompletion`.
+- Proxy `deleteProperty` uses `CurrentCompletion`.
 
 The authority derives no cloning, copying, formatting, equality, ordering,
 hashing or default-construction capability. The router consumes it before any

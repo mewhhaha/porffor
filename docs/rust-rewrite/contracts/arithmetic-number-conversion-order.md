@@ -1,48 +1,36 @@
-# Arithmetic Number conversion-order authority
+# Arithmetic conversion order
 
-## Closed input domain
+`compile_coercive_binary_number_to_locals` owns runtime arithmetic conversion
+for the closed `ArithmeticBinaryOp` domain. Both payload-only and tagged
+expression emission call it. The inferred normal result kind cannot authorize
+a different conversion algorithm: an operation inferred as Number may still
+receive a BigInt on the left and must convert the right operand before reporting
+a Number/BigInt mismatch.
 
-`compile_operand_pair_to_number_locals` accepts the existing closed
-`ArithmeticBinaryOp` domain directly. The retired `NumericBinaryOperator`
-wrapper admitted a `Bitwise` state that no caller constructed and derived
-clone, copy, debug and equality capabilities that the emitter did not need.
-Deleting it makes the helper's actual arithmetic-only boundary explicit and
-removes an unowned state rather than preserving it behind a runtime branch.
+`Add` delegates to `compile_coercive_add_to_locals`. It evaluates both operands,
+then applies ToPrimitive to the left and right with the default hint. A String
+primitive selects concatenation; otherwise left and right ToNumeric precede the
+numeric type check. This preserves the required distinction between addition
+and the other arithmetic operators.
 
-One private exhaustive `arithmetic_applies_to_primitive_before_numeric`
-projection owns the only ordering distinction. `Add` applies ToPrimitive to
-both evaluated operands before converting either to Number. `Sub`, `Mul`,
-`Div`, `Mod` and `Exp` convert the left operand to Number before converting the
-right. Adding an arithmetic operator therefore requires a compiler-visible
-decision at this projection.
+`Sub`, `Mul`, `Div`, `Mod` and `Exp` evaluate both operands first, then apply
+ToNumeric to the left and right in order. An abrupt conversion exits immediately;
+a type mismatch is checked only after both conversions complete normally.
+Both inline and heap BigInts retain their numeric kind and use the canonical
+BigInt arithmetic helper. Runtime result tags remain authoritative when object
+conversion or arithmetic overflow produces a heap BigInt.
 
-The three expression callers forward the `ArithmeticBinaryOp` they already
-hold. No caller can substitute an unlabeled Boolean or construct a bitwise
-state for this Number-only helper.
-
-## Preserved execution
-
-The helper still evaluates the left expression and then the right expression
-before either conversion. Its `Add` branch still performs left and right
-ToPrimitive followed by left and right Number conversion. Its other branch
-still performs left and right Number conversion directly. This closure changes
-only Rust domain ownership and does not change emitted instructions, the
-completion ABI or numeric results.
+The former Number-only operand-pair helper, its conversion-order selector and
+its private operand converter have been deleted with their last callers.
+There is one conversion path for each algorithm, independent of whether the
+expression result is discarded, stored or passed to a caller.
 
 ```sh
-cargo test -p lila-aot-wasm --test arithmetic_number_conversion_order_structure --quiet
-cargo test -p lila-aot-wasm --test unary_numeric_ir_structure --quiet
-cargo xc
-./target/debug/lila --jobs 1 test262 run language/expressions/addition/order-of-evaluation.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run language/expressions/multiplication/order-of-evaluation.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo test --release --locked -j2 -p lila-aot-wasm --test arithmetic_number_conversion_order_structure --test unary_numeric_ir_structure
+cargo test --release --locked -j2 -p lila-engine --lib wasm_backend_outlined_to_numeric_preserves_kind_order_and_abrupt_identity
+cargo test --release --locked -j2 -p lila-engine --test aot_declaration_completion
 ```
 
-The new structure target passes `4/4`, and the neighboring unary-numeric
-structure target remains green at `7/7`. The shared `cargo xc` checkpoint is
-green. The pinned addition and multiplication order controls pass all `4/4`
-sloppy/strict Wasm-AOT executions with every failure bucket at zero.
-
-## Nonclaims
-
-This invariant does not change BigInt arithmetic, add a bitwise Number route,
-alter operator lowering or claim broader numeric/Test262 progress.
+Current verification and the exact real execution cohort are recorded in the
+[September repair notes](../observed-later-failure-repairs.md). This contract
+does not establish full numeric or Test262 conformance.

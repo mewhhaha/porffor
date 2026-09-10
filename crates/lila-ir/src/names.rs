@@ -5,6 +5,8 @@ pub(crate) const SCRIPT_OWNER_ID: &str = "$script";
 pub(crate) const MAX_STATIC_ARRAY_SHAPE_INDEX: usize = 1_000_000;
 pub(crate) const MAX_ARRAY_INDEX: f64 = 4_294_967_294.0;
 pub const JS_STRING_SURROGATE_SENTINEL: char = '\u{F0000}';
+/// Source-unspellable capture of a direct eval caller execution context.
+pub const DIRECT_EVAL_EXECUTION_CONTEXT_NAME: &str = "\0direct.eval.context";
 pub const LEXICAL_THIS_NAME: &str = "$this";
 pub const LEXICAL_ARGUMENTS_NAME: &str = "$arguments";
 pub const LEXICAL_NEW_TARGET_NAME: &str = "$new.target";

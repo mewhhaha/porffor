@@ -54,7 +54,16 @@ fn environment_heap_slot_is_the_exact_capability_free_domain() {
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>(),
-        ["Parent,", "BindingTag,", "BindingPayload,"],
+        [
+            "Parent,",
+            "FunctionBody,",
+            "NamedBindings,",
+            "NamedBindingCount,",
+            "WithObjectCell,",
+            "RecordKind,",
+            "BindingTag,",
+            "BindingPayload,"
+        ],
     );
     assert!(!LAYOUT_SOURCE.contains("#[derive"));
     assert!(
@@ -82,15 +91,15 @@ fn environment_heap_slot_is_the_exact_capability_free_domain() {
 }
 
 #[test]
-fn one_exhaustive_projection_owns_three_exact_rows() {
+fn one_exhaustive_projection_owns_eight_exact_rows() {
     let implementation = bounded(
         LAYOUT_SOURCE,
         "impl EnvironmentHeapSlot {",
         "pub(crate) const HEAP_ENVIRONMENT_LAYOUT",
     );
     assert_eq!(implementation.matches("match self {").count(), 1);
-    assert_eq!(implementation.matches("pointer: true").count(), 2);
-    assert_eq!(implementation.matches("pointer: false").count(), 1);
+    assert_eq!(implementation.matches("pointer: true").count(), 5);
+    assert_eq!(implementation.matches("pointer: false").count(), 3);
     assert!(!implementation.contains("_ =>"));
     assert!(!implementation.contains("unreachable!"));
     assert!(!implementation.contains("todo!"));
@@ -100,6 +109,26 @@ fn one_exhaustive_projection_owns_three_exact_rows() {
         concat!(
             "Self::Parent=>EnvironmentHeapSlotMetadata{record:\"environment\",",
             "name:\"parent\",offset:ENV_PARENT_OFFSET,width:8,pointer:true,},"
+        ),
+        concat!(
+            "Self::FunctionBody=>EnvironmentHeapSlotMetadata{record:\"environment\",",
+            "name:\"function-body\",offset:ENV_FUNCTION_BODY_OFFSET,width:8,pointer:true,},"
+        ),
+        concat!(
+            "Self::NamedBindings=>EnvironmentHeapSlotMetadata{record:\"environment\",",
+            "name:\"named-bindings\",offset:ENV_NAMED_ENTRIES_OFFSET,width:8,pointer:true,},"
+        ),
+        concat!(
+            "Self::NamedBindingCount=>EnvironmentHeapSlotMetadata{record:\"environment\",",
+            "name:\"named-binding-count\",offset:ENV_NAMED_COUNT_OFFSET,width:8,pointer:false,},"
+        ),
+        concat!(
+            "Self::WithObjectCell=>EnvironmentHeapSlotMetadata{record:\"environment\",",
+            "name:\"with-object-cell\",offset:ENV_WITH_OBJECT_OFFSET,width:8,pointer:true,},"
+        ),
+        concat!(
+            "Self::RecordKind=>EnvironmentHeapSlotMetadata{record:\"environment\",",
+            "name:\"record-kind\",offset:ENV_RECORD_KIND_OFFSET,width:8,pointer:false,},"
         ),
         concat!(
             "Self::BindingTag=>EnvironmentHeapSlotMetadata{record:\"environment-slot\",",
@@ -123,7 +152,7 @@ fn one_exhaustive_projection_owns_three_exact_rows() {
 }
 
 #[test]
-fn typed_registry_preserves_parent_tag_payload_order() {
+fn typed_registry_preserves_header_then_binding_order() {
     let registry = normalized(bounded(
         LAYOUT_SOURCE,
         "pub(crate) const HEAP_ENVIRONMENT_LAYOUT",
@@ -133,6 +162,9 @@ fn typed_registry_preserves_parent_tag_payload_order() {
         registry,
         concat!(
             ":&[EnvironmentHeapSlot]=&[EnvironmentHeapSlot::Parent,",
+            "EnvironmentHeapSlot::FunctionBody,",
+            "EnvironmentHeapSlot::NamedBindings,EnvironmentHeapSlot::NamedBindingCount,",
+            "EnvironmentHeapSlot::WithObjectCell,EnvironmentHeapSlot::RecordKind,",
             "EnvironmentHeapSlot::BindingTag,EnvironmentHeapSlot::BindingPayload,"
         )
     );
@@ -153,7 +185,7 @@ fn environment_layout_has_one_private_recursive_owner() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         recursive_rust_source_count(&source_root, "record: \"environment\""),
-        1
+        6
     );
     assert_eq!(
         recursive_rust_source_count(&source_root, "record: \"environment-slot\""),

@@ -5,6 +5,7 @@ const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const REALM_OWNER_SOURCE: &str = include_str!("../src/functions/proxy_execution_realm.rs");
+const GLOBAL_ENVIRONMENT_SOURCE: &str = include_str!("../src/environments/global_environment.rs");
 const PROXY_BUILTIN_SOURCE: &str = include_str!("../src/builtins/proxy.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -130,7 +131,7 @@ fn initial_and_helper_body_sources_project_exhaustively() {
     for (source, helper_arm) in [
         (
             "Self::ObjectReadHelperArgument",
-            concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead=>",),
+            concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead|RuntimeHelperId::ObjectHasProperty=>",),
         ),
         (
             "Self::ProxyDispatchHelperArgument",
@@ -226,8 +227,23 @@ fn proxy_realm_methods_share_one_trusted_access_projection() {
     );
     assert!(array_prototype.contains("emit_load_current_function_realm_array_prototype("));
     assert!(array_prototype.contains("emit_install_current_function_realm_array_prototype("));
-    assert!(array_prototype.contains("ARRAY_PROTOTYPE_GLOBAL_INDEX"));
+    assert!(array_prototype.contains("emit_source_literal_prototype_payload("));
+    assert!(array_prototype.contains("SourceLiteralPrototype::Array"));
+    assert!(array_prototype.contains("HEAP_ARRAY_PROTOTYPE_TAG_OFFSET"));
+    assert!(array_prototype.contains("ValueKind::Array.tag() as u64"));
     assert!(!array_prototype.contains("_ =>"));
+    let source_prototype = bounded(
+        GLOBAL_ENVIRONMENT_SOURCE,
+        "pub(crate) fn emit_source_literal_prototype_payload(",
+        "pub(crate) fn emit_source_realm_function_context_payload(",
+    );
+    assert!(normalized(source_prototype).contains(concat!(
+        "SourceLiteralPrototype::Array=>(",
+        "HEAP_REALM_INTRINSICS_ARRAY_PROTOTYPE_OFFSET,ARRAY_PROTOTYPE_GLOBAL_INDEX,)"
+    )));
+    assert!(source_prototype.contains("if !self.has_source_execution_environment()"));
+    assert!(source_prototype.contains("Instruction::GlobalGet(entry_global)"));
+    assert!(source_prototype.contains("self.emit_source_execution_realm_to_local("));
 }
 
 #[test]

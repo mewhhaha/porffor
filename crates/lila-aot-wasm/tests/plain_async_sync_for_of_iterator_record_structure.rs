@@ -322,7 +322,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
     let lowerer = bounded(
         LOWERING_SOURCE,
         "    fn lower_async_function_for_of_iterator_with_body_await(",
-        "    /// Lowers a `for`-`of` head.",
+        "    pub(super) fn lower_for_of_loop(",
     );
     positions_in_order(
         lowerer,
@@ -378,7 +378,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
 
     let bare_assignment_prefix = bounded(
         LOWERING_SOURCE,
-        "        let mut pattern_prefix = if let ForOfBareIdentifierHead::AssignmentTarget",
+        "        } else if let ForOfBareIdentifierHead::AssignmentTarget",
         "        } else if let Some(access) = access_initializer.as_ref() {",
     );
     positions_in_order(

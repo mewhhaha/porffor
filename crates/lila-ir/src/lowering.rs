@@ -11,11 +11,23 @@ mod call_expression;
 mod class_definition;
 mod define_property_call;
 mod delete_expression;
+mod direct_eval;
 mod dynamic_source;
+mod environment_identifier;
+mod finite_function_source;
+mod function_source_candidates;
+use finite_function_source::FiniteSourceValue;
+mod prepared_function;
+mod prepared_script;
+use prepared_function::{
+    append_prepared_unit, compile_dynamic_function_sources, record_prepared_compilation_stage,
+};
+use prepared_script::compile_dynamic_script_sources;
 mod for_in;
 mod for_loop;
 mod for_of;
 mod function_definition;
+mod function_environment;
 mod if_statement;
 mod invocation_effects;
 mod labelled_statement;
@@ -607,6 +619,9 @@ fn captured_environment_positions(
 }
 
 pub(crate) struct LoweredScript {
+    pub(crate) dynamic_script_sources: Vec<DynamicScriptSource>,
+    pub(crate) runtime_declarations: RuntimeGlobalDeclarationPlan,
+    pub(crate) dynamic_function_sources: Vec<DynamicFunctionSource>,
     pub(crate) functions: Vec<FunctionIr>,
     pub(crate) body: BlockIr,
     pub(crate) owned_env_bindings: Vec<OwnedEnvBindingIr>,
@@ -677,6 +692,7 @@ struct ExecutedClassElementPostState {
 enum RootThisBinding {
     GlobalObject,
     Undefined,
+    EvalCaller,
 }
 
 impl RootThisBinding {
@@ -1057,15 +1073,46 @@ fn lower_script_program(
     modules: Option<ModuleGraphIr>,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
-    let root_this_binding = RootThisBinding::for_goal(goal);
+    lower_script_program_with_allocations(
+        script_source,
+        goal,
+        source_len,
+        stages,
+        modules,
+        host_surface_policy,
+        &mut AnalysisAllocationState::default(),
+        ScriptInstantiation::FreshEntry,
+    )
+}
+
+fn lower_script_program_with_allocations(
+    script_source: &ParsedScript,
+    goal: ParseGoal,
+    source_len: usize,
+    stages: Vec<LoweringStage>,
+    modules: Option<ModuleGraphIr>,
+    host_surface_policy: HostSurfacePolicy,
+    allocations: &mut AnalysisAllocationState,
+    instantiation: ScriptInstantiation,
+) -> ProgramIr {
+    let root_this_binding = if matches!(
+        &instantiation,
+        ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(_))
+    ) {
+        RootThisBinding::EvalCaller
+    } else {
+        RootThisBinding::for_goal(goal)
+    };
     let mut program = new_program(goal, source_len, stages);
     program.modules = modules;
 
     script_source.with_compiler_session(|script, interner| {
         let trace_phases = std::env::var_os("LILA_LOWER_TRACE").is_some();
         let t0 = std::time::Instant::now();
-        let analysis =
-            AnalysisBuilder::default().finish(script, interner, script_source.source_text.as_str());
+        let mut analysis = AnalysisBuilder::with_allocations(*allocations, instantiation.clone())
+            .finish(script, interner, script_source.source_text.as_str());
+        analysis.prepare_runtime_script_slots(script, interner);
+        *allocations = analysis.allocations;
         if trace_phases {
             eprintln!("lila lower trace: analysis: {:?}", t0.elapsed());
         }
@@ -1083,6 +1130,10 @@ fn lower_script_program(
             eprintln!("lila lower trace: script-lower: {:?}", t1.elapsed());
         }
         program.script = Some(ScriptIr {
+            eval_environment: analysis.owner_eval_environment(SCRIPT_OWNER_ID),
+            prepared_scripts: Vec::new(),
+            runtime_declarations: lowered.runtime_declarations,
+            prepared_dynamic_functions: Vec::new(),
             strict: script.strict(),
             functions: lowered.functions,
             body: lowered.body,
@@ -1115,6 +1166,18 @@ fn lower_script_program(
             program.stages.push(LoweringStage::WasmReady);
         }
         program.diagnostics = lowered.diagnostics;
+        compile_dynamic_function_sources(
+            &mut program,
+            lowered.dynamic_function_sources,
+            host_surface_policy,
+            allocations,
+        );
+        compile_dynamic_script_sources(
+            &mut program,
+            lowered.dynamic_script_sources,
+            host_surface_policy,
+            allocations,
+        );
     });
 
     program
@@ -1153,6 +1216,10 @@ enum ScriptGlobalCallObservationMode {
 }
 
 pub(crate) struct ScriptLowerer<'a> {
+    dynamic_script_sources: Vec<DynamicScriptSource>,
+    dynamic_function_sources: Vec<DynamicFunctionSource>,
+    function_source_binding_candidates: BTreeMap<String, Vec<FiniteSourceValue>>,
+    array_callback_source_candidates: BTreeMap<FunctionId, Vec<FiniteSourceValue>>,
     interner: &'a Interner,
     analysis: &'a Analysis<'a>,
     source_text: &'a str,
@@ -1475,6 +1542,23 @@ impl<'a> ScriptLowerer<'a> {
         if self.direct_lexical_scopes.last().copied().unwrap_or(false) {
             return scoped_lexical_binding_storage_name(source_name, span);
         }
+        if self
+            .analysis
+            .owner_plans
+            .get(&self.current_owner_id)
+            .is_some_and(|owner| {
+                let environment_id = owner
+                    .body_environment_id
+                    .unwrap_or(owner.activation_environment_id);
+                self.analysis.environment_plans[&environment_id]
+                    .owned_env_slots
+                    .contains_key(source_name)
+            })
+        {
+            // Captures and eval resolve this cell by the analysis-owned name;
+            // outer binding metadata cannot authorize a different local slot.
+            return source_name.to_string();
+        }
         self.lexical_storage_name(source_name)
     }
 
@@ -1573,7 +1657,11 @@ impl<'a> ScriptLowerer<'a> {
             pinned_async_operands: HashMap::new(),
             root_this_binding,
             current_this_binding: CurrentThisBinding::Root(root_this_binding),
-            current_new_target_info: ValueInfo::undefined(),
+            current_new_target_info: if root_this_binding == RootThisBinding::EvalCaller {
+                unknown_runtime_value_info()
+            } else {
+                ValueInfo::undefined()
+            },
             current_construct_this_info: None,
             global_properties: {
                 let mut properties = BTreeMap::new();
@@ -1732,6 +1820,10 @@ impl<'a> ScriptLowerer<'a> {
             boxed_builtin_constructs: 0,
             boxed_receiver_adaptations: 0,
             generated_functions: Vec::new(),
+            dynamic_function_sources: Vec::new(),
+            function_source_binding_candidates: BTreeMap::new(),
+            array_callback_source_candidates: BTreeMap::new(),
+            dynamic_script_sources: Vec::new(),
             generated_owned_env_bindings: Vec::new(),
             next_generated_function_index: 0,
             next_temp_binding_index: 0,
@@ -2163,6 +2255,8 @@ impl<'a> ScriptLowerer<'a> {
         self.function_signatures = prepass.function_signatures;
         self.exact_context_function_observations = prepass.exact_context_function_observations;
         self.exact_context_callback_observations = prepass.exact_context_callback_observations;
+        self.function_source_binding_candidates = prepass.function_source_binding_candidates;
+        self.array_callback_source_candidates = prepass.array_callback_source_candidates;
         self.var_bindings = prepass.var_bindings;
         self.reset_script_global_var_flow_facts();
         self.known_nested_script_global_value_infos = known_script_global_values;
@@ -2245,29 +2339,54 @@ impl<'a> ScriptLowerer<'a> {
         functions.append(&mut self.generated_functions);
         let (global_bindings, restricted_global_functions) =
             self.script_global_bindings(self.analysis.script_root_functions.as_slice());
-        for name in restricted_global_functions {
+        let rejects_fresh_entry_declarations =
+            self.analysis.script_instantiation == ScriptInstantiation::FreshEntry;
+        for name in restricted_global_functions
+            .into_iter()
+            .filter(|_| rejects_fresh_entry_declarations)
+        {
             self.unsupported_with_message(format!(
                 "unsupported in lila wasm-aot first slice: global function declaration `{name}` is blocked by a non-configurable global property"
             ));
         }
+        let mut owned_env_bindings = self
+            .analysis
+            .owner_plans
+            .get(SCRIPT_OWNER_ID)
+            .map(|owner| {
+                owner
+                    .owned_env_slots
+                    .iter()
+                    .map(|(name, slot)| OwnedEnvBindingIr {
+                        name: name.clone(),
+                        slot: *slot,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        // Independently compiled Function bodies resolve these bindings through
+        // the realm's Global Environment, even when the entry Script contains
+        // no closure that captures them.
+        for name in global_bindings.lexical_names() {
+            if owned_env_bindings
+                .iter()
+                .any(|binding| &binding.name == name)
+            {
+                continue;
+            }
+            owned_env_bindings.push(OwnedEnvBindingIr {
+                name: name.clone(),
+                slot: owned_env_bindings.len() as u32,
+            });
+        }
+        let runtime_declarations = self.runtime_global_declarations(script);
         LoweredScript {
+            runtime_declarations,
+            dynamic_script_sources: self.dynamic_script_sources,
+            dynamic_function_sources: self.dynamic_function_sources,
             functions,
             body,
-            owned_env_bindings: self
-                .analysis
-                .owner_plans
-                .get(SCRIPT_OWNER_ID)
-                .map(|owner| {
-                    owner
-                        .owned_env_slots
-                        .iter()
-                        .map(|(name, slot)| OwnedEnvBindingIr {
-                            name: name.clone(),
-                            slot: *slot,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            owned_env_bindings,
             global_bindings,
             host_builtins: self.used_host_builtins.iter().copied().collect(),
             builtin_ctor_calls: self.builtin_ctor_calls,
@@ -2291,6 +2410,10 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn propagate_function_signatures(&mut self) {
+        if self.analysis.script_root_functions.is_empty() {
+            return;
+        }
+
         const MAX_SIGNATURE_PROPAGATION_PASSES: usize = 6;
 
         for _ in 0..MAX_SIGNATURE_PROPAGATION_PASSES {
@@ -2321,6 +2444,9 @@ impl<'a> ScriptLowerer<'a> {
             pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
             pass.static_boolean_bindings = self.static_boolean_bindings.clone();
             pass.static_string_bindings = self.static_string_bindings.clone();
+            pass.function_source_binding_candidates =
+                self.function_source_binding_candidates.clone();
+            pass.array_callback_source_candidates = self.array_callback_source_candidates.clone();
             pass.static_to_string_regexp_object_bindings =
                 self.static_to_string_regexp_object_bindings.clone();
             pass.var_bindings = self.var_bindings.clone();
@@ -2361,6 +2487,14 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn prepare_exact_context_specializations(&mut self) {
+        if self.exact_context_function_observations.is_empty()
+            && self.exact_context_callback_observations.is_empty()
+            && self.exact_context_function_specializations.is_empty()
+            && self.exact_context_callback_specializations.is_empty()
+        {
+            return;
+        }
+
         const MAX_EXACT_CONTEXT_PASSES: usize = 8;
 
         for _ in 0..MAX_EXACT_CONTEXT_PASSES {
@@ -2496,6 +2630,8 @@ impl<'a> ScriptLowerer<'a> {
         pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
         pass.static_boolean_bindings = self.static_boolean_bindings.clone();
         pass.static_string_bindings = self.static_string_bindings.clone();
+        pass.function_source_binding_candidates = self.function_source_binding_candidates.clone();
+        pass.array_callback_source_candidates = self.array_callback_source_candidates.clone();
         pass.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         pass.var_bindings = self.var_bindings.clone();
@@ -2579,6 +2715,8 @@ impl<'a> ScriptLowerer<'a> {
         pass.function_signature_shape_evidence = self.function_signature_shape_evidence;
         pass.static_boolean_bindings = self.static_boolean_bindings.clone();
         pass.static_string_bindings = self.static_string_bindings.clone();
+        pass.function_source_binding_candidates = self.function_source_binding_candidates.clone();
+        pass.array_callback_source_candidates = self.array_callback_source_candidates.clone();
         pass.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         pass.var_bindings = self.var_bindings.clone();
@@ -3281,12 +3419,22 @@ impl<'a> ScriptLowerer<'a> {
         &self,
         root_functions: &[PendingFunction<'a>],
     ) -> (GlobalBindingPlan, Vec<String>) {
-        let lexical_names = self
+        let activation_id = self.analysis.owner_plans[SCRIPT_OWNER_ID].activation_environment_id;
+        let binding_modes = &self.analysis.environment_plans[&activation_id].binding_modes;
+        let lexical_bindings = self
             .var_bindings
             .iter()
             .filter(|(_, binding)| binding.is_lexical_metadata)
-            .map(|(name, _)| name.clone())
-            .collect::<BTreeSet<_>>();
+            .map(|(name, _)| {
+                let mode = match binding_modes.get(name).unwrap_or_else(|| {
+                    panic!("global lexical `{name}` must have an analyzed declaration mode")
+                }) {
+                    BindingMode::Let => GlobalLexicalBindingModeIr::Mutable,
+                    BindingMode::Const => GlobalLexicalBindingModeIr::Immutable,
+                    BindingMode::Var => panic!("global lexical `{name}` cannot be var"),
+                };
+                (name.clone(), mode)
+            });
         let mut bindings = GlobalBindingPlan::from_parts(
             [
                 ScriptGlobalBindingIr {
@@ -3340,7 +3488,7 @@ impl<'a> ScriptLowerer<'a> {
                     declarations: GlobalDeclarationSetIr::None,
                 },
             ],
-            lexical_names,
+            lexical_bindings,
         );
         for builtin in StandardBuiltinId::all_globals() {
             let Some(name) = builtin.global_name() else {
@@ -3433,13 +3581,15 @@ impl<'a> ScriptLowerer<'a> {
 
         self.prepare_annex_b_function_bindings();
         self.prepare_root_function_binding_ids(root_functions);
-        lowered_items.extend(
-            self.root_function_init_statements(root_functions)
-                .into_iter()
-                .map(|statement| {
-                    LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
-                }),
-        );
+        if self.root_functions_need_body_initialization() {
+            lowered_items.extend(
+                self.root_function_init_statements(root_functions)
+                    .into_iter()
+                    .map(|statement| {
+                        LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
+                    }),
+            );
+        }
 
         for item in items {
             match item {
@@ -3531,6 +3681,7 @@ impl<'a> ScriptLowerer<'a> {
     fn statement_list_ends_in_return(statements: &[StatementIr]) -> bool {
         match statements.last() {
             Some(StatementIr::Return(_)) => true,
+            Some(StatementIr::Block(body)) => Self::statement_list_ends_in_return(&body.statements),
             Some(StatementIr::SyncDisposableScope { body, .. }) => {
                 Self::statement_list_ends_in_return(&body.statements)
             }
@@ -3643,37 +3794,40 @@ impl<'a> ScriptLowerer<'a> {
         self.visible_function_names.clear();
         for (name, function_id) in root_functions {
             let bare_function_info = self.function_value_info(function_id);
-            let function_info = if self.current_owner_id == SCRIPT_OWNER_ID {
-                self.lookup_global_property(name)
-                    .filter(|info| {
-                        info.kind == ValueKind::Function
-                            && info.function_targets.exact_single_target() == Some(function_id)
-                    })
-                    .unwrap_or(bare_function_info)
-            } else {
-                bare_function_info
-            };
+            let function_info =
+                if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global() {
+                    self.lookup_global_property(name)
+                        .filter(|info| {
+                            info.kind == ValueKind::Function
+                                && info.function_targets.exact_single_target() == Some(function_id)
+                        })
+                        .unwrap_or(bare_function_info)
+                } else {
+                    bare_function_info
+                };
             self.visible_function_names
                 .insert(name.clone(), function_id.clone());
-            if self.current_owner_id == SCRIPT_OWNER_ID {
+            if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global() {
                 self.set_global_property_value_info_with_source(
                     name.clone(),
                     function_info.clone(),
                     GlobalPropertySource::GlobalWrite,
                 );
             }
-            self.declare_binding(
-                name.clone(),
-                BindingInfo {
-                    mode: BindingMode::Let,
-                    storage_name: name.clone(),
-                    kind: ValueKind::Function,
-                    possible_kinds: KindSet::from_kind(ValueKind::Function),
-                    heap_shape: function_info.heap_shape,
-                    function_targets: FunctionTargetKnowledge::exact(function_id.clone()),
-                    initialization: Initialization::Initialized,
-                },
-            );
+            if self.root_functions_need_body_initialization() {
+                self.declare_binding(
+                    name.clone(),
+                    BindingInfo {
+                        mode: BindingMode::Let,
+                        storage_name: name.clone(),
+                        kind: ValueKind::Function,
+                        possible_kinds: KindSet::from_kind(ValueKind::Function),
+                        heap_shape: function_info.heap_shape,
+                        function_targets: FunctionTargetKnowledge::exact(function_id.clone()),
+                        initialization: Initialization::Initialized,
+                    },
+                );
+            }
         }
     }
 
@@ -3794,8 +3948,10 @@ impl<'a> ScriptLowerer<'a> {
                 self.analysis
                     .materialized_stage_a_environment(environment_id)
             })
-            .filter(|environment| !environment.owned_env_slots.is_empty())
+            .filter(|environment| self.analysis.environment_has_runtime_storage(environment))
             .map(|environment| LexicalEnvironmentIr {
+                initialization: crate::LexicalEnvironmentInitializationIr::Uninitialized,
+                eval_environment: environment.eval_environment.clone(),
                 bindings: environment
                     .owned_env_slots
                     .iter()
@@ -3815,6 +3971,8 @@ impl<'a> ScriptLowerer<'a> {
             .and_then(|environment_id| self.analysis.materialized_environment(environment_id))
             .filter(|environment| self.analysis.environment_has_runtime_storage(environment))
             .map(|environment| LexicalEnvironmentIr {
+                initialization: crate::LexicalEnvironmentInitializationIr::Uninitialized,
+                eval_environment: environment.eval_environment.clone(),
                 bindings: environment
                     .owned_env_slots
                     .iter()
@@ -3854,6 +4012,7 @@ impl<'a> ScriptLowerer<'a> {
             _ => BTreeSet::new(),
         };
         Some(ForLexicalEnvironmentIr {
+            eval_environment: environment.eval_environment.clone(),
             bindings: environment
                 .owned_env_slots
                 .iter()
@@ -4368,7 +4527,6 @@ impl<'a> ScriptLowerer<'a> {
     fn static_string_expr(expr: &TypedExpr) -> Option<&str> {
         match &expr.expr {
             ExprIr::String(value) => Some(value.as_str()),
-            ExprIr::TypeOfUnresolvedIdentifier { .. } => Some("undefined"),
             _ => None,
         }
     }
@@ -4650,6 +4808,9 @@ impl<'a> ScriptLowerer<'a> {
         let static_string_value = variable
             .init()
             .and_then(|expression| self.static_string_expression(expression));
+        let source_candidate = variable
+            .init()
+            .map(|expression| self.function_source_value_candidates(expression));
         let init = variable
             .init()
             .map(|expression| self.lower_expression(expression))
@@ -4683,6 +4844,10 @@ impl<'a> ScriptLowerer<'a> {
         let binding = self.lookup_binding(&name).unwrap_or_else(|| {
             panic!("for-loop lexical binding `{name}` must be declared before installing facts")
         });
+        if let Some(candidate) = source_candidate {
+            self.function_source_binding_candidates
+                .insert(binding.storage_name.clone(), candidate);
+        }
         if let Some(value) = static_string_value {
             self.static_string_bindings.insert(&binding, value);
         } else {
@@ -4762,7 +4927,7 @@ impl<'a> ScriptLowerer<'a> {
                     self.static_boolean_bindings.remove(&name);
                     self.static_to_string_regexp_object_bindings.remove(&name);
                     self.set_binding_value_info(&name, value.value_info());
-                    statements.push(StatementIr::Expression(
+                    statements.push(StatementIr::DeclarationEvaluation(
                         self.lower_identifier_assign_value(name, value),
                     ));
                 }
@@ -4808,7 +4973,20 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 Binding::Identifier(_) => {
                     if let Some(declarator) = self.lower_var_declarator(variable) {
-                        declarators.push(declarator);
+                        if self.borrows_direct_eval_variable_environment() {
+                            if let Some(value) = declarator.init {
+                                statements.push(StatementIr::DeclarationEvaluation(
+                                    self.environment_identifier(
+                                        declarator.name,
+                                        EnvironmentIdentifierOperationIr::Assign {
+                                            value: Box::new(value),
+                                        },
+                                    ),
+                                ));
+                            }
+                        } else {
+                            declarators.push(declarator);
+                        }
                     }
                 }
                 Binding::Pattern(pattern) => {
@@ -4884,6 +5062,9 @@ impl<'a> ScriptLowerer<'a> {
         let static_string_value = variable
             .init()
             .and_then(|expression| self.static_string_expression(expression));
+        let source_candidate = variable
+            .init()
+            .map(|expression| self.function_source_value_candidates(expression));
         let init = if let Some(Expression::GeneratorExpression(generator)) = variable.init() {
             if generator_function_is_aot_supported(generator.body(), generator.parameters()) {
                 self.static_generator_call_overrides.remove(&name);
@@ -4942,6 +5123,10 @@ impl<'a> ScriptLowerer<'a> {
             });
             if let Some(value) = static_boolean_value {
                 self.static_boolean_bindings.insert(name.clone(), value);
+            }
+            if let Some(candidate) = source_candidate {
+                self.function_source_binding_candidates
+                    .insert(binding.storage_name.clone(), candidate);
             }
             if let Some(value) = static_string_value {
                 self.static_string_bindings.insert(&binding, value);
@@ -5016,7 +5201,7 @@ impl<'a> ScriptLowerer<'a> {
             else {
                 return Vec::new();
             };
-            return vec![StatementIr::Expression(TypedExpr::from_info(
+            return vec![StatementIr::DeclarationEvaluation(TypedExpr::from_info(
                 ValueInfo::undefined(),
                 ExprIr::ArrayDestructure {
                     value: Box::new(storage_expr),
@@ -5030,7 +5215,7 @@ impl<'a> ScriptLowerer<'a> {
         else {
             return Vec::new();
         };
-        vec![StatementIr::Expression(TypedExpr::from_info(
+        vec![StatementIr::DeclarationEvaluation(TypedExpr::from_info(
             ValueInfo::undefined(),
             ExprIr::ObjectDestructure {
                 value: Box::new(storage_expr),
@@ -6067,17 +6252,24 @@ impl<'a> ScriptLowerer<'a> {
             function_targets: source.function_targets,
         };
         self.set_owner_binding_value_info(&plan.source_name, value_info.clone());
-        if self.current_owner_id == SCRIPT_OWNER_ID {
+        if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global() {
             self.set_global_property_value_info_with_source(
                 plan.source_name.clone(),
                 value_info,
                 GlobalPropertySource::GlobalWrite,
             );
         }
-        Some(StatementIr::AnnexBFunctionCopy {
+        let admission = self.prepared_annex_b_admission(&plan.source_name);
+        let copy = StatementIr::AnnexBFunctionCopy {
+            admission,
             source_name: plan.source_name.clone(),
             block_storage_name: plan.block_storage_name,
-            target: if self.current_owner_id == SCRIPT_OWNER_ID {
+            target: if self.borrows_direct_eval_variable_environment() {
+                AnnexBFunctionCopyTargetIr::DirectEvalVariable {
+                    name: plan.source_name,
+                }
+            } else if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global()
+            {
                 AnnexBFunctionCopyTargetIr::ScriptGlobal {
                     name: plan.source_name,
                 }
@@ -6086,7 +6278,8 @@ impl<'a> ScriptLowerer<'a> {
                     storage_name: plan.source_name,
                 }
             },
-        })
+        };
+        Some(copy)
     }
 
     fn lower_lexical_declaration(
@@ -6335,6 +6528,9 @@ impl<'a> ScriptLowerer<'a> {
                     let static_string_value = variable
                         .init()
                         .and_then(|expression| self.static_string_expression(expression));
+                    let source_candidate = variable
+                        .init()
+                        .map(|expression| self.function_source_value_candidates(expression));
                     let init = variable
                         .init()
                         .map(|expression| self.lower_expression(expression))
@@ -6378,6 +6574,10 @@ impl<'a> ScriptLowerer<'a> {
                             "lexical binding `{name}` must be declared before installing static string facts"
                         )
                     });
+                    if let Some(candidate) = source_candidate {
+                        self.function_source_binding_candidates
+                            .insert(binding.storage_name.clone(), candidate);
+                    }
                     if let Some(value) = static_string_value {
                         self.static_string_bindings.insert(&binding, value);
                     } else {
@@ -6686,12 +6886,14 @@ impl<'a> ScriptLowerer<'a> {
             );
             return;
         }
+        let is_script_global =
+            self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global();
         self.var_bindings.entry(name).or_insert(VarBindingInfo {
             kind: ValueKind::Undefined,
             possible_kinds: KindSet::from_kind(ValueKind::Undefined),
             heap_shape: None,
             function_targets: FunctionTargetKnowledge::none(),
-            is_script_global: self.current_owner_id == SCRIPT_OWNER_ID,
+            is_script_global,
             is_lexical_metadata: false,
         });
     }
@@ -6789,6 +6991,7 @@ impl<'a> ScriptLowerer<'a> {
         match binding {
             RootThisBinding::GlobalObject => self.global_this_info(),
             RootThisBinding::Undefined => ValueInfo::undefined(),
+            RootThisBinding::EvalCaller => unknown_runtime_value_info(),
         }
     }
 
@@ -6810,6 +7013,9 @@ impl<'a> ScriptLowerer<'a> {
                 TypedExpr::from_info(self.global_this_info(), ExprIr::This)
             }
             CurrentThisBinding::Root(RootThisBinding::Undefined) => TypedExpr::undefined(),
+            CurrentThisBinding::Root(RootThisBinding::EvalCaller) => {
+                TypedExpr::from_info(unknown_runtime_value_info(), ExprIr::This)
+            }
             CurrentThisBinding::Activation(info) => TypedExpr::from_info(info, ExprIr::This),
         }
     }
@@ -7347,11 +7553,22 @@ impl<'a> ScriptLowerer<'a> {
         !matches!(name, "Infinity" | "NaN" | "undefined")
     }
 
-    fn mark_global_property_deleted(&mut self, name: &str) {
+    fn record_global_property_delete(&mut self, name: &str) {
         let script_global_binding = self.script_global_var_binding_info(name);
         self.record_binding_value_write(name, script_global_binding.as_ref());
+        let is_script_global_declaration = script_global_binding.is_some()
+            || (self.script_variables_are_global()
+                && self.analysis.owner_plans[SCRIPT_OWNER_ID]
+                    .function_bindings
+                    .contains_key(name));
         if let Some(info) = self.global_properties.get_mut(name) {
-            if info.proven_present && info.configurable {
+            if is_script_global_declaration {
+                // Prepared declarations can reuse an existing descriptor or
+                // create a configurable eval binding. Let runtime deletion
+                // decide whether the property survives.
+                info.proven_present = false;
+                info.source = GlobalPropertySource::Merged;
+            } else if info.proven_present && info.configurable {
                 info.proven_present = false;
                 info.source = GlobalPropertySource::DefinitelyDeleted;
             }
@@ -7391,15 +7608,6 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_identifier_name(&mut self, name: String, allow_with: bool) -> TypedExpr {
-        self.lower_identifier_name_inner(name, allow_with, false)
-    }
-
-    fn lower_identifier_name_inner(
-        &mut self,
-        name: String,
-        allow_with: bool,
-        missing_as_reference_error: bool,
-    ) -> TypedExpr {
         if allow_with {
             let fallback = self.locate_identifier_reference(&name);
             if let Some(objects) = self
@@ -7407,7 +7615,7 @@ impl<'a> ScriptLowerer<'a> {
                 .select_preceding(fallback.declarative_position())
             {
                 let plan = self.with_environment_reference_plan(name.clone(), objects);
-                let fallback = self.lower_identifier_name_inner(name, false, true);
+                let fallback = self.lower_identifier_name(name, false);
                 return plan.get_value(fallback);
             }
         }
@@ -7422,7 +7630,8 @@ impl<'a> ScriptLowerer<'a> {
             BindingResolution::Initialized(binding) => Some(binding),
             BindingResolution::Unresolvable => None,
         };
-        if let Some(binding) = binding {
+        if let Some(binding) = binding.filter(|_| !self.is_unshadowed_script_global_binding(&name))
+        {
             let mut info = ValueInfo {
                 kind: binding.kind,
                 possible_kinds: binding.possible_kinds,
@@ -7439,44 +7648,44 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: FunctionTargetKnowledge::unknown(),
                 };
             }
-            if self.is_script_global_var_name(&name) && !self.has_scope_binding(&name) {
-                return TypedExpr::from_info(info, ExprIr::GlobalPropertyRead { name });
-            }
             return TypedExpr::from_info(info, ExprIr::Identifier(binding.storage_name));
-        }
-
-        if let Some(builtin) = StandardBuiltinId::all_globals()
-            .iter()
-            .copied()
-            .find(|builtin| {
-                builtin.global_name() == Some(name.as_str())
-                    && Self::is_typed_array_constructor(*builtin)
-            })
-        {
-            return TypedExpr::from_info(
-                Self::standard_builtin_value_info(builtin),
-                ExprIr::FunctionValue(builtin.function_id()),
-            );
         }
 
         if let Some(host) = self.host_surface_policy.resolve_global(&name) {
             self.used_host_builtins.insert(host);
-            return TypedExpr::from_info(
-                Self::host_function_value_info(host),
-                ExprIr::GlobalPropertyRead { name },
-            );
         }
 
+        if self.is_unshadowed_script_global_binding(&name) {
+            // A dormant function can run after deletion exposes an inherited
+            // replacement. Its declaration-time tag and shape are not proof.
+            let info = self
+                .lookup_global_property(&name)
+                .filter(|_| self.current_owner_id == SCRIPT_OWNER_ID)
+                .unwrap_or_else(|| {
+                    let mut info = unknown_runtime_value_info();
+                    if let Some(property) = self.lookup_global_property_info(&name) {
+                        if property.source != GlobalPropertySource::DefinitelyDeleted {
+                            info.function_targets = property.value_info.function_targets.clone();
+                            info.function_targets.widen_for_possible_replacement();
+                        }
+                    }
+                    info
+                });
+            self.mark_host_builtins_from_info(&info);
+            return TypedExpr::from_info(info, ExprIr::GlobalIdentifierRead { name });
+        }
         if let Some(info) = self.lookup_global_property(&name) {
             self.mark_host_builtins_from_info(&info);
             return TypedExpr::from_info(info, ExprIr::GlobalPropertyRead { name });
         }
 
-        if let Some(function_id) = self.visible_function_names.get(&name).cloned() {
-            return TypedExpr::from_info(
-                self.function_value_info(&function_id),
-                ExprIr::FunctionValue(function_id),
-            );
+        if self.root_functions_need_body_initialization() {
+            if let Some(function_id) = self.visible_function_names.get(&name).cloned() {
+                return TypedExpr::from_info(
+                    self.function_value_info(&function_id),
+                    ExprIr::FunctionValue(function_id),
+                );
+            }
         }
 
         if name == "arguments" && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some() {
@@ -7514,21 +7723,6 @@ impl<'a> ScriptLowerer<'a> {
         }
         if name == "undefined" {
             return TypedExpr::undefined();
-        }
-
-        if missing_as_reference_error {
-            return TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Dynamic,
-                    possible_kinds: KindSet::all_runtime_tags(),
-                    heap_shape: None,
-                    function_targets: FunctionTargetKnowledge::unknown(),
-                },
-                ExprIr::RuntimeThrow {
-                    name: NativeErrorKind::ReferenceError,
-                    message: "unbound identifier in with scope",
-                },
-            );
         }
 
         // Losing proof that a configurable global still exists does not prove
@@ -7696,7 +7890,11 @@ impl<'a> ScriptLowerer<'a> {
         match expression {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                self.lower_identifier_name(name, true)
+                if self.uses_runtime_identifier_environment() {
+                    self.environment_identifier(name, EnvironmentIdentifierOperationIr::Read)
+                } else {
+                    self.lower_identifier_name(name, true)
+                }
             }
             Expression::Literal(literal) => match literal.kind() {
                 LiteralKind::String(sym) => {
@@ -7776,7 +7974,17 @@ impl<'a> ScriptLowerer<'a> {
             Expression::SuperCall(call) => self.lower_super_call(call),
             Expression::This(_) => self.lower_current_this(),
             Expression::NewTarget(_) => {
-                if !self.is_function_body {
+                if !self.is_function_body
+                    && !matches!(
+                        self.direct_eval_invocation(),
+                        Some(
+                            lila_front::EvalInvocationContext::Function
+                                | lila_front::EvalInvocationContext::Method
+                                | lila_front::EvalInvocationContext::DerivedConstructor
+                                | lila_front::EvalInvocationContext::ClassFieldInitializer
+                        )
+                    )
+                {
                     return self.unsupported_expr("unsupported expression form: NewTarget");
                 }
                 TypedExpr::from_info(self.current_new_target_info.clone(), ExprIr::NewTarget)
@@ -8035,6 +8243,7 @@ impl<'a> ScriptLowerer<'a> {
             tag => TypedExpr::from_info(
                 result_info,
                 ExprIr::CallIndirect {
+                    direct_eval: None,
                     callee: Box::new(self.lower_expression(tag)),
                     this_arg: None,
                     args,
@@ -8546,6 +8755,9 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signature_shape_evidence = self.function_signature_shape_evidence;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
+        lowerer.function_source_binding_candidates =
+            self.function_source_binding_candidates.clone();
+        lowerer.array_callback_source_candidates = self.array_callback_source_candidates.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         lowerer.static_generator_call_overrides = self.static_generator_call_overrides.clone();
@@ -8786,6 +8998,7 @@ impl<'a> ScriptLowerer<'a> {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let body_environment = lowerer.begin_function_body_environment();
         lowerer.hoist_root_statement_items(body.statements());
         // 10.2.11 step 30, as above: `lexEnv` already exists.
         let body_scope = LexicalScopeInstantiation::instantiate_in_current_scope(
@@ -8799,9 +9012,10 @@ impl<'a> ScriptLowerer<'a> {
         );
         let mut statements = prefix_statements;
         statements.extend(parameter_prefix_statements);
-        statements.extend(lowered_body.statements);
+        let result_kind = lowered_body.result_kind;
+        statements.extend(lowerer.finish_function_body_environment(lowered_body, body_environment));
         let body_ir = BlockIr {
-            result_kind: lowered_body.result_kind,
+            result_kind,
             statements,
             lexical_environment: None,
         };
@@ -8904,7 +9118,7 @@ impl<'a> ScriptLowerer<'a> {
 
         self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
         self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
-        self.diagnostics.extend(lowerer.diagnostics.clone());
+        self.merge_child_compilation_records(&mut lowerer);
         self.function_signatures = lowerer.function_signatures;
         self.dynamically_installed_getters
             .extend(lowerer.dynamically_installed_getters);
@@ -8913,9 +9127,9 @@ impl<'a> ScriptLowerer<'a> {
         self.install_generated_class_element_flow(class_element_flow);
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
-        self.generated_functions.extend(lowerer.generated_functions);
 
         let function_ir = FunctionIr {
+            eval_environment: self.analysis.owner_eval_environment(&function_id),
             id: function_id.clone(),
             name: function_name,
             to_string_representation,
@@ -9036,6 +9250,9 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signature_shape_evidence = self.function_signature_shape_evidence;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
+        lowerer.function_source_binding_candidates =
+            self.function_source_binding_candidates.clone();
+        lowerer.array_callback_source_candidates = self.array_callback_source_candidates.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         lowerer.static_generator_call_overrides = self.static_generator_call_overrides.clone();
@@ -9193,7 +9410,7 @@ impl<'a> ScriptLowerer<'a> {
 
         self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
         self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
-        self.diagnostics.extend(lowerer.diagnostics.clone());
+        self.merge_child_compilation_records(&mut lowerer);
         self.function_signatures = lowerer.function_signatures;
         self.dynamically_installed_getters
             .extend(lowerer.dynamically_installed_getters);
@@ -9202,8 +9419,8 @@ impl<'a> ScriptLowerer<'a> {
         self.install_generated_class_element_flow(class_element_flow);
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls = self.host_builtin_calls.max(lowerer.host_builtin_calls);
-        self.generated_functions.extend(lowerer.generated_functions);
         self.generated_functions.push(FunctionIr {
+            eval_environment: self.analysis.owner_eval_environment(&function_id),
             id: function_id.clone(),
             name: function_name,
             to_string_representation,
@@ -9300,6 +9517,7 @@ impl<'a> ScriptLowerer<'a> {
         let owned_env_bindings = self.generated_owned_env_bindings_for_owner(&function_id);
         let captured_bindings = self.generated_captured_bindings_for_owner(&function_id);
         self.generated_functions.push(FunctionIr {
+            eval_environment: self.analysis.owner_eval_environment(&function_id),
             id: function_id.clone(),
             name: function_name,
             to_string_representation,
@@ -9449,6 +9667,7 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         self.generated_functions.push(FunctionIr {
+            eval_environment: self.analysis.owner_eval_environment(&function_id),
             id: function_id,
             name: function_name,
             to_string_representation: CallableToStringRepresentation::NativeAnonymous,
@@ -9507,6 +9726,7 @@ impl<'a> ScriptLowerer<'a> {
             let call = TypedExpr::from_info(
                 info,
                 ExprIr::CallIndirect {
+                    direct_eval: None,
                     callee: Box::new(callee),
                     this_arg: Some(Box::new(receiver)),
                     args,
@@ -9546,6 +9766,7 @@ impl<'a> ScriptLowerer<'a> {
         let call = invocation_effects.attach_to_emitted_call(TypedExpr::from_info(
             info.clone(),
             ExprIr::CallIndirect {
+                direct_eval: None,
                 callee: Box::new(callee),
                 this_arg: Some(Box::new(materialized_receiver)),
                 args,
@@ -10363,14 +10584,24 @@ impl<'a> ScriptLowerer<'a> {
                 .get(function_id)
                 .cloned()
                 .expect("function signature must exist");
-            match self.resolve_dynamic_source_call(function_id, &context, Some(args), &lowered_args)
-            {
+            match self.resolve_dynamic_source_call(function_id, Some(args), &lowered_args) {
                 None => {}
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(_)) => {
                     unreachable!("spread arguments cannot prove eval's first value is non-String")
                 }
-                Some(ResolvedDynamicSourceCall::EmptyFunction(_)) => {
-                    unreachable!("spread arguments cannot prove Function has no arguments")
+                Some(ResolvedDynamicSourceCall::FunctionInvocation(_)) => {}
+                Some(ResolvedDynamicSourceCall::CompiledScript(proof)) => {
+                    if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
+                        self.note_standard_builtin_call(builtin);
+                    } else {
+                        self.mark_host_builtin_from_function_id(function_id);
+                    }
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
                 }
                 Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
                     self.record_unsupported_dynamic_source(unsupported);
@@ -10416,37 +10647,46 @@ impl<'a> ScriptLowerer<'a> {
         let mut lowered_args =
             self.finish_target_call_arguments(function_id, lowered_args, this_observation);
         self.observe_live_script_global_values();
-        let mut eval_pass_through = match self.resolve_dynamic_source_call(
-            function_id,
-            &context,
-            Some(args),
-            &lowered_args,
-        ) {
-            None => None,
-            Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
-            Some(ResolvedDynamicSourceCall::EmptyFunction(proof)) => {
-                if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
-                    self.note_standard_builtin_call(builtin);
-                } else {
-                    self.mark_host_builtin_from_function_id(function_id);
+        let mut eval_pass_through =
+            match self.resolve_dynamic_source_call(function_id, Some(args), &lowered_args) {
+                None => None,
+                Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
+                Some(ResolvedDynamicSourceCall::FunctionInvocation(proof)) => {
+                    if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
+                        self.note_standard_builtin_call(builtin);
+                    } else {
+                        self.mark_host_builtin_from_function_id(function_id);
+                    }
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
                 }
-                return (
-                    function_id.clone(),
-                    lowered_args,
-                    proof.into_result_info(),
-                    AnalyzedInvocationEffects::already_applied(),
-                );
-            }
-            Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
-                self.record_unsupported_dynamic_source(unsupported);
-                return (
-                    function_id.clone(),
-                    Vec::new(),
-                    ValueInfo::undefined(),
-                    AnalyzedInvocationEffects::already_applied(),
-                );
-            }
-        };
+                Some(ResolvedDynamicSourceCall::CompiledScript(proof)) => {
+                    if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
+                        self.note_standard_builtin_call(builtin);
+                    } else {
+                        self.mark_host_builtin_from_function_id(function_id);
+                    }
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
+                Some(ResolvedDynamicSourceCall::Unsupported(unsupported)) => {
+                    self.record_unsupported_dynamic_source(unsupported);
+                    return (
+                        function_id.clone(),
+                        Vec::new(),
+                        ValueInfo::undefined(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
+            };
         let arg_infos = lowered_args
             .iter()
             .map(TypedExpr::value_info)
@@ -12388,6 +12628,8 @@ impl<'a> ScriptLowerer<'a> {
             .class_context
             .as_ref()
             .is_some_and(|context| context.is_derived_constructor)
+            && self.direct_eval_invocation()
+                != Some(lila_front::EvalInvocationContext::DerivedConstructor)
         {
             return self.unsupported_expr("unsupported expression form: super call");
         }
@@ -14261,14 +14503,16 @@ impl<'a> ScriptLowerer<'a> {
             let value = self.lower_expression(init);
             self.invalidate_unknown_user_code_effects();
             let pattern = self.lower_array_binding_pattern(mode, pattern.bindings(), None)?;
-            return Some(vec![StatementIr::Expression(TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::ArrayDestructure {
-                    value: Box::new(value),
-                    pattern,
-                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
-                },
-            ))]);
+            return Some(vec![StatementIr::DeclarationEvaluation(
+                TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::ArrayDestructure {
+                        value: Box::new(value),
+                        pattern,
+                        evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
+                    },
+                ),
+            )]);
         }
 
         let Pattern::Object(pattern) = pattern else {
@@ -14313,7 +14557,9 @@ impl<'a> ScriptLowerer<'a> {
         }];
 
         if pattern.bindings().is_empty() {
-            statements.push(StatementIr::Expression(TypedExpr::spec_to_object(temp)));
+            statements.push(StatementIr::DeclarationEvaluation(
+                TypedExpr::spec_to_object(temp),
+            ));
             return Some(statements);
         }
 
@@ -14365,14 +14611,16 @@ impl<'a> ScriptLowerer<'a> {
             self.invalidate_unknown_user_code_effects();
             let pattern =
                 self.lower_array_binding_pattern(BindingMode::Var, pattern.bindings(), None)?;
-            return Some(vec![StatementIr::Expression(TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::ArrayDestructure {
-                    value: Box::new(init),
-                    pattern,
-                    evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
-                },
-            ))]);
+            return Some(vec![StatementIr::DeclarationEvaluation(
+                TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::ArrayDestructure {
+                        value: Box::new(init),
+                        pattern,
+                        evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
+                    },
+                ),
+            )]);
         }
         let Pattern::Object(pattern) = pattern else {
             unreachable!("pattern variants are handled above")
@@ -14382,21 +14630,25 @@ impl<'a> ScriptLowerer<'a> {
             self.invalidate_unknown_user_code_effects();
         }
         if pattern.bindings().is_empty() {
-            return Some(vec![StatementIr::Expression(TypedExpr::spec_to_object(
-                init,
-            ))]);
+            return Some(vec![StatementIr::DeclarationEvaluation(
+                TypedExpr::spec_to_object(init),
+            )]);
         }
 
-        if !object_pattern_binds_only_single_names(pattern.bindings()) {
+        if self.borrows_direct_eval_variable_environment()
+            || !object_pattern_binds_only_single_names(pattern.bindings())
+        {
             let pattern =
                 self.lower_object_binding_pattern(BindingMode::Var, pattern.bindings(), None)?;
-            return Some(vec![StatementIr::Expression(TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::ObjectDestructure {
-                    value: Box::new(init),
-                    pattern: Box::new(pattern),
-                },
-            ))]);
+            return Some(vec![StatementIr::DeclarationEvaluation(
+                TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::ObjectDestructure {
+                        value: Box::new(init),
+                        pattern: Box::new(pattern),
+                    },
+                ),
+            )]);
         }
 
         let mut statements = Vec::new();
@@ -14481,14 +14733,16 @@ impl<'a> ScriptLowerer<'a> {
                 self.invalidate_unknown_user_code_effects();
                 let pattern =
                     self.lower_array_binding_pattern(mode, pattern.bindings(), storage_names)?;
-                Some(vec![StatementIr::Expression(TypedExpr::from_info(
-                    ValueInfo::undefined(),
-                    ExprIr::ArrayDestructure {
-                        value: Box::new(init),
-                        pattern,
-                        evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
-                    },
-                ))])
+                Some(vec![StatementIr::DeclarationEvaluation(
+                    TypedExpr::from_info(
+                        ValueInfo::undefined(),
+                        ExprIr::ArrayDestructure {
+                            value: Box::new(init),
+                            pattern,
+                            evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
+                        },
+                    ),
+                )])
             }
         }
     }
@@ -14509,13 +14763,15 @@ impl<'a> ScriptLowerer<'a> {
         }
         if bindings.is_empty() || !object_pattern_binds_only_single_names(bindings) {
             let pattern = self.lower_object_binding_pattern(mode, bindings, storage_names)?;
-            return Some(vec![StatementIr::Expression(TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::ObjectDestructure {
-                    value: Box::new(init),
-                    pattern: Box::new(pattern),
-                },
-            ))]);
+            return Some(vec![StatementIr::DeclarationEvaluation(
+                TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::ObjectDestructure {
+                        value: Box::new(init),
+                        pattern: Box::new(pattern),
+                    },
+                ),
+            )]);
         }
 
         let mut statements = Vec::new();
@@ -14606,7 +14862,7 @@ impl<'a> ScriptLowerer<'a> {
                     // is the one BlockDeclarationInstantiation allocated, via
                     // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
-                        source_name,
+                        source_name.clone(),
                         BindingInfo {
                             mode,
                             storage_name: storage_name.clone(),
@@ -14619,10 +14875,7 @@ impl<'a> ScriptLowerer<'a> {
                     );
                     properties.push(ObjectDestructuringPropertyIr {
                         key,
-                        target: DestructuringTargetIr::Binding {
-                            mode,
-                            name: storage_name,
-                        },
+                        target: self.destructuring_binding_target(mode, source_name, storage_name),
                         default,
                     });
                 }
@@ -14680,7 +14933,7 @@ impl<'a> ScriptLowerer<'a> {
                     // is the one BlockDeclarationInstantiation allocated, via
                     // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
-                        source_name,
+                        source_name.clone(),
                         BindingInfo {
                             mode,
                             storage_name: storage_name.clone(),
@@ -14691,10 +14944,7 @@ impl<'a> ScriptLowerer<'a> {
                             initialization: Initialization::Initialized,
                         },
                     );
-                    rest = Some(DestructuringTargetIr::Binding {
-                        mode,
-                        name: storage_name,
-                    });
+                    rest = Some(self.destructuring_binding_target(mode, source_name, storage_name));
                 }
                 ObjectPatternElement::AssignmentPropertyAccess { .. }
                 | ObjectPatternElement::AssignmentRestPropertyAccess { .. } => {
@@ -14745,7 +14995,7 @@ impl<'a> ScriptLowerer<'a> {
                     // is the one BlockDeclarationInstantiation allocated, via
                     // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
-                        source_name,
+                        source_name.clone(),
                         BindingInfo {
                             mode,
                             storage_name: storage_name.clone(),
@@ -14757,10 +15007,7 @@ impl<'a> ScriptLowerer<'a> {
                         },
                     );
                     ArrayDestructuringElementIr::Target {
-                        target: DestructuringTargetIr::Binding {
-                            mode,
-                            name: storage_name,
-                        },
+                        target: self.destructuring_binding_target(mode, source_name, storage_name),
                         default,
                     }
                 }
@@ -14787,7 +15034,7 @@ impl<'a> ScriptLowerer<'a> {
                     // is the one BlockDeclarationInstantiation allocated, via
                     // `direct_lexical_storage_name`'s reuse rule.
                     self.declare_binding(
-                        source_name,
+                        source_name.clone(),
                         BindingInfo {
                             mode,
                             storage_name: storage_name.clone(),
@@ -14799,10 +15046,7 @@ impl<'a> ScriptLowerer<'a> {
                         },
                     );
                     ArrayDestructuringElementIr::Rest {
-                        target: DestructuringTargetIr::Binding {
-                            mode,
-                            name: storage_name,
-                        },
+                        target: self.destructuring_binding_target(mode, source_name, storage_name),
                     }
                 }
                 ArrayPatternElement::Pattern {
@@ -15020,6 +15264,11 @@ impl<'a> ScriptLowerer<'a> {
         ident: boa_ast::expression::Identifier,
     ) -> Option<DestructuringTargetIr> {
         let source_name = self.interner.resolve_expect(ident.sym()).to_string();
+        if self.uses_runtime_identifier_environment() {
+            return Some(DestructuringTargetIr::AssignmentIdentifier(
+                IdentifierWriteReferenceIr::environment(source_name, self.reference_strictness()),
+            ));
+        }
         match self.resolve_binding_reference(&source_name) {
             // 13.15.5.3 resolves the target now but does not PutValue until the
             // iterator/property value and its default initializer have been
@@ -15920,6 +16169,21 @@ impl<'a> ScriptLowerer<'a> {
         };
 
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
+        if self.uses_runtime_identifier_environment() {
+            let (operation, return_mode) = match op {
+                UpdateOp::IncrementPost => (NumericUpdateOp::Increment, UpdateReturnMode::Postfix),
+                UpdateOp::IncrementPre => (NumericUpdateOp::Increment, UpdateReturnMode::Prefix),
+                UpdateOp::DecrementPost => (NumericUpdateOp::Decrement, UpdateReturnMode::Postfix),
+                UpdateOp::DecrementPre => (NumericUpdateOp::Decrement, UpdateReturnMode::Prefix),
+            };
+            return self.environment_identifier(
+                name,
+                EnvironmentIdentifierOperationIr::Update {
+                    operation,
+                    return_mode,
+                },
+            );
+        }
         let reference = self.locate_identifier_reference(&name);
         let selected = self
             .with_environment_chain
@@ -16061,7 +16325,7 @@ impl<'a> ScriptLowerer<'a> {
             };
             self.set_binding_value_info(&name, updated_info.clone());
             // A script-level `var` is a property of the global object, and
-            // `lower_identifier_name_inner` reads it from there. Updating the
+            // `lower_identifier_name` reads it from there. Updating the
             // local mirror instead would read a value that is stale by every
             // write a closure made through the global object, so `n++` after
             // `function bump(){ n++ }; bump()` would resume from the old value.
@@ -16217,6 +16481,10 @@ impl<'a> ScriptLowerer<'a> {
         if matches!(op, UnaryOp::TypeOf) {
             if let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(target) {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                if self.uses_runtime_identifier_environment() {
+                    return self
+                        .environment_identifier(name, EnvironmentIdentifierOperationIr::Typeof);
+                }
                 // `globalThis` is an intrinsic script global binding (see
                 // `script_global_bindings`) rather than a tracked global property, so it
                 // never shows up in `global_property_is_proven_present`. Without this arm
@@ -16226,16 +16494,36 @@ impl<'a> ScriptLowerer<'a> {
                 let selected = self
                     .with_environment_chain
                     .select_preceding(fallback.declarative_position());
+                if self.is_unshadowed_script_global_binding(&name) {
+                    let global = TypedExpr::from_info(
+                        unknown_runtime_value_info(),
+                        ExprIr::GlobalPropertyRead { name: name.clone() },
+                    );
+                    let operand = match selected {
+                        Some(objects) => self
+                            .with_environment_reference_plan(name, objects)
+                            .get_value(global),
+                        None => global,
+                    };
+                    return TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::String),
+                        ExprIr::TypeOf {
+                            expr: Box::new(operand),
+                        },
+                    );
+                }
                 let is_bound = name == GLOBAL_THIS_NAME
-                    || self.lookup_binding(&name).is_some()
+                    || (self.lookup_binding(&name).is_some()
+                        && !self.is_unshadowed_script_global_binding(&name))
                     || self.global_property_is_proven_present(&name)
-                    || self.visible_function_names.contains_key(&name)
+                    || (self.root_functions_need_body_initialization()
+                        && self.visible_function_names.contains_key(&name))
                     || (name == "arguments"
                         && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some());
                 if let Some(objects) = selected {
                     let plan = self.with_environment_reference_plan(name.clone(), objects);
                     let fallback = if is_bound {
-                        self.lower_identifier_name_inner(name, false, true)
+                        self.lower_identifier_name(name, false)
                     } else {
                         TypedExpr::from_info(
                             unknown_runtime_value_info(),
@@ -20408,16 +20696,25 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn is_script_global_var_capture(&self, name: &str, capture: &CaptureBindingPlan) -> bool {
+    fn is_script_global_object_capture(
+        &self,
+        name: &str,
+        source_name: &str,
+        owner_id: &str,
+    ) -> bool {
         if TdzPlaceholderName::names_a_placeholder(name) {
             return false;
         }
-        name == capture.source_name
-            && capture.owner_id == SCRIPT_OWNER_ID
-            && self
+        name == source_name
+            && owner_id == SCRIPT_OWNER_ID
+            && (self
                 .var_bindings
-                .get(capture.source_name.as_str())
+                .get(source_name)
                 .is_some_and(|binding| binding.is_script_global)
+                || (self.script_variables_are_global()
+                    && self.analysis.owner_plans[SCRIPT_OWNER_ID]
+                        .function_bindings
+                        .contains_key(source_name)))
     }
 
     fn generated_owned_env_bindings_for_owner(&self, owner_id: &str) -> Vec<OwnedEnvBindingIr> {
@@ -20451,19 +20748,18 @@ impl<'a> ScriptLowerer<'a> {
                 panic!("generated function owner `{owner_id}` must have finalized references")
             })
             .iter()
-            .filter(|(name, _)| !local_bindings.contains(*name))
+            .filter(|(name, _)| {
+                !local_bindings.contains(*name)
+                    || self.analysis.owner_plans[owner_id]
+                        .parameter_external_refs
+                        .contains(*name)
+            })
             .filter_map(|(name, source_name)| {
                 let environment_id = self.resolve_generated_capture_environment(owner_id, name)?;
                 let environment = self.analysis.environment_plans.get(&environment_id)?;
                 let capture_owner_id = environment.owner_id.clone();
                 let slot = *environment.owned_env_slots.get(name)?;
-                if name == source_name
-                    && capture_owner_id == SCRIPT_OWNER_ID
-                    && self
-                        .var_bindings
-                        .get(name)
-                        .is_some_and(|binding| binding.is_script_global)
-                {
+                if self.is_script_global_object_capture(name, source_name, &capture_owner_id) {
                     return None;
                 }
                 Some(CapturedBindingIr {
@@ -20530,7 +20826,7 @@ impl<'a> ScriptLowerer<'a> {
             .get(current_owner_id)
             .expect("generated function owner must be planned");
         let activation = &self.analysis.environment_plans[&owner.activation_environment_id];
-        let mut cursor = if activation.owned_env_slots.is_empty() {
+        let mut cursor = if !self.analysis.environment_has_runtime_storage(activation) {
             owner
                 .parent_owner_id
                 .as_ref()
@@ -20550,15 +20846,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 hops += 1;
             }
-            cursor = if environment.kind == EnvironmentKind::Activation {
-                let activation_owner = &self.analysis.owner_plans[&environment.owner_id];
-                activation_owner
-                    .parent_owner_id
-                    .as_ref()
-                    .map(|_| activation_owner.definition_environment_cursor.clone())
-            } else {
-                environment.parent_cursor.clone()
-            };
+            cursor = environment.parent_cursor.clone();
         }
         panic!("generated capture environment must be reachable from its definition")
     }
@@ -20575,6 +20863,16 @@ impl<'a> ScriptLowerer<'a> {
         self.var_bindings
             .get(name)
             .is_some_and(|binding| binding.is_script_global)
+    }
+
+    fn is_unshadowed_script_global_binding(&self, name: &str) -> bool {
+        !self.has_scope_binding(name)
+            && (self.is_script_global_var_name(name)
+                || (self.lookup_binding(name).is_none()
+                    && self.script_variables_are_global()
+                    && self.analysis.owner_plans[SCRIPT_OWNER_ID]
+                        .function_bindings
+                        .contains_key(name)))
     }
 
     fn has_scope_binding(&self, name: &str) -> bool {

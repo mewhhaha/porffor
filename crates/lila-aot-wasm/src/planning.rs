@@ -1,8 +1,8 @@
 use super::*;
 use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr};
 use lila_ir::{
-    ArrayDestructuringEvaluationIr, AsyncDisposableResourcesIr, ObjectDestructuringPatternIr,
-    OptionalChainOperationIr, SyncDisposableScopeExecutionIr,
+    ArrayDestructuringEvaluationIr, AsyncDisposableResourcesIr, AsyncResumeModeIr,
+    ObjectDestructuringPatternIr, OptionalChainOperationIr, SyncDisposableScopeExecutionIr,
 };
 
 #[derive(Debug, Clone)]
@@ -90,6 +90,137 @@ mod tests {
         let literal = ExprIr::BigInt(BigIntLiteralIr::from_u64_payload(1_u64 << 63));
 
         assert!(expr_result_tag_is_runtime_dynamic(&literal));
+    }
+
+    #[test]
+    fn global_identifier_reads_preserve_runtime_tags_despite_static_bigint_inference() {
+        let script = lower_script("var value = 9223372036854775808n; value;");
+        let Some(StatementIr::Expression(read)) = script.body.statements.last() else {
+            panic!("global identifier read must remain the script result");
+        };
+        assert!(matches!(
+            &read.expr,
+            ExprIr::GlobalIdentifierRead { name } if name == "value"
+        ));
+        assert_eq!(read.kind, ValueKind::BigInt);
+        assert_eq!(read.possible_kinds, KindSet::from_kind(ValueKind::BigInt));
+        assert!(expr_result_tag_is_runtime_dynamic(&read.expr));
+    }
+
+    #[test]
+    fn coercive_addition_preserves_runtime_tags_when_inline_bigints_overflow() {
+        let lhs = BigIntLiteralIr::from_u64_payload(i64::MAX as u64);
+        let rhs = BigIntLiteralIr::from_u64_payload(1);
+        assert!(!lhs.requires_arbitrary_precision_storage);
+        assert!(!rhs.requires_arbitrary_precision_storage);
+        assert!(lhs.added(&rhs).requires_arbitrary_precision_storage);
+
+        let addition = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::BigInt),
+            ExprIr::CoerciveAdd {
+                lhs: Box::new(TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::BigInt),
+                    ExprIr::BigInt(lhs),
+                )),
+                rhs: Box::new(TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::BigInt),
+                    ExprIr::BigInt(rhs),
+                )),
+            },
+        );
+        assert!(addition.possible_kinds.is_singleton());
+        assert!(expr_result_tag_is_runtime_dynamic(&addition.expr));
+    }
+
+    #[test]
+    fn coercive_arithmetic_preserves_heap_bigint_tags_from_object_operands() {
+        let script = lower_script(
+            "const left = { valueOf() { return 4611686018427387904n; } }; \
+             const right = { valueOf() { return 2n; } }; left * right;",
+        );
+        let Some(StatementIr::Expression(product)) = script.body.statements.last() else {
+            panic!("coercive multiplication must remain the script result");
+        };
+        let ExprIr::CoerciveBinaryNumber {
+            op: ArithmeticBinaryOp::Mul,
+            lhs,
+            rhs,
+        } = &product.expr
+        else {
+            panic!("object operands must retain their numeric coercion boundary");
+        };
+        for operand in [lhs, rhs] {
+            assert_eq!(operand.kind, ValueKind::Object);
+            assert!(!operand.possible_kinds.contains(ValueKind::BigInt));
+        }
+        assert_eq!(product.kind, ValueKind::BigInt);
+        assert!(expr_result_tag_is_runtime_dynamic(&product.expr));
+    }
+
+    #[test]
+    fn deeply_nested_coercive_arithmetic_budgets_live_operands_and_conversion_phases() {
+        let one = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(1.0_f64.to_bits()),
+        );
+        for (op, depth, retained, final_phase) in [
+            (
+                ArithmeticBinaryOp::Mul,
+                510,
+                4,
+                COERCIVE_NUMERIC_ERROR_TEMP_LOCALS,
+            ),
+            (ArithmeticBinaryOp::Add, 330, 6, 90),
+        ] {
+            let expression = (0..depth).fold(one.clone(), |lhs, _| {
+                TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Number),
+                    ExprIr::CoerciveBinaryNumber {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(one.clone()),
+                    },
+                )
+            });
+            let expected = depth * retained + final_phase;
+            assert!(
+                expected > 2048,
+                "regression must cross the local-count floor"
+            );
+            assert_eq!(count_expr_temp_locals(&expression), expected);
+        }
+    }
+
+    #[test]
+    fn coercive_addition_budgets_raw_object_pairs_during_child_evaluation() {
+        const DEPTH: usize = 1030;
+        let object = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Object),
+            ExprIr::Identifier("operand".to_string()),
+        );
+        let operand = (0..DEPTH).fold(object, |body, index| {
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::MaterializeBinding {
+                    name: format!("retained{index}"),
+                    value: Box::new(TypedExpr::undefined()),
+                    body: Box::new(body),
+                },
+            )
+        });
+        let addition = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::CoerciveAdd {
+                lhs: Box::new(operand.clone()),
+                rhs: Box::new(operand),
+            },
+        );
+        let expected = DEPTH * 2 + 6 + 2 + 2;
+        assert!(
+            expected > 2048,
+            "regression must cross the local-count floor"
+        );
+        assert_eq!(count_expr_temp_locals(&addition), expected);
     }
 
     #[test]
@@ -279,10 +410,103 @@ mod tests {
     }
 
     #[test]
+    fn global_var_publication_reuses_initializer_and_sibling_temporaries() {
+        let initialized = VarDeclaratorIr {
+            name: "published".to_string(),
+            init: Some(TypedExpr::undefined()),
+        };
+        let declarations = vec![initialized.clone(), initialized];
+        assert_eq!(
+            count_statement_temp_locals(&StatementIr::Var(declarations.clone())),
+            2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS,
+        );
+        assert_eq!(
+            count_for_init_temp_locals(&ForInitIr::Var(declarations)),
+            GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS,
+        );
+        let uninitialized = vec![VarDeclaratorIr {
+            name: "untouched".to_string(),
+            init: None,
+        }];
+        assert_eq!(
+            count_statement_temp_locals(&StatementIr::Var(uninitialized.clone())),
+            2,
+        );
+        assert_eq!(
+            count_for_init_temp_locals(&ForInitIr::Var(uninitialized)),
+            0,
+        );
+
+        let initializer = (0..20).fold(TypedExpr::undefined(), |body, index| {
+            TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::MaterializeBinding {
+                    name: format!("retained{index}"),
+                    value: Box::new(TypedExpr::undefined()),
+                    body: Box::new(body),
+                },
+            )
+        });
+        assert_eq!(
+            count_statement_temp_locals(&StatementIr::Var(vec![VarDeclaratorIr {
+                name: "published".to_string(),
+                init: Some(initializer),
+            }])),
+            2 + 2 + 20 * 2,
+            "initializer locals are released before publication",
+        );
+    }
+
+    #[test]
+    fn deeply_nested_global_assignments_budget_each_live_rhs_pair() {
+        const DEPTH: usize = 1010;
+
+        let expression = (0..DEPTH).fold(TypedExpr::undefined(), |value, _| {
+            TypedExpr::from_info(
+                ValueInfo::undefined(),
+                ExprIr::AssignIdentifier {
+                    name: "published".to_string(),
+                    value: Box::new(value),
+                },
+            )
+        });
+        let expected = DEPTH * 2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
+        assert!(
+            expected > 2048,
+            "regression must cross the local-count floor",
+        );
+        assert_eq!(count_expr_temp_locals(&expression), expected);
+    }
+
+    #[test]
+    fn deeply_nested_for_in_budgets_publication_below_live_enumerators() {
+        const DEPTH: usize = 170;
+
+        let statement =
+            (0..DEPTH).fold(StatementIr::Empty, |body, index| StatementIr::ForInObject {
+                mode: BindingMode::Var,
+                name: format!("key{index}"),
+                target: TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Object),
+                    ExprIr::Identifier("source".to_string()),
+                ),
+                body: Box::new(body),
+                lexical_environment: None,
+            });
+        let expected = DEPTH * 12 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
+        assert!(
+            expected > 2048,
+            "regression must cross the local-count floor",
+        );
+        assert_eq!(count_statement_temp_locals(&statement), expected);
+    }
+
+    #[test]
     fn materialized_bindings_preserve_dynamic_body_tags() {
         let body = TypedExpr::from_info(
             ValueInfo::new(ValueKind::BigInt),
             ExprIr::CallIndirect {
+                direct_eval: None,
                 callee: Box::new(TypedExpr::undefined()),
                 this_arg: None,
                 args: Vec::new(),
@@ -303,7 +527,7 @@ mod tests {
         let script = lower_script(
             "function ordinary() {} class C { instance = 1; static shared = 2; static {} method() {} }",
         );
-        let metas = build_function_metas(&script.functions, &[], &[], &[], &[], 0);
+        let metas = build_function_metas(&script.functions, &[], &[], &[], &[], &[], 0);
         let meta_named = |name: &str| {
             metas
                 .values()
@@ -345,7 +569,7 @@ mod tests {
                  }
              }",
         );
-        let metas = build_function_metas(&script.functions, &[], &[], &[], &[], 0);
+        let metas = build_function_metas(&script.functions, &[], &[], &[], &[], &[], 0);
         let ordinary = script
             .functions
             .iter()
@@ -1490,6 +1714,7 @@ impl RuntimeBootstrapPlan {
     fn require_foundational_roots(&mut self) {
         for builtin in [
             StandardBuiltinId::FunctionConstructor,
+            StandardBuiltinId::EvalFunction,
             StandardBuiltinId::ObjectConstructor,
             StandardBuiltinId::ErrorConstructor,
             StandardBuiltinId::EvalErrorConstructor,
@@ -2978,7 +3203,9 @@ impl RuntimeBootstrapPlan {
 }
 
 pub(crate) fn script_exposes_global_object(script: &ScriptIr) -> bool {
-    block_exposes_global_object(&script.body)
+    script
+        .executable_script_bodies()
+        .any(block_exposes_global_object)
         || script.functions.iter().any(|function| {
             function.params.iter().any(|param| {
                 param
@@ -2991,7 +3218,9 @@ pub(crate) fn script_exposes_global_object(script: &ScriptIr) -> bool {
 
 pub(crate) fn script_referenced_global_property_names(script: &ScriptIr) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
-    collect_block_global_property_names(&script.body, &mut names);
+    for body in script.executable_script_bodies() {
+        collect_block_global_property_names(body, &mut names);
+    }
     for function in &script.functions {
         for param in &function.params {
             if let Some(init) = &param.default_init {
@@ -3048,6 +3277,7 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => false,
         StatementIr::Lexical { init, .. }
+        | StatementIr::DeclarationEvaluation(init)
         | StatementIr::Expression(init)
         | StatementIr::Throw(init)
         | StatementIr::Return(init) => expr_exposes_global_object(init),
@@ -3064,7 +3294,8 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                     }
                     GeneratorResumeModeIr::Ignore
                     | GeneratorResumeModeIr::Return
-                    | GeneratorResumeModeIr::AssignIdentifier(_) => false,
+                    | GeneratorResumeModeIr::AssignIdentifier(_)
+                    | GeneratorResumeModeIr::AssignGlobal { .. } => false,
                 }
         }
         StatementIr::AsyncAwait { value, .. } => expr_exposes_global_object(value),
@@ -3334,6 +3565,7 @@ fn array_accumulation_has_spread(accumulation: &ArrayAccumulationIr) -> bool {
 
 fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
     match &expr.expr {
+        ExprIr::EnvironmentIdentifier(_) => true,
         // Module top-level `this` is `undefined`, and neither a namespace
         // object nor `import.meta` can reach the global object.
         ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
@@ -3566,6 +3798,7 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => {}
         StatementIr::Lexical { init, .. }
+        | StatementIr::DeclarationEvaluation(init)
         | StatementIr::Expression(init)
         | StatementIr::Throw(init)
         | StatementIr::Return(init) => collect_expr_global_property_names(init, names),
@@ -3845,6 +4078,12 @@ fn collect_object_property_global_property_names(
 
 fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<String>) {
     match &expr.expr {
+        ExprIr::EnvironmentIdentifier(identifier) => {
+            names.insert(identifier.name.clone());
+            for operand in identifier.operation.operands() {
+                collect_expr_global_property_names(operand, names);
+            }
+        }
         ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
         ExprIr::DynamicImport {
             specifier, options, ..
@@ -3999,6 +4238,9 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                         DestructuringTargetIr::AssignmentIdentifier(reference) => {
                             if let IdentifierWriteDisposition::Global {
                                 referenced_name, ..
+                            }
+                            | IdentifierWriteDisposition::Environment {
+                                referenced_name, ..
                             } = reference.write_disposition()
                             {
                                 names.insert(referenced_name.to_string());
@@ -4026,6 +4268,9 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 match target {
                     DestructuringTargetIr::AssignmentIdentifier(reference) => {
                         if let IdentifierWriteDisposition::Global {
+                            referenced_name, ..
+                        }
+                        | IdentifierWriteDisposition::Environment {
                             referenced_name, ..
                         } = reference.write_disposition()
                         {
@@ -4058,6 +4303,9 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 match target {
                     DestructuringTargetIr::AssignmentIdentifier(reference) => {
                         if let IdentifierWriteDisposition::Global {
+                            referenced_name, ..
+                        }
+                        | IdentifierWriteDisposition::Environment {
                             referenced_name, ..
                         } = reference.write_disposition()
                         {
@@ -4204,7 +4452,9 @@ pub(crate) fn script_references_standard_builtin(
     builtin: StandardBuiltinId,
 ) -> bool {
     let target = builtin.function_id();
-    block_references_function(&script.body, &target)
+    script
+        .executable_script_bodies()
+        .any(|body| block_references_function(body, &target))
         || script.functions.iter().any(|function| {
             function.params.iter().any(|param| {
                 param
@@ -4442,6 +4692,7 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => false,
         StatementIr::Lexical { init, .. }
+        | StatementIr::DeclarationEvaluation(init)
         | StatementIr::Expression(init)
         | StatementIr::Throw(init)
         | StatementIr::Return(init) => expr_references_function(init, target),
@@ -4460,7 +4711,8 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                     }
                     GeneratorResumeModeIr::Ignore
                     | GeneratorResumeModeIr::Return
-                    | GeneratorResumeModeIr::AssignIdentifier(_) => false,
+                    | GeneratorResumeModeIr::AssignIdentifier(_)
+                    | GeneratorResumeModeIr::AssignGlobal { .. } => false,
                 }
                 || match form {
                     YieldForm::Plain => false,
@@ -5079,6 +5331,14 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         return true;
     }
     match &expr.expr {
+        ExprIr::EnvironmentIdentifier(identifier) => {
+            StandardBuiltinId::from_function_id(target)
+                .is_some_and(|builtin| builtin.global_name() == Some(identifier.name.as_str()))
+                || identifier
+                    .operation
+                    .operands()
+                    .any(|operand| expr_references_function(operand, target))
+        }
         ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
         ExprIr::DynamicImport {
             specifier, options, ..
@@ -5510,6 +5770,8 @@ impl HostImportFunctionIndices {
 }
 
 pub(crate) struct FunctionMetaRegistry {
+    prepared_dynamic_functions: Vec<lila_ir::PreparedDynamicFunction>,
+    prepared_scripts: Vec<PreparedScript>,
     metas: BTreeMap<FunctionId, WasmFunctionMeta>,
     compiled_host_builtins: BTreeSet<HostBuiltinId>,
     touched_standard_builtins: std::cell::RefCell<BTreeSet<StandardBuiltinId>>,
@@ -5527,12 +5789,24 @@ pub(crate) struct FunctionMetaRegistry {
 }
 
 impl FunctionMetaRegistry {
+    pub(crate) fn prepared_scripts(&self) -> &[PreparedScript] {
+        &self.prepared_scripts
+    }
+
+    pub(crate) fn prepared_dynamic_functions(&self) -> &[lila_ir::PreparedDynamicFunction] {
+        &self.prepared_dynamic_functions
+    }
+
     pub(crate) fn new(
         metas: BTreeMap<FunctionId, WasmFunctionMeta>,
         compiled_host_builtins: BTreeSet<HostBuiltinId>,
         host_import_function_indices: HostImportFunctionIndices,
+        prepared_dynamic_functions: Vec<lila_ir::PreparedDynamicFunction>,
+        prepared_scripts: Vec<PreparedScript>,
     ) -> Self {
         Self {
+            prepared_dynamic_functions,
+            prepared_scripts,
             metas,
             compiled_host_builtins,
             touched_standard_builtins: std::cell::RefCell::new(BTreeSet::new()),
@@ -5677,6 +5951,7 @@ impl FunctionMetaRegistry {
 
 pub(crate) fn build_function_metas(
     functions: &[FunctionIr],
+    prepared_scripts: &[PreparedScript],
     compiled_standard_builtins: &[StandardBuiltinId],
     stubbed_standard_builtins: &[StandardBuiltinId],
     compiled_host_builtins: &[HostBuiltinId],
@@ -5712,6 +5987,39 @@ pub(crate) fn build_function_metas(
                 captures_private_environment: function.captures_private_environment,
                 needs_active_function_identity: function.protocol.flavor()
                     == FunctionFlavor::Ordinary,
+            },
+        );
+        callable_index += 1;
+    }
+
+    for prepared in prepared_scripts {
+        let PreparedScriptOutcome::Executable(unit) = &prepared.outcome else {
+            continue;
+        };
+        metas.insert(
+            unit.id.function_id(),
+            WasmFunctionMeta {
+                name: unit.id.function_id(),
+                to_string_value: String::new(),
+                standard_builtin: None,
+                host_builtin: None,
+                length: 0,
+                length_name_configurable: false,
+                wasm_index: imported_function_count + 1 + callable_index,
+                table_index: callable_index,
+                protocol: FunctionProtocolIr::OrdinaryCallOnly,
+                strict: unit.strict,
+                is_named_expression: false,
+                class_element_execution_kind: ClassElementExecutionKind::None,
+                class_heritage_kind: ClassHeritageKind::None,
+                is_static_class_member: false,
+                is_derived_constructor: false,
+                is_synthetic_default_derived_constructor: false,
+                class_instance_element_plan: None,
+                uses_super: false,
+                this_before_super: false,
+                captures_private_environment: false,
+                needs_active_function_identity: false,
             },
         );
         callable_index += 1;
@@ -6694,10 +7002,11 @@ pub(crate) fn function_param_types() -> Vec<ValType> {
 /// Returns true when payload-only emission cannot reconstruct the tag from the inferred value kind.
 pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
     match expr {
+        ExprIr::EnvironmentIdentifier(_) => true,
         ExprIr::BigInt(value) => value.requires_arbitrary_precision_storage,
         // BigInt arithmetic reports whether its result ended up inline or
         // heap-backed at runtime; the static kind cannot say which.
-        ExprIr::BinaryNumber { lhs, rhs, .. } | ExprIr::CoerciveBinaryNumber { lhs, rhs, .. } => {
+        ExprIr::BinaryNumber { lhs, rhs, .. } => {
             lhs.possible_kinds.contains(ValueKind::BigInt)
                 || rhs.possible_kinds.contains(ValueKind::BigInt)
         }
@@ -6705,7 +7014,10 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         // result through observable object coercion even when neither raw
         // operand advertises BigInt in its pre-ToPrimitive kind set.
         ExprIr::BitwiseNumeric { op, .. } => op.bigint_op().is_some(),
-        ExprIr::UnaryMinusNumeric { .. } | ExprIr::UnaryBitwiseNumeric { .. } => true,
+        ExprIr::CoerciveAdd { .. }
+        | ExprIr::CoerciveBinaryNumber { .. }
+        | ExprIr::UnaryMinusNumeric { .. }
+        | ExprIr::UnaryBitwiseNumeric { .. } => true,
         ExprIr::UpdateIdentifier {
             value_kind: NumericUpdateValueKind::Dynamic,
             ..
@@ -6719,6 +7031,7 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         | ExprIr::PropertyRead { .. }
         | ExprIr::OptionalPropertyChain { .. }
         | ExprIr::GlobalPropertyRead { .. }
+        | ExprIr::GlobalIdentifierRead { .. }
         | ExprIr::CallNamed { .. }
         | ExprIr::SpreadArgument(_)
         | ExprIr::RuntimeThrow { .. }
@@ -6789,13 +7102,6 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
                 || expr_result_tag_is_runtime_dynamic(&else_expr.expr)
         }
         _ => false,
-    }
-}
-
-pub(crate) fn count_param_locals(return_abi: ReturnAbi) -> usize {
-    match return_abi {
-        ReturnAbi::MainExport => 0,
-        ReturnAbi::MultiValue => JS_FUNCTION_PARAM_COUNT,
     }
 }
 
@@ -6877,7 +7183,7 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         StatementIr::ModuleUnitOnce { block, .. } => {
             block.statements.iter().map(count_statement_lexicals).sum()
         }
-        StatementIr::Expression(TypedExpr {
+        StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
@@ -6895,7 +7201,7 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             }
             ArrayDestructuringEvaluationIr::AssignmentEvaluation => 0,
         },
-        StatementIr::Expression(TypedExpr {
+        StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ObjectDestructure { pattern, .. },
             ..
         }) => {
@@ -6907,6 +7213,7 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Var(_)
+        | StatementIr::DeclarationEvaluation(_)
         | StatementIr::Expression(_)
         | StatementIr::GeneratorYield { .. }
         | StatementIr::AsyncAwait { .. }
@@ -7114,10 +7421,16 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             .max()
             .unwrap_or(0),
         StatementIr::Empty
-        | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => 0,
+        StatementIr::AnnexBFunctionCopy { target, .. } => match target {
+            AnnexBFunctionCopyTargetIr::ScriptGlobal { .. } => {
+                2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
+            }
+            AnnexBFunctionCopyTargetIr::OwnerBinding { .. }
+            | AnnexBFunctionCopyTargetIr::DirectEvalVariable { .. } => 0,
+        },
         StatementIr::Return(value) | StatementIr::Throw(value) => count_expr_temp_locals(value),
         StatementIr::GeneratorYield {
             value, resume_mode, ..
@@ -7130,19 +7443,39 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     });
                     operand_locals + 6 + REFERENCE_STRICTNESS_FLAG_LOCALS
                 }
+                GeneratorResumeModeIr::AssignIdentifier(_) => {
+                    GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
+                }
                 GeneratorResumeModeIr::Ignore
                 | GeneratorResumeModeIr::Return
-                | GeneratorResumeModeIr::AssignIdentifier(_) => 0,
+                | GeneratorResumeModeIr::AssignGlobal { .. } => 0,
             };
             count_expr_temp_locals(value).max(assignment_target_locals)
         }
-        StatementIr::AsyncAwait { value, .. } => count_expr_temp_locals(value) + 16,
-        StatementIr::Var(declarators) => declarators
-            .iter()
-            .filter_map(|declarator| declarator.init.as_ref())
-            .map(count_expr_temp_locals)
-            .max()
-            .unwrap_or(0),
+        StatementIr::AsyncAwait {
+            value, resume_mode, ..
+        } => {
+            let suspension = count_expr_temp_locals(value) + 16;
+            match resume_mode {
+                AsyncResumeModeIr::AssignIdentifier(_) => {
+                    suspension.max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+                }
+                AsyncResumeModeIr::Ignore
+                | AsyncResumeModeIr::Return
+                | AsyncResumeModeIr::AssignGlobal { .. } => suspension,
+            }
+        }
+        StatementIr::Var(declarators) => {
+            2 + declarators
+                .iter()
+                .filter_map(|declarator| declarator.init.as_ref())
+                .map(|init| {
+                    (2 + count_expr_temp_locals(init)).max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+                })
+                .max()
+                .unwrap_or(0)
+        }
+        StatementIr::DeclarationEvaluation(init) => count_expr_temp_locals(init) + 2,
         StatementIr::Lexical { init, .. } | StatementIr::Expression(init) => {
             count_expr_temp_locals(init)
         }
@@ -7271,6 +7604,7 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                             .unwrap_or(0),
                     )
                     .max(FOR_OF_ITERATOR_HELPER_TEMP_LOCALS)
+                    .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
         }
         StatementIr::GeneratorIf {
             condition,
@@ -7311,6 +7645,7 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     + count_expr_temp_locals(iterable)
                         .max(count_statement_temp_locals(body))
                         .max(FOR_OF_ITERATOR_HELPER_TEMP_LOCALS)
+                        .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
             }
             ForOfIteratorHeadIr::SyncDisposable(_) => {
                 SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS
@@ -7330,15 +7665,17 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                         .max(ASYNC_DISPOSABLE_FOR_OF_BINDING_RESTORE_TEMP_LOCALS)
             }
         },
-        StatementIr::ForInArray { target, body, .. } => 10
-            .max(count_expr_temp_locals(target))
-            .max(count_statement_temp_locals(body)),
-        StatementIr::ForInString { target, body, .. } => 10
-            .max(count_expr_temp_locals(target))
-            .max(count_statement_temp_locals(body)),
-        StatementIr::ForInObject { target, body, .. } => 9
-            .max(count_expr_temp_locals(target))
-            .max(count_statement_temp_locals(body)),
+        StatementIr::ForInArray { target, body, .. }
+        | StatementIr::ForInObject { target, body, .. } => {
+            12 + count_expr_temp_locals(target)
+                .max(count_statement_temp_locals(body))
+                .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+        }
+        StatementIr::ForInString { target, body, .. } => {
+            10 + count_expr_temp_locals(target)
+                .max(count_statement_temp_locals(body))
+                .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+        }
         StatementIr::Switch {
             discriminant,
             lexical_declarations,
@@ -7378,7 +7715,9 @@ pub(crate) fn count_for_init_temp_locals(init: &ForInitIr) -> usize {
         ForInitIr::Var(declarators) => declarators
             .iter()
             .filter_map(|declarator| declarator.init.as_ref())
-            .map(count_expr_temp_locals)
+            .map(|init| {
+                (2 + count_expr_temp_locals(init)).max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+            })
             .max()
             .unwrap_or(0),
         ForInitIr::Expression(expr) => count_expr_temp_locals(expr),
@@ -7410,6 +7749,18 @@ fn call_args_have_spread(args: &[TypedExpr]) -> bool {
 /// a second flag local and a planner that still says one is a panic in the
 /// middle of code generation, not a compile error.
 pub(crate) const REFERENCE_STRICTNESS_FLAG_LOCALS: usize = 1;
+
+// Source-body publication saves two StatementList locals. Its widest emitted
+// branch retains four global-write locals, three lexical-write locals, one
+// lexical-read local and four error locals, then three descriptor flags,
+// twelve array named-property locals and six buffer-growth locals. Helpers
+// are outlined in Main/PreparedScript; their own bodies cannot publish globals.
+const GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS: usize = 2 + 4 + 3 + 1 + 4 + 3 + 12 + 6;
+
+// Source arithmetic calls outlined ToNumeric/BigInt/pow helpers. The widest
+// nonchild phase is the mixed-type error: four error locals, three descriptor
+// flags, twelve array named-property locals and six buffer-growth locals.
+const COERCIVE_NUMERIC_ERROR_TEMP_LOCALS: usize = 4 + 3 + 12 + 6;
 
 // Four captured-completion locals, seven disposal-walker locals, and the same
 // 64-local indirect-call allowance used by `ExprIr::CallIndirect` below. The
@@ -7565,6 +7916,50 @@ fn count_async_disposable_scope_temp_locals(
 
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
     match &expr.expr {
+        ExprIr::EnvironmentIdentifier(identifier) => {
+            use lila_ir::{EnvironmentCompoundOperationIr, EnvironmentIdentifierOperationIr};
+            // Key/value/tag and the six Reference locals remain live across operands.
+            let operands = identifier
+                .operation
+                .operands()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0);
+            9 + match &identifier.operation {
+                EnvironmentIdentifierOperationIr::Call { args, .. } => {
+                    let argument_peak = if call_args_have_spread(args) {
+                        operands.max(192)
+                    } else {
+                        args.iter()
+                            .enumerate()
+                            .map(|(index, argument)| {
+                                2 * (index + 1) + count_expr_temp_locals(argument)
+                            })
+                            .max()
+                            .unwrap_or(0)
+                    };
+                    // The receiver survives the call; callee/receiver/argv locals
+                    // overlap argument evaluation and its already evaluated values.
+                    2 + (8 + argument_peak).max(64)
+                }
+                EnvironmentIdentifierOperationIr::EagerCompound {
+                    operation: EnvironmentCompoundOperationIr::Add,
+                    ..
+                } => (10 + operands).max(96),
+                EnvironmentIdentifierOperationIr::Update { .. } => 1 + operands.max(64),
+                EnvironmentIdentifierOperationIr::Read
+                | EnvironmentIdentifierOperationIr::Typeof
+                | EnvironmentIdentifierOperationIr::Assign { .. }
+                | EnvironmentIdentifierOperationIr::Delete
+                | EnvironmentIdentifierOperationIr::LogicalCompound { .. } => operands.max(64),
+                EnvironmentIdentifierOperationIr::EagerCompound {
+                    operation:
+                        EnvironmentCompoundOperationIr::Arithmetic(_)
+                        | EnvironmentCompoundOperationIr::Bitwise(_),
+                    ..
+                } => (4 + operands).max(64),
+            }
+        }
         ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => 2,
         ExprIr::DynamicImport {
             specifier, options, ..
@@ -7799,21 +8194,24 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::DeleteIdentifier { .. } => 0,
         ExprIr::DeleteGlobalProperty { .. } => 12,
         ExprIr::UpdateIdentifier { return_mode, .. } => match return_mode {
-            UpdateReturnMode::Prefix => 0,
-            UpdateReturnMode::Postfix => 1,
+            UpdateReturnMode::Prefix => 2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS,
+            UpdateReturnMode::Postfix => 3 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS,
         },
         ExprIr::CompoundAssignIdentifier { op, value, .. } => {
             let child = count_expr_temp_locals(value);
-            if matches!(op, ArithmeticBinaryOp::Add) {
+            let operation = if matches!(op, ArithmeticBinaryOp::Add) {
                 5 + child
             } else if matches!(op, ArithmeticBinaryOp::Exp) {
                 6 + child
             } else {
                 3 + child
-            }
+            };
+            operation.max(3 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
         }
-        ExprIr::AssignIdentifier { value, .. }
-        | ExprIr::UnaryPlus { expr: value }
+        ExprIr::AssignIdentifier { value, .. } => {
+            2 + count_expr_temp_locals(value).max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+        }
+        ExprIr::UnaryPlus { expr: value }
         | ExprIr::StringFromCharCode { code: value }
         | ExprIr::LogicalNot { expr: value }
         | ExprIr::Void { expr: value }
@@ -8084,7 +8482,28 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         }
         ExprIr::TypeOfUnresolvedIdentifier { .. } => 0,
         ExprIr::NewTarget => 0,
-        ExprIr::BinaryNumber { op, lhs, rhs } | ExprIr::CoerciveBinaryNumber { op, lhs, rhs } => {
+        ExprIr::CoerciveAdd { lhs, rhs }
+        | ExprIr::CoerciveBinaryNumber {
+            op: ArithmeticBinaryOp::Add,
+            lhs,
+            rhs,
+        } => {
+            // Addition retains six operand/string locals. A heap-coercible
+            // operand also keeps its raw pair until both operands are evaluated.
+            let lhs_raw =
+                usize::from(!lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)) * 2;
+            let rhs_raw =
+                usize::from(!rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)) * 2;
+            (6 + lhs_raw + count_expr_temp_locals(lhs))
+                .max(6 + lhs_raw + rhs_raw + count_expr_temp_locals(rhs))
+                .max(96)
+        }
+        ExprIr::CoerciveBinaryNumber { lhs, rhs, .. } => {
+            4 + count_expr_temp_locals(lhs)
+                .max(count_expr_temp_locals(rhs))
+                .max(COERCIVE_NUMERIC_ERROR_TEMP_LOCALS)
+        }
+        ExprIr::BinaryNumber { op, lhs, rhs } => {
             let child = count_expr_temp_locals(lhs).max(count_expr_temp_locals(rhs));
             if matches!(op, ArithmeticBinaryOp::Exp) {
                 child.max(12)
@@ -8104,9 +8523,6 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::StringConcat { lhs, rhs } => {
             18 + count_expr_temp_locals(lhs).max(count_expr_temp_locals(rhs))
         }
-        ExprIr::CoerciveAdd { lhs, rhs } => count_expr_temp_locals(lhs)
-            .max(count_expr_temp_locals(rhs))
-            .max(96),
         ExprIr::Comma { lhs, rhs } => count_expr_temp_locals(lhs).max(count_expr_temp_locals(rhs)),
         ExprIr::MaterializeBinding { value, body, .. } => {
             2 + count_expr_temp_locals(value).max(count_expr_temp_locals(body))
@@ -8154,7 +8570,8 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                                 pattern.visit_expressions(&mut |expr| {
                                     child_locals = child_locals.max(count_expr_temp_locals(expr));
                                 });
-                                128 + pattern.properties.len() * 2 + child_locals
+                                (128 + pattern.properties.len() * 2 + child_locals)
+                                    .max(6 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
                             }
                             DestructuringTargetIr::AssignmentIdentifier(reference) => {
                                 // The fixed 32-local destructuring allowance
@@ -8165,15 +8582,33 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                                     IdentifierWriteDisposition::Global { .. } => {
                                         REFERENCE_STRICTNESS_FLAG_LOCALS
                                     }
-                                    IdentifierWriteDisposition::MutableBinding { .. }
-                                    | IdentifierWriteDisposition::IgnoreImmutableBinding
+                                    IdentifierWriteDisposition::Environment { .. } => 7 + 64,
+                                    IdentifierWriteDisposition::MutableBinding { .. } => {
+                                        GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
+                                    }
+                                    IdentifierWriteDisposition::IgnoreImmutableBinding
                                     | IdentifierWriteDisposition::Throw { .. } => 0,
                                 }
                             }
-                            DestructuringTargetIr::Binding { .. } => 0,
+                            DestructuringTargetIr::Binding { .. } => {
+                                GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
+                            }
                         };
-                        target_locals.max(default.map(count_expr_temp_locals).unwrap_or(0))
-                            + usize::from(rest) * 2
+                        let retained_reference_locals = match target {
+                            DestructuringTargetIr::AssignmentIdentifier(reference)
+                                if matches!(
+                                    reference.write_disposition(),
+                                    IdentifierWriteDisposition::Environment { .. }
+                                ) =>
+                            {
+                                7
+                            }
+                            _ => 0,
+                        };
+                        target_locals.max(
+                            retained_reference_locals
+                                + default.map(count_expr_temp_locals).unwrap_or(0),
+                        ) + usize::from(rest) * 2
                     })
                     .max()
                     .unwrap_or(0)
@@ -8185,7 +8620,10 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             pattern.visit_expressions(&mut |expr| {
                 child_locals = child_locals.max(count_expr_temp_locals(expr));
             });
-            128 + pattern.properties.len() * 2 + child_locals
+            // Property evaluation and publication are separate phases; the
+            // latter retains the six object-pattern locals across its Set.
+            (128 + pattern.properties.len() * 2 + child_locals)
+                .max(6 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
         }
         ExprIr::Conditional {
             condition,
@@ -8357,6 +8795,18 @@ pub(crate) fn collect_hoisted_vars_block_root(block: &BlockIr) -> Vec<String> {
 }
 
 pub(crate) fn collect_hoisted_vars_block(block: &BlockIr, names: &mut BTreeSet<String>) {
+    if block
+        .lexical_environment
+        .as_ref()
+        .is_some_and(|environment| {
+            matches!(
+                environment.initialization,
+                lila_ir::LexicalEnvironmentInitializationIr::FunctionBody { .. }
+            )
+        })
+    {
+        return;
+    }
     for statement in &block.statements {
         collect_hoisted_vars_statement(statement, names);
     }
@@ -8398,6 +8848,7 @@ pub(crate) fn collect_hoisted_vars_statement(
             let name = match target {
                 AnnexBFunctionCopyTargetIr::OwnerBinding { storage_name } => storage_name,
                 AnnexBFunctionCopyTargetIr::ScriptGlobal { name } => name,
+                AnnexBFunctionCopyTargetIr::DirectEvalVariable { .. } => return,
             };
             names.insert(name.clone());
         }
@@ -8544,7 +8995,7 @@ pub(crate) fn collect_hoisted_vars_statement(
         StatementIr::AsyncDisposableScope { body, .. } => {
             collect_hoisted_vars_block(body, names);
         }
-        StatementIr::Expression(TypedExpr {
+        StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
@@ -8562,7 +9013,7 @@ pub(crate) fn collect_hoisted_vars_statement(
             }
             ArrayDestructuringEvaluationIr::AssignmentEvaluation => {}
         },
-        StatementIr::Expression(TypedExpr {
+        StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ObjectDestructure { pattern, .. },
             ..
         }) => {
@@ -8574,6 +9025,7 @@ pub(crate) fn collect_hoisted_vars_statement(
         }
         StatementIr::Empty
         | StatementIr::Lexical { .. }
+        | StatementIr::DeclarationEvaluation(_)
         | StatementIr::Expression(_)
         | StatementIr::GeneratorYield { .. }
         | StatementIr::AsyncAwait { .. }

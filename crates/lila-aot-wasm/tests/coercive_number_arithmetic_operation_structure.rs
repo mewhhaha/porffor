@@ -41,7 +41,10 @@ fn number_arithmetic_emission_exhaustively_matches_every_ir_operation() {
         );
     }
     assert!(!number_branch.contains("matches!(op"));
-    assert!(!number_branch.contains("unreachable!"));
+    assert_eq!(number_branch.matches("unreachable!").count(), 1);
+    assert!(normalized(number_branch).contains(
+        "ArithmeticBinaryOp::Add=>unreachable!(\"additionusesitsprimitive-pairroute\"),"
+    ));
     assert!(!number_branch.contains("_ =>"));
 }
 
@@ -52,12 +55,7 @@ fn every_number_operation_retains_its_exact_wasm_sequence() {
         "function.instruction(&Instruction::Else);\n        match op {",
         "function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));",
     ));
-    for (operation, instruction) in [
-        ("Add", "F64Add"),
-        ("Sub", "F64Sub"),
-        ("Mul", "F64Mul"),
-        ("Div", "F64Div"),
-    ] {
+    for (operation, instruction) in [("Sub", "F64Sub"), ("Mul", "F64Mul"), ("Div", "F64Div")] {
         let arm = concat!(
             "function.instruction(&Instruction::LocalGet(lhs_payload_local));",
             "function.instruction(&Instruction::F64ReinterpretI64);",

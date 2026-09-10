@@ -16,9 +16,45 @@ that the complete internal-method dispatch is closed.
 
 Every cross-module `[[HasProperty]]` consumer calls
 `emit_object_has_property_i32` or its property-key-tag-preserving sibling.
-The representation-specific emitters are private to `objects.rs`. In
+The full traversal is private to `objects/has_property.rs`. In
 particular, an Array builtin cannot select an emitter named "ordinary" and
 thereby make a Proxy, integer-indexed object or later exotic invisible.
+
+The entry emits a call to the unconditional `RuntimeHelperId::ObjectHasProperty`
+helper. The existing seven-parameter/four-result ABI carries target payload/tag
+in slots 0/1, property-key payload/tag in 2/3, unused slots 4/5 and the trusted
+caller Realm environment or zero in slot 6. A normal result is a Boolean;
+throws retain their original payload/tag and completion tuple. The caller
+routes abrupt completion to its own active handler and copies only a normal
+Boolean into the requested destination. Its statement completion and any
+selected lexical Reference remain caller-owned.
+
+There is no inline fallback and no second traversal implementation. The helper
+compiler alone can call the private dispatch. Both the object-read and Proxy
+execution Realm domains classify this helper as receiving a trusted Realm
+argument. Revocation, non-callable-trap and false-result-invariant TypeErrors
+therefore use that Realm; an ordinary lexical environment is never interpreted
+as a Realm record.
+
+This boundary addresses measured generated-code growth in direct-eval named
+identifier resolution: before extraction, one additional identifier read added
+51,875 bytes and the combined scope probe emitted a 4,110,057-byte main body.
+The exact source was re-emitted by the frozen pre-change compiler and matched
+the saved artifact byte-for-byte (SHA-256
+`3a73cfc8f7076f7da90064c33d978c26e0aa32d4b9ee3c553da910b8bd049754`).
+The frozen helper compiler
+`94974580be361814d10a3c9cf508e231ac8e98bebfe2c7429bbfd3e2c60b48b7`
+emits a 2,594,374-byte main body and an 11,918,194-byte module, down from
+17,390,396 total bytes. Its single `helper::object_has_property` body is
+10,059 bytes. The combined scope probe now compiles in Wasmtime and returns
+`boolean(true)`; before extraction Wasmtime rejected its largest body as too
+large. These measurements are for this exact probe, not a general throughput
+claim. Evidence and the rerun script are under
+`target/failure-review/direct-eval/combined-scope-helper-verification.json` and
+`verify_has_property_helper.py`.
+
+The extraction does not expand the direct descriptor projection for nested
+Proxy invariant targets described below.
 
 The full entry walks the prototype chain itself. At each object it consumes the
 same closed six-branch declaration in this order:
@@ -278,3 +314,9 @@ module-namespace targets, the full 27-file/54-variant Proxy Set subtree or the
 adjacent Reflect trees. The integer-indexed cases in the CLI fixture are
 false-positive controls for this invariant, not complete TypedArray `[[Set]]`
 evidence, and no emitted-Wasm byte comparison was performed.
+
+Shared-helper regression command:
+
+```sh
+LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine --test aot_has_property_helper -- --test-threads=2
+```

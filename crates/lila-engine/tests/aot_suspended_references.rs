@@ -317,6 +317,108 @@ void 0;
 }
 
 #[test]
+fn nullish_synchronous_references_preserve_named_computed_and_delegated_order() {
+    assert_aot_completion_trace(
+        r#"
+var key = { toString: function () { print("unreachable-key"); return "value"; } };
+function nullBase() { print("null"); return null; }
+function undefinedBase() { print("undefined"); return undefined; }
+function property() { print("key"); return key; }
+function right() { print("rhs"); return 1; }
+function* computed() {
+  try { nullBase()[property()] = yield right(); }
+  catch (error) { print("type:" + (error instanceof TypeError)); }
+}
+function* named() {
+  "use strict";
+  try { undefinedBase().value = yield right(); }
+  catch (error) { print("type:" + (error instanceof TypeError)); }
+}
+function* source() { print("inner"); yield 2; print("inner-end"); return 3; }
+function* delegated() {
+  try { nullBase()[property()] = yield* source(); }
+  catch (error) { print("type:" + (error instanceof TypeError)); }
+}
+var a = computed();
+print(a.next().value);
+print(a.next(42).done);
+var b = named();
+print(b.next().value);
+print(b.next(42).done);
+var c = delegated();
+print(c.next().value);
+print(c.next().done);
+"#,
+        &[
+            "null",
+            "key",
+            "rhs",
+            "1",
+            "type:true",
+            "true",
+            "undefined",
+            "rhs",
+            "1",
+            "type:true",
+            "true",
+            "null",
+            "key",
+            "inner",
+            "2",
+            "inner-end",
+            "type:true",
+            "true",
+        ],
+    );
+}
+
+#[test]
+fn nullish_async_generator_references_survive_awaited_yields_and_delegation() {
+    assert_aot_completion_trace(
+        r#"
+var key = { toString: function () { print("unreachable-key"); return "value"; } };
+function nullBase() { print("null"); return null; }
+function undefinedBase() { print("undefined"); return undefined; }
+function property() { print("key"); return key; }
+function right() { print("rhs"); return 1; }
+async function* named() {
+  try { undefinedBase().value = yield Promise.resolve(right()); }
+  catch (error) { print("type:" + (error instanceof TypeError)); }
+}
+async function* source() { print("inner"); yield Promise.resolve(2); return Promise.resolve(3); }
+async function* computed() {
+  "use strict";
+  try { nullBase()[property()] = yield* source(); }
+  catch (error) { print("type:" + (error instanceof TypeError)); }
+}
+var a = named();
+var b = computed();
+a.next().then(function (result) {
+  print(result.value); return a.next(42);
+}).then(function (result) {
+  print(result.done); return b.next();
+}).then(function (result) {
+  print(result.value); return b.next();
+}).then(function (result) { print(result.done); });
+void 0;
+"#,
+        &[
+            "undefined",
+            "rhs",
+            "1",
+            "type:true",
+            "true",
+            "null",
+            "key",
+            "inner",
+            "2",
+            "type:true",
+            "true",
+        ],
+    );
+}
+
+#[test]
 fn delegated_return_runs_the_finalizer_without_coercing_or_assigning() {
     assert_aot_completion_trace(
         r#"

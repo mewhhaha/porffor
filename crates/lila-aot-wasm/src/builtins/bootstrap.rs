@@ -2851,8 +2851,6 @@ impl<'a> FunctionBuilder<'a> {
             NonArrayRealmIntrinsicSlot::AsyncDisposableStackPrototype,
             function,
         );
-        // DisposableStack still needs a created-realm prototype publication
-        // before its constructor can select a foreign default prototype.
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -2861,6 +2859,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::DisposableStackPrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -2979,6 +2982,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::AggregateErrorPrototype,
+            function,
+        );
         function.instruction(&Instruction::GlobalGet(
             AGGREGATE_ERROR_PROTOTYPE_GLOBAL_INDEX,
         ));
@@ -3939,13 +3947,16 @@ impl<'a> FunctionBuilder<'a> {
             object_local,
             function,
         );
-        self.store_i64_local_at_offset(
-            self.scratch_local,
-            HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
-            self.current_env_local,
-            function,
-        );
-
+        let eval_meta = self
+            .functions
+            .get(&StandardBuiltinId::EvalFunction.function_id())
+            .cloned()
+            .expect("every realm owns the original eval intrinsic");
+        self.emit_function_value_payload(&eval_meta, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_initialize_realm_eval_intrinsic(self.scratch_local, payload_local, function);
         for binding in script_global_bindings {
             function.instruction(&Instruction::I64Const(self.strings.payload(&binding.name)));
             function.instruction(&Instruction::LocalSet(key_local));
@@ -4030,7 +4041,16 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(tag_local));
                 }
                 GlobalPropertyInitializerIr::BuiltinFunction(builtin) => {
-                    if let Some(global_index) = standard_builtin_constructor_global_index(*builtin)
+                    if *builtin == StandardBuiltinId::EvalFunction {
+                        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+                        function.instruction(&Instruction::LocalSet(self.scratch_local));
+                        self.emit_load_realm_eval_intrinsic_to_local(
+                            self.scratch_local,
+                            payload_local,
+                            function,
+                        );
+                    } else if let Some(global_index) =
+                        standard_builtin_constructor_global_index(*builtin)
                     {
                         function.instruction(&Instruction::GlobalGet(global_index));
                         function.instruction(&Instruction::LocalSet(payload_local));

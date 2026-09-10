@@ -128,15 +128,16 @@ and repository hygiene gates are green.
 
 The ordinary-object ToPrimitive emitter now requires the private,
 capability-free `OrdinaryToPrimitiveReceiverKind::{Object, Function}` domain
-instead of an arbitrary `ValueKind`. Two exhaustive projections own the exact
-runtime tag and boxed-primitive-slot decision, so another heap-record family
-cannot enter this algorithm without defining both policies. The unused public
+instead of an arbitrary `ValueKind`. Its exhaustive projection owns the exact
+runtime tag, so another heap-record family cannot enter this algorithm without
+an explicit tag. Primitive wrappers use observable conversion hooks; the later
+observed-failure repair removed direct-payload shortcuts that bypassed them. The unused public
 Function-only wrapper and its private pending twin are deleted; the live tagged
 path already selects Function directly, and the ordinary Object wrapper remains
 the other entry. Invalid receiver kinds and a second Function producer are now
 unrepresentable. The focused boundary is recorded in
-`docs/rust-rewrite/contracts/ordinary-to-primitive-receiver-kind.md` and changes
-no conversion behavior, completion route, error Realm, emitted Wasm or ABI.
+`docs/rust-rewrite/contracts/ordinary-to-primitive-receiver-kind.md`. The later
+wrapper correction preserves the shared completion route and error realm.
 The receiver-kind target passes `4/4`; the neighboring pending-completion and
 conversion-Realm targets pass `3/3` and `4/4`. The existing Wasm-backend
 ToNumber and Error ToPrimitive CLI controls pass `2/2`, and the shared

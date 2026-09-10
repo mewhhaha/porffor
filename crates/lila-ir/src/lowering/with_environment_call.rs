@@ -51,6 +51,7 @@ impl<'a> ScriptLowerer<'a> {
         let fallback = TypedExpr::from_info(
             unknown_runtime_value_info(),
             ExprIr::CallIndirect {
+                direct_eval: None,
                 callee: Box::new(fallback_callee),
                 this_arg: None,
                 args: args.clone(),

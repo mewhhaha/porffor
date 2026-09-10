@@ -1,8 +1,8 @@
 use lila_front::{parse, ParseOptions};
-use lila_ir::{lower, DynamicSourceGap, DynamicSourceKind, UnsupportedFeature};
+use lila_ir::{lower, PreparedScriptKind, PreparedScriptOutcome, UnsupportedFeature};
 
 #[test]
-fn empty_function_construction_is_admitted_without_admitting_source_arguments() {
+fn function_construction_admits_empty_static_and_runtime_arguments() {
     for constructor in [
         "Function",
         "(function* () {}).constructor",
@@ -24,10 +24,7 @@ fn empty_function_construction_is_admitted_without_admitting_source_arguments() 
             let parsed = parse(&source, ParseOptions::script()).expect("source parses");
             let program = lower(&parsed);
             assert!(
-                program.diagnostics.iter().any(|diagnostic| matches!(
-                    diagnostic.unsupported_feature(),
-                    Some(UnsupportedFeature::DynamicSource(_))
-                )),
+                program.is_wasm_supported(),
                 "{source}: {:?}",
                 program.diagnostics
             );
@@ -36,7 +33,7 @@ fn empty_function_construction_is_admitted_without_admitting_source_arguments() 
 }
 
 #[test]
-fn possibly_deleted_global_eval_retains_indirect_source_capability() {
+fn possibly_deleted_global_eval_registers_its_indirect_source() {
     for source in [
         "globalThis.unknownHook(); (0, eval)('source');",
         "globalThis.unknownHook(); var retained = eval; retained('source');",
@@ -48,14 +45,20 @@ fn possibly_deleted_global_eval_retains_indirect_source_capability() {
         let parsed = parse(source, ParseOptions::script()).expect("source parses");
         let program = lower(&parsed);
         assert!(
-            program.diagnostics.iter().any(|diagnostic| {
-                diagnostic.unsupported_feature()
-                    == Some(UnsupportedFeature::DynamicSource(
-                        DynamicSourceGap::aot_known_source(DynamicSourceKind::IndirectEval),
-                    ))
-            }),
+            program.is_wasm_supported(),
             "{source}: {:?}",
             program.diagnostics
+        );
+        assert!(
+            program
+                .script
+                .expect("Script IR")
+                .prepared_scripts
+                .iter()
+                .any(|prepared| prepared.kind == PreparedScriptKind::IndirectEval
+                    && prepared.source == "source"
+                    && matches!(prepared.outcome, PreparedScriptOutcome::Executable(_))),
+            "{source}"
         );
     }
 }

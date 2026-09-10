@@ -1,30 +1,32 @@
-# Coercive Number arithmetic operation ownership
+# Coercive arithmetic operation ownership
 
-The Number branch of `compile_coercive_binary_number_to_locals` exhaustively
-matches the complete `ArithmeticBinaryOp::{Add, Sub, Mul, Div, Mod, Exp}`
-domain after both operands have been evaluated, coerced with `ToNumeric` and
-checked for mixed Number/BigInt use.
+`compile_coercive_binary_number_to_locals` accepts the closed
+`ArithmeticBinaryOp::{Add, Sub, Mul, Div, Mod, Exp}` domain. Addition delegates
+to the shared addition emitter before the numeric operand locals are reserved,
+so both primitive conversions and string concatenation retain their specified
+order. The other five operators share evaluation, ToNumeric, mixed-type
+validation and runtime Number/BigInt dispatch.
 
-Each operation owns its complete Wasm sequence in that total match. Add,
-subtract, multiply and divide use their direct binary64 instruction. Remainder
-retains the quotient/truncate/multiply/subtract sequence, and exponentiation
-retains the shared Number-power emitter. There is no preclassification with a
-second partial match and no impossible-operation `unreachable!` arm. Adding an
-IR arithmetic operation therefore requires an explicit Number algorithm before
-the backend builds.
+The Number branch exhaustively identifies every operation. Subtraction,
+multiplication and division use their binary64 instructions. Remainder retains
+the quotient/truncate/multiply/subtract sequence, and exponentiation retains
+the shared Number-power emitter. Addition has already returned through its
+own conversion path. A new IR operation requires an explicit backend decision.
 
-The BigInt side remains the existing exhaustive
-`BigIntHelperOp::from_arithmetic` projection. This source-equivalent ownership
-change preserves operand evaluation, coercion and mixed-kind error order and
-emits the same Number instructions for every existing operation.
+The BigInt side uses the existing exhaustive
+`BigIntHelperOp::from_arithmetic` projection. Payload-only expression emission
+calls this same tagged emitter instead of maintaining separate arithmetic and
+error branches. The planner includes the four retained operand locals across
+child evaluation and conversion/error phases, and preserves the runtime result
+tag even when neither raw operand's kind advertises BigInt.
 
 ```sh
-cargo test -p lila-aot-wasm --test coercive_number_arithmetic_operation_structure
-cargo test -p lila-aot-wasm --test bigint_helper_op_structure
+cargo test --release --locked -j2 -p lila-aot-wasm --test coercive_number_arithmetic_operation_structure --test bigint_helper_op_structure
+cargo test --release --locked -j2 -p lila-aot-wasm --lib planning::tests::
 ```
 
-The closed-domain target passes `3/3`, and the neighboring Number
-conversion-order and BigInt helper targets pass `8/8`. The exact
-ordinary-property eager compound reference CLI witness passes `1/1`, covering
-all six Number operations through the Wasm-AOT backend. The shared `cargo xc`,
-formatting, diff, module-boundary and task-plan checks are green.
+Current verification is recorded in the
+[September repair notes](../observed-later-failure-repairs.md). The earlier
+operation-table ownership change was byte-equivalent; the subsequent tagged
+conversion repair intentionally changes execution behavior for mixed numeric
+operands and object coercion.

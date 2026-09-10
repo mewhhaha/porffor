@@ -83,6 +83,9 @@ impl<'a> ScriptLowerer<'a> {
         rhs: TypedExpr,
     ) -> TypedExpr {
         self.record_caller_flow_invalidation();
+        if self.is_unshadowed_script_global_binding(&name) {
+            self.widen_binding_for_possible_replacement(&name);
+        }
         if let Some(info) = self.global_properties.get_mut(&name) {
             info.value_info.widen_for_possible_replacement();
             if info.configurable {

@@ -1,6 +1,7 @@
 use super::*;
 use lila_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr, RegExpProgram};
 
+mod environment_identifier;
 mod super_property_mutation;
 
 #[derive(Debug)]
@@ -1390,8 +1391,7 @@ impl<'a> FunctionBuilder<'a> {
                     return Ok(());
                 }
                 if name == GLOBAL_THIS_NAME {
-                    function
-                        .instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                    self.emit_execution_global_object_payload(function);
                     return Ok(());
                 }
                 if self.should_read_script_global_property(name) {
@@ -1765,6 +1765,15 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(tag_local);
                 self.release_temp_local(temp_local);
             }
+            ExprIr::EnvironmentIdentifier(identifier) => {
+                self.compile_environment_identifier_to_locals(
+                    identifier,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
             ExprIr::GlobalPropertyUpdate {
                 name,
                 op,
@@ -2028,8 +2037,17 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::TypeOf { expr } => {
                 self.compile_typeof_payload(expr, function)?;
             }
-            ExprIr::TypeOfUnresolvedIdentifier { .. } => {
-                function.instruction(&Instruction::I64Const(self.strings.payload("undefined")));
+            ExprIr::TypeOfUnresolvedIdentifier { name } => {
+                let payload_local = self.reserve_temp_local();
+                let tag_local = self.reserve_temp_local();
+                self.emit_global_property_read(name, payload_local, tag_local, function)?;
+                self.emit_typeof_payload_from_tag_payload_local(
+                    tag_local,
+                    payload_local,
+                    function,
+                )?;
+                self.release_temp_local(tag_local);
+                self.release_temp_local(payload_local);
             }
             ExprIr::NewTarget => {
                 self.compile_new_target_to_locals(
@@ -2116,137 +2134,15 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
             ExprIr::CoerciveBinaryNumber { op, lhs, rhs } => {
-                if matches!(op, ArithmeticBinaryOp::Exp)
-                    && expr.possible_kinds.contains(ValueKind::BigInt)
-                {
-                    self.compile_coercive_binary_number_to_locals(
-                        *op,
-                        lhs,
-                        rhs,
-                        self.scratch_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    return Ok(());
-                }
-                if expr.kind == ValueKind::BigInt {
-                    let lhs_payload = self.reserve_temp_local();
-                    let lhs_tag = self.reserve_temp_local();
-                    let rhs_payload = self.reserve_temp_local();
-                    let rhs_tag = self.reserve_temp_local();
-                    self.compile_expr_to_primitive_locals(
-                        lhs,
-                        ToPrimitiveHint::Number,
-                        lhs_payload,
-                        lhs_tag,
-                        function,
-                    )?;
-                    self.compile_expr_to_primitive_locals(
-                        rhs,
-                        ToPrimitiveHint::Number,
-                        rhs_payload,
-                        rhs_tag,
-                        function,
-                    )?;
-                    self.emit_is_bigint_tag_i32(lhs_tag, function);
-                    self.emit_is_bigint_tag_i32(rhs_tag, function);
-                    function.instruction(&Instruction::I32And);
-                    self.open_frame(ControlFrameKind::If, function);
-                    self.emit_bigint_binary_op_to_locals(
-                        BigIntHelperOp::from_arithmetic(*op),
-                        lhs_payload,
-                        lhs_tag,
-                        rhs_payload,
-                        rhs_tag,
-                        self.scratch_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.pop_control(ControlFrameKind::If);
-                    function.instruction(&Instruction::Else);
-                    self.emit_throw_runtime_error(
-                        TYPE_ERROR_NAME,
-                        "Cannot mix BigInt and other types",
-                        self.scratch_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion(function);
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(self.scratch_local));
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    self.release_temp_local(rhs_tag);
-                    self.release_temp_local(rhs_payload);
-                    self.release_temp_local(lhs_tag);
-                    self.release_temp_local(lhs_payload);
-                    return Ok(());
-                }
-                if matches!(op, ArithmeticBinaryOp::Exp) {
-                    let lhs_local = self.reserve_temp_local();
-                    let rhs_local = self.reserve_temp_local();
-                    let output_local = self.reserve_temp_local();
-
-                    self.compile_operand_pair_to_number_locals(
-                        *op, lhs, rhs, lhs_local, rhs_local, function,
-                    )?;
-                    self.emit_number_pow_payload(lhs_local, rhs_local, output_local, function)?;
-                    function.instruction(&Instruction::LocalGet(output_local));
-
-                    self.release_temp_local(output_local);
-                    self.release_temp_local(rhs_local);
-                    self.release_temp_local(lhs_local);
-                } else if matches!(op, ArithmeticBinaryOp::Mod) {
-                    // `%` needs both operands twice, so each has to be spilled
-                    // to a local. The spill slots must be freshly reserved
-                    // temporaries: `self.result_local`/`self.scratch_local` are
-                    // shared scratch that any nested emission (a string
-                    // comparison, a call, a throw propagation) is free to
-                    // clobber, which would silently corrupt the already
-                    // evaluated left operand while the right one is compiled.
-                    let lhs_local = self.reserve_temp_local();
-                    let rhs_local = self.reserve_temp_local();
-                    self.compile_operand_pair_to_number_locals(
-                        *op, lhs, rhs, lhs_local, rhs_local, function,
-                    )?;
-                    function.instruction(&Instruction::LocalGet(lhs_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(lhs_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(rhs_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Div);
-                    function.instruction(&Instruction::F64Trunc);
-                    function.instruction(&Instruction::LocalGet(rhs_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Mul);
-                    function.instruction(&Instruction::F64Sub);
-                    function.instruction(&Instruction::I64ReinterpretF64);
-                    self.release_temp_local(rhs_local);
-                    self.release_temp_local(lhs_local);
-                } else {
-                    let lhs_local = self.reserve_temp_local();
-                    let rhs_local = self.reserve_temp_local();
-                    self.compile_operand_pair_to_number_locals(
-                        *op, lhs, rhs, lhs_local, rhs_local, function,
-                    )?;
-                    function.instruction(&Instruction::LocalGet(lhs_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(rhs_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    match op {
-                        ArithmeticBinaryOp::Add => function.instruction(&Instruction::F64Add),
-                        ArithmeticBinaryOp::Sub => function.instruction(&Instruction::F64Sub),
-                        ArithmeticBinaryOp::Mul => function.instruction(&Instruction::F64Mul),
-                        ArithmeticBinaryOp::Div => function.instruction(&Instruction::F64Div),
-                        ArithmeticBinaryOp::Mod => unreachable!(),
-                        ArithmeticBinaryOp::Exp => unreachable!(),
-                    };
-                    function.instruction(&Instruction::I64ReinterpretF64);
-                    self.release_temp_local(rhs_local);
-                    self.release_temp_local(lhs_local);
-                }
+                self.compile_coercive_binary_number_to_locals(
+                    *op,
+                    lhs,
+                    rhs,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::BitwiseNumeric { op, lhs, rhs } => {
                 self.compile_bitwise_numeric_to_locals(
@@ -2501,6 +2397,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::CallIndirect {
+                direct_eval,
                 callee,
                 this_arg,
                 args,
@@ -2511,6 +2408,7 @@ impl<'a> FunctionBuilder<'a> {
                     this_arg.as_deref(),
                     args,
                     static_regexp_compilation.as_ref(),
+                    direct_eval.as_ref(),
                     self.scratch_local,
                     self.result_tag_local,
                     function,
@@ -3643,11 +3541,12 @@ impl<'a> FunctionBuilder<'a> {
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
 
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(REGEXP_PROTOTYPE_GLOBAL_INDEX),
+        self.emit_source_literal_prototype_payload(
+            crate::environments::global_environment::SourceLiteralPrototype::RegExp,
             function,
-        )?;
+        );
+        function.instruction(&Instruction::LocalSet(value_payload_local));
+        self.emit_alloc_plain_object_with_prototype(Some(value_payload_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.store_i64_const_at_offset(
             object_local,
@@ -3838,6 +3737,14 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         match &expr.expr {
+            ExprIr::EnvironmentIdentifier(identifier) => {
+                self.compile_environment_identifier_to_locals(
+                    identifier,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
             ExprIr::This => {
                 self.compile_this_to_locals(payload_local, tag_local, function)?;
             }
@@ -3887,8 +3794,7 @@ impl<'a> FunctionBuilder<'a> {
                     return Ok(());
                 }
                 if name == GLOBAL_THIS_NAME {
-                    function
-                        .instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                    self.emit_execution_global_object_payload(function);
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
@@ -4286,6 +4192,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             ExprIr::CallIndirect {
+                direct_eval,
                 callee,
                 this_arg,
                 args,
@@ -4296,6 +4203,7 @@ impl<'a> FunctionBuilder<'a> {
                     this_arg.as_deref(),
                     args,
                     static_regexp_compilation.as_ref(),
+                    direct_eval.as_ref(),
                     payload_local,
                     tag_local,
                     function,

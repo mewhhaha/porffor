@@ -22,13 +22,17 @@ const fn proxy_execution_realm_access(
 }
 
 impl FunctionBuilder<'_> {
-    pub(crate) fn emit_proxy_execution_realm_argument(&self, function: &mut Function) {
+    pub(crate) fn emit_proxy_execution_realm_argument(&mut self, function: &mut Function) {
         match proxy_execution_realm_access(self.proxy_execution_realm_source()) {
             ProxyExecutionRealmAccess::TrustedCurrentEnvironment => {
                 function.instruction(&Instruction::LocalGet(self.current_env_local));
             }
             ProxyExecutionRealmAccess::MainRealmFallback => {
-                function.instruction(&Instruction::I64Const(0));
+                if self.has_source_execution_environment() {
+                    self.emit_source_realm_function_context_payload(function);
+                } else {
+                    function.instruction(&Instruction::I64Const(0));
+                }
             }
         }
     }
@@ -74,7 +78,10 @@ impl FunctionBuilder<'_> {
             }
             ProxyExecutionRealmAccess::MainRealmFallback => {
                 let prototype_local = self.reserve_temp_local();
-                function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
+                self.emit_source_literal_prototype_payload(
+                    crate::environments::global_environment::SourceLiteralPrototype::Array,
+                    function,
+                );
                 function.instruction(&Instruction::LocalSet(prototype_local));
                 self.store_i64_local_at_offset(
                     array_payload_local,
@@ -126,7 +133,8 @@ mod tests {
             vec![
                 RuntimeHelperId::ObjectRead,
                 RuntimeHelperId::ObjectReadProxy,
-                RuntimeHelperId::IndexedElementRead
+                RuntimeHelperId::IndexedElementRead,
+                RuntimeHelperId::ObjectHasProperty
             ]
         );
 

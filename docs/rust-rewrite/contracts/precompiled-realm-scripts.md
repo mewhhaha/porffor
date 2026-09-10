@@ -30,14 +30,17 @@ not syntax inserted into the outer Script.
 
 ## Closed compiler representation
 
-`AotSourceText` is a private syntax-derived proof. The initial grammar may
-admit only primitive string literals, no-substitution template literals,
-parentheses and recursively pure concatenations of those forms. A lowered or
-folded `ExprIr::String` is not sufficient evidence because obtaining that
-value may have observable evaluation or coercion.
+Source discovery recognizes primitive string literals, no-substitution
+templates, parentheses and pure literal concatenation. Direct eval also
+registers optional candidates from argument forms whose resulting string is
+known, while retaining all operand effects. A folded `ExprIr::String` never
+authorizes removing the expression that produced it.
 
-Each proven source receives a `StaticScriptId` in one
-`PrecompiledScriptRegistry`. Its prepared result is closed:
+`DynamicScriptSource` carries the source, admission and caller context to
+independent lowering. `PreparedScriptAdmission` distinguishes a resolved
+intrinsic from an optional runtime candidate. `ScriptIr::prepared_scripts`
+retains each entry, and an executable `PreparedScriptUnit` owns a unique
+`StaticScriptId`. `PreparedScriptOutcome` is closed:
 
 - `Executable` owns the parsed Script, early-error-free IR and its runtime
   declaration plan;
@@ -48,11 +51,11 @@ Parser or compiler implementation failures remain compiler diagnostics. Only
 an ECMAScript parse or early error becomes a deferred JavaScript `SyntaxError`.
 
 The call IR retains the evaluated callee reference, receiver and every
-argument. It may specialize to `RealmEvalStatic` only after resolving the
-compiler-owned intrinsic identity and proving the source syntax. Emission must
-still evaluate the callee, receiver and all arguments exactly once in source
-order, then check the runtime callable identity. Replacing `$262.evalScript`
-must call the replacement and never execute the precompiled unit.
+argument. Runtime dispatch stays inside the intrinsic builtin; ordinary and
+indirect calls preserve the original callable, while a bare eval call checks
+the captured callable against the original realm intrinsic. Replacing
+`$262.evalScript` calls the replacement. It cannot select a prepared unit
+merely because the argument text matches.
 
 ## Runtime GlobalDeclarationInstantiation
 
@@ -65,7 +68,7 @@ environment may have changed since artifact initialization.
 sets and exact source function identities, while runtime code performs the
 observable declaration checks:
 
-1. `HasLexicalDeclaration` and `HasVarDeclaration` conflicts;
+1. `HasLexicalDeclaration` conflicts and restricted own global properties;
 2. `CanDeclareGlobalFunction` in reverse declaration order;
 3. `CanDeclareGlobalVar` for each remaining `var` name;
 4. creation of lexical bindings;
@@ -77,9 +80,15 @@ result is a must-use `ValidatedGlobalDeclarationInstantiation` token, and only
 consuming that token may create bindings. A failed lexical collision therefore
 cannot leave a partial `var` property behind.
 
-Per-realm global binding state distinguishes at least `Absent`, `VarDeclared`,
-`LexicalUninitialized` and `LexicalInitialized`. The global object's property
-storage remains separate from the declarative record. Descriptor and
+Per-realm declarative binding state distinguishes `Absent`,
+`LexicalUninitialized` and `LexicalInitialized`. Global var/function bindings
+remain ordinary global-object properties; no separate `VarNames` registry is
+retained. [ECMA-262 PR 3226](https://github.com/tc39/ecma262/pull/3226), merged
+2025-02-27, removed that state so a later Script lexical declaration may shadow
+a configurable global created by sloppy eval. The pinned
+`language/global-code/script-decl-lex-var-declared-via-eval.js` checks this
+behavior. The global object's property storage remains separate from the
+declarative record. Descriptor and
 extensibility decisions go through the general object internal methods; the
 precompiled Script path must not duplicate a Test262-only property table.
 
@@ -94,6 +103,27 @@ defining-realm slot. A must-use realm-execution token installs that realm and
 its global environment and restores the caller's context on every normal or
 abrupt exit. Body completion and arbitrary thrown values pass through
 unchanged. Parse and declaration errors use the target realm's intrinsics.
+
+The statement emitter folds empty completions into the preceding StatementList
+value, as required by [ECMA-262 14.2.2](https://tc39.es/ecma262/multipage/ecmascript-language-statements-and-declarations.html#sec-block-runtime-semantics-evaluation).
+Empty blocks and declarations do not replace that value with `undefined`.
+Control statements that apply `UpdateEmpty` with `undefined` initialize their
+own accumulator. Initializers and loop conditions preserve the accumulator
+across expression evaluation, while thrown completions leave immediately.
+An optional Annex B copy carries its Boolean admission slot directly; a
+compiler-generated `if` would incorrectly change its empty completion.
+
+`StatementIr::DeclarationEvaluation` distinguishes declaration effects from
+value-producing Expression statements, including borrowed direct-eval variable
+writes and binding-pattern evaluation. It preserves the preceding value after
+normal evaluation and propagates an abrupt completion unchanged. Initializing
+an Environment Record cell likewise writes directly to that cell without
+using the statement-result registers as scratch storage.
+
+Each realm also retains its original `%eval%` function in an immutable
+intrinsic slot. The writable global `eval` property initially refers to that
+same function, but replacing the property does not replace the intrinsic used
+to recognize direct eval.
 
 Created realms cannot consume this facility until they allocate and retain a
 real global environment. Their `evalScript`, `getGlobal` and `destroy`

@@ -1,4 +1,7 @@
 use super::*;
+mod direct_eval_capture;
+mod eval_environment;
+mod function_environment;
 use boa_ast::pattern::{ArrayPattern, ObjectPattern};
 use std::sync::Arc;
 
@@ -89,6 +92,8 @@ pub(crate) struct EnvironmentCursor {
 
 #[derive(Debug, Clone)]
 pub(crate) struct EnvironmentPlan {
+    pub(crate) eval_visible: bool,
+    pub(crate) eval_environment: Option<EvalEnvironmentRoleIr>,
     pub(crate) id: EnvironmentId,
     pub(crate) owner_id: String,
     pub(crate) kind: EnvironmentKind,
@@ -100,12 +105,17 @@ pub(crate) struct EnvironmentPlan {
 
 #[derive(Debug, Clone)]
 pub(crate) struct OwnerPlan {
+    pub(crate) parameter_names: BTreeSet<String>,
+    pub(crate) parameter_external_refs: BTreeSet<String>,
+    pub(crate) eval_invocation: lila_front::EvalInvocationContext,
     pub(crate) flavor: FunctionFlavor,
     pub(crate) execution_kind: FunctionExecutionKind,
     pub(crate) lexical_super_owner_role: LexicalSuperOwnerRole,
     pub(crate) strict: bool,
     pub(crate) parent_owner_id: Option<String>,
     pub(crate) activation_environment_id: EnvironmentId,
+    pub(crate) body_environment_id: Option<EnvironmentId>,
+    pub(crate) parameter_eval_environment_id: Option<EnvironmentId>,
     pub(crate) definition_environment_cursor: EnvironmentCursor,
     pub(crate) root_bindings: BTreeSet<String>,
     pub(crate) function_bindings: BTreeMap<String, FunctionId>,
@@ -176,8 +186,29 @@ impl FunctionPlan<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct AnalysisAllocationState {
+    next_static_script_id: u32,
+    next_function_id: usize,
+    next_environment_id: usize,
+    next_private_environment_id: u32,
+}
+
+impl AnalysisAllocationState {
+    pub(crate) fn allocate_static_script_id(&mut self) -> StaticScriptId {
+        let id = StaticScriptId(self.next_static_script_id);
+        self.next_static_script_id = self
+            .next_static_script_id
+            .checked_add(1)
+            .expect("static Script id space exhausted");
+        id
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Analysis<'a> {
+    pub(crate) script_instantiation: ScriptInstantiation,
+    pub(crate) allocations: AnalysisAllocationState,
     pub(crate) owner_plans: BTreeMap<String, OwnerPlan>,
     pub(crate) environment_plans: BTreeMap<EnvironmentId, EnvironmentPlan>,
     pub(crate) physical_binding_environments: BTreeMap<String, BTreeSet<EnvironmentId>>,
@@ -245,12 +276,21 @@ impl Analysis<'_> {
 }
 
 fn environment_has_runtime_storage(environment: &EnvironmentPlan) -> bool {
-    !environment.owned_env_slots.is_empty()
+    (environment.eval_visible
+        || matches!(
+            environment.kind,
+            EnvironmentKind::FunctionBody | EnvironmentKind::FunctionParameters
+        )
+        || !environment.owned_env_slots.is_empty())
         && (environment.kind == EnvironmentKind::Activation || environment.kind.is_materialized())
 }
 
 #[derive(Default)]
 pub(crate) struct AnalysisBuilder<'a> {
+    script_instantiation: ScriptInstantiation,
+    eval_visible: bool,
+    source_names_by_storage: BTreeMap<String, String>,
+    source_identifiers: BTreeSet<String>,
     owner_plans: BTreeMap<String, OwnerPlan>,
     environment_plans: BTreeMap<EnvironmentId, EnvironmentPlan>,
     physical_binding_environments: BTreeMap<String, BTreeSet<EnvironmentId>>,
@@ -273,9 +313,8 @@ pub(crate) struct AnalysisBuilder<'a> {
     class_private_environment_ids: BTreeMap<String, PrivateEnvironmentId>,
     function_free_refs: BTreeMap<FunctionId, BTreeMap<String, String>>,
     parameter_environment_bindings: BTreeMap<String, BTreeSet<String>>,
-    parameter_expression_environment_owners: BTreeMap<FunctionId, BTreeSet<String>>,
-    scanning_parameter_owners: BTreeSet<String>,
     function_order: Vec<FunctionId>,
+    next_static_script_id: u32,
     next_function_id: usize,
     next_environment_id: usize,
     next_private_environment_id: u32,
@@ -284,12 +323,58 @@ pub(crate) struct AnalysisBuilder<'a> {
 }
 
 impl<'a> AnalysisBuilder<'a> {
+    pub(crate) fn with_allocations(
+        allocations: AnalysisAllocationState,
+        script_instantiation: ScriptInstantiation,
+    ) -> Self {
+        Self {
+            script_instantiation,
+            next_static_script_id: allocations.next_static_script_id,
+            next_function_id: allocations.next_function_id,
+            next_environment_id: allocations.next_environment_id,
+            next_private_environment_id: allocations.next_private_environment_id,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn finish(
         mut self,
         script: &'a Script,
         interner: &'a Interner,
         source_text: &'a str,
     ) -> Analysis<'a> {
+        self.eval_visible = matches!(
+            &self.script_instantiation,
+            ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(_))
+        ) || boa_ast::operations::contains(
+            script,
+            boa_ast::operations::ContainsSymbol::DirectEval,
+        );
+        self.source_identifiers = eval_environment::source_identifiers(script, interner);
+        let direct_context = match &self.script_instantiation {
+            ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(context)) => {
+                Some(context.clone())
+            }
+            _ => None,
+        };
+        if let Some(context) = &direct_context {
+            if !context.private_names().is_empty() {
+                let id = PrivateEnvironmentId(self.next_private_environment_id);
+                self.next_private_environment_id += 1;
+                self.private_environment_plans.insert(
+                    id,
+                    PrivateEnvironmentPlan {
+                        id,
+                        parent: None,
+                        bindings: context.private_names().clone(),
+                        auto_accessor_backings: BTreeMap::new(),
+                        slot_count: 0,
+                    },
+                );
+                self.private_environment_stack.push(id);
+            }
+        }
+
         self.collect_owner_annex_b_function_plans(
             SCRIPT_OWNER_ID,
             annex_b_function_declarations(script),
@@ -357,6 +442,14 @@ impl<'a> AnalysisBuilder<'a> {
         self.owner_plans.insert(
             SCRIPT_OWNER_ID.to_string(),
             OwnerPlan {
+                parameter_external_refs: BTreeSet::new(),
+                body_environment_id: None,
+                parameter_eval_environment_id: None,
+                parameter_names: BTreeSet::new(),
+                eval_invocation: direct_context.as_ref().map_or(
+                    lila_front::EvalInvocationContext::Script,
+                    DirectEvalContextIr::invocation,
+                ),
                 flavor: FunctionFlavor::Ordinary,
                 execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role: LexicalSuperOwnerRole::None,
@@ -373,7 +466,7 @@ impl<'a> AnalysisBuilder<'a> {
                     .map(|function| (function.name.clone(), function.id.clone()))
                     .collect(),
                 owned_env_slots: BTreeMap::new(),
-                private_environment_id: None,
+                private_environment_id: self.current_private_environment_id(),
             },
         );
         self.scan_owner_items(
@@ -394,7 +487,7 @@ impl<'a> AnalysisBuilder<'a> {
                 source_text,
             );
         }
-        self.finalize_capture_plans();
+        self.finalize_capture_plans(interner);
         let planned_source_function_ids = Arc::new(
             self.function_plans
                 .keys()
@@ -403,6 +496,13 @@ impl<'a> AnalysisBuilder<'a> {
                 .collect::<BTreeSet<_>>(),
         );
         Analysis {
+            script_instantiation: self.script_instantiation,
+            allocations: AnalysisAllocationState {
+                next_static_script_id: self.next_static_script_id,
+                next_function_id: self.next_function_id,
+                next_environment_id: self.next_environment_id,
+                next_private_environment_id: self.next_private_environment_id,
+            },
             owner_plans: self.owner_plans,
             environment_plans: self.environment_plans,
             physical_binding_environments: self.physical_binding_environments,
@@ -668,6 +768,8 @@ impl<'a> AnalysisBuilder<'a> {
         self.environment_plans.insert(
             id,
             EnvironmentPlan {
+                eval_visible: self.eval_visible,
+                eval_environment: None,
                 id,
                 owner_id: owner_id.to_string(),
                 kind,
@@ -699,11 +801,22 @@ impl<'a> AnalysisBuilder<'a> {
     }
 
     fn finalize_activation_environment_bindings(&mut self, owner_id: &str) {
-        let activation_environment_id = self.owner_plans[owner_id].activation_environment_id;
+        let owner = &self.owner_plans[owner_id];
+        let activation_environment_id = owner
+            .body_environment_id
+            .unwrap_or(owner.activation_environment_id);
+        let parameter_environment_id = owner.activation_environment_id;
+        let parameter_eval_environment_id = owner.parameter_eval_environment_id;
         let nested_bindings = self
             .environment_plans
             .values()
-            .filter(|plan| plan.owner_id == owner_id && plan.id != activation_environment_id)
+            .filter(|plan| {
+                plan.owner_id == owner_id
+                    && plan.kind != EnvironmentKind::NamedFunctionExpression
+                    && plan.id != activation_environment_id
+                    && plan.id != parameter_environment_id
+                    && Some(plan.id) != parameter_eval_environment_id
+            })
             .flat_map(|plan| plan.binding_storage_names.iter().cloned())
             .collect::<BTreeSet<_>>();
         let activation_bindings = &mut self
@@ -1355,18 +1468,22 @@ impl<'a> AnalysisBuilder<'a> {
         source_text: &'a str,
     ) {
         let owner_id = function.id.clone();
-        let mut parameter_environment_owners = self
-            .parameter_expression_environment_owners
-            .get(&parent_owner_id)
-            .cloned()
-            .unwrap_or_default();
-        if self.scanning_parameter_owners.contains(&parent_owner_id) {
-            parameter_environment_owners.insert(parent_owner_id.clone());
-        }
-        if !parameter_environment_owners.is_empty() {
-            self.parameter_expression_environment_owners
-                .insert(owner_id.clone(), parameter_environment_owners);
-        }
+        let definition_environment_cursor = if self.eval_visible {
+            if let Some(name) = &function.self_binding_name {
+                self.register_lexical_environment_with_modes(
+                    &owner_id,
+                    EnvironmentKind::NamedFunctionExpression,
+                    definition_environment_cursor,
+                    BTreeSet::from([name.clone()]),
+                    BTreeMap::from([(name.clone(), BindingMode::Const)]),
+                )
+            } else {
+                definition_environment_cursor
+            }
+        } else {
+            definition_environment_cursor
+        };
+
         self.collect_owner_annex_b_function_plans(
             &owner_id,
             annex_b_function_declarations(function.body),
@@ -1457,6 +1574,26 @@ impl<'a> AnalysisBuilder<'a> {
         self.owner_plans.insert(
             owner_id.clone(),
             OwnerPlan {
+                parameter_external_refs: BTreeSet::new(),
+                body_environment_id: None,
+                parameter_eval_environment_id: None,
+                parameter_names: eval_environment::parameter_names(
+                    interner,
+                    function.parameters.as_ref(),
+                ),
+                eval_invocation: if function.protocol.flavor() == FunctionFlavor::Arrow {
+                    self.owner_plans[&parent_owner_id].eval_invocation
+                } else {
+                    match lexical_super_owner_role {
+                        LexicalSuperOwnerRole::None => lila_front::EvalInvocationContext::Function,
+                        LexicalSuperOwnerRole::HomeObject => {
+                            lila_front::EvalInvocationContext::Method
+                        }
+                        LexicalSuperOwnerRole::DerivedConstructorActivation => {
+                            lila_front::EvalInvocationContext::DerivedConstructor
+                        }
+                    }
+                },
                 flavor: function.protocol.flavor(),
                 execution_kind: function.protocol.execution_kind(),
                 lexical_super_owner_role,
@@ -1504,7 +1641,7 @@ impl<'a> AnalysisBuilder<'a> {
             self.collect_function_plan(
                 nested,
                 owner_id.clone(),
-                self.activation_environment_cursor(&owner_id),
+                self.body_environment_cursor(&owner_id),
                 interner,
                 source_text,
             );
@@ -2704,11 +2841,16 @@ impl<'a> AnalysisBuilder<'a> {
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
+        self.source_names_by_storage.extend(
+            capture_aliases
+                .iter()
+                .map(|(source, storage)| (storage.clone(), source.clone())),
+        );
+        self.prepare_function_body_environment(owner_id, parameters, items, interner);
         let activation_cursor = self.activation_environment_cursor(owner_id);
         self.environment_cursor_stack
             .push(activation_cursor.clone());
         let mut refs = BTreeMap::new();
-        self.scanning_parameter_owners.insert(owner_id.to_string());
         for parameter in parameters {
             if let Binding::Pattern(pattern) = parameter.variable().binding() {
                 self.scan_pattern_expressions(
@@ -2733,7 +2875,22 @@ impl<'a> AnalysisBuilder<'a> {
                 );
             }
         }
-        self.scanning_parameter_owners.remove(owner_id);
+        let activation_bindings =
+            &self.environment_plans[&activation_cursor.environment_id].binding_storage_names;
+        let parameter_external_refs = refs
+            .keys()
+            .filter(|name| !activation_bindings.contains(*name))
+            .cloned()
+            .collect();
+        self.owner_plans
+            .get_mut(owner_id)
+            .expect("parameter owner exists")
+            .parameter_external_refs = parameter_external_refs;
+        let body_cursor = self.body_environment_cursor(owner_id);
+        *self
+            .environment_cursor_stack
+            .last_mut()
+            .expect("owner cursor is active") = body_cursor.clone();
         for item in items {
             self.scan_item(
                 owner_id,
@@ -2752,7 +2909,7 @@ impl<'a> AnalysisBuilder<'a> {
             .environment_cursor_stack
             .pop()
             .expect("owner scan must restore its lexical environment cursor");
-        debug_assert_eq!(cursor, activation_cursor);
+        debug_assert_eq!(cursor, body_cursor);
         self.finalize_activation_environment_bindings(owner_id);
     }
 
@@ -2766,6 +2923,11 @@ impl<'a> AnalysisBuilder<'a> {
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
     ) {
+        self.source_names_by_storage.extend(
+            capture_aliases
+                .iter()
+                .map(|(source, storage)| (storage.clone(), source.clone())),
+        );
         match item {
             StatementListItem::Statement(statement) => {
                 self.scan_statement(
@@ -3262,6 +3424,14 @@ impl<'a> AnalysisBuilder<'a> {
                     self.owner_plans.insert(
                         id.clone(),
                         OwnerPlan {
+                            parameter_external_refs: BTreeSet::new(),
+                            body_environment_id: None,
+                            parameter_eval_environment_id: None,
+                            parameter_names: eval_environment::parameter_names(
+                                interner,
+                                method.parameters().as_ref(),
+                            ),
+                            eval_invocation: lila_front::EvalInvocationContext::Method,
                             flavor: FunctionFlavor::Ordinary,
                             execution_kind: object_method_protocol(method.kind())
                                 .function_protocol()
@@ -3293,7 +3463,7 @@ impl<'a> AnalysisBuilder<'a> {
                         self.collect_function_plan(
                             nested,
                             id.clone(),
-                            self.activation_environment_cursor(&id),
+                            self.body_environment_cursor(&id),
                             interner,
                             source_text,
                         );
@@ -3376,6 +3546,11 @@ impl<'a> AnalysisBuilder<'a> {
         self.owner_plans.insert(
             id.clone(),
             OwnerPlan {
+                parameter_external_refs: BTreeSet::new(),
+                body_environment_id: None,
+                parameter_eval_environment_id: None,
+                parameter_names: BTreeSet::new(),
+                eval_invocation: lila_front::EvalInvocationContext::ClassFieldInitializer,
                 flavor: FunctionFlavor::Ordinary,
                 execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role: LexicalSuperOwnerRole::HomeObject,
@@ -3443,6 +3618,11 @@ impl<'a> AnalysisBuilder<'a> {
         self.owner_plans.insert(
             id.clone(),
             OwnerPlan {
+                parameter_external_refs: BTreeSet::new(),
+                body_environment_id: None,
+                parameter_eval_environment_id: None,
+                parameter_names: BTreeSet::new(),
+                eval_invocation: lila_front::EvalInvocationContext::ClassFieldInitializer,
                 flavor: FunctionFlavor::Ordinary,
                 execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role: LexicalSuperOwnerRole::HomeObject,
@@ -3472,7 +3652,7 @@ impl<'a> AnalysisBuilder<'a> {
             self.collect_function_plan(
                 nested,
                 id.clone(),
-                self.activation_environment_cursor(&id),
+                self.body_environment_cursor(&id),
                 interner,
                 source_text,
             );
@@ -3556,6 +3736,18 @@ impl<'a> AnalysisBuilder<'a> {
         self.owner_plans.insert(
             id.clone(),
             OwnerPlan {
+                parameter_external_refs: BTreeSet::new(),
+                body_environment_id: None,
+                parameter_eval_environment_id: None,
+                parameter_names: eval_environment::parameter_names(
+                    interner,
+                    constructor.parameters().as_ref(),
+                ),
+                eval_invocation: if is_derived_constructor {
+                    lila_front::EvalInvocationContext::DerivedConstructor
+                } else {
+                    lila_front::EvalInvocationContext::Method
+                },
                 flavor: FunctionFlavor::Ordinary,
                 execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role,
@@ -3589,7 +3781,7 @@ impl<'a> AnalysisBuilder<'a> {
             self.collect_function_plan(
                 nested,
                 id.clone(),
-                self.activation_environment_cursor(&id),
+                self.body_environment_cursor(&id),
                 interner,
                 source_text,
             );
@@ -3639,6 +3831,15 @@ impl<'a> AnalysisBuilder<'a> {
         self.owner_plans.insert(
             id.clone(),
             OwnerPlan {
+                parameter_external_refs: BTreeSet::new(),
+                body_environment_id: None,
+                parameter_eval_environment_id: None,
+                parameter_names: BTreeSet::new(),
+                eval_invocation: if is_derived_constructor {
+                    lila_front::EvalInvocationContext::DerivedConstructor
+                } else {
+                    lila_front::EvalInvocationContext::Method
+                },
                 flavor: FunctionFlavor::Ordinary,
                 execution_kind: FunctionExecutionKind::Ordinary,
                 lexical_super_owner_role: if is_derived_constructor {
@@ -3699,16 +3900,22 @@ impl<'a> AnalysisBuilder<'a> {
         refs: &mut BTreeMap<String, String>,
     ) {
         let alias = capture_aliases.get(&source_name);
-        let owner_has_alias = alias.is_some_and(|alias| {
-            self.owner_plans
-                .get(owner_id)
-                .is_some_and(|owner| owner.root_bindings.contains(alias))
+        let parameter_phase = self.owner_plans.get(owner_id).is_some_and(|owner| {
+            owner.body_environment_id.is_some()
+                && self.current_environment_cursor().environment_id
+                    == owner.activation_environment_id
         });
+        let owner_bindings = self.owner_plans.get(owner_id).map(|owner| {
+            if parameter_phase {
+                &self.environment_plans[&owner.activation_environment_id].binding_storage_names
+            } else {
+                &owner.root_bindings
+            }
+        });
+        let owner_has_alias = alias
+            .is_some_and(|alias| owner_bindings.is_some_and(|bindings| bindings.contains(alias)));
         let storage_name = if owner_has_alias
-            || self
-                .owner_plans
-                .get(owner_id)
-                .is_none_or(|owner| !owner.root_bindings.contains(&source_name))
+            || owner_bindings.is_none_or(|bindings| !bindings.contains(&source_name))
         {
             alias.cloned().unwrap_or_else(|| source_name.clone())
         } else {
@@ -3727,6 +3934,11 @@ impl<'a> AnalysisBuilder<'a> {
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
     ) {
+        self.source_names_by_storage.extend(
+            capture_aliases
+                .iter()
+                .map(|(source, storage)| (storage.clone(), source.clone())),
+        );
         match statement {
             Statement::Expression(expression) => {
                 self.scan_expression(
@@ -4228,7 +4440,11 @@ impl<'a> AnalysisBuilder<'a> {
                         .collect();
                     let catch_parameter_cursor = self.register_lexical_environment_with_modes(
                         owner_id,
-                        EnvironmentKind::CatchParameter,
+                        if matches!(catch.parameter(), Some(Binding::Identifier(_))) {
+                            EnvironmentKind::SimpleCatchParameter
+                        } else {
+                            EnvironmentKind::CatchParameter
+                        },
                         self.current_environment_cursor(),
                         catch_parameter_bindings,
                         catch_parameter_modes,
@@ -5289,6 +5505,11 @@ impl<'a> AnalysisBuilder<'a> {
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
     ) {
+        self.source_names_by_storage.extend(
+            capture_aliases
+                .iter()
+                .map(|(source, storage)| (storage.clone(), source.clone())),
+        );
         match expression {
             Expression::Identifier(identifier) => {
                 let name = interner.resolve_expect(identifier.sym()).to_string();
@@ -6228,8 +6449,40 @@ impl<'a> AnalysisBuilder<'a> {
         environments
     }
 
-    fn finalize_capture_plans(&mut self) {
+    fn finalize_capture_plans(&mut self, interner: &Interner) {
         let mut owned_names = BTreeMap::<EnvironmentId, BTreeSet<String>>::new();
+        self.prepare_direct_eval_context_captures(&mut owned_names);
+        for environment in self
+            .environment_plans
+            .values()
+            .filter(|environment| environment.eval_visible)
+        {
+            owned_names
+                .entry(environment.id)
+                .or_default()
+                .extend(environment.binding_storage_names.iter().cloned());
+        }
+
+        for owner in self.owner_plans.values() {
+            if let Some(body_id) = owner.body_environment_id {
+                owned_names.entry(body_id).or_default().extend(
+                    self.environment_plans[&body_id]
+                        .binding_storage_names
+                        .iter()
+                        .cloned(),
+                );
+                owned_names
+                    .entry(owner.activation_environment_id)
+                    .or_default()
+                    .extend(
+                        self.environment_plans[&owner.activation_environment_id]
+                            .binding_storage_names
+                            .iter()
+                            .cloned(),
+                    );
+            }
+        }
+
         for environment_id in &self.complete_resumable_for_of_iteration_environment_ids {
             let environment = self
                 .environment_plans
@@ -6274,7 +6527,11 @@ impl<'a> AnalysisBuilder<'a> {
                 .unwrap_or_default();
             let mut captures = BTreeMap::new();
             for (name, source_name) in free_refs {
-                if local_bindings.contains(&name) {
+                if local_bindings.contains(&name)
+                    && !self.owner_plans[&function.id]
+                        .parameter_external_refs
+                        .contains(&name)
+                {
                     continue;
                 }
                 let Some(environment_id) = self.resolve_capture_environment(&function.id, &name)
@@ -6408,7 +6665,12 @@ impl<'a> AnalysisBuilder<'a> {
                     free_refs.entry(name).or_insert(source_name);
                 }
             }
-            free_refs.retain(|name, _| !local_bindings.contains(name));
+            free_refs.retain(|name, _| {
+                !local_bindings.contains(name)
+                    || self.owner_plans[&owner_id]
+                        .parameter_external_refs
+                        .contains(name)
+            });
             for name in free_refs.keys() {
                 if let Some(environment_id) = self.resolve_capture_environment(&owner_id, name) {
                     owned_names
@@ -6522,6 +6784,8 @@ impl<'a> AnalysisBuilder<'a> {
             }
         }
 
+        self.finalize_eval_environment_roles(interner);
+
         for owner in self.owner_plans.values_mut() {
             owner.owned_env_slots = self.environment_plans[&owner.activation_environment_id]
                 .owned_env_slots
@@ -6611,21 +6875,6 @@ impl<'a> AnalysisBuilder<'a> {
         );
         while let Some(current) = cursor {
             let environment = self.environment_plans.get(&current.environment_id)?;
-            let body_environment_is_hidden = self
-                .parameter_expression_environment_owners
-                .get(function_owner_id)
-                .is_some_and(|parameter_owner_ids| {
-                    environment.kind == EnvironmentKind::Activation
-                        && parameter_owner_ids.contains(&environment.owner_id)
-                        && !self
-                            .parameter_environment_bindings
-                            .get(&environment.owner_id)
-                            .is_some_and(|bindings| bindings.contains(name))
-                });
-            if body_environment_is_hidden {
-                cursor = environment.parent_cursor.clone();
-                continue;
-            }
             if self
                 .physical_binding_environments
                 .get(name)
@@ -6645,7 +6894,7 @@ impl<'a> AnalysisBuilder<'a> {
     fn capture_hops(&self, current_owner_id: &str, target_environment_id: EnvironmentId) -> u32 {
         let owner = &self.owner_plans[current_owner_id];
         let activation = &self.environment_plans[&owner.activation_environment_id];
-        let mut cursor = if activation.owned_env_slots.is_empty() {
+        let mut cursor = if !environment_has_runtime_storage(activation) {
             owner
                 .parent_owner_id
                 .as_ref()
@@ -6665,15 +6914,7 @@ impl<'a> AnalysisBuilder<'a> {
                 }
                 hops += 1;
             }
-            cursor = if environment.kind == EnvironmentKind::Activation {
-                let activation_owner = &self.owner_plans[&environment.owner_id];
-                activation_owner
-                    .parent_owner_id
-                    .as_ref()
-                    .map(|_| activation_owner.definition_environment_cursor.clone())
-            } else {
-                environment.parent_cursor.clone()
-            };
+            cursor = environment.parent_cursor.clone();
         }
         panic!("captured binding environment must be reachable from its function definition")
     }

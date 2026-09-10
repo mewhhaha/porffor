@@ -305,7 +305,7 @@ fn created_realm_bootstrap_uses_the_exact_four_typed_targets() {
     let create_realm = bounded(
         HOST_SOURCE,
         "    pub(crate) fn compile_host_create_realm_builtin(",
-        "    pub(crate) fn compile_host_realm_eval_script_builtin(",
+        "    pub(crate) fn compile_host_agent_start_builtin(",
     );
     assert_eq!(
         create_realm

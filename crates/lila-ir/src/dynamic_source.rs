@@ -10,7 +10,7 @@ use crate::names::{
 use crate::FunctionExecutionKind;
 
 /// The four constructors covered by CreateDynamicFunction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DynamicFunctionKind {
     Ordinary,
     Generator,

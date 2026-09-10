@@ -2,14 +2,14 @@
 
 The private `OrdinaryToPrimitiveReceiverKind::{Object, Function}` domain is the
 complete set of heap-record families admitted by the shared ordinary-object
-ToPrimitive emitter. Its exhaustive projections own both decisions that differ
-between those families: the runtime `ValueKind` tag and whether the record
-reserves the boxed-primitive slot.
+ToPrimitive emitter. Its exhaustive projection owns the runtime `ValueKind`
+tag used by property reads and calls. Every primitive wrapper follows the same
+observable `@@toPrimitive`, `toString`, and `valueOf` lookup protocol; the emitter
+must not bypass hooks by reading a wrapper's internal primitive payload.
 
 An arbitrary `ValueKind` entering the emitter and accidentally reading an
 unrelated record offset or running the ordinary-object hook algorithm is now
-unrepresentable. Adding a receiver family requires explicit tag and boxed-slot
-decisions. The domain has no clone, copy, debug or equality capability, and
+unrepresentable. Adding a receiver family requires an explicit runtime tag. The domain has no clone, copy, debug or equality capability, and
 every producer moves one choice into the inner emitter.
 
 The unused public Function-only wrapper and its private pending twin are gone.
@@ -18,14 +18,17 @@ the Function member before entering the same inner algorithm. The ordinary
 Object wrapper remains the other live entry. Deleting the unreachable subgraph
 also reduces pending-completion construction from four raw producers to three.
 
-The recursive structure guard pins the exact domain, both exhaustive
-projections, the two Object selections, the sole Function selection, the inner
+The recursive structure guard pins the exact domain, its exhaustive
+projection, the two Object selections, the sole Function selection, the inner
 emitter signature and absence of both deleted functions. The neighboring
 pending-completion and conversion-Realm guards retain the live producer and
 borrowed-source census.
 
-This is source-equivalent Rust ownership hardening. It changes no conversion
-operation, hook order, error Realm, completion route, emitted Wasm or ABI.
+The observed-failure repair removed a direct-payload shortcut for Number,
+String, and Boolean wrappers. Redefining their conversion hooks now affects
+ordinary conversions and Function-constructor source coercion, including getter
+side effects and abrupt completions. The completion ABI and realm routing remain
+the shared conversion protocol.
 
 ```sh
 cargo test -p lila-aot-wasm --test ordinary_to_primitive_receiver_kind_structure

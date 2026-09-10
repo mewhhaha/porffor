@@ -25,7 +25,14 @@ jobs:
           persist-credentials: false
 
       - name: Check exact execution replay tooling
-        run: python3 -m unittest discover -s scripts/tests -p test_replay_test262_executions.py -v
+        run: |
+          python3 -m unittest discover -s scripts/tests -p test_replay_test262_executions.py -v
+          python3 -m unittest discover -s scripts/tests -p test_collect_new_test262_failures.py -v
+
+      - name: Check independent source grammar and environment ownership
+        run: |
+          cargo test --locked -p lila-front --test comment_line_terminators --test dynamic_function_preparation --test eval_source
+          cargo test --locked -p lila-ir --test prepared_dynamic_function --test prepared_script --test direct_eval_environment --test declaration_completion --test borrowed_eval_loop_heads --test forwarded_dynamic_source_call
 
       - name: Check suspension storage and empty constructor lowering
         run: >-
@@ -57,6 +64,24 @@ jobs:
           cargo test --locked -p lila-test262 --lib
           runtime_dynamic_source_cannot_pass_by_catching_or_matching_a_js_error
           -- --test-threads=1
+
+      - name: Execute later failures and prepared source environments through Wasmtime
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_bound_function_metadata --test aot_created_realm_disposable_stack
+          --test aot_created_realm_array_iterator
+          --test aot_function_apply_resizable --test aot_function_caller
+          --test aot_iterator_consumers --test aot_prepared_dynamic_function
+          --test aot_prepared_script --test aot_prepared_global_declarations
+          --test aot_declaration_completion
+          --test aot_execution_global_environment --test aot_direct_eval
+          --test aot_direct_eval_call_identity --test aot_direct_eval_environment
+          --test aot_direct_eval_escaped_arrows --test aot_resumable_global_assignment
+          --test aot_parameter_environment_lifetime
+          --test aot_has_property_helper
+          --test aot_aggregate_error_constructor_realm
+          --test aot_promise_combinator_intrinsics
+          -- --test-threads=2
 
       - name: Preserve every root and worker failure
         run: |

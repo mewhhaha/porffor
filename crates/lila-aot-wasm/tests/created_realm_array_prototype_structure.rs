@@ -15,6 +15,13 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .0
 }
 
+fn normalized(source: &str) -> String {
+    source
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
 fn recursive_rust_source_count(root: &Path, needle: &str) -> usize {
     fs::read_dir(root)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()))
@@ -90,7 +97,7 @@ fn created_realm_array_prototype_lifecycle_has_one_private_owner() {
         ("self.reserve_realm_array_prototype_local(", 1),
         ("self.emit_initialize_realm_array_prototype(", 1),
         ("self.emit_store_realm_array_prototype(", 1),
-        ("self.emit_define_realm_array_prototype_data_with_flags(", 3),
+        ("self.emit_define_realm_array_prototype_data_with_flags(", 4),
         ("self.emit_bind_realm_array_constructor_prototype(", 1),
         ("self.release_realm_array_prototype_local(", 1),
     ] {
@@ -147,7 +154,7 @@ fn created_realm_bootstrap_owns_the_only_complete_lifecycle() {
     let create_realm = bounded(
         HOST_SOURCE,
         "    pub(crate) fn compile_host_create_realm_builtin(",
-        "    pub(crate) fn compile_host_realm_eval_script_builtin(",
+        "    pub(crate) fn compile_host_agent_start_builtin(",
     );
     let reserve = create_realm
         .find("let array_prototype_slot = self.reserve_realm_array_prototype_local()")
@@ -172,6 +179,46 @@ fn created_realm_bootstrap_owns_the_only_complete_lifecycle() {
         create_realm
             .matches("self.emit_define_realm_array_prototype_data_with_flags(")
             .count(),
-        2
+        3
     );
+}
+
+#[test]
+fn values_iterator_alias_reuses_the_created_realm_function_and_symbol_key_writer() {
+    let methods = bounded(
+        HOST_SOURCE,
+        "        for (name, meta) in &array_prototype_method_metas {",
+        "        let array_typed_array_to_string_payload_local =",
+    );
+    assert_eq!(
+        methods.matches("self.emit_function_value_payload").count(),
+        1
+    );
+    assert!(normalized(methods).contains(concat!(
+        "self.emit_function_value_payload_in_realm(meta,&realm_functions,",
+        "method_payload_local,function,)?;"
+    )));
+
+    let publication = bounded(
+        methods,
+        "            self.emit_define_realm_array_prototype_data_with_flags(",
+        "            self.release_temp_local(method_payload_local);",
+    );
+    assert_eq!(
+        normalized(publication),
+        concat!(
+            "&array_prototype,name,method_payload_local,tag_local,true,false,true,function,)?;",
+            "if*name==\"values\"{self.emit_define_realm_array_prototype_data_with_flags(",
+            "&array_prototype,\"Symbol.iterator\",method_payload_local,tag_local,",
+            "true,false,true,function,)?;}"
+        ),
+    );
+
+    let writer = bounded(
+        OWNER_SOURCE,
+        "    pub(crate) fn emit_define_realm_array_prototype_data_with_flags(",
+        "    /// Install the two `%Array%` / `%Array.prototype%` links",
+    );
+    assert!(normalized(writer)
+        .contains("Instruction::I64Const(self.strings.static_builtin_property_key_payload(key),)"));
 }

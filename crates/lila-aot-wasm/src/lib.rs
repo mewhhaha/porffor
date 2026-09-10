@@ -3,7 +3,6 @@ use std::{
     sync::LazyLock,
 };
 
-use lila_ir::FunctionTargetKnowledge;
 use lila_ir::{
     private_brand_key, private_data_key, AnnexBFunctionCopyTargetIr, ArithmeticBinaryOp,
     ArrayDestructuringElementIr, ArrayDestructuringPatternIr, BigIntBitwiseOp, BindingMode,
@@ -37,6 +36,10 @@ use lila_ir::{
     TEMPORAL_NOW_NAMESPACE_MEMBERS, TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME,
     UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
     URI_ERROR_NAME,
+};
+use lila_ir::{
+    FunctionTargetKnowledge, PreparedScript, PreparedScriptKind, PreparedScriptOutcome,
+    PreparedScriptUnit,
 };
 use lila_ir::{SuperPropertyMutationIr, SuperPropertyMutationOperationIr};
 // `Function` is deliberately absent from this list. The name is bound below to
@@ -121,6 +124,7 @@ mod modules;
 mod objects;
 mod operations;
 mod planning;
+mod prepared_script;
 mod runtime_abi;
 mod runtime_helpers;
 use abi::*;
@@ -893,13 +897,27 @@ mod tests {
                 .count(),
             1
         );
+        for (variant, slot) in [
+            ("DisposableStack", "DISPOSABLE_STACK"),
+            ("AggregateError", "AGGREGATE_ERROR"),
+        ] {
+            assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
+            assert_eq!(
+                offsets
+                    .matches(&format!(
+                        "Self::{variant} => HEAP_REALM_INTRINSICS_{slot}_PROTOTYPE_OFFSET"
+                    ))
+                    .count(),
+                1
+            );
+        }
         assert_eq!(
             domain
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            9,
-            "the closed domain count must move with MessageError and RegExp"
+            11,
+            "the closed domain count must include DisposableStack and AggregateError"
         );
     }
 
@@ -1664,7 +1682,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 456;",
             "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
             "name: \"%Date.prototype%\"",
             "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
@@ -1928,7 +1946,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 456;",
             "pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;",
             "pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;",
             "pub(crate) const HEAP_REALM_INTRINSICS_EVAL_ERROR_PROTOTYPE_OFFSET: u64 = 360;",
@@ -2071,11 +2089,12 @@ mod tests {
             .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
             .expect("direct-returning constructor domain should exist")
             .1
-            .split_once(".filter_map(|builtin|")
+            .split_once(".filter_map(|function_id|")
             .expect("direct-returning constructor domain should be bounded")
             .0;
         assert!(direct.contains("ErrorMessageConstructorKind::ALL"));
         assert!(direct.contains(".map(ErrorMessageConstructorKind::constructor)"));
+        assert!(direct.contains(".map(StandardBuiltinId::function_id)"));
 
         let realm_publication = functions
             .split_once("pub(crate) fn emit_store_realm_message_error_prototype(")

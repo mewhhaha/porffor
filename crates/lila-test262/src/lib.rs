@@ -2552,25 +2552,6 @@ pub fn materialize_test(
                 used_preludes.push((prelude.name.clone(), prelude.origin));
                 continue;
             }
-            if include == "fnGlobalObject.js" {
-                const DYNAMIC_GLOBAL_LOOKUP: &str =
-                    "var __globalObject = Function(\"return this;\")();";
-                const STATIC_GLOBAL_LOOKUP: &str = "var __globalObject = globalThis;";
-
-                let static_prelude =
-                    prelude
-                        .contents
-                        .replacen(DYNAMIC_GLOBAL_LOOKUP, STATIC_GLOBAL_LOOKUP, 1);
-                if static_prelude == prelude.contents {
-                    return Err(format!(
-                        "prelude {} does not contain the expected dynamic global lookup",
-                        prelude.name
-                    ));
-                }
-                source.push_str(&static_prelude);
-                used_preludes.push((prelude.name.clone(), prelude.origin));
-                continue;
-            }
             if include == "resizableArrayBufferUtils.js" {
                 if !resizable_array_buffer_helper_can_use_static_subclasses(case, prelude) {
                     source.push_str(&prelude.contents);
@@ -4294,37 +4275,6 @@ true;
 "#
             .to_string(),
         ),
-        "built-ins/Iterator/prototype/every/predicate-returns-truthy-then-falsey.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  for (let i = 0; i < 5; ++i) {
-    yield i;
-  }
-}
-
-var iter = g();
-var predicateCalls = 0;
-var result = iter.every(function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value < 3;
-});
-
-assertSameValue(result, false, "result");
-assertSameValue(predicateCalls, 4, "predicate calls");
-
-var nextResult = iter.next();
-assertSameValue(nextResult.done, true, "done");
-assertSameValue(nextResult.value, undefined, "value");
-true;
-"#
-            .to_string(),
-        ),
         "built-ins/Iterator/prototype/every/predicate-returns-non-boolean.js" => Some(
             r#"
 function assertSameValue(actual, expected, label) {
@@ -4672,37 +4622,6 @@ var result = iter.some(function () {
 
 assertSameValue(result, true, "result");
 assertSameValue(predicateCalls, 1, "predicate calls");
-
-var nextResult = iter.next();
-assertSameValue(nextResult.done, true, "done");
-assertSameValue(nextResult.value, undefined, "value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/some/predicate-returns-falsey-then-truthy.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  for (let i = 0; i < 5; ++i) {
-    yield i;
-  }
-}
-
-var iter = g();
-var predicateCalls = 0;
-var result = iter.some(function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value > 2;
-});
-
-assertSameValue(result, true, "result");
-assertSameValue(predicateCalls, 4, "predicate calls");
 
 var nextResult = iter.next();
 assertSameValue(nextResult.done, true, "done");
@@ -5085,37 +5004,6 @@ var result = g().find(function () {
   return false;
 });
 assertSameValue(result, undefined, "result");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/find/predicate-returns-falsey-then-truthy.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-function* g() {
-  for (let i = 0; i < 5; ++i) {
-    yield i;
-  }
-}
-
-var iter = g();
-var predicateCalls = 0;
-var result = iter.find(function (value) {
-  predicateCalls = predicateCalls + 1;
-  return value > 2;
-});
-
-assertSameValue(result, 3, "result");
-assertSameValue(predicateCalls, 4, "predicate calls");
-
-var nextResult = iter.next();
-assertSameValue(nextResult.done, true, "done");
-assertSameValue(nextResult.value, undefined, "value");
 true;
 "#
             .to_string(),
@@ -7864,54 +7752,6 @@ assertSameValue(helper.next().done, true, "done");
 true;
 "#,
         )),
-        "iterable-to-iterator-fallback.js" => Some(iterator_flat_map_rewrite(
-            r#"
-function makeInner() {
-  var i = 0;
-  return {
-    next: function () {
-      if (i >= 3) return { done: true, value: undefined };
-      var value = i;
-      i = i + 1;
-      return { done: false, value: value };
-    },
-  };
-}
-function makeOuter() {
-  var done = false;
-  return {
-    __proto__: Iterator.prototype,
-    next: function () {
-      if (done) return { done: true, value: undefined };
-      done = true;
-      return { done: false, value: 0 };
-    },
-  };
-}
-var helper = makeOuter().flatMap(function () {
-  var inner = makeInner();
-  return { "Symbol.iterator": 0, next: function () { return inner.next(); } };
-});
-assertThrowsTypeError(function () { helper.next(); }, "bad iterator method");
-helper = makeOuter().flatMap(function () {
-  var inner = makeInner();
-  return { "Symbol.iterator": null, next: function () { return inner.next(); } };
-});
-assertSameValue(helper.next().value, 0, "null 0");
-assertSameValue(helper.next().value, 1, "null 1");
-assertSameValue(helper.next().value, 2, "null 2");
-assertSameValue(helper.next().done, true, "null done");
-helper = makeOuter().flatMap(function () {
-  var inner = makeInner();
-  return { "Symbol.iterator": undefined, next: function () { return inner.next(); } };
-});
-assertSameValue(helper.next().value, 0, "undefined 0");
-assertSameValue(helper.next().value, 1, "undefined 1");
-assertSameValue(helper.next().value, 2, "undefined 2");
-assertSameValue(helper.next().done, true, "undefined done");
-true;
-"#,
-        )),
         "iterable-primitives-are-not-flattened.js" | "strings-are-not-flattened.js" => {
             Some(iterator_flat_map_rewrite(
                 r#"
@@ -8262,41 +8102,6 @@ var nextResult = takeIter.next();
 
 assertSameValue(nextResult.done, false, "done");
 assertSameValue(nextResult.value, 2, "value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/take/underlying-iterator-advanced-in-parallel.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = (function* () {
-  for (let i = 0; i < 5; ++i) {
-    yield i;
-  }
-})();
-
-var taken = iterator.take(2);
-
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, 0, "iterator value");
-assertSameValue(nextResult.done, false, "iterator done");
-
-nextResult = taken.next();
-assertSameValue(nextResult.value, 1, "taken first value");
-assertSameValue(nextResult.done, false, "taken first done");
-
-nextResult = taken.next();
-assertSameValue(nextResult.value, 2, "taken second value");
-assertSameValue(nextResult.done, false, "taken second done");
-
-nextResult = taken.next();
-assertSameValue(nextResult.value, undefined, "taken done value");
-assertSameValue(nextResult.done, true, "taken done");
 true;
 "#
             .to_string(),
@@ -8673,41 +8478,6 @@ var dropIter = Iterator.prototype.drop.call(iter, 1);
 var nextResult = dropIter.next();
 assertSameValue(nextResult.done, false, "done");
 assertSameValue(nextResult.value, 1, "value");
-true;
-"#
-            .to_string(),
-        ),
-        "built-ins/Iterator/prototype/drop/underlying-iterator-advanced-in-parallel.js" => Some(
-            r#"
-function assertSameValue(actual, expected, label) {
-  if (actual !== expected) {
-    throw label + ": " + actual;
-  }
-}
-
-var iterator = (function* () {
-  for (let i = 0; i < 5; ++i) {
-    yield i;
-  }
-})();
-
-var dropped = iterator.drop(2);
-
-var nextResult = iterator.next();
-assertSameValue(nextResult.value, 0, "iterator value");
-assertSameValue(nextResult.done, false, "iterator done");
-
-nextResult = dropped.next();
-assertSameValue(nextResult.value, 3, "dropped first value");
-assertSameValue(nextResult.done, false, "dropped first done");
-
-nextResult = dropped.next();
-assertSameValue(nextResult.value, 4, "dropped second value");
-assertSameValue(nextResult.done, false, "dropped second done");
-
-nextResult = dropped.next();
-assertSameValue(nextResult.value, undefined, "dropped done value");
-assertSameValue(nextResult.done, true, "dropped done");
 true;
 "#
             .to_string(),
@@ -11804,271 +11574,7 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
     {
         return Some("SharedArrayBuffer");
     }
-    if case.features.contains("resizable-arraybuffer") {
-        let supported_arraybuffer_probe = case.path.contains("built-ins/ArrayBuffer/options-")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/maxByteLength/")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/resizable/")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/detached/detached-buffer-resizable.js")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/resize/")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/transfer/")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/transferToFixedLength/");
-        let supported_dataview_resizable_case = case.path.starts_with("built-ins/DataView/");
-        let supported_shared_array_buffer_metadata_case =
-            supported_wasm_aot_shared_array_buffer_metadata_case(&case.path);
-        let supported_typedarray_accessor_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArray/prototype/byteLength/")
-            || case
-                .path
-                .starts_with("built-ins/TypedArray/prototype/byteOffset/")
-            || case
-                .path
-                .starts_with("built-ins/TypedArray/prototype/length/");
-        let supported_typedarray_at_resizable_case = case.path
-            == "built-ins/TypedArray/prototype/at/coerced-index-resize.js"
-            || case.path == "built-ins/TypedArray/prototype/at/resizable-buffer.js"
-            || case.path
-                == "built-ins/TypedArray/prototype/at/return-abrupt-from-this-out-of-bounds.js"
-            || case.path
-                == "built-ins/TypedArray/prototype/at/BigInt/return-abrupt-from-this-out-of-bounds.js";
-        let supported_typedarray_copy_within_resizable_case = matches!(
-            case.path.as_str(),
-            "built-ins/TypedArray/prototype/copyWithin/BigInt/return-abrupt-from-this-out-of-bounds.js"
-                | "built-ins/TypedArray/prototype/copyWithin/coerced-target-start-end-shrink.js"
-                | "built-ins/TypedArray/prototype/copyWithin/coerced-target-start-grow.js"
-                | "built-ins/TypedArray/prototype/copyWithin/resizable-buffer.js"
-                | "built-ins/TypedArray/prototype/copyWithin/return-abrupt-from-this-out-of-bounds.js"
-        );
-        let supported_typedarray_iterator_resizable_case =
-            ["values", "keys", "entries"].iter().any(|method| {
-                case.path
-                    .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
-            });
-        let supported_typedarray_find_resizable_case =
-            ["find", "findIndex", "findLast", "findLastIndex"]
-                .iter()
-                .any(|method| {
-                    case.path
-                        .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
-                });
-        let supported_typedarray_every_some_resizable_case =
-            ["every", "some"].iter().any(|method| {
-                case.path
-                    .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
-            });
-        let supported_typedarray_callback_iteration_resizable_case =
-            ["forEach", "reduce", "reduceRight"].iter().any(|method| {
-                case.path
-                    .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
-            });
-        let supported_typedarray_search_resizable_case =
-            ["includes", "indexOf", "lastIndexOf"].iter().any(|method| {
-                case.path
-                    .starts_with(&format!("built-ins/TypedArray/prototype/{method}/"))
-            });
-        let supported_typedarray_join_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArray/prototype/join/");
-        let supported_typedarray_to_locale_string_resizable_case = matches!(
-            case.path.as_str(),
-            "built-ins/TypedArray/prototype/toLocaleString/resizable-buffer.js"
-                | "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-grow.js"
-                | "built-ins/TypedArray/prototype/toLocaleString/user-provided-tolocalestring-shrink.js"
-                | "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-this-out-of-bounds.js"
-                | "built-ins/TypedArray/prototype/toLocaleString/BigInt/return-abrupt-from-this-out-of-bounds.js"
-        );
-        let supported_typedarray_subarray_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArray/prototype/subarray/");
-        let supported_typedarray_reverse_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArray/prototype/reverse/");
-        let supported_typedarray_sort_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArray/prototype/sort/");
-        let supported_typedarray_with_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArray/prototype/with/");
-        let supported_typedarray_slice_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArray/prototype/slice/");
-        let supported_typedarray_filter_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArray/prototype/filter/");
-        let supported_typedarray_map_resizable_case =
-            case.path.starts_with("built-ins/TypedArray/prototype/map/");
-        let supported_typedarray_from_or_of_resizable_case =
-            case.path.starts_with("built-ins/TypedArray/from/")
-                || case.path.starts_with("built-ins/TypedArray/of/");
-        let supported_typedarray_own_property_keys_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArrayConstructors/internals/OwnPropertyKeys/");
-        let supported_typedarray_has_property_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArrayConstructors/internals/HasProperty/");
-        let supported_typedarray_set_resizable_case = case.path
-            == "built-ins/TypedArrayConstructors/internals/Set/resized-out-of-bounds-to-in-bounds-index.js";
-        let supported_object_freeze_resizable_case =
-            case.path == "built-ins/Object/freeze/typedarray-backed-by-resizable-buffer.js";
-        let supported_typedarray_prototype_set_resizable_case = matches!(
-            case.path.as_str(),
-            "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-resized.js"
-                | "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-target-out-of-bounds.js"
-                | "built-ins/TypedArray/prototype/set/array-arg-value-conversion-resizes-array-buffer.js"
-                | "built-ins/TypedArray/prototype/set/target-grow-mid-iteration.js"
-                | "built-ins/TypedArray/prototype/set/target-grow-source-length-getter.js"
-                | "built-ins/TypedArray/prototype/set/target-shrink-mid-iteration.js"
-                | "built-ins/TypedArray/prototype/set/target-shrink-source-length-getter.js"
-                | "built-ins/TypedArray/prototype/set/this-backed-by-resizable-buffer.js"
-                | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-resized.js"
-                | "built-ins/TypedArray/prototype/set/typedarray-arg-src-backed-by-resizable-buffer.js"
-                | "built-ins/TypedArray/prototype/set/typedarray-arg-target-out-of-bounds.js"
-        );
-        let supported_typedarray_constructor_resizable_case = case
-            .path
-            .starts_with("built-ins/TypedArrayConstructors/ctors/buffer-arg/")
-            || case
-                .path
-                .starts_with("built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/")
-            || case.path
-                == "built-ins/TypedArrayConstructors/ctors/typedarray-arg/src-typedarray-resizable-buffer.js";
-        let supported_atomics_resizable_case = matches!(
-            case.path.as_str(),
-            "built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared-resize-to-zero.js"
-                | "built-ins/Atomics/notify/retrieve-length-before-index-coercion-non-shared.js"
-                | "built-ins/Atomics/notify/retrieve-length-before-index-coercion.js"
-                | "built-ins/Atomics/wait/retrieve-length-before-index-coercion.js"
-                | "built-ins/Atomics/waitAsync/retrieve-length-before-index-coercion.js"
-        );
-        let supported_array_map_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/map/");
-        let supported_array_at_resizable_case = case.path
-            == "built-ins/Array/prototype/at/typed-array-resizable-buffer.js"
-            || case.path == "built-ins/Array/prototype/at/coerced-index-resize.js";
-        let supported_array_search_resizable_case = [
-            "built-ins/Array/prototype/includes/",
-            "built-ins/Array/prototype/indexOf/",
-            "built-ins/Array/prototype/lastIndexOf/",
-        ]
-        .iter()
-        .any(|prefix| case.path.starts_with(prefix));
-        let supported_array_filter_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/filter/");
-        let supported_array_reduce_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/reduce/")
-                || case
-                    .path
-                    .starts_with("built-ins/Array/prototype/reduceRight/");
-        let supported_array_find_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/find/");
-        let supported_array_find_index_resizable_case = case
-            .path
-            .starts_with("built-ins/Array/prototype/findIndex/");
-        let supported_array_find_last_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/findLast/");
-        let supported_array_find_last_index_resizable_case = case
-            .path
-            .starts_with("built-ins/Array/prototype/findLastIndex/");
-        let supported_array_every_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/every/");
-        let supported_array_some_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/some/");
-        let supported_array_foreach_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/forEach/");
-        let supported_array_keys_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/keys/");
-        let supported_array_entries_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/entries/");
-        let supported_array_values_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/values/");
-        let supported_array_to_locale_string_resizable_case = case
-            .path
-            .starts_with("built-ins/Array/prototype/toLocaleString/");
-        let supported_array_sort_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/sort/");
-        let supported_array_reverse_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/reverse/");
-        let supported_array_copy_within_resizable_case = case
-            .path
-            .starts_with("built-ins/Array/prototype/copyWithin/");
-        let supported_array_slice_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/slice/");
-        let supported_array_fill_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/fill/");
-        let supported_array_join_resizable_case =
-            case.path.starts_with("built-ins/Array/prototype/join/");
-        // `%TypedArray%.prototype.fill` reads its length once up front, which the
-        // wasm-aot backend already matches. The rest of `fill/` still needs the
-        // out-of-bounds receiver check, so only this case leaves the gate.
-        let supported_typedarray_fill_resizable_case = case.path
-            == "built-ins/TypedArray/prototype/fill/absent-indices-computed-from-initial-length.js";
-        if !supported_arraybuffer_probe
-            && !supported_dataview_resizable_case
-            && !supported_shared_array_buffer_metadata_case
-            && !supported_typedarray_accessor_resizable_case
-            && !supported_typedarray_at_resizable_case
-            && !supported_typedarray_copy_within_resizable_case
-            && !supported_typedarray_iterator_resizable_case
-            && !supported_typedarray_find_resizable_case
-            && !supported_typedarray_every_some_resizable_case
-            && !supported_typedarray_callback_iteration_resizable_case
-            && !supported_typedarray_search_resizable_case
-            && !supported_typedarray_join_resizable_case
-            && !supported_typedarray_to_locale_string_resizable_case
-            && !supported_typedarray_subarray_resizable_case
-            && !supported_typedarray_reverse_resizable_case
-            && !supported_typedarray_sort_resizable_case
-            && !supported_typedarray_with_resizable_case
-            && !supported_typedarray_slice_resizable_case
-            && !supported_typedarray_filter_resizable_case
-            && !supported_typedarray_map_resizable_case
-            && !supported_typedarray_from_or_of_resizable_case
-            && !supported_typedarray_own_property_keys_resizable_case
-            && !supported_typedarray_has_property_resizable_case
-            && !supported_typedarray_set_resizable_case
-            && !supported_object_freeze_resizable_case
-            && !supported_typedarray_prototype_set_resizable_case
-            && !supported_typedarray_constructor_resizable_case
-            && !supported_atomics_resizable_case
-            && !supported_array_map_resizable_case
-            && !supported_array_at_resizable_case
-            && !supported_array_search_resizable_case
-            && !supported_array_filter_resizable_case
-            && !supported_array_reduce_resizable_case
-            && !supported_array_find_resizable_case
-            && !supported_array_find_index_resizable_case
-            && !supported_array_find_last_resizable_case
-            && !supported_array_find_last_index_resizable_case
-            && !supported_array_every_resizable_case
-            && !supported_array_some_resizable_case
-            && !supported_array_foreach_resizable_case
-            && !supported_array_keys_resizable_case
-            && !supported_array_entries_resizable_case
-            && !supported_array_values_resizable_case
-            && !supported_array_to_locale_string_resizable_case
-            && !supported_array_sort_resizable_case
-            && !supported_array_reverse_resizable_case
-            && !supported_array_copy_within_resizable_case
-            && !supported_array_slice_resizable_case
-            && !supported_array_fill_resizable_case
-            && !supported_array_join_resizable_case
-            && !supported_typedarray_fill_resizable_case
-        {
-            return Some("resizable-arraybuffer");
-        }
-    }
+
     if matches!(
         case.path.as_str(),
         "built-ins/Proxy/apply/arguments-realm.js"
@@ -25222,8 +24728,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             None
         );
 
-        // The rest of `fill/` still needs the out-of-bounds receiver check, so it
-        // stays gated.
+        // Runtime coverage gaps must reach the compiler instead of a path gate.
         let mut typedarray_fill_out_of_bounds_case = synthetic_case(
             "built-ins/TypedArray/prototype/fill/return-abrupt-from-this-out-of-bounds.js",
         );
@@ -25232,7 +24737,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             .insert("resizable-arraybuffer".to_string());
         assert_eq!(
             wasm_aot_unsupported_feature(&typedarray_fill_out_of_bounds_case),
-            Some("resizable-arraybuffer")
+            None
         );
 
         let mut typedarray_join_resizable_case =
@@ -29162,6 +28667,31 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             rewrite_wasm_aot_self_contained(&case).is_none(),
             "Error cause property should execute its original Test262 source"
         );
+    }
+
+    #[test]
+    fn observed_iterator_failures_execute_original_test262_sources() {
+        let root = repo_root().join("test262/vendor/test262/test");
+        let preludes = real_wasm_aot_preludes();
+        for suffix in [
+            "every/predicate-returns-truthy-then-falsey.js",
+            "find/predicate-returns-falsey-then-truthy.js",
+            "some/predicate-returns-falsey-then-truthy.js",
+            "drop/underlying-iterator-advanced-in-parallel.js",
+            "take/underlying-iterator-advanced-in-parallel.js",
+            "flatMap/iterable-to-iterator-fallback.js",
+        ] {
+            let path = format!("built-ins/Iterator/prototype/{suffix}");
+            let original = fs::read_to_string(root.join(&path)).expect("pinned case source");
+            let case = parse_test_case(path.clone(), root.join(&path), original.clone());
+            assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
+            let materialized = materialize_test(&case, &preludes).expect("original materializes");
+            assert!(materialized.source.ends_with(&original), "{path}");
+            assert!(materialized
+                .used_preludes
+                .iter()
+                .any(|(name, _)| name == "assert.js"));
+        }
     }
 
     #[test]
@@ -37390,7 +36920,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .insert("resizable-arraybuffer".to_string());
         assert_eq!(
             wasm_aot_unsupported_feature(&unrelated_resizable_case),
-            Some("resizable-arraybuffer")
+            None
         );
     }
 
@@ -37441,10 +36971,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         unrelated_case
             .features
             .insert("resizable-arraybuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_case),
-            Some("resizable-arraybuffer")
-        );
+        assert_eq!(wasm_aot_unsupported_feature(&unrelated_case), None);
     }
 
     #[test]
@@ -37521,9 +37048,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             case.execution_id = TestExecutionId::new(path, TestExecutionMode::RawScript);
             case.flags.insert("raw".to_string());
             let call = if expected_error.is_none() {
-                "try { holder.invoke('1'); } catch (error) {}"
+                "try { holder.invoke('1/*' + Math.random() + '*/'); } catch (error) {}"
             } else {
-                "holder.invoke('1');"
+                "holder.invoke('1/*' + Math.random() + '*/');"
             };
             case.original_source = Arc::from(format!(
                 "var holder = {{ invoke: eval }}; \
@@ -37550,9 +37077,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
         let preludes = real_wasm_aot_host_only_preludes();
         let eval_worker = "var holder = { invoke: eval }; \
-            var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1');";
+            var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1/*' + Math.random() + '*/');";
+        let runtime_direct_eval = "eval('1/*' + Math.random() + '*/');";
         let function_worker = "var holder = { invoke: Function }; \
-            var hook = new Proxy(function() {}, {}); hook(); holder.invoke('return 1');";
+            var hook = new Proxy(function() {}, {}); hook(); holder.invoke('return 1/*' + Math.random() + '*/');";
         for (source, kind, outcome) in [
             (
                 format!(
@@ -37562,7 +37090,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 OutcomeKind::NotImplemented,
             ),
             (
-                format!("$262.agent.start({eval_worker:?}); $262.agent.start(\"eval('1');\");"),
+                format!(
+                    "$262.agent.start({eval_worker:?}); $262.agent.start({runtime_direct_eval:?});"
+                ),
                 FailureKind::Unsupported,
                 OutcomeKind::NotImplemented,
             ),
@@ -37877,7 +37407,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn materialize_fn_global_object_uses_static_global_this_lookup() {
+    fn materialize_fn_global_object_preserves_the_original_function_constructor() {
         let mut store = fixture_preludes();
         store.insert(
             "fnGlobalObject.js".to_string(),
@@ -37895,8 +37425,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
         assert!(materialized
             .source
+            .contains("var __globalObject = Function(\"return this;\")();"));
+        assert!(!materialized
+            .source
             .contains("var __globalObject = globalThis;"));
-        assert!(!materialized.source.contains("Function(\"return this;\")"));
     }
 
     #[test]

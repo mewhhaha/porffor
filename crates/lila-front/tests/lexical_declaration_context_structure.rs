@@ -341,9 +341,10 @@ fn contract_and_t07_record_the_borrowed_exhaustive_boundary() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("LexicalDeclarationContext::{Statement, ForHead}"));
-    assert!(TASK.contains("This is source-equivalent parser"));
-    assert!(TASK.contains("invariant closure"));
-    assert!(TASK.contains("Direct vendor-file `rustfmt --check`"));
-    assert!(TASK.contains("touched match\nregions are clean"));
+    let task = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(task.contains("LexicalDeclarationContext::{Statement, ForHead}"));
+    assert!(task.contains("This is source-equivalent parser"));
+    assert!(task.contains("invariant closure"));
+    assert!(task.contains("Direct vendor-file `rustfmt --check`"));
+    assert!(task.contains("touched match regions are clean"));
 }

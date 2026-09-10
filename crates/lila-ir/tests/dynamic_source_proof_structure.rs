@@ -119,7 +119,7 @@ fn source_syntax_produces_one_proof_consumed_by_one_exhaustive_gap_projection() 
     let resolution = normalized(bounded(
         SOURCE,
         "        let proof = source_args",
-        "    /// Unknown user code can erase the global `%eval%` value fact without",
+        "    pub(super) fn record_unsupported_dynamic_source(",
     ));
     assert_eq!(
         resolution,

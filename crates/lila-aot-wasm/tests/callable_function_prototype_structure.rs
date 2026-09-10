@@ -191,11 +191,12 @@ fn callable_prototype_tags_propagate_to_intrinsic_function_prototype_links() {
         bootstrap
             .matches("self.emit_alloc_plain_object_with_prototype_and_tag(")
             .count(),
-        2
+        3
     );
     assert!(bootstrap.contains("ValueKind::Function.tag() as i64"));
     assert!(bootstrap.contains("GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX"));
     assert!(bootstrap.contains("ASYNC_FUNCTION_PROTOTYPE_GLOBAL_INDEX"));
+    assert!(bootstrap.contains("ASYNC_GENERATOR_FUNCTION_PROTOTYPE_GLOBAL_INDEX"));
 }
 
 #[test]
@@ -288,7 +289,7 @@ fn created_realm_bootstrap_consumes_the_coupled_context_before_publication() {
     let create_realm = bounded(
         HOST_SOURCE,
         "    pub(crate) fn compile_host_create_realm_builtin(",
-        "    pub(crate) fn compile_host_realm_eval_script_builtin(",
+        "    pub(crate) fn compile_host_agent_start_builtin(",
     );
     assert_eq!(
         create_realm
@@ -346,7 +347,7 @@ fn created_realm_records_publish_their_typed_eval_script_function() {
     let create_realm = bounded(
         HOST_SOURCE,
         "    pub(crate) fn compile_host_create_realm_builtin(",
-        "    pub(crate) fn compile_host_realm_eval_script_builtin(",
+        "    pub(crate) fn compile_host_agent_start_builtin(",
     );
     assert_eq!(
         create_realm

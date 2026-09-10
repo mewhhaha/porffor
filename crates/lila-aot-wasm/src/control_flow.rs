@@ -17,10 +17,13 @@ use lila_ir::{
     SyncDisposableScopeExecutionIr,
 };
 
+mod annex_b_function_copy;
 mod arguments_iterator;
 mod async_function_for_of_iterator;
 mod for_await_iteration_environment;
 mod for_await_iterator_symbol;
+mod resumed_identifier_assignment;
+mod statement_completion;
 use for_await_iterator_symbol::ForAwaitIteratorSymbol;
 
 #[must_use = "a captured using-scope completion must be restored and dispatched"]
@@ -520,6 +523,10 @@ enum PreparedDestructuringTarget<'a> {
         name: &'a str,
     },
     AssignmentIdentifier(&'a IdentifierWriteReferenceIr),
+    EnvironmentIdentifier {
+        key: u32,
+        reference: crate::environments::environment_reference::EnvironmentIdentifierReference,
+    },
     Property {
         target: &'a TypedExpr,
         target_payload: u32,
@@ -547,58 +554,6 @@ enum PreparedDestructuringPropertyKey<'a> {
 }
 
 impl<'a> FunctionBuilder<'a> {
-    pub(crate) fn emit_statement_result(&self, function: &mut Function, kind: ValueKind) {
-        self.emit_undefined_payload(function);
-        self.finish_statement_payload(function, kind);
-    }
-
-    pub(crate) fn finish_statement_payload(&self, function: &mut Function, kind: ValueKind) {
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(kind.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Normal, function);
-    }
-
-    pub(crate) fn emit_undefined_payload(&self, function: &mut Function) {
-        function.instruction(&Instruction::I64Const(0));
-    }
-
-    pub(crate) fn save_current_completion(
-        &self,
-        payload_local: u32,
-        tag_local: u32,
-        completion_local: u32,
-        aux_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalSet(completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
-        function.instruction(&Instruction::LocalSet(aux_local));
-    }
-
-    pub(crate) fn restore_saved_completion(
-        &self,
-        payload_local: u32,
-        tag_local: u32,
-        completion_local: u32,
-        aux_local: u32,
-        function: &mut Function,
-    ) {
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(tag_local));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(completion_local));
-        function.instruction(&Instruction::LocalSet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(aux_local));
-        function.instruction(&Instruction::LocalSet(self.completion_aux_local));
-    }
-
     fn emit_push_generator_pending_completion(
         &mut self,
         function: &mut Function,
@@ -1145,7 +1100,7 @@ impl<'a> FunctionBuilder<'a> {
         if let Some(target) = self.finally_stack.last().copied() {
             self.emit_branch_to_target(target, function);
         } else {
-            self.normalize_derived_constructor_result(function)?;
+            self.emit_derived_constructor_body_result(function)?;
             self.set_completion_kind(CompletionKind::Normal, function);
             self.emit_return_current_completion(function);
         }
@@ -1357,7 +1312,6 @@ impl<'a> FunctionBuilder<'a> {
             self.initialize_direct_lexical_bindings(&block.statements, function);
         }
         if block.statements.is_empty() {
-            self.emit_statement_result(function, ValueKind::Undefined);
             if block.lexical_environment.is_some() {
                 self.emit_leave_lexical_environment(function);
             }
@@ -1384,7 +1338,12 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if let Some(environment) = &block.lexical_environment {
-            self.emit_enter_lexical_environment(environment, function)?;
+            self.emit_enter_resumable_block_environment(
+                environment,
+                entry_state,
+                resume_state_offset,
+                function,
+            )?;
         }
         let activation_local = self
             .new_target_payload_local()
@@ -1751,7 +1710,12 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if let Some(environment) = &block.lexical_environment {
-            self.emit_enter_lexical_environment(environment, function)?;
+            self.emit_enter_resumable_block_environment(
+                environment,
+                entry_state,
+                HEAP_GENERATOR_RESUME_STATE_OFFSET,
+                function,
+            )?;
         }
         if initialize_bindings {
             let activation_local = self
@@ -1771,7 +1735,6 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
         if block.statements.is_empty() {
-            self.emit_statement_result(function, ValueKind::Undefined);
             if block.lexical_environment.is_some() {
                 self.emit_leave_lexical_environment(function);
             }
@@ -1848,7 +1811,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.initialize_async_disposable_resource_bindings(resources, function);
                     self.initialize_direct_lexical_bindings(&body.statements, function);
                 }
-                StatementIr::Expression(TypedExpr {
+                StatementIr::DeclarationEvaluation(TypedExpr {
                     expr:
                         ExprIr::ArrayDestructure {
                             pattern,
@@ -1877,7 +1840,7 @@ impl<'a> FunctionBuilder<'a> {
                     }
                     ArrayDestructuringEvaluationIr::AssignmentEvaluation => {}
                 },
-                StatementIr::Expression(TypedExpr {
+                StatementIr::DeclarationEvaluation(TypedExpr {
                     expr: ExprIr::ObjectDestructure { pattern, .. },
                     ..
                 }) => {
@@ -1989,9 +1952,14 @@ impl<'a> FunctionBuilder<'a> {
             fresh_iteration_environment.map(|_| self.open_frame(ControlFrameKind::Block, function));
         if let Some(environment) = fresh_iteration_environment {
             self.push_scope();
-            // Function entry reloaded this exact pointer from the activation.
-            // Only attach its binding layout here: allocating would give the
-            // resumed body a different cell from pre-suspension closures.
+            // An enclosing function-body record may have been reattached since
+            // entry. The loop resumes with its own saved iteration record.
+            self.load_i64_to_local_from_offset(
+                activation_local,
+                activation_environment_offset,
+                self.current_env_local,
+                function,
+            );
             self.begin_existing_lexical_environment_scope(environment);
             self.finally_stack.push(ControlTarget {
                 environment_depth: self.environment_depth,
@@ -2413,27 +2381,22 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_dispatch_async_generator_completion(function);
             }
             GeneratorResumeModeIr::AssignIdentifier(name) => {
-                if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
-                    self.emit_global_property_write(
-                        name,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                } else {
-                    let storage = self.lookup_binding(name).ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                        ))
-                    })?;
-                    self.write_binding_from_locals(
-                        storage,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    );
-                    self.mirror_binding_to_global_object(name, storage, function)?;
-                }
+                self.emit_resumed_binding_assignment(
+                    name,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_statement_result(function, ValueKind::Undefined);
+            }
+            GeneratorResumeModeIr::AssignGlobal { name, strictness } => {
+                self.emit_resumed_global_assignment(
+                    name,
+                    self.result_local,
+                    self.result_tag_local,
+                    *strictness,
+                    function,
+                )?;
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
             GeneratorResumeModeIr::AssignProperty(reference) => {
@@ -2583,27 +2546,22 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_dispatch_async_generator_completion(function);
             }
             AsyncResumeModeIr::AssignIdentifier(name) => {
-                if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
-                    self.emit_global_property_write(
-                        name,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                } else {
-                    let storage = self.lookup_binding(name).ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                        ))
-                    })?;
-                    self.write_binding_from_locals(
-                        storage,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    );
-                    self.mirror_binding_to_global_object(name, storage, function)?;
-                }
+                self.emit_resumed_binding_assignment(
+                    name,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_statement_result(function, ValueKind::Undefined);
+            }
+            AsyncResumeModeIr::AssignGlobal { name, strictness } => {
+                self.emit_resumed_global_assignment(
+                    name,
+                    self.result_local,
+                    self.result_tag_local,
+                    *strictness,
+                    function,
+                )?;
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
         }
@@ -2683,10 +2641,9 @@ impl<'a> FunctionBuilder<'a> {
             StatementIr::ModuleUnitOnce { module, block } => {
                 self.emit_module_unit_once(*module, block, function)?;
             }
-            StatementIr::Empty => {
-                self.emit_statement_result(function, ValueKind::Undefined);
-            }
+            StatementIr::Empty => {}
             StatementIr::Lexical { mode, name, init } => {
+                let saved = self.save_statement_list_value(function);
                 let storage = self
                     .lookup_current_scope_binding(name)
                     .or_else(|| self.lookup_binding(name))
@@ -2699,7 +2656,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.write_binding_from_locals(storage, value_local, tag_local, function);
                 self.release_temp_local(tag_local);
                 self.release_temp_local(value_local);
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.restore_statement_list_value(saved, function)?;
             }
             StatementIr::SyncDisposableScope {
                 execution,
@@ -2719,48 +2676,25 @@ impl<'a> FunctionBuilder<'a> {
                 source_name,
                 block_storage_name,
                 target,
+                admission,
             } => {
-                let source = self.lookup_binding(block_storage_name).ok_or_else(|| {
-                    EmitError::unsupported(format!(
-                        "Annex B declaration `{source_name}` is missing block binding `{block_storage_name}`"
-                    ))
-                })?;
-                self.read_binding_to_locals(
-                    source,
-                    self.scratch_local,
+                self.compile_annex_b_function_copy(
+                    source_name,
+                    block_storage_name,
+                    target,
+                    admission,
+                    function,
+                )?;
+            }
+            StatementIr::DeclarationEvaluation(expr) => {
+                let saved = self.save_statement_list_value(function);
+                self.compile_expr_to_locals(
+                    expr,
+                    self.result_local,
                     self.result_tag_local,
                     function,
                 )?;
-                match target {
-                    AnnexBFunctionCopyTargetIr::OwnerBinding { storage_name } => {
-                        let target = self.lookup_owner_binding(storage_name).ok_or_else(|| {
-                            EmitError::unsupported(format!(
-                                "Annex B declaration `{source_name}` is missing owner binding `{storage_name}`"
-                            ))
-                        })?;
-                        self.write_binding_from_locals(
-                            target,
-                            self.scratch_local,
-                            self.result_tag_local,
-                            function,
-                        );
-                    }
-                    AnnexBFunctionCopyTargetIr::ScriptGlobal { name } => {
-                        let target = self.lookup_owner_binding(name).ok_or_else(|| {
-                            EmitError::unsupported(format!(
-                                "Annex B declaration `{source_name}` is missing script-global binding `{name}`"
-                            ))
-                        })?;
-                        self.write_binding_from_locals(
-                            target,
-                            self.scratch_local,
-                            self.result_tag_local,
-                            function,
-                        );
-                        self.mirror_binding_to_global_object(name, target, function)?;
-                    }
-                }
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.restore_statement_list_value(saved, function)?;
             }
             StatementIr::Expression(expr) => {
                 if !expr.possible_kinds.is_singleton()
@@ -2943,7 +2877,9 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_return_current_completion(function);
                     function.instruction(&Instruction::End);
                 }
-                if let GeneratorResumeModeIr::AssignIdentifier(name) = resume_mode {
+                if let GeneratorResumeModeIr::AssignIdentifier(name)
+                | GeneratorResumeModeIr::AssignGlobal { name, .. } = resume_mode
+                {
                     self.load_i64_to_local_from_offset(
                         activation_local,
                         HEAP_GENERATOR_RESUME_STATE_OFFSET,
@@ -2966,26 +2902,27 @@ impl<'a> FunctionBuilder<'a> {
                         self.result_tag_local,
                         function,
                     );
-                    if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
-                        self.emit_global_property_write(
-                            name,
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        )?;
-                    } else {
-                        let storage = self.lookup_binding(name).ok_or_else(|| {
-                            EmitError::unsupported(format!(
-                                "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                            ))
-                        })?;
-                        self.write_binding_from_locals(
-                            storage,
-                            self.result_local,
-                            self.result_tag_local,
-                            function,
-                        );
-                        self.mirror_binding_to_global_object(name, storage, function)?;
+                    match resume_mode {
+                        GeneratorResumeModeIr::AssignIdentifier(_) => self
+                            .emit_resumed_binding_assignment(
+                                name,
+                                self.result_local,
+                                self.result_tag_local,
+                                function,
+                            )?,
+                        GeneratorResumeModeIr::AssignGlobal { strictness, .. } => self
+                            .emit_resumed_global_assignment(
+                                name,
+                                self.result_local,
+                                self.result_tag_local,
+                                *strictness,
+                                function,
+                            )?,
+                        GeneratorResumeModeIr::Ignore
+                        | GeneratorResumeModeIr::Return
+                        | GeneratorResumeModeIr::AssignProperty(_) => {
+                            unreachable!("identifier resume branch excludes other targets")
+                        }
                     }
                     function.instruction(&Instruction::End);
                 }
@@ -3121,29 +3058,22 @@ impl<'a> FunctionBuilder<'a> {
                         self.emit_dispatch_current_completion(function)?;
                     }
                     AsyncResumeModeIr::AssignIdentifier(name) => {
-                        if self.is_script_global_binding(name)
-                            && self.lookup_binding(name).is_none()
-                        {
-                            self.emit_global_property_write(
-                                name,
-                                self.result_local,
-                                self.result_tag_local,
-                                function,
-                            )?;
-                        } else {
-                            let storage = self.lookup_binding(name).ok_or_else(|| {
-                                EmitError::unsupported(format!(
-                                    "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                                ))
-                            })?;
-                            self.write_binding_from_locals(
-                                storage,
-                                self.result_local,
-                                self.result_tag_local,
-                                function,
-                            );
-                            self.mirror_binding_to_global_object(name, storage, function)?;
-                        }
+                        self.emit_resumed_binding_assignment(
+                            name,
+                            self.result_local,
+                            self.result_tag_local,
+                            function,
+                        )?;
+                        self.emit_statement_result(function, ValueKind::Undefined);
+                    }
+                    AsyncResumeModeIr::AssignGlobal { name, strictness } => {
+                        self.emit_resumed_global_assignment(
+                            name,
+                            self.result_local,
+                            self.result_tag_local,
+                            *strictness,
+                            function,
+                        )?;
                         self.emit_statement_result(function, ValueKind::Undefined);
                     }
                 }
@@ -3432,12 +3362,11 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(state_local);
             }
             StatementIr::Var(declarators) => {
+                let saved = self.save_statement_list_value(function);
                 self.compile_var_declarators(declarators, function)?;
-                self.emit_statement_result(function, ValueKind::Undefined);
+                self.restore_statement_list_value(saved, function)?;
             }
-            StatementIr::ParameterInitialization { .. } => {
-                self.emit_statement_result(function, ValueKind::Undefined);
-            }
+            StatementIr::ParameterInitialization { .. } => {}
             StatementIr::LexicalBlock(statements) => {
                 let async_resume_state_offset = self.async_await_resume_state_offset();
                 let async_entry_state = async_resume_state_offset.and_then(|_| {
@@ -3660,13 +3589,17 @@ impl<'a> FunctionBuilder<'a> {
                 else_branch,
             } => {
                 self.compile_truthy_i32(condition, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_statement_result(function, ValueKind::Undefined);
                 self.open_frame(ControlFrameKind::If, function);
                 self.compile_statement(then_branch, function)?;
-                function.instruction(&Instruction::Else);
                 if let Some(else_branch) = else_branch {
+                    function.instruction(&Instruction::Else);
                     self.compile_statement(else_branch, function)?;
-                } else {
-                    self.emit_statement_result(function, ValueKind::Undefined);
                 }
                 self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
@@ -3828,9 +3761,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            StatementIr::Debugger => {
-                self.emit_statement_result(function, ValueKind::Undefined);
-            }
+            StatementIr::Debugger => {}
             StatementIr::Return(value) => {
                 if self.strict
                     && self.throw_handler_stack.is_empty()
@@ -3856,7 +3787,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_branch_to_target(target, function);
                 } else {
                     self.set_completion_kind(CompletionKind::Return, function);
-                    self.normalize_derived_constructor_result(function)?;
+                    self.emit_derived_constructor_body_result(function)?;
                     self.set_completion_kind(CompletionKind::Normal, function);
                     self.emit_return_current_completion(function);
                 }
@@ -3874,6 +3805,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         match &value.expr {
             ExprIr::CallIndirect {
+                direct_eval: None,
                 callee,
                 this_arg,
                 args,
@@ -4160,6 +4092,7 @@ impl<'a> FunctionBuilder<'a> {
         catch_block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_statement_result(function, ValueKind::Undefined);
         let _outer_frame = self.open_frame(ControlFrameKind::Block, function);
         let catch_frame = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(catch_frame);
@@ -5129,6 +5062,7 @@ impl<'a> FunctionBuilder<'a> {
         finally_block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_statement_result(function, ValueKind::Undefined);
         let saved_payload_local = self.reserve_temp_local();
         let saved_tag_local = self.reserve_temp_local();
         let saved_completion_local = self.reserve_temp_local();
@@ -7351,6 +7285,7 @@ impl<'a> FunctionBuilder<'a> {
         finally_block: &BlockIr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_statement_result(function, ValueKind::Undefined);
         let saved_payload_local = self.reserve_temp_local();
         let saved_tag_local = self.reserve_temp_local();
         let saved_completion_local = self.reserve_temp_local();
@@ -7452,7 +7387,7 @@ impl<'a> FunctionBuilder<'a> {
         let continue_frame = self.open_frame(ControlFrameKind::Loop, function);
         self.loop_stack.push(LoopTargets { continue_frame });
         self.push_labels(labels, break_frame, Some(continue_frame));
-        self.compile_truthy_i32(condition, function)?;
+        self.compile_iteration_condition(condition, function)?;
         function.instruction(&Instruction::I32Eqz);
         function.branch_if_to_label(break_frame.label);
         self.compile_statement(body, function)?;
@@ -7484,7 +7419,7 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_statement(body, function)?;
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.compile_truthy_i32(condition, function)?;
+        self.compile_iteration_condition(condition, function)?;
         function.branch_if_to_label(loop_frame.label);
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
@@ -7532,13 +7467,17 @@ impl<'a> FunctionBuilder<'a> {
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
+            initialization: lila_ir::LexicalEnvironmentInitializationIr::Uninitialized,
+            eval_environment: environment.eval_environment.clone(),
             bindings: environment.bindings.clone(),
         });
         if let Some(environment) = &runtime_environment {
             self.emit_enter_lexical_environment(environment, function)?;
         }
         if let Some(init) = init {
+            let saved = self.save_statement_list_value(function);
             self.compile_for_init(init, function)?;
+            self.restore_statement_list_value(saved, function)?;
         }
         if let Some(environment) = lexical_environment {
             self.emit_replace_lexical_environment(environment, function)?;
@@ -7580,7 +7519,7 @@ impl<'a> FunctionBuilder<'a> {
         false_target: ControlTarget,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.compile_truthy_i32(test, function)?;
+        self.compile_iteration_condition(test, function)?;
         self.emit_propagate_throw_from_locals_if_needed(
             self.result_local,
             self.result_tag_local,
@@ -7596,13 +7535,10 @@ impl<'a> FunctionBuilder<'a> {
         update: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let saved = self.save_statement_list_value(function);
         self.compile_expr_payload(update, function)?;
         function.instruction(&Instruction::Drop);
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )
+        self.restore_statement_list_value(saved, function)
     }
 
     fn compile_async_disposable_for(
@@ -7653,6 +7589,8 @@ impl<'a> FunctionBuilder<'a> {
         self.open_frame(ControlFrameKind::If, function);
 
         let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
+            initialization: lila_ir::LexicalEnvironmentInitializationIr::Uninitialized,
+            eval_environment: environment.eval_environment.clone(),
             bindings: environment.bindings.clone(),
         });
         if let Some(environment) = &runtime_environment {
@@ -7804,6 +7742,8 @@ impl<'a> FunctionBuilder<'a> {
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
         self.breakable_stack.push(break_frame);
         let runtime_environment = lexical_environment.map(|environment| LexicalEnvironmentIr {
+            initialization: lila_ir::LexicalEnvironmentInitializationIr::Uninitialized,
+            eval_environment: environment.eval_environment.clone(),
             bindings: environment.bindings.clone(),
         });
         if let Some(environment) = &runtime_environment {
@@ -7956,6 +7896,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
+        self.emit_statement_result(function, ValueKind::Undefined);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(active_local));
         let break_frame = self.open_frame(ControlFrameKind::Block, function);
@@ -11982,6 +11923,23 @@ impl<'a> FunctionBuilder<'a> {
                 Ok(PreparedDestructuringTarget::Binding { mode: *mode, name })
             }
             DestructuringTargetIr::AssignmentIdentifier(reference) => {
+                if let IdentifierWriteDisposition::Environment {
+                    referenced_name,
+                    strictness,
+                } = reference.write_disposition()
+                {
+                    let key = self.reserve_temp_local();
+                    function.instruction(&Instruction::I64Const(
+                        self.strings.payload(referenced_name),
+                    ));
+                    function.instruction(&Instruction::LocalSet(key));
+                    let reference =
+                        self.emit_resolve_environment_identifier(key, strictness, function)?;
+                    return Ok(PreparedDestructuringTarget::EnvironmentIdentifier {
+                        key,
+                        reference,
+                    });
+                }
                 Ok(PreparedDestructuringTarget::AssignmentIdentifier(reference))
             }
             DestructuringTargetIr::AssignmentProperty {
@@ -12070,8 +12028,21 @@ impl<'a> FunctionBuilder<'a> {
                 self.write_binding_from_locals(storage, value_payload, value_tag, function);
                 self.mirror_binding_to_global_object(name, storage, function)?;
             }
+            PreparedDestructuringTarget::EnvironmentIdentifier { key, reference } => {
+                self.emit_environment_identifier_put(
+                    &reference,
+                    value_payload,
+                    value_tag,
+                    function,
+                )?;
+                self.release_environment_identifier_reference(reference);
+                self.release_temp_local(key);
+            }
             PreparedDestructuringTarget::AssignmentIdentifier(reference) => {
                 match reference.write_disposition() {
+                    IdentifierWriteDisposition::Environment { .. } => {
+                        unreachable!("environment reference prepared before value")
+                    }
                     IdentifierWriteDisposition::MutableBinding { storage_name } => {
                         let storage = self.lookup_binding(storage_name).ok_or_else(|| {
                             EmitError::unsupported(format!(

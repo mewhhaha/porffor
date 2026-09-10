@@ -5187,6 +5187,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(arg_tag_local));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 function.instruction(&Instruction::Else);
+                self.emit_prepared_script_dispatch(
+                    PreparedScriptKind::IndirectEval,
+                    arg_payload_local,
+                    function,
+                )?;
                 self.emit_reject_dynamic_source(
                     lila_ir::DynamicSourceRuntimeOperation::Eval,
                     function,
@@ -11905,6 +11910,8 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 let callback_payload_local = self.reserve_temp_local();
                 let callback_tag_local = self.reserve_temp_local();
+                let callback_this_payload_local = self.reserve_temp_local();
+                let callback_this_tag_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let next_payload_local = self.reserve_temp_local();
                 let next_tag_local = self.reserve_temp_local();
@@ -12120,10 +12127,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(index_number_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                 function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(callback_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callback_this_tag_local));
                 self.emit_function_handle_call_without_throw_propagation(
                     callback_payload_local,
                     callback_tag_local,
-                    None,
+                    Some((callback_this_payload_local, Some(callback_this_tag_local))),
                     &[
                         (value_payload_local, value_tag_local),
                         (index_number_payload_local, index_number_tag_local),
@@ -12194,6 +12205,8 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(next_tag_local);
                 self.release_temp_local(next_payload_local);
                 self.release_temp_local(key_local);
+                self.release_temp_local(callback_this_tag_local);
+                self.release_temp_local(callback_this_payload_local);
                 self.release_temp_local(callback_tag_local);
                 self.release_temp_local(callback_payload_local);
             }
@@ -12210,6 +12223,8 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 let callback_payload_local = self.reserve_temp_local();
                 let callback_tag_local = self.reserve_temp_local();
+                let callback_this_payload_local = self.reserve_temp_local();
+                let callback_this_tag_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let next_payload_local = self.reserve_temp_local();
                 let next_tag_local = self.reserve_temp_local();
@@ -12415,10 +12430,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(index_number_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                 function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(callback_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callback_this_tag_local));
                 self.emit_function_handle_call_without_throw_propagation(
                     callback_payload_local,
                     callback_tag_local,
-                    None,
+                    Some((callback_this_payload_local, Some(callback_this_tag_local))),
                     &[
                         (value_payload_local, value_tag_local),
                         (index_number_payload_local, index_number_tag_local),
@@ -12514,6 +12533,8 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(next_tag_local);
                 self.release_temp_local(next_payload_local);
                 self.release_temp_local(key_local);
+                self.release_temp_local(callback_this_tag_local);
+                self.release_temp_local(callback_this_payload_local);
                 self.release_temp_local(callback_tag_local);
                 self.release_temp_local(callback_payload_local);
             }
@@ -12530,6 +12551,8 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 let callback_payload_local = self.reserve_temp_local();
                 let callback_tag_local = self.reserve_temp_local();
+                let callback_this_payload_local = self.reserve_temp_local();
+                let callback_this_tag_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let next_payload_local = self.reserve_temp_local();
                 let next_tag_local = self.reserve_temp_local();
@@ -12735,10 +12758,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(index_number_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                 function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(callback_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callback_this_tag_local));
                 self.emit_function_handle_call_without_throw_propagation(
                     callback_payload_local,
                     callback_tag_local,
-                    None,
+                    Some((callback_this_payload_local, Some(callback_this_tag_local))),
                     &[
                         (value_payload_local, value_tag_local),
                         (index_number_payload_local, index_number_tag_local),
@@ -12833,6 +12860,8 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(next_tag_local);
                 self.release_temp_local(next_payload_local);
                 self.release_temp_local(key_local);
+                self.release_temp_local(callback_this_tag_local);
+                self.release_temp_local(callback_this_payload_local);
                 self.release_temp_local(callback_tag_local);
                 self.release_temp_local(callback_payload_local);
             }
@@ -12849,6 +12878,8 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 let callback_payload_local = self.reserve_temp_local();
                 let callback_tag_local = self.reserve_temp_local();
+                let callback_this_payload_local = self.reserve_temp_local();
+                let callback_this_tag_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let next_payload_local = self.reserve_temp_local();
                 let next_tag_local = self.reserve_temp_local();
@@ -13054,10 +13085,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(index_number_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                 function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(callback_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callback_this_tag_local));
                 self.emit_function_handle_call_without_throw_propagation(
                     callback_payload_local,
                     callback_tag_local,
-                    None,
+                    Some((callback_this_payload_local, Some(callback_this_tag_local))),
                     &[
                         (value_payload_local, value_tag_local),
                         (index_number_payload_local, index_number_tag_local),
@@ -13152,6 +13187,8 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(next_tag_local);
                 self.release_temp_local(next_payload_local);
                 self.release_temp_local(key_local);
+                self.release_temp_local(callback_this_tag_local);
+                self.release_temp_local(callback_this_payload_local);
                 self.release_temp_local(callback_tag_local);
                 self.release_temp_local(callback_payload_local);
             }
@@ -13168,6 +13205,8 @@ impl<'a> FunctionBuilder<'a> {
                 })?;
                 let reducer_payload_local = self.reserve_temp_local();
                 let reducer_tag_local = self.reserve_temp_local();
+                let callback_this_payload_local = self.reserve_temp_local();
+                let callback_this_tag_local = self.reserve_temp_local();
                 let key_local = self.reserve_temp_local();
                 let next_payload_local = self.reserve_temp_local();
                 let next_tag_local = self.reserve_temp_local();
@@ -13465,10 +13504,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(index_number_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                 function.instruction(&Instruction::LocalSet(index_number_tag_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(callback_this_payload_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::LocalSet(callback_this_tag_local));
                 self.emit_function_handle_call_without_throw_propagation(
                     reducer_payload_local,
                     reducer_tag_local,
-                    None,
+                    Some((callback_this_payload_local, Some(callback_this_tag_local))),
                     &[
                         (accumulator_payload_local, accumulator_tag_local),
                         (value_payload_local, value_tag_local),
@@ -13547,6 +13590,8 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(next_tag_local);
                 self.release_temp_local(next_payload_local);
                 self.release_temp_local(key_local);
+                self.release_temp_local(callback_this_tag_local);
+                self.release_temp_local(callback_this_payload_local);
                 self.release_temp_local(reducer_tag_local);
                 self.release_temp_local(reducer_payload_local);
             }

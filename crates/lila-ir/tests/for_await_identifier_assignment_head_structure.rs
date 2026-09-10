@@ -41,7 +41,7 @@ fn bare_identifier_head_has_a_closed_assignment_target_domain() {
     );
     assert_eq!(
         code_without_whitespace(variants),
-        "Absent,AssignmentTarget{source_name:String},}"
+        "Absent,AssignmentTarget{source_name:String},BorrowedVar{source_name:String},}"
     );
     assert!(!variants.contains("bool"));
     assert!(!variants.contains("Option"));
@@ -49,7 +49,7 @@ fn bare_identifier_head_has_a_closed_assignment_target_domain() {
 }
 
 #[test]
-fn bare_identifier_uses_a_temporary_while_var_keeps_its_declared_name() {
+fn bare_identifier_and_borrowed_var_heads_use_private_temporaries() {
     let identifier_arm = bounded(
         FOR_OF_SOURCE,
         "IterableLoopInitializer::Identifier(identifier) => {",
@@ -76,6 +76,9 @@ fn bare_identifier_uses_a_temporary_while_var_keeps_its_declared_name() {
         "IterableLoopInitializer::Let(Binding::Identifier(identifier))",
     );
     assert!(var_arm.contains("BindingMode::Var"));
+    assert!(var_arm.contains("self.borrows_direct_eval_variable_environment()"));
+    assert!(var_arm.contains("ForOfBareIdentifierHead::BorrowedVar"));
+    assert!(var_arm.contains("self.alloc_temp_binding_name(\"forof.var\")"));
     assert!(!var_arm.contains("ForOfBareIdentifierHead::AssignmentTarget"));
     assert!(!var_arm.contains("forof.assignment"));
 }
@@ -84,7 +87,7 @@ fn bare_identifier_uses_a_temporary_while_var_keeps_its_declared_name() {
 fn bare_identifier_prefix_uses_the_checked_reference_write_path() {
     let prefix = bounded(
         FOR_OF_SOURCE,
-        "let mut pattern_prefix = if let ForOfBareIdentifierHead::AssignmentTarget",
+        "} else if let ForOfBareIdentifierHead::AssignmentTarget",
         "} else if let Some(access) = access_initializer.as_ref() {",
     );
     for required in [

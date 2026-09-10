@@ -7,9 +7,10 @@ from the Realm proven by `GetFunctionRealm`. The private
 `functions/required_resolved_realm_ordinary_prototype.rs` module owns the
 closed selector, its exhaustive realm-slot map, and the typed result lifecycle.
 
-`OrdinaryDefaultPrototype` is the only re-export. Its nine variants are
+`OrdinaryDefaultPrototype` is the only re-export. Its eleven variants are
 `Object`, `MessageError`, `String`, `Number`, `Boolean`, `Date`, `Iterator`,
-`RegExp` and `Promise`. `%Array.prototype%` is deliberately absent because its
+`RegExp`, `Promise`, `DisposableStack` and `AggregateError`.
+`%Array.prototype%` is deliberately absent because its
 Array-exotic representation uses a separate typed path.
 
 `ResolvedRealmOrdinaryPrototypeLocal` is visible to the parent only so retained
@@ -35,7 +36,19 @@ the Error-family fallback owner; one unit witness is the third source call.
 The recursive caller census is five loads, five installs and three complete
 new-target orchestration calls.
 
-## Source-equivalent evidence
+AggregateError stores its canonical prototype in the realm intrinsic record
+when the entry or created realm allocates it. A primitive `newTarget.prototype`
+selects that slot after `GetFunctionRealm`, including bound functions and nested
+Proxies. Function-constructor objects may carry old bootstrap snapshots; those
+snapshots do not authorize AggregateError's fallback. Replacing the public
+`AggregateError` binding also leaves this intrinsic identity intact.
+
+The native regression target is `aot_aggregate_error_constructor_realm`.
+
+## Original extraction evidence
+
+The following hashes and measurements describe the original nine-variant
+ownership extraction, before the DisposableStack and AggregateError additions.
 
 The exact 43-line domain/witness block retains pre-extraction SHA-256
 `b37af658ad2dae3817a94c070da0305488686510057e9b60d586e2d726cbf9a4`.

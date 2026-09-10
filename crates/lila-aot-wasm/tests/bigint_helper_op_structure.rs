@@ -435,9 +435,9 @@ fn bigint_helper_op_has_one_private_capability_free_owner() {
         "the owner, reexports, four typed carriers, nine producer routes and wire-code sites own every code identifier"
     );
     for (route, expected) in [
-        ("BigIntHelperOp::from_arithmetic", 3),
+        ("BigIntHelperOp::from_arithmetic", 2),
         ("BigIntHelperOp::from_bitwise", 1),
-        ("BigIntHelperOp::Add", 3),
+        ("BigIntHelperOp::Add", 4),
         ("BigIntHelperOp::Sub", 1),
         ("BigIntHelperOp::Mul", 1),
         ("BigIntHelperOp::Div", 1),
@@ -490,6 +490,23 @@ fn bigint_helper_op_owns_all_three_exhaustive_tables() {
 
 #[test]
 fn bigint_helper_op_has_exactly_nine_semantic_producers() {
+    let coercive_add = bounded(
+        OPERATIONS_SOURCE,
+        "    pub(crate) fn compile_coercive_add_to_locals(",
+        "    pub(crate) fn compile_expr_to_object_locals(",
+    );
+    assert_exact_call(
+        coercive_add,
+        concat!(
+            "self.emit_bigint_binary_op_to_locals(BigIntHelperOp::Add,",
+            "lhs_payload,lhs_tag,rhs_payload,rhs_tag,payload_local,tag_local,function,)?;"
+        ),
+        "coercive addition must preserve operand tags and exact BigInt promotion",
+    );
+    assert!(!normalize_rust(coercive_add)
+        .routes
+        .contains("Instruction::I64Add"));
+
     let complement = bounded(
         BIGINT_SOURCE,
         "    pub(crate) fn emit_bigint_complement_to_locals(",
@@ -570,11 +587,10 @@ fn bigint_helper_op_has_exactly_nine_semantic_producers() {
     assert_exact_call(
         coercive_binary_number,
         concat!(
-            "self.emit_bigint_binary_op_to_locals(",
-            "BigIntHelperOp::from_arithmetic(*op),lhs_payload,lhs_tag,rhs_payload,rhs_tag,",
+            "self.compile_coercive_binary_number_to_locals(*op,lhs,rhs,",
             "self.scratch_local,self.result_tag_local,function,)?;"
         ),
-        "coercive BigInt arithmetic must preserve lhs then rhs",
+        "coercive arithmetic must preserve both operands through the tagged owner",
     );
 
     let bitwise = bounded(

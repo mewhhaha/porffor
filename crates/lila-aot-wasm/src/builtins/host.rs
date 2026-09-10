@@ -17,12 +17,15 @@ use lila_ir::{
 use lila_runtime::AgentHostOperation;
 
 mod created_realm_async_disposable_stack_intrinsics;
+mod created_realm_disposable_stack_intrinsics;
 mod created_realm_dynamic_function_intrinsics;
 mod created_realm_finalization_registry_intrinsics;
 mod created_realm_iterator_next;
 mod created_realm_weak_collection_intrinsics;
 mod created_realm_weak_ref_intrinsics;
+mod detach_array_buffer;
 mod html_dda;
+mod realm_eval_script;
 
 use created_realm_iterator_next::{
     CreatedRealmIteratorNextPublicationContext, CreatedRealmIteratorNextTarget,
@@ -4319,6 +4322,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(uri_error_prototype_local));
         self.emit_alloc_plain_object_with_prototype(Some(error_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(aggregate_error_prototype_local));
+        self.emit_store_non_array_realm_intrinsic(
+            realm_record_local,
+            NonArrayRealmIntrinsicSlot::AggregateErrorPrototype,
+            aggregate_error_prototype_local,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(Some(error_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(type_error_prototype_local));
         for (kind, prototype_local) in [
@@ -4472,6 +4481,18 @@ impl<'a> FunctionBuilder<'a> {
                 true,
                 function,
             )?;
+            if *name == "values" {
+                self.emit_define_realm_array_prototype_data_with_flags(
+                    &array_prototype,
+                    "Symbol.iterator",
+                    method_payload_local,
+                    tag_local,
+                    true,
+                    false,
+                    true,
+                    function,
+                )?;
+            }
             self.release_temp_local(method_payload_local);
         }
         let array_typed_array_to_string_payload_local = self.reserve_temp_local();
@@ -7509,6 +7530,16 @@ impl<'a> FunctionBuilder<'a> {
                 suppressed_error_prototype_local,
                 function,
             )?;
+        let created_realm_disposable_stack = self
+            .emit_materialize_created_realm_disposable_stack_intrinsics(
+                realm_record,
+                &realm_functions,
+                object_prototype_local,
+                type_error_prototype_local,
+                reference_error_prototype_local,
+                suppressed_error_prototype_local,
+                function,
+            )?;
         let created_realm_finalization_registry = self
             .emit_materialize_created_realm_finalization_registry_intrinsics(
                 realm_record,
@@ -8080,6 +8111,11 @@ impl<'a> FunctionBuilder<'a> {
             global_local,
             function,
         )?;
+        self.emit_publish_created_realm_disposable_stack_intrinsics(
+            created_realm_disposable_stack,
+            global_local,
+            function,
+        )?;
         self.emit_publish_created_realm_async_disposable_stack_intrinsics(
             created_realm_async_disposable_stack,
             global_local,
@@ -8151,6 +8187,13 @@ impl<'a> FunctionBuilder<'a> {
                 uri_error_prototype_local,
                 function,
             );
+            if meta.standard_builtin == Some(StandardBuiltinId::EvalFunction) {
+                self.emit_initialize_realm_eval_intrinsic(
+                    realm_record_local,
+                    function_payload_local,
+                    function,
+                );
+            }
             self.emit_object_define_local_data(
                 global_local,
                 name,
@@ -8347,55 +8390,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(realm_eval_script_local);
         self.release_temp_local(realm_record_local);
         self.release_temp_local(realm_local);
-        Ok(())
-    }
-
-    /// Runtime identity supplies the capability boundary when property lookup
-    /// erased the call site's static realm-evaluation provenance.
-    pub(crate) fn compile_host_realm_eval_script_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_reject_dynamic_source(
-            lila_ir::DynamicSourceRuntimeOperation::RealmEvalScript,
-            function,
-        );
-        Ok(())
-    }
-
-    pub(crate) fn compile_host_detach_array_buffer_builtin(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let buffer_payload_local = self.reserve_temp_local();
-        let buffer_tag_local = self.reserve_temp_local();
-        let detach_key_payload_local = self.reserve_temp_local();
-        let detach_key_tag_local = self.reserve_temp_local();
-
-        self.emit_builtin_arg_to_locals(0, buffer_payload_local, buffer_tag_local, function);
-        self.emit_builtin_arg_to_locals(
-            1,
-            detach_key_payload_local,
-            detach_key_tag_local,
-            function,
-        );
-        self.emit_detach_array_buffer(
-            buffer_payload_local,
-            buffer_tag_local,
-            detach_key_payload_local,
-            detach_key_tag_local,
-            function,
-        )?;
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        self.release_temp_local(detach_key_tag_local);
-        self.release_temp_local(detach_key_payload_local);
-        self.release_temp_local(buffer_tag_local);
-        self.release_temp_local(buffer_payload_local);
         Ok(())
     }
 

@@ -10,6 +10,12 @@ impl<'a> ScriptLowerer<'a> {
         if let AssignTarget::WebCompatCall(call) = lhs {
             return self.lower_web_compat_call_assignment_target(call);
         }
+        if self.uses_runtime_identifier_environment() {
+            if let AssignTarget::Identifier(identifier) = lhs {
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                return self.lower_environment_identifier_assignment(name, op, rhs);
+            }
+        }
         match op {
             AssignOp::Assign => match lhs {
                 AssignTarget::Identifier(identifier) => {
@@ -140,8 +146,9 @@ impl<'a> ScriptLowerer<'a> {
                         reference,
                     );
                 }
-                if matches!(&reference, LocatedIdentifierReference::Unresolvable)
-                    && !self.global_property_is_proven_present(&name)
+                if self.is_unshadowed_script_global_binding(&name)
+                    || (matches!(&reference, LocatedIdentifierReference::Unresolvable)
+                        && !self.global_property_is_proven_present(&name))
                 {
                     let value = self.lower_expression(rhs);
                     return self.lower_global_object_environment_eager_compound_assignment(
@@ -618,8 +625,9 @@ impl<'a> ScriptLowerer<'a> {
                         reference,
                     );
                 }
-                if matches!(&reference, LocatedIdentifierReference::Unresolvable)
-                    && !self.global_property_is_proven_present(&name)
+                if self.is_unshadowed_script_global_binding(&name)
+                    || (matches!(&reference, LocatedIdentifierReference::Unresolvable)
+                        && !self.global_property_is_proven_present(&name))
                 {
                     let value = self.lower_expression(rhs);
                     return self.lower_global_object_environment_eager_compound_assignment(

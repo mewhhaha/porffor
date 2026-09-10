@@ -277,7 +277,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 312;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 456;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -709,6 +709,9 @@ pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET: u64 = 400;
 pub(crate) const HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET: u64 = 408;
 pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET: u64 = 416;
 pub(crate) const HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET: u64 = 424;
+pub(crate) const HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET: u64 = 432;
+pub(crate) const HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET: u64 = 440;
+pub(crate) const HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET: u64 = 448;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -1413,7 +1416,12 @@ impl AsyncFunctionResumeCompletion {
     }
 }
 pub(crate) const ENV_PARENT_OFFSET: u64 = 0;
-pub(crate) const ENV_SLOT_BASE_OFFSET: u64 = 8;
+pub(crate) const ENV_FUNCTION_BODY_OFFSET: u64 = 8;
+pub(crate) const ENV_NAMED_ENTRIES_OFFSET: u64 = 16;
+pub(crate) const ENV_NAMED_COUNT_OFFSET: u64 = 24;
+pub(crate) const ENV_WITH_OBJECT_OFFSET: u64 = 32;
+pub(crate) const ENV_RECORD_KIND_OFFSET: u64 = 40;
+pub(crate) const ENV_SLOT_BASE_OFFSET: u64 = 48;
 pub(crate) const ENV_SLOT_SIZE: u64 = 16;
 pub(crate) const ENV_SLOT_TAG_OFFSET: u64 = 0;
 pub(crate) const ENV_SLOT_PAYLOAD_OFFSET: u64 = 8;
@@ -3537,6 +3545,27 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%DisposableStack.prototype%",
+        offset: HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%eval%",
+        offset: HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%AggregateError.prototype%",
+        offset: HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -5550,7 +5579,9 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 432);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 456);
+        assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
+        assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);
         assert_eq!(
             HEAP_REALM_INTRINSICS_FINALIZATION_REGISTRY_PROTOTYPE_OFFSET,
@@ -8490,7 +8521,7 @@ mod tests {
             .iter()
             .map(EnvironmentHeapSlot::layout)
             .collect::<Vec<_>>();
-        assert_eq!(layouts.len(), 3);
+        assert_eq!(layouts.len(), 8);
 
         let parent = &layouts[0];
         assert_eq!(parent.record, "environment");
@@ -8499,14 +8530,26 @@ mod tests {
         assert_eq!(parent.width, 8);
         assert!(parent.pointer);
 
-        let binding_tag = &layouts[1];
+        for (index, offset, pointer) in [
+            (1, ENV_FUNCTION_BODY_OFFSET, true),
+            (2, ENV_NAMED_ENTRIES_OFFSET, true),
+            (3, ENV_NAMED_COUNT_OFFSET, false),
+            (4, ENV_WITH_OBJECT_OFFSET, true),
+            (5, ENV_RECORD_KIND_OFFSET, false),
+        ] {
+            assert_eq!(layouts[index].record, "environment");
+            assert_eq!(layouts[index].offset, offset);
+            assert_eq!(layouts[index].pointer, pointer);
+        }
+
+        let binding_tag = &layouts[6];
         assert_eq!(binding_tag.record, "environment-slot");
         assert_eq!(binding_tag.name, "tag");
         assert_eq!(binding_tag.offset, ENV_SLOT_TAG_OFFSET);
         assert_eq!(binding_tag.width, 8);
         assert!(!binding_tag.pointer);
 
-        let binding_payload = &layouts[2];
+        let binding_payload = &layouts[7];
         assert_eq!(binding_payload.record, "environment-slot");
         assert_eq!(binding_payload.name, "payload");
         assert_eq!(binding_payload.offset, ENV_SLOT_PAYLOAD_OFFSET);

@@ -93,6 +93,7 @@ enum IrDiagnosticPayload {
     Rejected(EarlyErrorCode),
     Unsupported,
     UnsupportedFeature(UnsupportedFeature),
+    UnsupportedParserFeature,
     Lowering,
 }
 
@@ -144,6 +145,25 @@ impl IrDiagnostic {
         }
     }
 
+    pub(crate) fn unsupported_parser_feature(message: impl Into<String>) -> Self {
+        Self {
+            payload: IrDiagnosticPayload::UnsupportedParserFeature,
+            span: None,
+            message: message.into(),
+        }
+    }
+
+    /// Optional source candidates may omit unsupported executable syntax, but
+    /// an internal parser failure must survive every enclosing candidate.
+    pub(crate) const fn can_omit_for_runtime_source_candidate(&self) -> bool {
+        match &self.payload {
+            IrDiagnosticPayload::Unsupported | IrDiagnosticPayload::UnsupportedFeature(_) => true,
+            IrDiagnosticPayload::Rejected(_)
+            | IrDiagnosticPayload::UnsupportedParserFeature
+            | IrDiagnosticPayload::Lowering => false,
+        }
+    }
+
     /// Records dynamic-source debt without requiring consumers to parse the
     /// human-readable diagnostic text.
     pub fn unsupported_dynamic_source(gap: DynamicSourceGap) -> Self {
@@ -173,9 +193,9 @@ impl IrDiagnostic {
     pub const fn kind(&self) -> IrDiagnosticKind {
         match &self.payload {
             IrDiagnosticPayload::Rejected(code) => rejection_kind(*code),
-            IrDiagnosticPayload::Unsupported | IrDiagnosticPayload::UnsupportedFeature(_) => {
-                IrDiagnosticKind::Unsupported
-            }
+            IrDiagnosticPayload::Unsupported
+            | IrDiagnosticPayload::UnsupportedFeature(_)
+            | IrDiagnosticPayload::UnsupportedParserFeature => IrDiagnosticKind::Unsupported,
             IrDiagnosticPayload::Lowering => IrDiagnosticKind::Lowering,
         }
     }
@@ -191,6 +211,7 @@ impl IrDiagnostic {
             IrDiagnosticPayload::Rejected(code) => Some(*code),
             IrDiagnosticPayload::Unsupported
             | IrDiagnosticPayload::UnsupportedFeature(_)
+            | IrDiagnosticPayload::UnsupportedParserFeature
             | IrDiagnosticPayload::Lowering => None,
         }
     }
@@ -203,6 +224,7 @@ impl IrDiagnostic {
             IrDiagnosticPayload::UnsupportedFeature(feature) => Some(*feature),
             IrDiagnosticPayload::Rejected(_)
             | IrDiagnosticPayload::Unsupported
+            | IrDiagnosticPayload::UnsupportedParserFeature
             | IrDiagnosticPayload::Lowering => None,
         }
     }
@@ -215,5 +237,38 @@ impl IrDiagnostic {
     #[must_use]
     pub const fn error_type(&self) -> Option<NativeErrorKind> {
         self.kind().error_type()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parser_abort_keeps_its_non_spec_classification() {
+        let diagnostic = IrDiagnostic::unsupported_parser_feature("parser aborted: invariant");
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::Unsupported);
+        assert_eq!(diagnostic.error_type(), None);
+        assert_eq!(diagnostic.code(), None);
+        assert_eq!(diagnostic.unsupported_feature(), None);
+        assert_eq!(diagnostic.message, "parser aborted: invariant");
+    }
+
+    #[test]
+    fn nested_optional_candidates_preserve_internal_failures() {
+        let abort = IrDiagnostic::unsupported_parser_feature("parser aborted: invariant");
+        let failure = IrDiagnostic::lowering("invalid compiler binding");
+        let mut diagnostics = vec![
+            IrDiagnostic::unsupported("unsupported executable syntax"),
+            IrDiagnostic::unsupported_dynamic_source(DynamicSourceGap::runtime_source(
+                crate::DynamicSourceKind::IndirectEval,
+            )),
+            abort.clone(),
+            failure.clone(),
+        ];
+        for _ in 0..3 {
+            diagnostics.retain(|diagnostic| !diagnostic.can_omit_for_runtime_source_candidate());
+            assert_eq!(diagnostics, [abort.clone(), failure.clone()]);
+        }
     }
 }

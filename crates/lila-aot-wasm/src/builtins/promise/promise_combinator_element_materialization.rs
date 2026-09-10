@@ -14,19 +14,15 @@ impl<'a> FunctionBuilder<'a> {
         let aggregate_error_prototype_local = self.reserve_temp_local();
         let internal =
             self.emit_current_function_promise_internal_function_materialization_context(function);
-        let active_function_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::GlobalGet(PROMISE_CONSTRUCTOR_GLOBAL_INDEX));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(active_function_local));
+        let intrinsics_local = self.reserve_temp_local();
+        self.emit_load_promise_internal_function_realm_intrinsics(
+            &internal,
+            intrinsics_local,
+            function,
+        );
         self.load_i64_to_local_from_offset(
-            active_function_local,
-            HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+            intrinsics_local,
+            HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
             aggregate_error_prototype_local,
             function,
         );
@@ -35,7 +31,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Unreachable);
         function.instruction(&Instruction::End);
-        self.release_temp_local(active_function_local);
+        self.release_temp_local(intrinsics_local);
 
         PromiseCombinatorElementFunctionMaterializationContext {
             internal,

@@ -58,6 +58,9 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.function_signature_shape_evidence = self.function_signature_shape_evidence;
         lowerer.static_boolean_bindings = self.static_boolean_bindings.clone();
         lowerer.static_string_bindings = self.static_string_bindings.clone();
+        lowerer.function_source_binding_candidates =
+            self.function_source_binding_candidates.clone();
+        lowerer.array_callback_source_candidates = self.array_callback_source_candidates.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         lowerer.var_bindings = self.var_bindings.clone();
@@ -133,7 +136,12 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         }
-        lowerer.current_this_binding = if function.protocol.flavor() == FunctionFlavor::Arrow {
+        let captures_direct_eval_context = function
+            .captures
+            .contains_key(DIRECT_EVAL_EXECUTION_CONTEXT_NAME);
+        lowerer.current_this_binding = if captures_direct_eval_context {
+            CurrentThisBinding::Activation(unknown_runtime_value_info())
+        } else if function.protocol.flavor() == FunctionFlavor::Arrow {
             if let Some(capture) = function.captures.get(LEXICAL_THIS_NAME) {
                 if capture.owner_id == SCRIPT_OWNER_ID {
                     CurrentThisBinding::Root(lowerer.root_this_binding)
@@ -179,7 +187,9 @@ impl<'a> ScriptLowerer<'a> {
             .protocol
             .is_constructable()
             .then(Self::fresh_constructed_instance_info);
-        lowerer.current_new_target_info = if function.protocol.flavor() == FunctionFlavor::Arrow {
+        lowerer.current_new_target_info = if captures_direct_eval_context {
+            unknown_runtime_value_info()
+        } else if function.protocol.flavor() == FunctionFlavor::Arrow {
             function
                 .captures
                 .get(LEXICAL_NEW_TARGET_NAME)
@@ -208,7 +218,15 @@ impl<'a> ScriptLowerer<'a> {
                     new_target_binding: DERIVED_ACTIVATION_NEW_TARGET_NAME.to_string(),
                     active_function_binding: DERIVED_ACTIVATION_FUNCTION_NAME.to_string(),
                 });
-        if lexical_derived_activation.is_some() {
+        if captures_direct_eval_context {
+            lowerer.class_context = Some(ClassLoweringContext {
+                is_derived_constructor: matches!(
+                    lowerer.direct_eval_invocation(),
+                    Some(lila_front::EvalInvocationContext::DerivedConstructor)
+                ),
+                ..ClassLoweringContext::default()
+            });
+        } else if lexical_derived_activation.is_some() {
             lowerer.class_context = Some(ClassLoweringContext {
                 is_derived_constructor: true,
                 ..ClassLoweringContext::default()
@@ -221,7 +239,7 @@ impl<'a> ScriptLowerer<'a> {
         let Some(parameters) =
             lowerer.lower_function_parameters(function.parameters, function.name.as_str())
         else {
-            self.diagnostics.extend(lowerer.diagnostics.clone());
+            self.merge_child_compilation_records(&mut lowerer);
             self.function_signatures = lowerer.function_signatures;
             self.exact_context_function_observations = lowerer.exact_context_function_observations;
             self.exact_context_callback_observations = lowerer.exact_context_callback_observations;
@@ -232,6 +250,7 @@ impl<'a> ScriptLowerer<'a> {
             self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
             self.completed_direct_call_propagations = lowerer.completed_direct_call_propagations;
             return FunctionIr {
+                eval_environment: self.analysis.owner_eval_environment(&function.id),
                 id: output_id.clone(),
                 name: function.name.clone(),
                 to_string_representation: function.to_string_representation.clone(),
@@ -294,7 +313,11 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         for (name, capture) in &function.captures {
-            if lowerer.is_script_global_var_capture(name, capture) {
+            if lowerer.is_script_global_object_capture(
+                name,
+                &capture.source_name,
+                &capture.owner_id,
+            ) {
                 continue;
             }
             let source_name = capture.source_name.as_str();
@@ -522,6 +545,8 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
+        lowerer.install_array_callback_source_candidates(&function.id, function.parameters);
+        let body_environment = lowerer.begin_function_body_environment();
         lowerer.hoist_root_statement_items(function.body.statements());
 
         // 10.2.11 step 30: a function body is a statement-list scope too, and
@@ -552,9 +577,11 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         let mut body_statements = parameter_prefix_statements;
-        body_statements.extend(lowered_body.statements);
+        let result_kind = lowered_body.result_kind;
+        body_statements
+            .extend(lowerer.finish_function_body_environment(lowered_body, body_environment));
         let body = BlockIr {
-            result_kind: lowered_body.result_kind,
+            result_kind,
             statements: body_statements,
             lexical_environment: None,
         };
@@ -628,7 +655,7 @@ impl<'a> ScriptLowerer<'a> {
 
         self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
         self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
-        self.diagnostics.extend(lowerer.diagnostics.clone());
+        self.merge_child_compilation_records(&mut lowerer);
         self.function_signatures = lowerer.function_signatures;
         self.exact_context_function_observations = lowerer.exact_context_function_observations;
         self.exact_context_callback_observations = lowerer.exact_context_callback_observations;
@@ -644,11 +671,11 @@ impl<'a> ScriptLowerer<'a> {
         self.used_host_builtins.extend(lowerer.used_host_builtins);
         self.host_builtin_calls += lowerer.host_builtin_calls;
         self.top_level_this_uses += lowerer.top_level_this_uses;
-        self.generated_functions.extend(lowerer.generated_functions);
 
         let body_uses_super = summarize_block(&body).super_uses > 0;
 
         FunctionIr {
+            eval_environment: self.analysis.owner_eval_environment(&function.id),
             id: output_id,
             name: function.name.clone(),
             to_string_representation: function.to_string_representation.clone(),
@@ -708,7 +735,13 @@ impl<'a> ScriptLowerer<'a> {
             captured_bindings: function
                 .captures
                 .iter()
-                .filter(|(name, capture)| !self.is_script_global_var_capture(name, capture))
+                .filter(|(name, capture)| {
+                    !self.is_script_global_object_capture(
+                        name,
+                        &capture.source_name,
+                        &capture.owner_id,
+                    )
+                })
                 .map(|(name, capture)| CapturedBindingIr {
                     name: name.clone(),
                     source_name: capture.source_name.clone(),

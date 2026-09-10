@@ -43,7 +43,8 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            StatementIr::Expression(expr)
+            StatementIr::DeclarationEvaluation(expr)
+            | StatementIr::Expression(expr)
             | StatementIr::Return(expr)
             | StatementIr::Throw(expr) => {
                 let mut info = self.infer_expr_throw_info(expr);
@@ -494,6 +495,7 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 }
             }
+            ExprIr::EnvironmentIdentifier(_) => Some(unknown_runtime_value_info()),
             ExprIr::GlobalIdentifierRead { .. } => Some(Self::standard_error_instance_info(
                 StandardBuiltinId::ReferenceErrorConstructor,
             )),
