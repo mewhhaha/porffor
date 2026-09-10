@@ -79,6 +79,10 @@ impl<'a> ScriptLowerer<'a> {
             ],
             result_kind: lowered.1,
             lexical_environment: (!owned_env_slots.is_empty()).then(|| LexicalEnvironmentIr {
+                initialization: crate::LexicalEnvironmentInitializationIr::Uninitialized,
+                eval_environment: self.analysis.environment_plans[&environment_id]
+                    .eval_environment
+                    .clone(),
                 bindings: owned_env_slots
                     .iter()
                     .map(|(name, slot)| OwnedEnvBindingIr {

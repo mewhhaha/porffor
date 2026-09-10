@@ -7,6 +7,7 @@ const KIND_ONLY_RESET: &str = "self.set_completion_kind(CompletionKind::Normal, 
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum TryClause {
+    Try,
     Catch,
     Finally,
 }
@@ -18,7 +19,25 @@ struct TryClauseEntry {
     end_anchor: &'static str,
 }
 
-const TRY_CLAUSE_ENTRIES: [TryClauseEntry; 12] = [
+const TRY_CLAUSE_ENTRIES: [TryClauseEntry; 15] = [
+    TryClauseEntry {
+        function_name: "compile_try_catch",
+        clause: TryClause::Try,
+        start_anchor: ") -> Result<(), EmitError> {",
+        end_anchor: "let _outer_frame",
+    },
+    TryClauseEntry {
+        function_name: "compile_try_finally",
+        clause: TryClause::Try,
+        start_anchor: ") -> Result<(), EmitError> {",
+        end_anchor: "let _outer_frame",
+    },
+    TryClauseEntry {
+        function_name: "compile_try_catch_finally",
+        clause: TryClause::Try,
+        start_anchor: ") -> Result<(), EmitError> {",
+        end_anchor: "let _outer_frame",
+    },
     TryClauseEntry {
         function_name: "compile_try_catch",
         clause: TryClause::Catch,
@@ -142,7 +161,14 @@ fn entry_source(entry: &TryClauseEntry) -> &str {
 }
 
 #[test]
-fn try_clause_entry_inventory_is_exactly_six_catch_and_six_finally_paths() {
+fn try_clause_entry_inventory_covers_three_try_six_catch_and_six_finally_paths() {
+    assert_eq!(
+        TRY_CLAUSE_ENTRIES
+            .iter()
+            .filter(|entry| entry.clause == TryClause::Try)
+            .count(),
+        3
+    );
     assert_eq!(
         TRY_CLAUSE_ENTRIES
             .iter()
@@ -165,15 +191,15 @@ fn try_clause_entry_inventory_is_exactly_six_catch_and_six_finally_paths() {
     assert_eq!(identities.len(), TRY_CLAUSE_ENTRIES.len());
 
     for (function_name, expected_entries) in [
-        ("compile_try_catch", 1),
+        ("compile_try_catch", 2),
         ("compile_generator_try_catch", 1),
         ("compile_generator_try_finally", 1),
         ("compile_generator_try_catch_finally", 2),
         ("compile_async_try_catch", 1),
         ("compile_async_try_finally", 1),
         ("compile_async_try_catch_finally", 2),
-        ("compile_try_finally", 1),
-        ("compile_try_catch_finally", 2),
+        ("compile_try_finally", 2),
+        ("compile_try_catch_finally", 3),
     ] {
         assert_eq!(
             function_source(function_name)

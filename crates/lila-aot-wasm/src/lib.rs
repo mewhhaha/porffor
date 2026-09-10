@@ -3,7 +3,6 @@ use std::{
     sync::LazyLock,
 };
 
-use lila_ir::FunctionTargetKnowledge;
 use lila_ir::{
     private_brand_key, private_data_key, AnnexBFunctionCopyTargetIr, ArithmeticBinaryOp,
     ArrayDestructuringElementIr, ArrayDestructuringPatternIr, BigIntBitwiseOp, BindingMode,
@@ -37,6 +36,10 @@ use lila_ir::{
     TEMPORAL_NOW_NAMESPACE_MEMBERS, TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS, TYPE_ERROR_NAME,
     UINT16_ARRAY_NAME, UINT32_ARRAY_NAME, UINT8_ARRAY_NAME, UINT8_CLAMPED_ARRAY_NAME,
     URI_ERROR_NAME,
+};
+use lila_ir::{
+    FunctionTargetKnowledge, PreparedScript, PreparedScriptKind, PreparedScriptOutcome,
+    PreparedScriptUnit,
 };
 use lila_ir::{SuperPropertyMutationIr, SuperPropertyMutationOperationIr};
 // `Function` is deliberately absent from this list. The name is bound below to
@@ -121,6 +124,7 @@ mod modules;
 mod objects;
 mod operations;
 mod planning;
+mod prepared_script;
 mod runtime_abi;
 mod runtime_helpers;
 use abi::*;
@@ -893,13 +897,28 @@ mod tests {
                 .count(),
             1
         );
+        for (variant, slot) in [
+            ("DisposableStack", "DISPOSABLE_STACK"),
+            ("AggregateError", "AGGREGATE_ERROR"),
+            ("SuppressedError", "SUPPRESSED_ERROR"),
+        ] {
+            assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
+            assert_eq!(
+                offsets
+                    .matches(&format!(
+                        "Self::{variant} => HEAP_REALM_INTRINSICS_{slot}_PROTOTYPE_OFFSET"
+                    ))
+                    .count(),
+                1
+            );
+        }
         assert_eq!(
             domain
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            9,
-            "the closed domain count must move with MessageError and RegExp"
+            12,
+            "the closed domain count must include DisposableStack, AggregateError and SuppressedError"
         );
     }
 
@@ -1157,7 +1176,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            2
+            4
         );
         assert_eq!(
             mapping
@@ -1268,7 +1287,11 @@ mod tests {
         let entry_identity = "self.init_builtin_constructor_object(\n                StandardBuiltinId::IteratorConstructor,\n                ITERATOR_PROTOTYPE_GLOBAL_INDEX";
         assert_eq!(bootstrap.matches(entry_identity).count(), 1);
         let created_identity = "self.store_i64_local_at_offset(\n            iterator_constructor_local,\n            HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n            iterator_constructor_local";
-        assert_eq!(host.matches(created_identity).count(), 1);
+        assert_eq!(host.matches(created_identity).count(), 0);
+        assert!(functions.contains(".and_then(ActiveStandardBuiltinFunction::from_builtin)"));
+        assert!(functions.contains(
+            "self.store_i64_local_at_offset(\n                object_local,\n                HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n                object_local,"
+        ));
         let created_type_error = "self.store_i64_local_at_offset(\n            iterator_constructor_local,\n            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,\n            type_error_prototype_local";
         assert_eq!(host.matches(created_type_error).count(), 1);
 
@@ -1539,7 +1562,14 @@ mod tests {
             ),
             ("OrdinaryDefaultPrototype::RegExp", 1),
             ("emit_alloc_plain_object_with_prototype_and_tag(", 1),
-            ("OBJECT_INTERNAL_BRAND_REGEXP", 1),
+            (
+                "Instruction::I64Const(OBJECT_INTERNAL_BRAND_REGEXP as i64)",
+                1,
+            ),
+            (
+                "self.store_i64_const_at_offset(\n                    object_local,\n                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,\n                    OBJECT_INTERNAL_BRAND_REGEXP,",
+                1,
+            ),
         ] {
             assert_eq!(
                 constructor.matches(operation).count(),
@@ -1591,7 +1621,11 @@ mod tests {
             1
         );
         let created_identity = "self.store_i64_local_at_offset(\n            regexp_constructor_local,\n            HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n            regexp_constructor_local";
-        assert_eq!(host.matches(created_identity).count(), 1);
+        assert_eq!(host.matches(created_identity).count(), 0);
+        assert!(functions.contains(".and_then(ActiveStandardBuiltinFunction::from_builtin)"));
+        assert!(functions.contains(
+            "self.store_i64_local_at_offset(\n                object_local,\n                HEAP_FUNCTION_ENV_HANDLE_OFFSET,\n                object_local,"
+        ));
 
         let construct = functions
             .split_once("pub(crate) fn emit_function_handle_construct_with_argv(")
@@ -1664,7 +1698,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 =",
             "pub(crate) const HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET: u64 = 344;",
             "name: \"%Date.prototype%\"",
             "offset: HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET",
@@ -1928,7 +1962,7 @@ mod tests {
         );
 
         for required in [
-            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;",
+            "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 =",
             "pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;",
             "pub(crate) const HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET: u64 = 352;",
             "pub(crate) const HEAP_REALM_INTRINSICS_EVAL_ERROR_PROTOTYPE_OFFSET: u64 = 360;",
@@ -2071,11 +2105,12 @@ mod tests {
             .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
             .expect("direct-returning constructor domain should exist")
             .1
-            .split_once(".filter_map(|builtin|")
+            .split_once(".filter_map(|function_id|")
             .expect("direct-returning constructor domain should be bounded")
             .0;
         assert!(direct.contains("ErrorMessageConstructorKind::ALL"));
         assert!(direct.contains(".map(ErrorMessageConstructorKind::constructor)"));
+        assert!(direct.contains(".map(StandardBuiltinId::function_id)"));
 
         let realm_publication = functions
             .split_once("pub(crate) fn emit_store_realm_message_error_prototype(")

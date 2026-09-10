@@ -55,9 +55,13 @@ fn ordinary_and_forwarded_calls_share_the_same_candidate_preflight() {
         "    pub(super) fn preflight_function_prototype_call_dynamic_source(",
     ));
     assert!(preflight.contains("callee.function_targets.known_targets()"));
-    assert!(preflight.contains("source.context(self,callee,function_id)"));
-    assert!(preflight.contains("source.arguments()"));
-    assert!(preflight.contains("self.resolve_dynamic_source_call("));
+    assert_eq!(
+        preflight
+            .matches("self.resolve_dynamic_source_call(function_id,source.arguments(),arguments)")
+            .count(),
+        1,
+    );
+    assert!(!preflight.contains("DirectEval"));
     assert!(preflight.contains("self.record_unsupported_dynamic_source(unsupported)"));
     assert!(preflight.contains("DynamicSourceCallAdmission::Rejected"));
     assert!(preflight.contains(
@@ -201,7 +205,8 @@ fn contract_and_t13_keep_the_forwarding_slice_and_remaining_debt_explicit() {
         "spread-free intrinsic `Function.prototype.call` forwarding",
         "closed, must-use `DynamicSourceCallAdmission`",
         "`Function.prototype.call` acquisition remains proven intrinsic",
-        "`apply`, `Reflect.apply`, `Reflect.construct`, bound functions and proxies remain explicit forwarding debt",
+        "Finite candidate discovery preserves runtime callable identity and exact source equality",
+        "it does not imply unrestricted forwarding support",
     ] {
         assert!(contract_words.contains(marker), "contract: {marker}");
         assert!(task_words.contains(marker), "T13: {marker}");

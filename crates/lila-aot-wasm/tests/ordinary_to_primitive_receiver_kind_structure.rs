@@ -74,20 +74,16 @@ fn ordinary_to_primitive_receiver_kind_is_closed_and_capability_free() {
 }
 
 #[test]
-fn exhaustive_projections_own_tag_and_boxed_slot_policy() {
+fn exhaustive_projection_owns_the_receiver_tag() {
     let implementation = normalized(bounded(
         OPERATIONS_SOURCE,
         "impl OrdinaryToPrimitiveReceiverKind {",
         "/// The realm that owns TypeErrors created inside a conversion composite.",
     ));
-    assert_eq!(implementation.matches("matchself{").count(), 2);
+    assert_eq!(implementation.matches("matchself{").count(), 1);
     assert!(implementation.contains(concat!(
         "constfnvalue_kind(&self)->ValueKind{matchself{",
         "Self::Object=>ValueKind::Object,Self::Function=>ValueKind::Function,}}"
-    )));
-    assert!(implementation.contains(concat!(
-        "constfnhas_boxed_primitive_slot(&self)->bool{matchself{",
-        "Self::Object=>true,Self::Function=>false,}}"
     )));
     assert!(!implementation.contains("_=>"));
 }
@@ -126,7 +122,8 @@ fn only_live_object_and_tagged_function_paths_reach_the_inner_emitter() {
     ));
     assert!(inner.contains("receiver_kind:OrdinaryToPrimitiveReceiverKind"));
     assert!(!inner.contains("receiver_kind:ValueKind"));
-    assert!(inner.contains("ifreceiver_kind.has_boxed_primitive_slot(){"));
+    assert!(!inner.contains("HEAP_OBJECT_BOXED_PAYLOAD_OFFSET"));
+    assert!(!inner.contains("HEAP_OBJECT_BOXED_KIND_OFFSET"));
     assert!(inner.contains("receiver_kind.value_kind().tag()asi64"));
 }
 

@@ -13,6 +13,11 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         return;
     }
     match &expr.expr {
+        ExprIr::EnvironmentIdentifier(identifier) => {
+            for operand in identifier.operation.operands() {
+                expr_contains_this_before_super(operand, state);
+            }
+        }
         ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
         ExprIr::DynamicImport {
             specifier, options, ..
@@ -348,6 +353,7 @@ fn statement_contains_this_before_super(
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => {}
         StatementIr::Lexical { init, .. }
+        | StatementIr::DeclarationEvaluation(init)
         | StatementIr::Expression(init)
         | StatementIr::Return(init)
         | StatementIr::Throw(init) => {

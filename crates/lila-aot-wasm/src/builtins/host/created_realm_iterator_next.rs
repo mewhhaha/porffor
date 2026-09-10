@@ -3,6 +3,7 @@ use super::*;
 pub(super) enum CreatedRealmIteratorNextTarget {
     Array,
     String,
+    RegExpString,
     Map,
     Set,
 }
@@ -12,6 +13,7 @@ impl CreatedRealmIteratorNextTarget {
         match self {
             Self::Array => StandardBuiltinId::ArrayIteratorNext,
             Self::String => StandardBuiltinId::StringIteratorNext,
+            Self::RegExpString => StandardBuiltinId::RegExpStringIteratorNext,
             Self::Map => StandardBuiltinId::MapIteratorNext,
             Self::Set => StandardBuiltinId::SetIteratorNext,
         }
@@ -23,6 +25,7 @@ pub(super) struct CreatedRealmIteratorNextPublicationContext<'a> {
     type_error_prototype_local: u32,
     array_iterator_prototype_local: u32,
     string_iterator_prototype_local: u32,
+    regexp_string_iterator_prototype_local: u32,
     map_iterator_prototype_local: u32,
     set_iterator_prototype_local: u32,
 }
@@ -33,6 +36,7 @@ impl<'a> CreatedRealmIteratorNextPublicationContext<'a> {
         type_error_prototype_local: u32,
         array_iterator_prototype_local: u32,
         string_iterator_prototype_local: u32,
+        regexp_string_iterator_prototype_local: u32,
         map_iterator_prototype_local: u32,
         set_iterator_prototype_local: u32,
     ) -> Self {
@@ -41,6 +45,7 @@ impl<'a> CreatedRealmIteratorNextPublicationContext<'a> {
             type_error_prototype_local,
             array_iterator_prototype_local,
             string_iterator_prototype_local,
+            regexp_string_iterator_prototype_local,
             map_iterator_prototype_local,
             set_iterator_prototype_local,
         }
@@ -50,6 +55,9 @@ impl<'a> CreatedRealmIteratorNextPublicationContext<'a> {
         match target {
             CreatedRealmIteratorNextTarget::Array => self.array_iterator_prototype_local,
             CreatedRealmIteratorNextTarget::String => self.string_iterator_prototype_local,
+            CreatedRealmIteratorNextTarget::RegExpString => {
+                self.regexp_string_iterator_prototype_local
+            }
             CreatedRealmIteratorNextTarget::Map => self.map_iterator_prototype_local,
             CreatedRealmIteratorNextTarget::Set => self.set_iterator_prototype_local,
         }

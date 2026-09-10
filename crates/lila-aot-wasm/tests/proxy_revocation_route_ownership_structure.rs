@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const SOURCE: &str = include_str!("../src/objects.rs");
+const HAS_PROPERTY_SOURCE: &str = include_str!("../src/objects/has_property.rs");
 const OBJECT_DESCRIPTOR_BUILTIN_SOURCE: &str =
     include_str!("../src/builtins/object/get_own_property_descriptor.rs");
 const REFLECT_BUILTIN_SOURCE: &str = include_str!("../src/builtins/reflect.rs");
@@ -365,22 +366,35 @@ fn ten_proxy_operations_select_their_exact_revocation_routes() {
                 "ProxyRevocationRoute::ActiveHandler,function,)?;"
             ),
         ),
-        (
-            "fn emit_has_property_dispatch_with_key_tag_i32(",
-            "pub(crate) fn emit_data_property_read_no_call(",
-            concat!(
-                "self.emit_load_live_proxy_slots(current_local,ProxySlotLocals::new(",
-                "ProxyTargetLocals::new(target_payload_local,target_tag_local),",
-                "ProxyHandlerLocals::new(boxed_kind_local,handler_tag_local),),",
-                "ProxyRevocationRoute::CurrentCompletion,function,)?;"
-            ),
-        ),
     ];
     for (start, end, expected_call) in producers {
         let owner = normalized_rust(bounded(SOURCE, start, end));
         assert_eq!(owner.matches("self.emit_load_live_proxy_slots(").count(), 1);
         assert_eq!(owner.matches(expected_call).count(), 1, "owner `{start}`");
     }
+
+    let has_property = normalized_rust(bounded(
+        HAS_PROPERTY_SOURCE,
+        "fn emit_has_property_dispatch_with_key_tag_i32(",
+        "\n}",
+    ));
+    assert_eq!(
+        has_property
+            .matches("self.emit_load_live_proxy_slots(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        has_property
+            .matches(concat!(
+                "self.emit_load_live_proxy_slots(current_local,ProxySlotLocals::new(",
+                "ProxyTargetLocals::new(target_payload_local,target_tag_local),",
+                "ProxyHandlerLocals::new(boxed_kind_local,handler_tag_local),),",
+                "ProxyRevocationRoute::CurrentFunctionRealm,function,)?;"
+            ))
+            .count(),
+        1,
+    );
 
     let object_builtin = normalized_rust(bounded(
         OBJECT_DESCRIPTOR_BUILTIN_SOURCE,
@@ -434,7 +448,7 @@ fn ten_proxy_operations_select_their_exact_revocation_routes() {
     let reflect_code = rust_code(REFLECT_BUILTIN_SOURCE, false);
     assert_eq!(
         objects_code.matches(".emit_load_live_proxy_slots").count(),
-        8
+        7
     );
     assert_eq!(
         builtin_code.matches(".emit_load_live_proxy_slots").count(),
@@ -467,6 +481,12 @@ fn ten_proxy_operations_select_their_exact_revocation_routes() {
         3
     );
     assert_eq!(
+        HAS_PROPERTY_SOURCE
+            .matches("ProxyRevocationRoute::CurrentFunctionRealm")
+            .count(),
+        1
+    );
+    assert_eq!(
         OBJECT_DESCRIPTOR_BUILTIN_SOURCE
             .matches("ProxyRevocationRoute::CurrentFunctionRealm")
             .count(),
@@ -494,7 +514,7 @@ fn ten_proxy_operations_select_their_exact_revocation_routes() {
         SOURCE
             .matches("ProxyRevocationRoute::CurrentCompletion")
             .count(),
-        3
+        2
     );
 }
 

@@ -23,6 +23,25 @@ impl<'a> FunctionBuilder<'a> {
         empty_body_meta.protocol = FunctionProtocolIr::OrdinaryCallAndConstruct;
         empty_body_meta.strict = false;
 
+        self.emit_prepared_dynamic_function_dispatch(DynamicFunctionKind::Ordinary, function)?;
+        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_ordinary_dynamic_function_allocation(&empty_body_meta, function)?;
+        function.instruction(&Instruction::Else);
+        self.emit_reject_dynamic_source(
+            lila_ir::DynamicSourceRuntimeOperation::Function(DynamicFunctionKind::Ordinary),
+            function,
+        );
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    pub(super) fn emit_ordinary_dynamic_function_allocation(
+        &mut self,
+        body_meta: &WasmFunctionMeta,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let active_constructor_local = self.reserve_temp_local();
         let active_constructor_realm_local = self.reserve_temp_local();
         let new_target_payload_local = self.reserve_temp_local();
@@ -36,9 +55,6 @@ impl<'a> FunctionBuilder<'a> {
         let object_prototype_local = self.reserve_temp_local();
         let realm_snapshot_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(self.current_env_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
@@ -116,8 +132,14 @@ impl<'a> FunctionBuilder<'a> {
         self.release_resolved_function_realm_local(prototype_realm);
         function.instruction(&Instruction::End);
 
-        self.emit_function_value_payload(&empty_body_meta, function)?;
+        self.emit_function_value_payload(body_meta, function)?;
         function.instruction(&Instruction::LocalSet(function_object_local));
+        self.emit_install_dynamic_function_global_environment(
+            body_meta,
+            function_object_local,
+            active_constructor_realm_local,
+            function,
+        );
         self.emit_store_function_defining_realm(
             function_object_local,
             active_constructor_realm_local,
@@ -182,13 +204,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_reject_dynamic_source(
-            lila_ir::DynamicSourceRuntimeOperation::Function(DynamicFunctionKind::Ordinary),
-            function,
-        );
-        function.instruction(&Instruction::End);
-
         self.release_temp_local(realm_snapshot_local);
         self.release_temp_local(object_prototype_local);
         self.release_temp_local(instance_prototype_local);

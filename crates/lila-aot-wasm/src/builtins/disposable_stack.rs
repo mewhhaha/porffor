@@ -3,7 +3,7 @@
 //! See `docs/rust-rewrite/contracts/disposable-stack-synchronous-lifecycle.md`.
 
 use super::super::*;
-use crate::functions::NewTargetPrototypeFallback;
+use crate::functions::{NewTargetPrototypeFallback, OrdinaryDefaultPrototype};
 
 mod capability_transfer;
 
@@ -65,7 +65,9 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_new_target_prototype_to_locals(
             DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX,
-            NewTargetPrototypeFallback::CurrentGlobal,
+            NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
+                OrdinaryDefaultPrototype::DisposableStack,
+            ),
             prototype_payload_local,
             prototype_tag_local,
             function,
@@ -272,11 +274,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_disposable_stack_record_from_receiver(stack_record_local, function)?;
         self.emit_disposable_stack_require_pending(stack_record_local, function)?;
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
+        self.emit_alloc_current_function_realm_disposable_stack_object(function)?;
         function.instruction(&Instruction::LocalSet(moved_object_local));
 
         // Keep the destination record below the transfer locals so the temp

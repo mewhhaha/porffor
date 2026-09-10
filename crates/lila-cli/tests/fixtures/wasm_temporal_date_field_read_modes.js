@@ -44,7 +44,7 @@ expectRangeError(function () {
     observedOptions(dateConversion),
   );
 }, "PlainDate conversion");
-checkCounts(dateConversion, 1, 1, "PlainDate conversion");
+checkCounts(dateConversion, 1, 0, "PlainDate conversion");
 
 var dateWith = { calendar: 0, overflow: 0 };
 var date = new Temporal.PlainDate(2000, 5, 2);
@@ -54,7 +54,30 @@ expectRangeError(function () {
     observedOptions(dateWith),
   );
 }, "PlainDate with");
-checkCounts(dateWith, 0, 1, "PlainDate with");
+checkCounts(dateWith, 0, 0, "PlainDate with");
+
+var dateSuitability = { calendar: 0, overflow: 0 };
+expectRangeError(function () {
+  Temporal.PlainDate.from(
+    observedFields(dateSuitability, {
+      calendar: "iso8601",
+      year: 2000,
+      monthCode: "M99L",
+      day: 2,
+    }),
+    observedOptions(dateSuitability),
+  );
+}, "PlainDate suitability");
+checkCounts(dateSuitability, 1, 1, "PlainDate suitability");
+
+var dateWithSuitability = { calendar: 0, overflow: 0 };
+expectRangeError(function () {
+  date.with(
+    observedFields(dateWithSuitability, { monthCode: "M99L" }),
+    observedOptions(dateWithSuitability),
+  );
+}, "PlainDate with suitability");
+checkCounts(dateWithSuitability, 0, 1, "PlainDate with suitability");
 
 var monthDayConversion = { calendar: 0, overflow: 0 };
 expectRangeError(function () {

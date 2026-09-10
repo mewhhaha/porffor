@@ -887,7 +887,7 @@ pub(crate) fn linear_generator_plan_with_reason(
                     .ok_or(GeneratorPlanRejection::DiscardedYieldExpression)?;
                 }
                 statement if contains(statement, ContainsSymbol::YieldExpression) => {
-                    return Err(GeneratorPlanRejection::YieldInWithBody)
+                    return Err(GeneratorPlanRejection::YieldInWithBody);
                 }
                 _ => {}
             }
@@ -1804,29 +1804,29 @@ pub(crate) fn class_static_block_key(block: &StaticBlockBody) -> String {
     )
 }
 
-pub(crate) fn source_slice_from_positions(source_text: &str, start: usize, end: usize) -> String {
-    let candidates = [
-        (start, end),
-        (start.saturating_sub(1), end.saturating_sub(1)),
-        (start, end.saturating_sub(1)),
-        (start.saturating_sub(1), end),
-    ];
-    for (candidate_start, candidate_end) in candidates {
-        if candidate_start > candidate_end {
-            continue;
+fn source_slice_from_utf16_span(source_text: &str, span: boa_ast::LinearSpan) -> String {
+    let mut utf16_offset = 0;
+    let mut start_byte = None;
+    for (byte_offset, width) in source_text
+        .char_indices()
+        .map(|(byte_offset, character)| (byte_offset, character.len_utf16()))
+        .chain(std::iter::once((source_text.len(), 0)))
+    {
+        if utf16_offset == span.start().pos() {
+            start_byte = Some(byte_offset);
         }
-        if let Some(slice) = source_text.get(candidate_start..candidate_end) {
-            if !slice.is_empty() || candidate_start == candidate_end {
-                return slice.to_string();
-            }
+        if utf16_offset == span.end().pos() {
+            let start_byte = start_byte.expect("parser source span starts at a UTF-16 boundary");
+            return source_text[start_byte..byte_offset].to_string();
         }
+        utf16_offset += width;
     }
-    String::new()
+    panic!("parser source span {span:?} must end within the source text");
 }
 
 pub(crate) fn function_source_slice(function: &FunctionDeclaration, source_text: &str) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn generator_declaration_source_slice(
@@ -1834,7 +1834,7 @@ pub(crate) fn generator_declaration_source_slice(
     source_text: &str,
 ) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn async_function_declaration_source_slice(
@@ -1842,7 +1842,7 @@ pub(crate) fn async_function_declaration_source_slice(
     source_text: &str,
 ) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn async_generator_declaration_source_slice(
@@ -1850,7 +1850,7 @@ pub(crate) fn async_generator_declaration_source_slice(
     source_text: &str,
 ) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn async_function_expression_source_slice(
@@ -1858,7 +1858,7 @@ pub(crate) fn async_function_expression_source_slice(
     source_text: &str,
 ) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn async_generator_expression_source_slice(
@@ -1866,7 +1866,7 @@ pub(crate) fn async_generator_expression_source_slice(
     source_text: &str,
 ) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn function_expression_source_slice(
@@ -1874,7 +1874,7 @@ pub(crate) fn function_expression_source_slice(
     source_text: &str,
 ) -> String {
     if let Some(span) = function.linear_span() {
-        return source_slice_from_positions(source_text, span.start().pos(), span.end().pos());
+        return source_slice_from_utf16_span(source_text, span);
     }
     String::new()
 }
@@ -1884,12 +1884,12 @@ pub(crate) fn generator_expression_source_slice(
     source_text: &str,
 ) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn arrow_function_source_slice(function: &ArrowFunction, source_text: &str) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn async_arrow_function_source_slice(
@@ -1897,7 +1897,7 @@ pub(crate) fn async_arrow_function_source_slice(
     source_text: &str,
 ) -> String {
     let span = function.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn object_method_source_slice(
@@ -1905,7 +1905,7 @@ pub(crate) fn object_method_source_slice(
     source_text: &str,
 ) -> String {
     let span = method.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn class_method_source_slice(
@@ -1913,12 +1913,12 @@ pub(crate) fn class_method_source_slice(
     source_text: &str,
 ) -> String {
     let span = method.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn class_expression_source_slice(class: &ClassExpression, source_text: &str) -> String {
     let span = class.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn class_declaration_source_slice(
@@ -1926,7 +1926,7 @@ pub(crate) fn class_declaration_source_slice(
     source_text: &str,
 ) -> String {
     let span = class.linear_span();
-    source_slice_from_positions(source_text, span.start().pos(), span.end().pos())
+    source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn private_name_key(interner: &Interner, name: PrivateName) -> String {

@@ -20,12 +20,24 @@ impl<'a> ScriptLowerer<'a> {
                     self.unsupported("async await assignment target");
                     return (StatementIr::Empty, ValueKind::Undefined);
                 };
-                self.lower_linear_async_await(
-                    await_expression.target(),
-                    AsyncResumeModeIr::AssignIdentifier(
-                        self.interner.resolve_expect(identifier.sym()).to_string(),
-                    ),
-                )
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                let mode = if let Some(binding) = self.lookup_binding(&name) {
+                    AsyncResumeModeIr::AssignIdentifier(binding.storage_name)
+                } else {
+                    if self.uses_runtime_identifier_environment()
+                        || !self.with_environment_chain.is_empty()
+                    {
+                        self.unsupported(
+                            "suspended assignment through a runtime identifier environment",
+                        );
+                        return (StatementIr::Empty, ValueKind::Undefined);
+                    }
+                    AsyncResumeModeIr::AssignGlobal {
+                        name,
+                        strictness: self.reference_strictness(),
+                    }
+                };
+                self.lower_linear_async_await(await_expression.target(), mode)
             }
             Statement::Expression(Expression::Yield(yield_expression))
                 if self.current_resumable_plan.is_some()
@@ -144,36 +156,42 @@ impl<'a> ScriptLowerer<'a> {
                 };
                 let resume_mode = match assignment.lhs() {
                     AssignTarget::Identifier(identifier) => {
-                        GeneratorResumeModeIr::AssignIdentifier(
-                            self.interner.resolve_expect(identifier.sym()).to_string(),
-                        )
+                        let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                        if let Some(binding) = self.lookup_binding(&name) {
+                            GeneratorResumeModeIr::AssignIdentifier(binding.storage_name)
+                        } else {
+                            if self.uses_runtime_identifier_environment()
+                                || !self.with_environment_chain.is_empty()
+                            {
+                                self.unsupported(
+                                    "suspended assignment through a runtime identifier environment",
+                                );
+                                return (StatementIr::Empty, ValueKind::Undefined);
+                            }
+                            GeneratorResumeModeIr::AssignGlobal {
+                                name,
+                                strictness: self.reference_strictness(),
+                            }
+                        }
                     }
-                    AssignTarget::Access(access) => {
-                        let received_value = TypedExpr::from_info(
-                            ValueInfo {
+                    AssignTarget::Access(PropertyAccess::Simple(access)) => {
+                        self.record_caller_flow_invalidation();
+                        let (plan, key, _) = self.lower_ordinary_property_reference_plan(access);
+                        self.update_written_shape(
+                            access.target(),
+                            &key,
+                            &ValueInfo {
                                 kind: ValueKind::Dynamic,
                                 possible_kinds: KindSet::all_runtime_tags(),
                                 heap_shape: None,
                                 function_targets: FunctionTargetKnowledge::unknown(),
                             },
-                            ExprIr::Undefined,
                         );
-                        let assignment = self.lower_property_assign_value(access, received_value);
-                        let ExprIr::PropertyWrite {
-                            target,
-                            key,
-                            value: _,
-                            strictness,
-                        } = assignment.expr
-                        else {
-                            self.unsupported("generator yield assignment target");
-                            return (StatementIr::Empty, ValueKind::Undefined);
-                        };
-                        GeneratorResumeModeIr::AssignProperty(
-                            SuspendedPropertyReferenceIr::ordinary(target, key, strictness),
-                        )
+                        GeneratorResumeModeIr::AssignProperty(plan.suspended_assignment())
                     }
-                    _ => {
+                    AssignTarget::Access(PropertyAccess::Private(_) | PropertyAccess::Super(_))
+                    | AssignTarget::Pattern(_)
+                    | AssignTarget::WebCompatCall(_) => {
                         self.unsupported("generator yield assignment target");
                         return (StatementIr::Empty, ValueKind::Undefined);
                     }

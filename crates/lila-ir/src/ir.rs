@@ -9,11 +9,14 @@ use crate::{
     CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
     FunctionProtocolIr, GeneratorDelegationProtocol, HostBuiltinId, IrDiagnostic, IrDiagnosticKind,
     IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage, NativeErrorKind,
-    NumericUpdateOp, NumericUpdateValueKind, RegExpProgram, RelationalBinaryOp, SpecOperationIr,
-    SpreadArgumentProtocol, StandardBuiltinId, ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode,
-    GLOBAL_THIS_NAME,
+    NumericUpdateOp, NumericUpdateValueKind, PreparedDynamicFunction, RegExpProgram,
+    RelationalBinaryOp, SpecOperationIr, SpreadArgumentProtocol, StandardBuiltinId,
+    ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode, GLOBAL_THIS_NAME,
 };
-use crate::{ImportPhaseIr, ModuleGraphIr, ModuleUnitId};
+use crate::{
+    ImportPhaseIr, ModuleGraphIr, ModuleUnitId, PreparedScript, PreparedScriptOutcome,
+    PreparedScriptUnit, RuntimeGlobalDeclarationPlan,
+};
 
 /// Reference Records (6.2.5) and their `[[Strict]]`. See
 /// `docs/rust-rewrite/contracts/reference-records.md`.
@@ -640,6 +643,10 @@ pub enum GeneratorResumeModeIr {
     Ignore,
     Return,
     AssignIdentifier(String),
+    AssignGlobal {
+        name: String,
+        strictness: Strictness,
+    },
     AssignProperty(SuspendedPropertyReferenceIr),
 }
 
@@ -661,6 +668,10 @@ pub enum AsyncResumeModeIr {
     Ignore,
     Return,
     AssignIdentifier(String),
+    AssignGlobal {
+        name: String,
+        strictness: Strictness,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1921,6 +1932,7 @@ pub enum ExprIr {
     GlobalPropertyRead {
         name: String,
     },
+    EnvironmentIdentifier(Box<crate::EnvironmentIdentifierIr>),
     GlobalIdentifierRead {
         name: String,
     },
@@ -2151,6 +2163,9 @@ pub enum ExprIr {
         message: &'static str,
     },
     CallIndirect {
+        /// Original bare `eval` syntax carries caller context; only the runtime
+        /// callee's identity can select direct evaluation.
+        direct_eval: Option<crate::DirectEvalContextIr>,
         callee: Box<TypedExpr>,
         this_arg: Option<Box<TypedExpr>>,
         args: Vec<TypedExpr>,
@@ -2343,12 +2358,35 @@ pub struct OwnedEnvBindingIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FunctionBodyBindingValueIr {
+    Undefined,
+    Parameter { slot: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionBodyBindingInitializationIr {
+    pub slot: u32,
+    pub value: FunctionBodyBindingValueIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LexicalEnvironmentInitializationIr {
+    Uninitialized,
+    FunctionBody {
+        bindings: Vec<FunctionBodyBindingInitializationIr>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexicalEnvironmentIr {
+    pub initialization: LexicalEnvironmentInitializationIr,
+    pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
     pub bindings: Vec<OwnedEnvBindingIr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForLexicalEnvironmentIr {
+    pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
     pub bindings: Vec<OwnedEnvBindingIr>,
     pub per_iteration_slots: Vec<u32>,
 }
@@ -2856,7 +2894,7 @@ fn validate_async_function_for_of_initialization(
                 bindings.push((*mode, name.clone()));
                 "StatementIr::Lexical"
             }
-            StatementIr::Expression(TypedExpr {
+            StatementIr::DeclarationEvaluation(TypedExpr {
                 expr:
                     ExprIr::ArrayDestructure {
                         pattern,
@@ -2880,7 +2918,7 @@ fn validate_async_function_for_of_initialization(
                 )?;
                 "Array BindingInitialization"
             }
-            StatementIr::Expression(TypedExpr {
+            StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::ObjectDestructure { pattern, .. },
                 ..
             }) => {
@@ -3388,6 +3426,7 @@ pub struct DerivedConstructorActivationIr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionIr {
+    pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
     pub id: FunctionId,
     pub name: String,
     pub to_string_representation: CallableToStringRepresentation,
@@ -3444,6 +3483,7 @@ pub enum StatementIr {
         source_name: String,
         block_storage_name: String,
         target: AnnexBFunctionCopyTargetIr,
+        admission: Option<OwnedEnvBindingIr>,
     },
     LexicalBlock(Vec<StatementIr>),
     /// A synchronous DisposeCapability with an explicit execution owner.
@@ -3472,6 +3512,9 @@ pub enum StatementIr {
         statements: Vec<StatementIr>,
     },
     Var(Vec<VarDeclaratorIr>),
+    /// Evaluates declaration initialization effects with an empty normal
+    /// completion, preserving the preceding StatementList value.
+    DeclarationEvaluation(TypedExpr),
     Expression(TypedExpr),
     GeneratorYield {
         value: TypedExpr,
@@ -3949,6 +3992,7 @@ impl SyncDisposableResourcesIr {
 pub enum AnnexBFunctionCopyTargetIr {
     OwnerBinding { storage_name: String },
     ScriptGlobal { name: String },
+    DirectEvalVariable { name: String },
 }
 
 impl StatementIr {
@@ -3972,6 +4016,7 @@ impl StatementIr {
             | Self::AsyncDisposableScope { .. }
             | Self::ParameterInitialization { .. }
             | Self::Var(_)
+            | Self::DeclarationEvaluation(_)
             | Self::Expression(_)
             | Self::GeneratorYield { .. }
             | Self::AsyncAwait { .. }
@@ -4085,7 +4130,7 @@ impl GlobalDeclarationSetIr {
         !matches!(self, Self::None)
     }
 
-    pub const fn needs_main_frame_cache(self) -> bool {
+    pub const fn needs_main_frame_write_storage(self) -> bool {
         matches!(self, Self::Var | Self::FunctionAndVar)
     }
 }
@@ -4097,21 +4142,26 @@ pub struct ScriptGlobalBindingIr {
     pub declarations: GlobalDeclarationSetIr,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlobalLexicalBindingModeIr {
+    Mutable,
+    Immutable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GlobalBindingPlan {
     object_bindings: BTreeMap<String, ScriptGlobalBindingIr>,
-    lexical_names: BTreeSet<String>,
+    lexical_bindings: BTreeMap<String, GlobalLexicalBindingModeIr>,
 }
 
 impl GlobalBindingPlan {
     pub fn from_parts(
         object_bindings: impl IntoIterator<Item = ScriptGlobalBindingIr>,
-        lexical_names: impl IntoIterator<Item = String>,
+        lexical_bindings: impl IntoIterator<Item = (String, GlobalLexicalBindingModeIr)>,
     ) -> Self {
-        let lexical_names = lexical_names.into_iter().collect::<BTreeSet<_>>();
         let mut plan = Self {
             object_bindings: BTreeMap::new(),
-            lexical_names,
+            lexical_bindings: lexical_bindings.into_iter().collect(),
         };
         for binding in object_bindings {
             plan.insert_initial(binding);
@@ -4129,7 +4179,7 @@ impl GlobalBindingPlan {
 
     pub fn record_var(&mut self, name: String) {
         assert!(
-            !self.lexical_names.contains(&name),
+            !self.lexical_bindings.contains_key(&name),
             "a global var name cannot collide with a global lexical name"
         );
         match self.object_bindings.get_mut(&name) {
@@ -4152,7 +4202,7 @@ impl GlobalBindingPlan {
         function: FunctionId,
     ) -> GlobalFunctionDeclarationDispositionIr {
         assert!(
-            !self.lexical_names.contains(&name),
+            !self.lexical_bindings.contains_key(&name),
             "a global function name cannot collide with a global lexical name"
         );
         let (initializer, declarations, disposition) = match self.object_bindings.get(&name) {
@@ -4191,15 +4241,14 @@ impl GlobalBindingPlan {
         self.object_bindings.values()
     }
 
-    /// Script-global bindings mirrored into the main function's frame.
+    /// Script-global bindings with frame storage for declaration writes.
     ///
-    /// Allocation and initial seeding must consume this same set: declaration
-    /// hoisting survives optimizations that may remove the declaration's body
-    /// IR entirely.
-    pub fn main_frame_cache_bindings(&self) -> impl Iterator<Item = &ScriptGlobalBindingIr> {
+    /// Publishers write these slots before mirroring them to the global object.
+    /// Source reads use the global object and need no eager property reads.
+    pub fn main_frame_write_bindings(&self) -> impl Iterator<Item = &ScriptGlobalBindingIr> {
         self.object_bindings
             .values()
-            .filter(|binding| binding.declarations.needs_main_frame_cache())
+            .filter(|binding| binding.declarations.needs_main_frame_write_storage())
     }
 
     pub fn len(&self) -> usize {
@@ -4210,8 +4259,12 @@ impl GlobalBindingPlan {
         self.object_bindings.is_empty()
     }
 
-    pub fn lexical_names(&self) -> &BTreeSet<String> {
-        &self.lexical_names
+    pub fn lexical_names(&self) -> impl ExactSizeIterator<Item = &String> {
+        self.lexical_bindings.keys()
+    }
+
+    pub fn lexical_bindings(&self) -> &BTreeMap<String, GlobalLexicalBindingModeIr> {
+        &self.lexical_bindings
     }
 }
 
@@ -4226,6 +4279,10 @@ impl<'a> IntoIterator for &'a GlobalBindingPlan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptIr {
+    pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
+    pub prepared_scripts: Vec<PreparedScript>,
+    pub runtime_declarations: RuntimeGlobalDeclarationPlan,
+    pub prepared_dynamic_functions: Vec<PreparedDynamicFunction>,
     pub strict: bool,
     pub functions: Vec<FunctionIr>,
     pub body: BlockIr,
@@ -4251,6 +4308,19 @@ pub struct ScriptIr {
 }
 
 impl ScriptIr {
+    pub fn prepared_script_units(&self) -> impl Iterator<Item = &PreparedScriptUnit> {
+        self.prepared_scripts
+            .iter()
+            .filter_map(|prepared| match &prepared.outcome {
+                PreparedScriptOutcome::Executable(unit) => Some(unit),
+                PreparedScriptOutcome::DeferredSyntaxError { .. } => None,
+            })
+    }
+
+    pub fn executable_script_bodies(&self) -> impl Iterator<Item = &BlockIr> {
+        std::iter::once(&self.body).chain(self.prepared_script_units().map(|unit| &unit.body))
+    }
+
     pub const fn result_kind(&self) -> ValueKind {
         self.body.result_kind
     }
@@ -4670,7 +4740,9 @@ impl IrSummaryCounts {
                     }
                 }
             }
-            StatementIr::Expression(expr) => self.visit_expr(expr),
+            StatementIr::DeclarationEvaluation(expr) | StatementIr::Expression(expr) => {
+                self.visit_expr(expr)
+            }
             StatementIr::GeneratorYield {
                 value, resume_mode, ..
             } => {
@@ -4948,6 +5020,31 @@ impl IrSummaryCounts {
             self.function_values += 1;
         }
         match &expr.expr {
+            ExprIr::EnvironmentIdentifier(identifier) => {
+                match &identifier.operation {
+                    crate::EnvironmentIdentifierOperationIr::Read
+                    | crate::EnvironmentIdentifierOperationIr::Typeof
+                    | crate::EnvironmentIdentifierOperationIr::Delete => {}
+                    crate::EnvironmentIdentifierOperationIr::Assign { .. } => self.assignments += 1,
+                    crate::EnvironmentIdentifierOperationIr::Update { return_mode, .. } => {
+                        match return_mode {
+                            UpdateReturnMode::Prefix => self.prefix_updates += 1,
+                            UpdateReturnMode::Postfix => self.postfix_updates += 1,
+                        }
+                    }
+                    crate::EnvironmentIdentifierOperationIr::EagerCompound { .. }
+                    | crate::EnvironmentIdentifierOperationIr::LogicalCompound { .. } => {
+                        self.compound_assignments += 1
+                    }
+                    crate::EnvironmentIdentifierOperationIr::Call { .. } => {
+                        self.calls += 1;
+                        self.indirect_calls += 1;
+                    }
+                }
+                for operand in identifier.operation.operands() {
+                    self.visit_expr(operand);
+                }
+            }
             ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
             ExprIr::DynamicImport {
                 specifier, options, ..

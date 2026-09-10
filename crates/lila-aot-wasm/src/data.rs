@@ -9,13 +9,14 @@ use icu_properties::{props, CodePointSetData};
 use lila_ir::ArrayAccumulationElementIr;
 use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
-    StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
-    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REALM_EVAL_SCRIPT_METHOD_NAME,
-    REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
-    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
-    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
-    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
-    REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
+    ResumableLoopIterationEnvironmentIr, StaticRegExpCompilation, TemplateObjectIr,
+    BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
+    REALM_EVAL_SCRIPT_METHOD_NAME, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
+    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
+    REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
+    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
+    REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT,
+    REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
 };
 use std::sync::OnceLock;
 
@@ -180,8 +181,10 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "WeakMap constructor iterator value must be an object",
     "WeakMap constructor requires new",
     "WeakMap constructor set method is not callable",
+    "assignment to constant binding",
     "assignment to unresolvable reference",
     "cannot get function realm from a revoked Proxy",
+    "eval declaration conflicts with lexical binding",
     "for-await-of async iterator next result must be object",
     "for-await-of async iterator return result must be object",
     "for-await-of iterator method must be callable",
@@ -191,6 +194,10 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "for-await-of iterator return must be callable",
     "for-await-of iterator return result must be object",
     "for-await-of target is not iterable",
+    "global declaration conflicts with existing lexical binding",
+    "global function declaration is not permitted",
+    "global lexical declaration conflicts with non-configurable property",
+    "global variable declaration is not permitted",
     "lexical binding accessed before initialization",
     "private accessor has no getter",
     "private element already installed on object",
@@ -2052,6 +2059,8 @@ impl StringPool {
             "<sup>",
             "</sup>",
             "&quot;",
+            "bound ",
+            "RegExp String Iterator",
         ] {
             pool.intern_string(value);
         }
@@ -2120,6 +2129,16 @@ impl StringPool {
         for binding in script.global_bindings.iter() {
             pool.intern_string(&binding.name);
         }
+        for prepared in &script.prepared_dynamic_functions {
+            for argument in &prepared.arguments {
+                pool.intern_string(argument);
+            }
+            if let lila_ir::PreparedDynamicFunctionOutcome::SyntaxError { message } =
+                &prepared.outcome
+            {
+                pool.intern_string(message);
+            }
+        }
         for meta in function_metas.values() {
             pool.intern_string(&meta.name);
             pool.intern_string(meta.runtime_name());
@@ -2164,6 +2183,7 @@ impl StringPool {
                     }
                 }
             }
+            pool.collect_eval_environment(function.eval_environment.as_ref());
             for param in &function.params {
                 pool.intern_string(&param.name);
                 if let Some(default_init) = &param.default_init {
@@ -2178,7 +2198,30 @@ impl StringPool {
             }
             pool.collect_block(&function.body);
         }
-        pool.collect_block(&script.body);
+        pool.collect_eval_environment(script.eval_environment.as_ref());
+        for body in script.executable_script_bodies() {
+            pool.collect_block(body);
+        }
+        for prepared in &script.prepared_scripts {
+            pool.intern_string(&prepared.source);
+            match &prepared.outcome {
+                PreparedScriptOutcome::DeferredSyntaxError { message } => {
+                    pool.intern_string(message)
+                }
+                PreparedScriptOutcome::Executable(unit) => {
+                    pool.collect_eval_environment(unit.eval_environment.as_ref());
+                    for binding in &unit.owned_env_bindings {
+                        pool.intern_string(&binding.name);
+                    }
+                    for binding in &unit.global_bindings {
+                        pool.intern_string(&binding.name);
+                    }
+                    for name in unit.global_bindings.lexical_names() {
+                        pool.intern_string(name);
+                    }
+                }
+            }
+        }
         if compiled_standard_builtins.iter().any(|builtin| {
             matches!(
                 builtin,
@@ -3093,7 +3136,44 @@ impl StringPool {
         self.bytes.resize(self.bytes.len() + padding, 0);
     }
 
+    fn collect_eval_environment(&mut self, role: Option<&lila_ir::EvalEnvironmentRoleIr>) {
+        match role {
+            Some(lila_ir::EvalEnvironmentRoleIr::Declarative { bindings, .. }) => {
+                for binding in bindings {
+                    self.intern_string(&binding.source_name);
+                }
+            }
+            Some(lila_ir::EvalEnvironmentRoleIr::WithObject { .. }) | None => {}
+        }
+    }
+
+    fn collect_lexical_environment(&mut self, environment: Option<&LexicalEnvironmentIr>) {
+        if let Some(environment) = environment {
+            self.collect_eval_environment(environment.eval_environment.as_ref());
+        }
+    }
+
+    fn collect_for_in_of_environment(&mut self, environment: Option<&ForInOfEnvironmentIr>) {
+        if let Some(environment) = environment {
+            self.collect_lexical_environment(environment.tdz_environment.as_ref());
+            self.collect_lexical_environment(environment.iteration_environment.as_ref());
+        }
+    }
+
+    fn collect_resumable_iteration_environment(
+        &mut self,
+        environment: &ResumableLoopIterationEnvironmentIr,
+    ) {
+        match environment {
+            ResumableLoopIterationEnvironmentIr::StorageOnly => {}
+            ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment) => {
+                self.collect_lexical_environment(Some(environment));
+            }
+        }
+    }
+
     fn collect_block(&mut self, block: &BlockIr) {
+        self.collect_lexical_environment(block.lexical_environment.as_ref());
         for statement in &block.statements {
             self.collect_statement(statement);
         }
@@ -3115,19 +3195,26 @@ impl StringPool {
                 source_name,
                 block_storage_name,
                 target,
+                admission,
             } => {
+                if let Some(admission) = admission {
+                    self.intern_string(&admission.name);
+                }
                 self.intern_string(source_name);
                 self.intern_string(block_storage_name);
                 match target {
                     AnnexBFunctionCopyTargetIr::OwnerBinding { storage_name } => {
                         self.intern_string(storage_name);
                     }
-                    AnnexBFunctionCopyTargetIr::ScriptGlobal { name } => {
+                    AnnexBFunctionCopyTargetIr::ScriptGlobal { name }
+                    | AnnexBFunctionCopyTargetIr::DirectEvalVariable { name } => {
                         self.intern_string(name);
                     }
                 }
             }
-            StatementIr::Expression(init) => self.collect_expr(init),
+            StatementIr::DeclarationEvaluation(init) | StatementIr::Expression(init) => {
+                self.collect_expr(init)
+            }
             StatementIr::GeneratorYield {
                 value,
                 form,
@@ -3149,6 +3236,9 @@ impl StringPool {
                         }
                     }
                 }
+                if let GeneratorResumeModeIr::AssignGlobal { name, .. } = resume_mode {
+                    self.intern_string(name);
+                }
                 if let GeneratorResumeModeIr::AssignProperty(reference) = resume_mode {
                     match reference.use_view() {
                         SuspendedPropertyReferenceUse::Ordinary {
@@ -3163,7 +3253,14 @@ impl StringPool {
                 }
                 self.collect_expr(value);
             }
-            StatementIr::AsyncAwait { value, .. } => self.collect_expr(value),
+            StatementIr::AsyncAwait {
+                value, resume_mode, ..
+            } => {
+                if let lila_ir::AsyncResumeModeIr::AssignGlobal { name, .. } = resume_mode {
+                    self.intern_string(name);
+                }
+                self.collect_expr(value);
+            }
             StatementIr::Return(value) => self.collect_expr(value),
             StatementIr::Throw(value) => self.collect_expr(value),
             StatementIr::Var(declarators) => self.collect_var_declarators(declarators),
@@ -3213,10 +3310,12 @@ impl StringPool {
                 catch_block,
                 catch_name,
                 catch_source_name,
+                catch_parameter_environment,
                 ..
             } => {
                 self.intern_string(catch_name);
                 self.intern_string(catch_source_name);
+                self.collect_lexical_environment(catch_parameter_environment.as_ref());
                 self.collect_block(try_block);
                 self.collect_block(catch_block);
             }
@@ -3234,10 +3333,12 @@ impl StringPool {
                 finally_block,
                 catch_name,
                 catch_source_name,
+                catch_parameter_environment,
                 ..
             } => {
                 self.intern_string(catch_name);
                 self.intern_string(catch_source_name);
+                self.collect_lexical_environment(catch_parameter_environment.as_ref());
                 self.collect_block(try_block);
                 self.collect_block(catch_block);
                 self.collect_block(finally_block);
@@ -3266,8 +3367,11 @@ impl StringPool {
                 test,
                 update,
                 body,
-                ..
+                lexical_environment,
             } => {
+                if let Some(environment) = lexical_environment {
+                    self.collect_eval_environment(environment.eval_environment.as_ref());
+                }
                 if let Some(init) = init {
                     self.collect_for_init(init);
                 }
@@ -3286,8 +3390,10 @@ impl StringPool {
                 before_suspension,
                 suspension_statement,
                 after_suspension,
+                iteration_environment,
                 ..
             } => {
+                self.collect_resumable_iteration_environment(iteration_environment);
                 if let Some(init) = init {
                     self.collect_for_init(init);
                 }
@@ -3306,6 +3412,8 @@ impl StringPool {
                 }
             }
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
+                self.collect_for_in_of_environment(plan.head_environment());
+                self.collect_resumable_iteration_environment(plan.iteration_environment());
                 self.collect_expr(iterable);
                 for statement in plan
                     .before_await()
@@ -3341,18 +3449,22 @@ impl StringPool {
             StatementIr::ForInArray {
                 target: iterable,
                 body,
+                lexical_environment,
                 ..
             }
             | StatementIr::ForInString {
                 target: iterable,
                 body,
+                lexical_environment,
                 ..
             }
             | StatementIr::ForInObject {
                 target: iterable,
                 body,
+                lexical_environment,
                 ..
             } => {
+                self.collect_for_in_of_environment(lexical_environment.as_ref());
                 self.collect_expr(iterable);
                 self.collect_statement(body);
             }
@@ -3360,8 +3472,9 @@ impl StringPool {
                 head,
                 iterable,
                 body,
-                ..
+                lexical_environment,
             } => {
+                self.collect_for_in_of_environment(lexical_environment.as_ref());
                 match head {
                     ForOfIteratorHeadIr::Assignment { .. } => {}
                     ForOfIteratorHeadIr::SyncDisposable(head) => {
@@ -3396,8 +3509,9 @@ impl StringPool {
                 discriminant,
                 lexical_declarations,
                 cases,
-                ..
+                lexical_environment,
             } => {
+                self.collect_lexical_environment(lexical_environment.as_ref());
                 self.collect_expr(discriminant);
                 for declaration in lexical_declarations {
                     self.collect_statement(declaration);
@@ -3481,8 +3595,36 @@ impl StringPool {
         }
     }
 
+    fn collect_typeof_result_strings(&mut self) {
+        for result in [
+            "undefined",
+            "object",
+            "boolean",
+            "number",
+            "bigint",
+            "symbol",
+            "string",
+            "function",
+        ] {
+            self.intern_string(result);
+        }
+    }
+
     fn collect_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
+            ExprIr::EnvironmentIdentifier(identifier) => {
+                self.uses_heap = true;
+                self.intern_string(&identifier.name);
+                if matches!(
+                    identifier.operation,
+                    lila_ir::EnvironmentIdentifierOperationIr::Typeof
+                ) {
+                    self.collect_typeof_result_strings();
+                }
+                for operand in identifier.operation.operands() {
+                    self.collect_expr(operand);
+                }
+            }
             // A namespace object and `import.meta` are allocated from static
             // tables the module graph owns, not from expression operands.
             ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {
@@ -3725,18 +3867,12 @@ impl StringPool {
                 self.collect_property_key(key);
             }
             ExprIr::TypeOf { expr } => {
-                self.intern_string("undefined");
-                self.intern_string("object");
-                self.intern_string("boolean");
-                self.intern_string("number");
-                self.intern_string("bigint");
-                self.intern_string("symbol");
-                self.intern_string("string");
-                self.intern_string("function");
+                self.collect_typeof_result_strings();
                 self.collect_expr(expr);
             }
-            ExprIr::TypeOfUnresolvedIdentifier { .. } => {
-                self.intern_string("undefined");
+            ExprIr::TypeOfUnresolvedIdentifier { name } => {
+                self.intern_string(name);
+                self.collect_typeof_result_strings();
             }
             ExprIr::StringFromCharCode { code } => {
                 self.uses_heap = true;
@@ -3913,6 +4049,7 @@ impl StringPool {
                 self.collect_expr(value);
             }
             ExprIr::CallIndirect {
+                direct_eval: _,
                 callee,
                 this_arg,
                 args,
@@ -4154,6 +4291,9 @@ impl StringPool {
                 }
             }
             ExprIr::ClassDefinition(class) => {
+                if let Some(name_binding) = &class.name_binding {
+                    self.collect_lexical_environment(Some(&name_binding.environment));
+                }
                 self.uses_heap = true;
                 self.intern_string("prototype");
                 self.intern_string("constructor");
@@ -4305,8 +4445,18 @@ impl StringPool {
             }
             DestructuringTargetIr::AssignmentIdentifier(reference) => {
                 self.intern_string(reference.name());
-                if let IdentifierWriteDisposition::Throw { error } = reference.write_disposition() {
-                    self.intern_string(error.message());
+                match reference.write_disposition() {
+                    IdentifierWriteDisposition::Global {
+                        referenced_name, ..
+                    }
+                    | IdentifierWriteDisposition::Environment {
+                        referenced_name, ..
+                    } => self.intern_string(referenced_name),
+                    IdentifierWriteDisposition::Throw { error } => {
+                        self.intern_string(error.message())
+                    }
+                    IdentifierWriteDisposition::MutableBinding { .. }
+                    | IdentifierWriteDisposition::IgnoreImmutableBinding => {}
                 }
             }
             DestructuringTargetIr::AssignmentProperty { key, .. } => {

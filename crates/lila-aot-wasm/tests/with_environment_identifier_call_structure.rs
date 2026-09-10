@@ -1,8 +1,8 @@
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/call_expression.rs");
 const CALL_SOURCE: &str = include_str!("../../lila-ir/src/lowering/with_environment_call.rs");
 const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
-const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
+const FUNCTIONS_SOURCE: &str = include_str!("../src/functions/indirect_call.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_with_environment_identifier_call.js");
 const CONTRACT: &str = include_str!(
@@ -103,7 +103,7 @@ fn noncopy_plan_owns_the_only_callee_withbaseobject_product() {
 fn lowerer_intercepts_before_folds_and_keeps_fallback_runtime_authoritative() {
     let call_entry = bounded(
         LOWERING_SOURCE,
-        "        // Resolve a direct identifier through any preceding Object",
+        "        // Resolve identifier references before intrinsic folds:",
         "        if let Some(generator) = generator_expression_callee(callee) {",
     );
     assert!(call_entry.contains("self.lower_with_environment_identifier_call(callee, args)"));
@@ -121,10 +121,12 @@ fn lowerer_intercepts_before_folds_and_keeps_fallback_runtime_authoritative() {
         ".select_preceding(fallback_reference.declarative_position())?",
         "objects.into_identifier_call_plan(",
         "let fallback_callee = self.with_identifier_call_fallback(&name, fallback_reference);",
-        "self.lower_call_args_expanding_spread(source_args)",
+        "lower_call_args_expanding_spread(source_args)",
         "ExprIr::CallIndirect {",
         "this_arg: None",
-        "Some(plan.call(args, fallback))",
+        "let result = plan.call(args, fallback);",
+        "self.observe_unaccounted_invocation_effects(InvocationTargetProvenance::Erased);",
+        "Some(result)",
     ] {
         assert!(lower.contains(marker), "missing lowering marker: {marker}");
     }
@@ -147,6 +149,16 @@ fn lowerer_intercepts_before_folds_and_keeps_fallback_runtime_authoritative() {
         lower,
         "lower_call_args_expanding_spread",
         "plan.call(args, fallback)",
+    );
+    assert_before(
+        lower,
+        "plan.call(args, fallback)",
+        "observe_unaccounted_invocation_effects",
+    );
+    assert_before(
+        lower,
+        "observe_unaccounted_invocation_effects",
+        "Some(result)",
     );
 
     let fallback = bounded(
@@ -192,7 +204,7 @@ fn aot_preserves_explicit_this_and_evaluates_arguments_after_the_callee() {
     let indirect = bounded(
         FUNCTIONS_SOURCE,
         "    pub(crate) fn emit_indirect_call(",
-        "    pub(crate) fn emit_tail_indirect_call(",
+        "\n}\n",
     );
     for marker in [
         "self.compile_expr_to_locals(callee, callee_payload_local, callee_tag_local, function)?;",

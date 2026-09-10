@@ -65,6 +65,11 @@ impl ModuleTypeRegistry {
         types.function([ValType::I64, ValType::I64, ValType::I64], [ValType::I64]);
         types.function([], [ValType::F64]);
 
+        types.function(
+            std::iter::repeat_n(ValType::I64, PREPARED_SCRIPT_PARAM_COUNT),
+            [ValType::I64; 4],
+        );
+
         let runtime = RuntimeModuleTypes::register(&mut types.section);
 
         Self {

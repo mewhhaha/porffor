@@ -133,6 +133,11 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(private_environment_local));
             return;
         }
+        if let Some(environment) = self.direct_eval_private_environment_param_local() {
+            function.instruction(&Instruction::LocalGet(environment));
+            function.instruction(&Instruction::LocalSet(private_environment_local));
+            return;
+        }
         if self
             .current_function_meta()
             .is_some_and(WasmFunctionMeta::has_function_context)
@@ -156,6 +161,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if self.active_private_environment_locals.is_empty()
+            && self.direct_eval_private_environment_param_local().is_none()
             && !self
                 .current_function_meta()
                 .is_some_and(WasmFunctionMeta::has_function_context)

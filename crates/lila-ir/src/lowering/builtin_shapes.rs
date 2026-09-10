@@ -4183,6 +4183,26 @@ impl<'a> ScriptLowerer<'a> {
         }))
     }
 
+    pub(super) fn regexp_string_iterator_instance_shape() -> Box<HeapShape> {
+        let prototype = HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_prototype_shape()),
+            properties: BTreeMap::from([(
+                "next".to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                    StandardBuiltinId::RegExpStringIteratorNext,
+                )),
+            )]),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        });
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(prototype)),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     pub(super) fn generator_instance_shape() -> Box<HeapShape> {
         let mut properties = BTreeMap::new();
         for (name, builtin) in [
@@ -4859,8 +4879,10 @@ impl<'a> ScriptLowerer<'a> {
                         private_brands: BTreeSet::new(),
                         boxed_primitive: None,
                     })))
+                } else if builtin == StandardBuiltinId::RegExpPrototypeSymbolMatchAll {
+                    Some(Self::regexp_string_iterator_instance_shape())
                 } else {
-                    Some(Self::array_iterator_instance_shape())
+                    None
                 },
                 ValueInfo::undefined(),
             ),
@@ -5661,6 +5683,7 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::ArrayIteratorNext
             | StandardBuiltinId::StringIteratorNext
+            | StandardBuiltinId::RegExpStringIteratorNext
             | StandardBuiltinId::GeneratorPrototypeNext
             | StandardBuiltinId::GeneratorPrototypeReturn
             | StandardBuiltinId::GeneratorPrototypeThrow => (

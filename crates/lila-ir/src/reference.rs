@@ -543,6 +543,17 @@ impl OrdinaryPropertyReferencePlan {
         )
     }
 
+    /// Retain the raw Reference until a normal generator resumption performs
+    /// PutValue; neither its base nor its key is coerced while suspending.
+    #[must_use]
+    pub(crate) fn suspended_assignment(self) -> SuspendedPropertyReferenceIr {
+        SuspendedPropertyReferenceIr {
+            base_and_receiver: self.base_and_receiver,
+            key: self.referenced_name,
+            strictness: self.strictness,
+        }
+    }
+
     /// Consume one Reference into the closed logical-assignment lifecycle.
     ///
     /// The result remains dynamic because the expression can publish either
@@ -1547,6 +1558,7 @@ impl WithEnvironmentResolution {
         let selected = TypedExpr::from_info(
             dynamic_value_info(),
             ExprIr::CallIndirect {
+                direct_eval: None,
                 callee: Box::new(callee),
                 this_arg: Some(Box::new(receiver)),
                 args: args.to_vec(),
@@ -2185,18 +2197,6 @@ pub enum SuspendedPropertyReferenceUse<'a> {
 }
 
 impl SuspendedPropertyReferenceIr {
-    pub(crate) fn ordinary(
-        base_and_receiver: Box<TypedExpr>,
-        key: PropertyKeyIr,
-        strictness: Strictness,
-    ) -> Self {
-        Self {
-            base_and_receiver,
-            key,
-            strictness,
-        }
-    }
-
     #[must_use]
     pub fn use_view(&self) -> SuspendedPropertyReferenceUse<'_> {
         SuspendedPropertyReferenceUse::Ordinary {
@@ -2230,6 +2230,10 @@ pub struct IdentifierWriteReferenceIr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum IdentifierWriteReferenceBaseIr {
+    Environment {
+        referenced_name: String,
+        strictness: Strictness,
+    },
     MutableBinding {
         storage_name: String,
     },
@@ -2254,6 +2258,10 @@ enum IdentifierWriteReferenceBaseIr {
 /// impossible combination of flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentifierWriteDisposition<'a> {
+    Environment {
+        referenced_name: &'a str,
+        strictness: Strictness,
+    },
     MutableBinding {
         storage_name: &'a str,
     },
@@ -2303,6 +2311,14 @@ impl IdentifierWriteErrorIr {
 }
 
 impl IdentifierWriteReferenceIr {
+    pub(crate) fn environment(referenced_name: String, strictness: Strictness) -> Self {
+        Self {
+            base: IdentifierWriteReferenceBaseIr::Environment {
+                referenced_name,
+                strictness,
+            },
+        }
+    }
     pub(crate) fn mutable_binding(storage_name: String) -> Self {
         Self {
             base: IdentifierWriteReferenceBaseIr::MutableBinding { storage_name },
@@ -2362,6 +2378,9 @@ impl IdentifierWriteReferenceIr {
     #[must_use]
     pub fn name(&self) -> &str {
         match &self.base {
+            IdentifierWriteReferenceBaseIr::Environment {
+                referenced_name, ..
+            } => referenced_name,
             IdentifierWriteReferenceBaseIr::MutableBinding { storage_name } => storage_name,
             IdentifierWriteReferenceBaseIr::IgnoredImmutableBinding { referenced_name }
             | IdentifierWriteReferenceBaseIr::Abrupt {
@@ -2377,6 +2396,13 @@ impl IdentifierWriteReferenceIr {
     #[must_use]
     pub fn write_disposition(&self) -> IdentifierWriteDisposition<'_> {
         match &self.base {
+            IdentifierWriteReferenceBaseIr::Environment {
+                referenced_name,
+                strictness,
+            } => IdentifierWriteDisposition::Environment {
+                referenced_name,
+                strictness: *strictness,
+            },
             IdentifierWriteReferenceBaseIr::MutableBinding { storage_name } => {
                 IdentifierWriteDisposition::MutableBinding { storage_name }
             }
@@ -2435,6 +2461,22 @@ pub enum PutValueFailure {
 #[must_use]
 pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueFailure)> {
     match expr {
+        ExprIr::EnvironmentIdentifier(identifier) => match &identifier.operation {
+            crate::EnvironmentIdentifierOperationIr::Assign { .. }
+            | crate::EnvironmentIdentifierOperationIr::Update { .. }
+            | crate::EnvironmentIdentifierOperationIr::EagerCompound { .. }
+            | crate::EnvironmentIdentifierOperationIr::LogicalCompound { .. } => Some((
+                identifier.strictness,
+                PutValueFailure::TypeErrorOrReferenceError,
+            )),
+            crate::EnvironmentIdentifierOperationIr::Delete => {
+                Some((identifier.strictness, PutValueFailure::TypeErrorOnly))
+            }
+            crate::EnvironmentIdentifierOperationIr::Read
+            | crate::EnvironmentIdentifierOperationIr::Typeof
+            | crate::EnvironmentIdentifierOperationIr::Call { .. } => None,
+        },
+
         // PutValue 2.a **and** 3.d: the base is the global object or
         // unresolvable, and which one is a runtime fact.
         ExprIr::GlobalPropertyWrite { strictness, .. }
@@ -2765,6 +2807,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::ObjectLiteral(..)
         | ExprIr::ArrayLiteral(..)
         | ExprIr::ArrayAccumulation(..)
+        | ExprIr::EnvironmentIdentifier(..)
         | ExprIr::Identifier(..)
         | ExprIr::TemplateObject(..)
         | ExprIr::SpreadArgument(..)
@@ -3595,6 +3638,7 @@ mod tests {
         let fallback = TypedExpr::from_info(
             dynamic_value_info(),
             ExprIr::CallIndirect {
+                direct_eval: None,
                 callee: Box::new(identifier("fallback", ValueKind::Dynamic)),
                 this_arg: None,
                 args: vec![identifier("arg", ValueKind::Number)],

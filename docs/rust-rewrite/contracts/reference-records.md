@@ -206,8 +206,10 @@ made the ambient function mode, rather than the carried Reference, decide
 PutValue 3.d.
 
 `AssignProperty` therefore carries a private-field
-`SuspendedPropertyReferenceIr`. Its only current constructor records an
-ordinary Reference as `{ base_and_receiver, key, strictness }`: for a
+`SuspendedPropertyReferenceIr`. Its constructor consumes the existing
+`OrdinaryPropertyReferencePlan` directly as
+`{ base_and_receiver, key, strictness }`, without fabricating a write whose
+admission rules could reject a nullish base before the RHS runs. For a
 non-super property Reference, 6.2.5.3 `GetThisValue` returns `[[Base]]`, so a
 second receiver expression or activation slot would permit an impossible
 disagreement. Consumers receive an exhaustive borrowed use view. The shared
@@ -215,6 +217,11 @@ AOT consumer evaluates and stores base/key before the yielded expression, then
 reloads them and spends `strictness` through `with_reference_strictness` only
 after a normal resume. Adding super/property receiver separation later requires
 a new use-view variant and compile-visible emitter work.
+
+A nullish base therefore reaches the normal-resume ToObject failure after the
+yielded RHS has executed; its raw key is never coerced. This follows
+[EvaluatePropertyAccessWithExpressionKey](https://tc39.es/ecma262/multipage/ecmascript-language-expressions.html#sec-evaluate-property-access-with-expression-key),
+which forms a Reference before simple-assignment RHS evaluation.
 
 The [suspended Reference follow-up](../aot-suspended-references.md) adds four
 initialized activation words for async-generator ordinary property assignment,

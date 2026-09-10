@@ -50,6 +50,7 @@ fn diagnostic_stores_one_private_closed_payload() {
         "Rejected(EarlyErrorCode),",
         "Unsupported,",
         "UnsupportedFeature(UnsupportedFeature),",
+        "UnsupportedParserFeature,",
         "Lowering,",
         "}"
     )));

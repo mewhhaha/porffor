@@ -139,8 +139,20 @@ fn resolution_produces_and_only_the_recorder_decomposes_the_accounting_pair() {
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
             "record_unsupported_dynamic_source(",
         ),
-        7,
-        "one recorder and six call sites must own every newly unsupported invocation"
+        6,
+        "one recorder and five call sites must own every newly unsupported invocation"
+    );
+    assert_eq!(
+        SOURCE.matches("record_unsupported_dynamic_source(").count(),
+        2,
+        "the source module owns the recorder and dynamic construction"
+    );
+    assert_eq!(
+        CALL_CANDIDATE_SOURCE
+            .matches("record_unsupported_dynamic_source(")
+            .count(),
+        2,
+        "candidate analysis records unsupported calls and constructions"
     );
     let call_candidate_preflight = normalized(bounded(
         CALL_CANDIDATE_SOURCE,

@@ -11,16 +11,22 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     pub(super) fn lower_call(&mut self, callee: &Expression, args: &[Expression]) -> TypedExpr {
+        self.register_array_callback_source_candidates(callee, args);
+        self.register_dynamic_source_candidates(callee, args);
         // A call nested in a computed property key can mutate the already
         // captured base even when its result is a primitive key. The epoch is
         // only an ordering signal; the call's normal effect analysis still
         // decides which flow facts must actually be discarded.
         self.intervening_effect_epoch = self.intervening_effect_epoch.saturating_add(1);
-        // Resolve a direct identifier through any preceding Object
-        // Environment Records before the name-specific builtin folds below.
-        // A selected with binding can shadow even `Number`/`Boolean`/`Symbol`,
-        // and the Reference's base supplies CallExpression's WithBaseObject.
+        // Resolve identifier references before intrinsic folds: environment
+        // bindings can shadow builtins and supply the call's receiver.
+        if let Some(call) = self.lower_environment_identifier_call(callee, args) {
+            return call;
+        }
         if let Some(call) = self.lower_with_environment_identifier_call(callee, args) {
+            return call;
+        }
+        if let Some(call) = self.lower_direct_eval_call(callee, args) {
             return call;
         }
 
@@ -161,6 +167,7 @@ impl<'a> ScriptLowerer<'a> {
                         let call = TypedExpr::from_info(
                             info,
                             ExprIr::CallIndirect {
+                                direct_eval: None,
                                 callee: Box::new(self.function_value_expr(effective_function_id)),
                                 this_arg: Some(Box::new(TypedExpr::from_info(
                                     Self::standard_builtin_value_info(match builtin {
@@ -2909,6 +2916,7 @@ impl<'a> ScriptLowerer<'a> {
                                 return TypedExpr::from_info(
                                     info,
                                     ExprIr::CallIndirect {
+                                        direct_eval: None,
                                         callee: Box::new(receiver),
                                         this_arg: Some(Box::new(call_this)),
                                         args: forwarded_args,
@@ -3004,6 +3012,7 @@ impl<'a> ScriptLowerer<'a> {
                     let call = invocation_effects.attach_to_emitted_call(TypedExpr::from_info(
                         info.clone(),
                         ExprIr::CallIndirect {
+                            direct_eval: None,
                             callee: Box::new(callee),
                             this_arg: Some(Box::new(materialized_receiver)),
                             args,
@@ -3044,6 +3053,7 @@ impl<'a> ScriptLowerer<'a> {
                         let call = TypedExpr::from_info(
                             result,
                             ExprIr::CallIndirect {
+                                direct_eval: None,
                                 callee: Box::new(callee),
                                 this_arg: Some(Box::new(TypedExpr::from_info(
                                     this_value,
@@ -3071,6 +3081,7 @@ impl<'a> ScriptLowerer<'a> {
                     let call = TypedExpr::from_info(
                         info,
                         ExprIr::CallIndirect {
+                            direct_eval: None,
                             callee: Box::new(callee),
                             this_arg: Some(Box::new(TypedExpr::from_info(
                                 self.current_this_info(),

@@ -7,6 +7,7 @@ use super::*;
 enum ForOfBareIdentifierHead {
     Absent,
     AssignmentTarget { source_name: String },
+    BorrowedVar { source_name: String },
 }
 
 struct LexicalForOfPatternBinding {
@@ -137,21 +138,10 @@ impl<'a> ScriptLowerer<'a> {
         ForOfLoweringIr::async_function_iterator(iterable, plan, body_kind)
     }
 
-    /// Lowers a `for`-`of` head.
-    ///
-    /// Thin wrapper: the witness [`lower_for_of_head`] produced has done its
-    /// work by the time control returns here (every path out of that function
-    /// had to name one), and no emitter may read it.
-    ///
-    /// [`lower_for_of_head`]: Self::lower_for_of_head
     pub(super) fn lower_for_of_loop(&mut self, for_of: &ForOfLoop) -> (StatementIr, ValueKind) {
         self.lower_for_of_head(for_of).into_statement_and_kind()
     }
 
-    /// Every path out of this function returns a [`ForOfLoweringIr`]. The
-    /// generic statement carries its witness in the head, while
-    /// `AsyncFunctionForOfIterator` can only be built through the constructor
-    /// that selects its dedicated resumable-sync witness.
     fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {
         let uses_unified_resumable_plan = for_of.r#await() && self.current_resumable_plan.is_some();
         if for_of.r#await()
@@ -165,8 +155,7 @@ impl<'a> ScriptLowerer<'a> {
             self.unsupported("explicit await in for-await-of body");
             return ForOfLoweringIr::no_iteration();
         }
-        // A plain `for (x of …)` whose body awaits needs an Iterator Record and
-        // loop state that survive the async driver's return to the job queue.
+        // A body await must retain the Iterator Record across driver returns.
         let plain_async_await_body = self.plain_async_entry_state().is_some()
             && !for_of.r#await()
             && contains(for_of.body(), ContainsSymbol::AwaitExpression);
@@ -185,8 +174,7 @@ impl<'a> ScriptLowerer<'a> {
             return ForOfLoweringIr::no_iteration();
         }
         if let IterableLoopInitializer::WebCompatCall(call) = for_of.initializer() {
-            // The head evaluates the iterable and then throws a ReferenceError,
-            // so no 7.4 operation ever runs: the loop is gone, not specialized.
+            // The invalid Reference throws after iterable evaluation, before GetIterator.
             return ForOfLoweringIr::new(
                 StatementIr::Expression(
                     self.lower_web_compat_loop_assignment_target(call, for_of.iterable()),
@@ -211,6 +199,18 @@ impl<'a> ScriptLowerer<'a> {
                 )
             }
             IterableLoopInitializer::Var(variable) => match variable.binding() {
+                Binding::Identifier(identifier)
+                    if self.borrows_direct_eval_variable_environment() =>
+                {
+                    bare_identifier_head = ForOfBareIdentifierHead::BorrowedVar {
+                        source_name: self.interner.resolve_expect(identifier.sym()).to_string(),
+                    };
+                    (
+                        LoweredForOfHeadKind::Assignment,
+                        BindingMode::Let,
+                        self.alloc_temp_binding_name("forof.var"),
+                    )
+                }
                 Binding::Identifier(identifier) => (
                     LoweredForOfHeadKind::Assignment,
                     BindingMode::Var,
@@ -295,9 +295,8 @@ impl<'a> ScriptLowerer<'a> {
                     self.alloc_temp_binding_name("forof"),
                 )
             }
-            // `for (obj.key of …)` and `for (this.#field of …)` both assign to a
-            // reference that the spec re-evaluates on every iteration, so the
-            // element lands in a temporary and the body prefix performs the store.
+            // Re-evaluate the property Reference on each iteration, after
+            // the iterator value has been stored in a private temporary.
             IterableLoopInitializer::Access(
                 access @ (PropertyAccess::Simple(_) | PropertyAccess::Private(_)),
             ) => {
@@ -354,6 +353,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_for_head_expression_with_tdz(mode, &name, for_of.iterable())
             }
             (None, None, ForOfBareIdentifierHead::AssignmentTarget { .. })
+            | (None, None, ForOfBareIdentifierHead::BorrowedVar { .. })
             | (None, None, ForOfBareIdentifierHead::Absent) => {
                 self.lower_expression(for_of.iterable())
             }
@@ -385,18 +385,13 @@ impl<'a> ScriptLowerer<'a> {
         let async_generator_next_suspension = uses_unified_resumable_plan
             .then(|| self.take_resumable_suspension(ResumableSuspensionKindIr::ForAwaitNext))
             .flatten();
-        // The loop's own first suspension is the `await` on `next()`, which
-        // the spec reaches once the iterable has been evaluated and before the
-        // body runs. Claiming the entry state here puts it in that same order:
-        // after any `await` staged out of the loop head, which has already
-        // consumed states, and before the body allocates its own.
+        // Allocate next()'s suspension after the iterable's awaits and before
+        // any body suspension, matching their evaluation order.
         let async_entry_state = (for_of.r#await() && !uses_unified_resumable_plan)
             .then_some(self.current_async_resume_state)
             .flatten();
         if for_of.r#await() {
-            // 7.4.3 GetIterator tries `@@asyncIterator` first, then falls back
-            // to `@@iterator` wrapped as an async iterator. The order is the
-            // spec obligation.
+            // GetIterator tries @@asyncIterator before wrapping @@iterator.
             for key in [WellKnownSymbol::AsyncIterator, WellKnownSymbol::Iterator] {
                 let function_targets = self
                     .optional_chain_well_known_symbol_property_info(&iterable.value_info(), key)
@@ -423,9 +418,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         }
-        // Every admitted head below emits generic iterator operations.
-        // `@@iterator`, `next` and abrupt-close `return` can enter user code
-        // before the per-iteration head and body run.
+        // Iterator methods can enter user code before the head and body run.
         self.invalidate_unknown_user_code_effects();
         let before_vars = self.var_bindings.clone();
         let before_globals = self.global_properties.clone();
@@ -445,6 +438,7 @@ impl<'a> ScriptLowerer<'a> {
             || matches!(
                 &bare_identifier_head,
                 ForOfBareIdentifierHead::AssignmentTarget { .. }
+                    | ForOfBareIdentifierHead::BorrowedVar { .. }
             ) {
             name.clone()
         } else {
@@ -468,7 +462,22 @@ impl<'a> ScriptLowerer<'a> {
                 initialization: Initialization::Initialized,
             },
         );
-        let mut pattern_prefix = if let ForOfBareIdentifierHead::AssignmentTarget { source_name } =
+        let mut pattern_prefix = if let ForOfBareIdentifierHead::BorrowedVar { source_name } =
+            &bare_identifier_head
+        {
+            let value = TypedExpr::from_info(
+                element_info.clone(),
+                ExprIr::Identifier(storage_name.clone()),
+            );
+            vec![StatementIr::DeclarationEvaluation(
+                self.environment_identifier(
+                    source_name.clone(),
+                    EnvironmentIdentifierOperationIr::Assign {
+                        value: Box::new(value),
+                    },
+                ),
+            )]
+        } else if let ForOfBareIdentifierHead::AssignmentTarget { source_name } =
             &bare_identifier_head
         {
             let value = TypedExpr::from_info(
@@ -637,10 +646,6 @@ impl<'a> ScriptLowerer<'a> {
                 lexical_environment,
             );
         }
-        // Every ordinary path uses the generic iterator protocol. That includes
-        // strings, whose `@@iterator` and iterator `next` methods are mutable,
-        // and non-iterable primitives. `for (x of 37)` has to reach
-        // `GetIterator`, which throws a TypeError at runtime.
         let (statement, protocol) = match head_kind {
             LoweredForOfHeadKind::SyncDisposable => {
                 let protocol = IteratorProtocolWitness::SYNC_ITERATOR_PROTOCOL;
@@ -702,10 +707,8 @@ impl<'a> ScriptLowerer<'a> {
                         {
                             self.add_suspension_owned_binding(storage_name.clone());
                         }
-                        // Allocation order is load-bearing: `alloc_temp_binding_name`
-                        // numbers bindings as it hands them out, so these five calls
-                        // must stay in this sequence for the emitted names to be the
-                        // ones they were before the Iterator Record retrofit.
+                        // Allocate these slots in protocol order so their generated
+                        // names remain consistent with the resume plan.
                         let iterator = self.alloc_iterator_slot();
                         let next_method = self.alloc_next_method_slot();
                         let async_iterator_binding = self.alloc_suspension_owned_binding(

@@ -62,6 +62,7 @@ impl EmptyDerivedFunction {
 
     fn body(self) -> FunctionIr {
         FunctionIr {
+            eval_environment: None,
             id: self.id().to_string(),
             name: "anonymous".to_string(),
             to_string_representation: CallableToStringRepresentation::ExactSource(
@@ -142,6 +143,168 @@ pub(crate) fn append_empty_dynamic_function_bodies(script: &mut ScriptIr) {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    pub(super) fn emit_prepared_dynamic_function_dispatch(
+        &mut self,
+        kind: DynamicFunctionKind,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let entries = self
+            .functions
+            .prepared_dynamic_functions()
+            .iter()
+            .filter(|entry| entry.kind == kind)
+            .cloned()
+            .collect::<Vec<_>>();
+        let argument_counts = entries
+            .iter()
+            .map(|entry| entry.arguments.len())
+            .collect::<BTreeSet<_>>();
+        for count in argument_counts {
+            function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+            function.instruction(&Instruction::I64Const(count as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            let argument_payload_local = self.reserve_temp_local();
+            let argument_tag_local = self.reserve_temp_local();
+            let expected_string_local = self.reserve_temp_local();
+            let argument_strings = (0..count)
+                .map(|_| self.reserve_temp_local())
+                .collect::<Vec<_>>();
+            for (index, string_local) in argument_strings.iter().copied().enumerate() {
+                self.emit_builtin_arg_to_locals(
+                    index,
+                    argument_payload_local,
+                    argument_tag_local,
+                    function,
+                );
+                let primitive = self.emit_tagged_to_primitive_locals_in_current_function_realm(
+                    ToPrimitiveHint::String,
+                    argument_payload_local,
+                    argument_tag_local,
+                    function,
+                )?;
+                self.emit_current_function_realm_primitive_to_string_local(
+                    primitive,
+                    string_local,
+                    function,
+                )?;
+            }
+            for entry in entries
+                .iter()
+                .filter(|entry| entry.arguments.len() == count)
+            {
+                function.instruction(&Instruction::I32Const(1));
+                for (argument, string_local) in entry.arguments.iter().zip(&argument_strings) {
+                    function.instruction(&Instruction::I64Const(self.strings.payload(argument)));
+                    function.instruction(&Instruction::LocalSet(expected_string_local));
+                    self.emit_string_payload_equality_i32(
+                        *string_local,
+                        expected_string_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::I32And);
+                }
+                function.instruction(&Instruction::If(BlockType::Empty));
+                match &entry.outcome {
+                    lila_ir::PreparedDynamicFunctionOutcome::SyntaxError { message } => {
+                        self.emit_throw_current_function_realm_error(
+                            SYNTAX_ERROR_NAME,
+                            message,
+                            self.result_local,
+                            self.result_tag_local,
+                            function,
+                        )?;
+                    }
+                    lila_ir::PreparedDynamicFunctionOutcome::Compiled { function_id } => {
+                        let body_meta = self
+                            .functions
+                            .get(function_id)
+                            .cloned()
+                            .expect("prepared source owns compiled function metadata");
+                        match kind {
+                            DynamicFunctionKind::Ordinary => self
+                                .emit_ordinary_dynamic_function_allocation(&body_meta, function)?,
+                            DynamicFunctionKind::Generator => self
+                                .emit_derived_dynamic_function_allocation(
+                                    EmptyDerivedFunction::Generator,
+                                    &body_meta,
+                                    function,
+                                )?,
+                            DynamicFunctionKind::Async => self
+                                .emit_derived_dynamic_function_allocation(
+                                    EmptyDerivedFunction::Async,
+                                    &body_meta,
+                                    function,
+                                )?,
+                            DynamicFunctionKind::AsyncGenerator => self
+                                .emit_derived_dynamic_function_allocation(
+                                    EmptyDerivedFunction::AsyncGenerator,
+                                    &body_meta,
+                                    function,
+                                )?,
+                        }
+                    }
+                }
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
+            for string_local in argument_strings.into_iter().rev() {
+                self.release_temp_local(string_local);
+            }
+            self.release_temp_local(expected_string_local);
+            self.release_temp_local(argument_tag_local);
+            self.release_temp_local(argument_payload_local);
+            self.emit_reject_dynamic_source(
+                DynamicSourceRuntimeOperation::Function(kind),
+                function,
+            );
+            function.instruction(&Instruction::End);
+        }
+        // Counts absent from the registry must still execute every ToString.
+        let index_local = self.reserve_temp_local();
+        let payload_local = self.reserve_temp_local();
+        let tag_local = self.reserve_temp_local();
+        let string_local = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_array_read(
+            self.argv_param_local(),
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        );
+        let primitive = self.emit_tagged_to_primitive_locals_in_current_function_realm(
+            ToPrimitiveHint::String,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_current_function_realm_primitive_to_string_local(
+            primitive,
+            string_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(string_local);
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+        self.release_temp_local(index_local);
+        Ok(())
+    }
+
     pub(crate) fn compile_dynamic_function_constructor_builtin(
         &mut self,
         kind: DynamicFunctionKind,
@@ -159,6 +322,23 @@ impl<'a> FunctionBuilder<'a> {
             self.functions.get(empty.id()).cloned().unwrap_or_else(|| {
                 panic!("missing compiler-generated empty body `{}`", empty.id())
             });
+        self.emit_prepared_dynamic_function_dispatch(kind, function)?;
+        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_derived_dynamic_function_allocation(empty, &body_meta, function)?;
+        function.instruction(&Instruction::Else);
+        self.emit_reject_dynamic_source(DynamicSourceRuntimeOperation::Function(kind), function);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    fn emit_derived_dynamic_function_allocation(
+        &mut self,
+        empty: EmptyDerivedFunction,
+        body_meta: &WasmFunctionMeta,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let active_constructor_local = self.reserve_temp_local();
         let active_realm_local = self.reserve_temp_local();
         let active_intrinsics_local = self.reserve_temp_local();
@@ -172,9 +352,6 @@ impl<'a> FunctionBuilder<'a> {
         let instance_prototype_local = self.reserve_temp_local();
         let instance_parent_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(self.current_env_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
@@ -257,8 +434,14 @@ impl<'a> FunctionBuilder<'a> {
         self.release_resolved_function_realm_local(prototype_realm);
         function.instruction(&Instruction::End);
 
-        self.emit_function_value_payload(&body_meta, function)?;
+        self.emit_function_value_payload(body_meta, function)?;
         function.instruction(&Instruction::LocalSet(function_object_local));
+        self.emit_install_dynamic_function_global_environment(
+            body_meta,
+            function_object_local,
+            active_realm_local,
+            function,
+        );
         self.emit_store_function_defining_realm(
             function_object_local,
             active_realm_local,
@@ -300,10 +483,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_reject_dynamic_source(DynamicSourceRuntimeOperation::Function(kind), function);
-        function.instruction(&Instruction::End);
-
         self.release_temp_local(instance_parent_local);
         self.release_temp_local(instance_prototype_local);
         self.release_temp_local(function_object_local);

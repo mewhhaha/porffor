@@ -209,6 +209,7 @@ pub(crate) const ASYNC_DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 137;
 pub(crate) const DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX: u32 = 138;
 pub(crate) const DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 139;
 pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX: u32 = 140;
+pub(crate) const REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 141;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
@@ -221,6 +222,8 @@ pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_IN
 pub(crate) const THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
+pub(crate) const PREPARED_SCRIPT_TYPE_INDEX: u32 = 15;
+pub(crate) const PREPARED_SCRIPT_PARAM_COUNT: usize = 10;
 pub(crate) const HEAP_ALLOC_TYPE_INDEX: u32 = 2;
 pub(crate) const OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX: u32 = 3;
 pub(crate) const OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX: u32 = 4;
@@ -824,6 +827,10 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "throw_error_constructor_name_heap",
         index: THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "%RegExpStringIteratorPrototype%",
+        index: REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -1156,6 +1163,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ArrayIteratorNext
         | StandardBuiltinId::ArrayIteratorIdentity
         | StandardBuiltinId::StringIteratorNext
+        | StandardBuiltinId::RegExpStringIteratorNext
         | StandardBuiltinId::GeneratorPrototypeNext
         | StandardBuiltinId::GeneratorPrototypeReturn
         | StandardBuiltinId::GeneratorPrototypeThrow
@@ -2036,9 +2044,14 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX as usize + 1,
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX as usize + 1,
             "the fixed scalar registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
+        );
+        assert!(
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX
+                > THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX,
+            "the RegExp String Iterator prototype is appended so existing global indices stay stable"
         );
         assert!(
             THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX > INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,

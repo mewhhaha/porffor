@@ -65,7 +65,9 @@ pub(crate) fn module_unit_guard_count(script: &ScriptIr) -> u32 {
     }
 
     let mut highest = None;
-    scan_block(&script.body, &mut highest);
+    for body in script.executable_script_bodies() {
+        scan_block(body, &mut highest);
+    }
     for function in &script.functions {
         scan_block(&function.body, &mut highest);
     }

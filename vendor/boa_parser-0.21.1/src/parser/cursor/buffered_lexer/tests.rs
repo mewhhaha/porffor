@@ -302,3 +302,20 @@ fn issue_1768() {
 
     assert!(cur.peek(3, true, interner).unwrap().is_none());
 }
+
+#[test]
+fn next_skips_comment_separated_line_terminators_after_the_buffer_is_drained() {
+    let mut cursor = BufferedLexer::from(&b"a\n// comment\nb"[..]);
+    let interner = &mut Interner::default();
+    for expected in ["a", "b"] {
+        assert_eq!(
+            cursor
+                .next(true, interner)
+                .unwrap()
+                .expect("identifier")
+                .kind(),
+            &TokenKind::identifier(interner.get_or_intern(expected)),
+        );
+    }
+    assert!(cursor.next(true, interner).unwrap().is_none());
+}

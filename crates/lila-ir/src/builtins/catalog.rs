@@ -5746,6 +5746,13 @@ standard_builtin_catalog! {
         installer: None,
         native: TYPED_ARRAY_NAME,
     }
+    RegExpStringIteratorNext {
+        function: FunctionOrdinal(789) => BUILTIN_REGEXP_STRING_ITERATOR_NEXT_FUNCTION_ID,
+        debug: "RegExp String Iterator.prototype.next",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "next",
+    }
 }
 
 impl StandardBuiltinId {

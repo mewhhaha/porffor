@@ -121,7 +121,7 @@ impl TdzPlaceholderName {
     /// The sole predicate, and it answers a *name-domain* question — "was this
     /// storage name minted by [`Self::for_source_name`]?" — for the sites that
     /// hold an analysis-minted `&str` and no `BindingInfo` to ask instead:
-    /// `lower_function`'s capture-info arm, `is_script_global_var_capture`, and
+    /// `lower_function`'s capture-info arm, `is_script_global_object_capture`, and
     /// the `#[cfg(test)]` assertions in `lib.rs`.
     ///
     /// It is NOT the TDZ predicate. No read or write site may call it; they go

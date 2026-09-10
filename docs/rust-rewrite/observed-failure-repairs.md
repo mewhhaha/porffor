@@ -7,6 +7,12 @@ baseline, not full-suite conformance. The continuing baseline retains its
 unchanged compiler, suite, cache and snapshots in the original checkout; this
 repair branch uses a separate worktree and bounded verification service.
 
+This document records the first repair checkpoint. The subsequent
+[later failure repair batch](observed-later-failure-repairs.md) implements the
+independent source units and environment records described in the plan below
+and replays this same 592-execution cohort alongside its additional 420 cases.
+Use that document for the current repair verification and remaining limitations.
+
 ## Shared causes addressed
 
 - Suspend-owned physical bindings include uncaptured block and loop bindings;
@@ -103,6 +109,11 @@ errors. The command exits zero only when every execution passes, one for ordinar
 non-passing results and two for an inconsistent native report. It forces isolated
 case runners so their timeouts remain effective.
 
+Interrupted replays now support `--resume` with the same frozen `compiler` and
+`executions` files. The driver verifies saved outcomes against their native
+transcripts and keeps completed failures red; see the
+[later replay instructions](observed-later-failure-repairs.md#reproduce).
+
 The watcher limits stalls and CPU use. On the Linux development host, the build
 and replay services additionally use `MemoryHigh=10G`, `MemoryMax=12G`,
 `MemorySwapMax=0` and `OOMPolicy=stop`. These are cgroup limits; lowering Cargo's
@@ -127,7 +138,7 @@ An empty list means there are no failures to replay. Focused replay is the repai
 loop; adjacent passing tests and periodic full baselines are still needed to find
 regressions outside the cohort.
 
-## Remaining implementation plan
+## Implementation plan at the first checkpoint
 
 T13 owns the remaining textual-source cases. Source known at compilation time
 is implementable without a runtime interpreter; the missing evaluation-unit and

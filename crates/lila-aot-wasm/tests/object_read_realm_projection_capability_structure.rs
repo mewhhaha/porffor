@@ -136,7 +136,7 @@ fn all_four_source_rows_project_exhaustively_into_both_domains() {
     for runtime_body_census in [
         concat!(
             "assert_eq!(object_read_helpers,vec![",
-            "RuntimeHelperId::ObjectRead,RuntimeHelperId::ObjectReadProxy,RuntimeHelperId::IndexedElementRead]);"
+            "RuntimeHelperId::ObjectRead,RuntimeHelperId::ObjectReadProxy,RuntimeHelperId::IndexedElementRead,RuntimeHelperId::ObjectHasProperty]);"
         ),
         concat!(
             "assert_eq!(proxy_dispatch_helpers,vec![",
@@ -191,7 +191,7 @@ fn all_four_source_rows_project_exhaustively_into_both_domains() {
 fn each_projection_consumer_keeps_its_exact_emission_policy() {
     let outlined_consumer = normalized(bounded(
         OBJECTS_SOURCE,
-        "fn emit_outlined_object_read_realm_argument(&self, function: &mut Function) {",
+        "fn emit_outlined_object_read_realm_argument(&mut self, function: &mut Function) {",
         "\n    }\n\n    pub(crate) fn emit_object_read(",
     ));
     assert_eq!(
@@ -202,7 +202,9 @@ fn each_projection_consumer_keeps_its_exact_emission_policy() {
             "OutlinedObjectReadRealmArgument::TrustedCurrentEnvironment=>{",
             "function.instruction(&Instruction::LocalGet(self.current_env_local));}",
             "OutlinedObjectReadRealmArgument::MainRealmFallback=>{",
-            "function.instruction(&Instruction::I64Const(0));}}"
+            "ifself.has_source_execution_environment(){",
+            "self.emit_source_realm_function_context_payload(function);",
+            "}else{function.instruction(&Instruction::I64Const(0));}}}"
         )
     );
 

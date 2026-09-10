@@ -52,23 +52,12 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 
 #[test]
 fn unary_numeric_kind_is_the_exact_private_no_capability_domain() {
-    let preceding_item = concat!(
-        "fn arithmetic_applies_to_primitive_before_numeric(operator: ArithmeticBinaryOp) -> bool {\n",
-        "    match operator {\n",
-        "        ArithmeticBinaryOp::Add => true,\n",
-        "        ArithmeticBinaryOp::Sub\n",
-        "        | ArithmeticBinaryOp::Mul\n",
-        "        | ArithmeticBinaryOp::Div\n",
-        "        | ArithmeticBinaryOp::Mod\n",
-        "        | ArithmeticBinaryOp::Exp => false,\n",
-        "    }\n",
-        "}\n\n",
-    );
+    let preceding_item = "        operand_count,\n    )))\n}\n\n";
     assert_eq!(WASM_OPERATION_SOURCE.matches(preceding_item).count(), 1);
     let declaration_region = bounded(
         WASM_OPERATION_SOURCE,
         preceding_item,
-        "/// Which realm environment an outlined numeric-conversion helper may receive.",
+        "/// The static target classes shared by object-only specification operations.",
     );
     assert!(!declaration_region.contains("#["));
     let declaration_code = declaration_region
@@ -267,7 +256,7 @@ fn wasm_minus_dispatches_exhaustively_after_to_numeric() {
     let dynamic_tag_projection = bounded(
         PLANNING_SOURCE,
         "pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {",
-        "pub(crate) fn count_param_locals",
+        "pub(crate) fn count_param_binding_locals",
     );
     assert!(dynamic_tag_projection.contains("ExprIr::UnaryMinusNumeric { .. }"));
 }

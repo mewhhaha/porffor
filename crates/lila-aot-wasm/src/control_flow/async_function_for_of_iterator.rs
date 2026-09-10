@@ -217,6 +217,14 @@ impl<'a> FunctionBuilder<'a> {
         self.initialize_direct_lexical_bindings(plan.before_await(), function);
         self.initialize_direct_lexical_bindings(plan.after_await(), function);
         function.instruction(&Instruction::Else);
+        if has_iteration_environment {
+            self.load_i64_to_local_from_offset(
+                activation_local,
+                HEAP_ASYNC_ENV_OFFSET,
+                self.current_env_local,
+                function,
+            );
+        }
         let resumed_iterator_storage = self
             .lookup_binding(plan.record().iterator().as_str())
             .expect("resumable for-of iterator slot must remain in scope");

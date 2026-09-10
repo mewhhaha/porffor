@@ -132,8 +132,10 @@ identity with that global.
 The same required-slot rule now covers the ordinary-object defaults selected
 by construction: `%Object.prototype%`, the seven message-bearing Error-family
 prototypes, `%String.prototype%`, `%Number.prototype%`,
-`%Boolean.prototype%`, `%Date.prototype%`, `%Iterator.prototype%`, and
-`%RegExp.prototype%`. A closed slot enum contains those ordinary
+`%Boolean.prototype%`, `%Date.prototype%`, `%Iterator.prototype%`,
+`%RegExp.prototype%`, `%Promise.prototype%`, `%DisposableStack.prototype%`,
+`%AggregateError.prototype%` and `%SuppressedError.prototype%`.
+A closed slot enum contains those ordinary
 representations; `%Array.prototype%` remains in its separate typed path.
 Loading a populated ordinary slot produces a non-copyable witness that
 construction must consume to install both the prototype payload and its Object
@@ -142,9 +144,12 @@ invariant failure. There is no entry-global input to this operation, so
 incomplete realm bootstrap cannot silently manufacture cross-realm prototype
 identity.
 
-RegExp additionally consumes a closed active-standard-builtin identity. A call
-with undefined `NewTarget` normalizes to the entry global or the self-backed
-created-realm RegExp constructor before the required prototype operation.
+RegExp additionally consumes a closed active-standard-builtin identity. The
+shared function allocator self-backs entry and created-realm Iterator, RegExp,
+AggregateError and SuppressedError constructors. Calls retain the actual
+callee's environment handle across global replacement. RegExp uses that
+identity for its same-constructor call shortcut and, when allocation is needed,
+undefined-`NewTarget` normalization before the required prototype operation.
 RegExp is classified as direct-returning, so its body owns the sole observable
 prototype Get and tagged allocation instead of running after the generic
 construct path has already repeated both operations. The complete boundary is

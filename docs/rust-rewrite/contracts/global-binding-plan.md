@@ -29,8 +29,9 @@ two independent facts for every object-record name:
 
 Keeping these axes separate is load-bearing. For `var Infinity`, the
 initializer remains the realm's immutable infinity value while the declaration
-set records `Var`; a declaration without an initializer must therefore read the
-existing property rather than a fresh local containing `undefined`. For a
+set records `Var`; a declaration without an initializer leaves the existing
+property unchanged and does not invoke its getter. Subsequent source reads
+resolve the actual property. For a
 duplicate function group, the initializer carries the exact `FunctionId` of
 the last declaration rather than asking codegen to find an arbitrary function
 with the same display name. A `var` accompanying that function is absorbed by
@@ -39,12 +40,15 @@ global, but collision with a restricted non-configurable property is surfaced
 as an explicit unsupported GlobalDeclarationInstantiation case until the
 runtime entry-realm rejection path owns its TypeError.
 
-Global lexical names live in the plan's separate lexical-name set. They never
-become object-record bindings, but the same spelling may still name a
-pre-existing property (`let Infinity` shadows rather than deletes the realm's
-`Infinity`). The planner owns restricted-property and lexical/variable
-collision decisions; the parser's early-error checks are not used as a reason
-to make an invalid declaration combination representable.
+Global lexical bindings live in the plan's separate map from name to the
+closed `GlobalLexicalBindingModeIr::{Mutable, Immutable}` domain. Lowering
+obtains the mode from the analyzed Script activation's binding modes; codegen
+does not scan declaration syntax again. They never become object-record
+bindings. A configurable pre-existing global may share the spelling, but a
+non-configurable property such as `Infinity` rejects the lexical declaration
+during instantiation. The planner owns restricted-property and
+lexical/variable collision decisions; the parser's early-error checks are not
+used as a reason to make an invalid declaration combination representable.
 
 Every initializer owns its descriptor policy exhaustively:
 
@@ -62,21 +66,38 @@ and attributes.
 
 AOT receives the already-unique plan. It may filter entries for tree-shaken
 bootstrap, but it may not collect a sequence with last-write-wins semantics.
-When a script `var` was satisfied by a pre-existing property, the main-frame
-cache is seeded from that property. Every later mirrored write uses ordinary
-`[[Set]]`, then refreshes the cache from the property; it never overwrites the
-descriptor payload directly. This applies even to a property that was fresh at
-instantiation because script code can subsequently make it non-writable. The
-cache therefore cannot retain a value rejected by the global object.
+`main_frame_write_bindings` allocates local storage used by declaration,
+destructuring, loop and Annex B publishers. Each publisher writes its value
+before reading that storage for ordinary `[[Set]]`; these slots do not cache
+source-visible global values. Instantiation does not seed them by reading
+global properties, and a mirrored write does not perform a second `[[Get]]`.
+Publication preserves the current StatementList value on normal completion,
+including empty loop bodies, and propagates an abrupt setter completion before
+restoring that value.
+Thus an existing accessor is invoked only by the JavaScript read or write that
+requires it. A rejected sloppy write leaves the global property unchanged;
+later source reads observe that property rather than the write temporary.
+
+Global root functions, including names also declared with `var`, use the same
+property resolution. Only function declarations that require body-local
+initialization receive local source bindings. This preserves installed function
+identity and observes later global replacement without a second cache authority.
+Host-name reachability does not override the current property's value facts;
+source declarations and deletion also control names such as `parseInt`.
+Script-global `var` metadata does not make a property undeletable. Deletion
+checks the runtime descriptor, and subsequent reads distinguish an absent
+binding from a present property whose value is `undefined`. Only local and
+lexical ownership establishes a non-deletable declarative binding.
 
 The global object is also authoritative for every script-global read-modify-
-write. Arithmetic compound assignment therefore lowers to
-`GlobalPropertyCompoundAssign` in both the main script owner and nested
-functions; it never reads the main-frame cache and then mirrors a result. A
-nested call may have changed the property since the cache was populated, so a
-local-cache compound assignment would overwrite that change from a stale left
-operand. The IR regression pins both owners, and the ToLength abrupt-route CLI
-fixture supplies an end-to-end nested-callback counterexample.
+write. Eager arithmetic and bitwise compound assignments consume the runtime
+Object Environment Reference plan in both the main script owner and nested
+functions. Resolution and GetValue precede RHS evaluation; coercion and PutValue
+follow it. The operation retains its actual Number, String or BigInt result tag.
+A nested call may have changed the property since an earlier write, so the
+assignment obtains its left operand from the global object instead of a write
+temporary. The ToLength abrupt-route CLI fixture supplies an end-to-end
+nested-callback counterexample.
 
 `AnnexBFunctionCopyTargetIr` makes its variable-environment destination
 explicit. A function-owned copy writes only an owner binding. A script-owned
@@ -85,7 +106,23 @@ as an ordinary `var` write. Adding another destination becomes an exhaustive
 IR and emitter decision instead of falling through an unconditional property
 write.
 
-This contract is intentionally bounded to the compiler's known entry realm.
-Dynamic global-object mutation before a separately evaluated script will need
-the same plan vocabulary plus runtime `CanDeclareGlobalFunction` /
-`CanDeclareGlobalVar` checks; it must not weaken this unique-plan invariant.
+Fresh entry scripts use this unique plan to bootstrap their global object.
+Prepared Script units retain the same binding vocabulary and a separate
+source-ordered declaration plan. Their runtime instantiation checks current
+lexical bindings, own descriptors and extensibility before installing globals;
+see [precompiled realm Scripts](precompiled-realm-scripts.md).
+
+Each realm owns a Global Environment root. Its declarative table maps names
+to the same cells used by ordinary lexical captures, including uninitialized
+and immutable bindings. Ordinary lexical environments terminate at this root;
+source functions resolve globals and intrinsic prototypes through their
+captured root's realm. Dynamic Function allocation preserves its immutable
+function execution context and installs the constructor realm's root as that
+context's lexical environment. Overwriting the function's environment handle
+would discard the active-function identity needed by its prologue.
+
+Global var/function state is the global object's own property state.
+[ECMA-262 PR 3226](https://github.com/tc39/ecma262/pull/3226) removed the separate
+`VarNames` list. Consequently a configurable binding introduced by sloppy eval
+may be shadowed by a later Script lexical declaration, as the pinned
+`script-decl-lex-var-declared-via-eval.js` test requires.

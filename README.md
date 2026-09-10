@@ -29,6 +29,31 @@ properties, and zero-argument Function-family construction. See
 for the exact scope and retained dynamic-source limitations. The complete
 baseline running against the earlier compiler is separate evidence.
 
+The later baseline repair batch covers bound-function metadata, exact function
+source text and comment-separated line terminators, Iterator callback receivers,
+synchronous DisposableStack realms and TypedArray argument collection. It also
+adds independently compiled finite Function and eval sources, direct-eval
+environment records, and persistent realm-global declarations. Follow-up fixes
+preserve declaration and loop completions, realm array iteration, and numeric
+coercion order with arbitrary-precision BigInt results. Source arguments
+still undergo their observable runtime conversions; source text outside the
+prepared set remains an explicit Wasm-AOT capability rejection. See
+[the later cohort notes](docs/rust-rewrite/observed-later-failure-repairs.md) for
+the exact replay scope, verification and remaining limitations. The `2026-09-09`
+replay of those 1,012 recorded failures finished with 994 Success,
+18 NotImplemented, zero Bug and zero Crash; this is a partial failure
+cohort, separate from the published full-suite baseline below.
+
+The [2026-09-10 baseline follow-up](docs/rust-rewrite/latest-baseline-repairs.md)
+compares newly observed failures with freshly fetched `origin/main`. It repairs
+radix-string conversion and rounding, RegExp construction and string-iterator
+identity, Temporal month-code validation order, typed-array Reference reads,
+BigInt numeric updates, buffer backing-store allocation, and cross-realm error
+prototypes and accessors. The audited repair checkpoint verifies 1,009 distinct
+execution failures repaired relative to main, including ten separately recorded
+timeout rechecks. The notes distinguish that checkpoint from the subsequent CI
+repair and retain the exact scope and remaining failures.
+
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace
@@ -128,13 +153,22 @@ Status refresh commands:
 When counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.
 <!-- lila-status:end -->
 
-The generated block above is preserved as the last published path-only
-checkpoint, not current execution-aware proof. Its fake full-suite `190/190`
-means 190 physical paths; the current denominator is statically derived as 191
-executions from those files because the one unflagged parse-negative now runs
-in both sloppy and strict Script mode. Both fake-suite execution-aware reruns
-and the pinned real Test262 refresh remain pending until the centralized
-Cargo/Test262 verification lease.
+The generated block above preserves the last published path-only checkpoint.
+On `2026-09-09`, the release Wasm-AOT CLI passed all `191/191` fake-suite
+executions from 190 files, including all `187/187` wasm-safe executions, with
+zero failures or timeouts. The unflagged parse-negative runs in both sloppy and
+strict Script mode. Refresh this execution-aware check with:
+
+```sh
+cargo build --release --locked -j 2 -p lila-cli
+LILA_MODULE_MEMORY_CACHE_ENTRIES=1 ./target/release/lila --jobs 1 test262 run \
+  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
+  --execution-backend wasm-aot --threads 2 --timeout-ms 60000 \
+  --snapshot-dir target/fake-status --snapshot-name fake-status
+```
+
+The pinned real Test262 aggregate refresh remains pending. Fake-suite results
+do not establish full ECMAScript or real Test262 conformance.
 
 Focused Wasm-AOT progress verified after the last aggregate publish is recorded
 under [Current Capabilities](#current-capabilities). The generated status block
@@ -164,8 +198,8 @@ What is already in place:
 - direct JS-to-Wasm compilation is the product default;
 - the Boa interpreter is feature-gated as a developer-only oracle and excluded
   from default product dependency graphs;
-- both repository fake suites were green at the last path-only checkpoint;
-  execution-aware refreshes remain pending;
+- execution-aware fake-suite validation is current as recorded under
+  [Current Status](#current-status);
 - shared IR, lowering, operation, ABI, heap, object, control-flow and builtin
   modules exist;
 - substantial focused support exists across functions/classes, objects,
@@ -190,12 +224,13 @@ The largest remaining closure work is:
 
 - publish a complete current-pin Wasm-AOT Test262 aggregate and generated
   failure backlog;
-- remove the large Test262 path/source materialization layer—the shortcut audit
-  now passes against an exact 186-entry token-aware baseline: 32 legitimate
-  harness adaptations, 105 diagnostic instrumentation sites and 49 semantic
-  shortcuts. The removal-task summary assigns 35 entries to T03 and leaves
-  T17 at 80; the T03 removal bucket contains 32 legitimate adaptations, two
-  diagnostic guards and one semantic shortcut. This census retains the
+- remove the large Test262 path/source materialization layer. The
+  [generated shortcut census](test262/backlog/current-shortcut-status.md),
+  refreshed `2026-09-08`, records 112 observations: 31 legitimate harness
+  adaptations, 39 diagnostic instrumentation sites and 42 semantic shortcuts.
+  Refresh with `bash scripts/audit-test262-shortcuts.sh --check` followed by
+  `python3 scripts/generate-shortcut-status.py`. These are classified source
+  observations, not conformance results. This census retains the
   audit-coverage rebaseline: the scanner covers multiline
   expressions, same-line multiplicity, exact rewrite calls, source contract
   guards and normalized `match`/`matches!` selector tables. Reduced assertion
@@ -4765,8 +4800,8 @@ Recent focused progress through `2026-09-01`:
   `yield-weak-binding` paths individually with the same one-path command.
   The complete `forbidden-ext` generator-expression subtree reports `5/5` as
   of `2026-07-20`: generator functions expose no forbidden own `arguments` or
-  `caller` properties, and ordinary functions take the permitted path that
-  omits the optional legacy own `caller` extension. Refresh it with
+  `caller` properties. Ordinary sloppy functions now expose an immutable own
+  `caller` with value `null`; strict functions retain the throwing restriction. Refresh it with
   `./target/release/lila test262 run language/expressions/generators/forbidden-ext --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-forbidden-ext-complete-20260720`.
   The final nine-root AOT closure checkpoint reports `9/9` as of `2026-07-20`:
   two parse-negative roots and seven runtime roots covering class-static-block

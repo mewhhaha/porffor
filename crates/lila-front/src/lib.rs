@@ -8,7 +8,14 @@ use std::rc::Rc;
 // The closed domain of pre-evaluation rejection codes and the one table that
 // classifies boa's static-semantics messages into it. See
 // `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
+mod dynamic_function;
 mod early_error_code;
+mod eval_source;
+
+pub use dynamic_function::{prepare_dynamic_function, FunctionParseKind};
+pub use eval_source::{
+    prepare_eval_source, DirectEvalParseContext, EvalInvocationContext, EvalParseContext,
+};
 
 pub use early_error_code::{
     classify_parse_failure, EarlyErrorCode, ParseClassified, NO_EARLY_ERROR_CODE,
@@ -459,39 +466,14 @@ pub fn parse(
         Source::from_bytes(source_text.as_bytes())
     };
 
-    let parsed = panic::catch_unwind(AssertUnwindSafe(|| match options.goal {
+    let ast = parse_with_boundary(&source_text, || match options.goal {
         ParseGoal::Script => Parser::new(source)
             .parse_script(&scope, &mut interner)
             .map(ParsedAst::Script),
         ParseGoal::Module => Parser::new(source)
             .parse_module(&scope, &mut interner)
             .map(ParsedAst::Module),
-    }));
-
-    let ast = match parsed {
-        Ok(Ok(ast)) => ast,
-        Ok(Err(err)) => {
-            let err = err.to_string();
-            let message = format!("parse error: {err}");
-            let span = parse_error_span_from_message(&source_text, &err);
-            // `&err` is Boa's bare message. Classify before adding presentation
-            // context so the taxonomy depends only on the parser's wording.
-            return if let Some(code) = classify_parse_failure(&err) {
-                Err(ParseError::early_error(code, message, span))
-            } else {
-                Err(ParseError::malformed(message, span))
-            };
-        }
-        Err(payload) => {
-            return Err(ParseError::unsupported_parser_feature(
-                format!(
-                "parse unsupported by current frontend: parser aborted while handling source ({})",
-                parser_abort_message(&payload)
-            ),
-                None,
-            ));
-        }
-    };
+    })?;
 
     let source = SourceUnit {
         goal: options.goal,
@@ -508,6 +490,34 @@ pub fn parse(
             syntax: Rc::new(ModuleSyntax { ast, interner }),
         }),
     })
+}
+
+fn parse_with_boundary<T>(
+    source_text: &str,
+    operation: impl FnOnce() -> Result<T, boa_parser::Error>,
+) -> Result<T, ParseError> {
+    match panic::catch_unwind(AssertUnwindSafe(operation)) {
+        Ok(Ok(parsed)) => Ok(parsed),
+        Ok(Err(err)) => {
+            let err = err.to_string();
+            let message = format!("parse error: {err}");
+            let span = parse_error_span_from_message(source_text, &err);
+            // `&err` is Boa's bare message. Classify before adding presentation
+            // context so the taxonomy depends only on the parser's wording.
+            if let Some(code) = classify_parse_failure(&err) {
+                Err(ParseError::early_error(code, message, span))
+            } else {
+                Err(ParseError::malformed(message, span))
+            }
+        }
+        Err(payload) => Err(ParseError::unsupported_parser_feature(
+            format!(
+                "parse unsupported by current frontend: parser aborted while handling source ({})",
+                parser_abort_message(&payload)
+            ),
+            None,
+        )),
+    }
 }
 
 enum ParsedAst {
@@ -3028,9 +3038,17 @@ mod tests {
         let front_source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         assert_eq!(
             count_in_rust_sources(&front_source_root, parser_new.as_str()),
-            8,
+            11,
             "every direct Boa parser construction, including test-only probes, requires review"
         );
+        for method in ["formal_parameters", "function_body", "eval"] {
+            let parse_goal = [".parse_", method, "("].concat();
+            assert_eq!(
+                count_in_rust_sources(&front_source_root, &parse_goal),
+                1,
+                "each independently prepared dynamic-source grammar has one parser route"
+            );
+        }
         assert_eq!(
             count_in_rust_sources(&front_source_root, parse_script.as_str()),
             7,

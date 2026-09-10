@@ -1258,10 +1258,17 @@ impl PatternParser<'_> {
                             subtree_end: self.capture_count + 1,
                         })
                     }
-                    _ => {
+                    Some(b'=' | b'!') => {
                         return Err(RegExpCompileError::unsupported_feature(
                             self.offset,
-                            "unsupported regular-expression group prefix",
+                            "unsupported regular-expression lookahead body",
+                        ));
+                    }
+                    _ => {
+                        return Err(RegExpCompileError::invalid_syntax(
+                            SyntaxRule::ModifierFlags,
+                            self.offset,
+                            "invalid regular-expression group prefix",
                         ));
                     }
                 }
@@ -1434,13 +1441,6 @@ impl PatternParser<'_> {
                 SyntaxRule::ModifierFlags,
                 group_offset,
                 "regular-expression modifier group has no modifiers",
-            ));
-        }
-        if seen_dash && removed == 0 {
-            return Err(RegExpCompileError::invalid_syntax(
-                SyntaxRule::ModifierFlags,
-                group_offset,
-                "regular-expression modifier group has an empty removal list",
             ));
         }
         self.offset = cursor;
@@ -6469,6 +6469,42 @@ mod tests {
             );
             assert_eq!(error.rule, Some(rule), "{pattern}");
             assert_eq!(error.offset, offset, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn modifier_groups_accept_empty_removal_after_added_flags() {
+        for flags in ["", "u", "v"] {
+            for added in ["i", "m", "s", "im", "is", "ms", "ims"] {
+                let with_dash = RegExpProgram::compile(&format!("(?{added}-:a)"), flags)
+                    .expect("added flags may precede an empty removal list");
+                let without_dash = RegExpProgram::compile(&format!("(?{added}:a)"), flags)
+                    .expect("equivalent modifier group");
+                assert_eq!(with_dash, without_dash);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_group_prefixes_are_syntax_errors_without_rejecting_legal_lookaheads() {
+        for pattern in [
+            "(?1:a)", "(?I:a)", "(?u:a)", "(?é:a)", "(?-:a)", "(?ii:a)", "(?i-i:a)",
+        ] {
+            let error = RegExpProgram::compile(pattern, "").expect_err("invalid modifier syntax");
+            assert_eq!(
+                error.kind,
+                RegExpCompileErrorKind::InvalidSyntax,
+                "{pattern}"
+            );
+            assert_eq!(error.rule, Some(SyntaxRule::ModifierFlags), "{pattern}");
+        }
+        for pattern in ["(?=ab)", "(?!ab)"] {
+            assert_eq!(
+                RegExpProgram::compile(pattern, "")
+                    .expect_err("unimplemented legal lookahead")
+                    .kind,
+                RegExpCompileErrorKind::UnsupportedFeature,
+            );
         }
     }
 

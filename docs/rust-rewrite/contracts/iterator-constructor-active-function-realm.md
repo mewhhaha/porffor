@@ -5,9 +5,9 @@
 This contract spans the realm-local active identity and Iterator body in
 `crates/lila-aot-wasm/src/builtins/standard.rs`, the direct-returning construct
 routing in `crates/lila-aot-wasm/src/functions.rs`, the structural guards in
-`crates/lila-aot-wasm/src/lib.rs`, and the focused CLI fixture/test. Entry and
-created-realm identity publication are existing bootstrap/host inputs that the
-guard verifies but this seam does not modify.
+`crates/lila-aot-wasm/src/lib.rs`, and the focused CLI fixture/test. The shared
+function allocator establishes active identity for both entry and created-realm
+constructors before either bootstrap path publishes them.
 
 `Iterator` is unusual among subclassable constructors: it must throw when
 `NewTarget` is either `undefined` or the active function object. The second
@@ -29,20 +29,24 @@ claim that a pinned Test262 failure measured it.
 
 ## Runtime identity sources
 
-Entry bootstrap preallocates `%Iterator%` in
-`ITERATOR_CONSTRUCTOR_GLOBAL_INDEX`. Its standard-builtin environment is zero,
-so that global is the active function object for an entry-realm invocation.
+Entry bootstrap and `$262.createRealm()` materialize distinct Iterator
+constructors through the shared function allocator. For each member of
+`ActiveStandardBuiltinFunction`, that allocator stores the function object in
+its own `HEAP_FUNCTION_ENV_HANDLE_OFFSET`. The shared builtin body receives
+that captured object as `current_env_local`; the object also carries its
+defining realm's TypeError prototype. Neither bootstrap path repeats this
+self-backing store.
 
-`$262.createRealm()` materializes a distinct Iterator constructor. The created
-realm builder stores that function object in its own
-`HEAP_FUNCTION_ENV_HANDLE_OFFSET`; the shared builtin body receives the value as
-`current_env_local`. The same self-backed object carries the created realm's
-TypeError prototype.
+Calls through retained aliases, bound functions and proxies preserve the actual
+callee's stored environment even after a global constructor binding changes.
+A generic realm Function-prototype context identifies a realm, but cannot stand
+in for the active constructor's object identity.
 
 The active object is consequently:
 
 1. `current_env_local` when it is nonzero; otherwise
-2. the closed active-builtin identity's entry global.
+2. the closed active-builtin identity's entry global for compiler-internal
+   invocations without a captured function handle.
 
 The former implementation compared `NewTarget` directly with
 `ITERATOR_CONSTRUCTOR_GLOBAL_INDEX`. It therefore inverted both cross-realm
@@ -55,20 +59,22 @@ cases:
 
 ## Closed active-builtin domain
 
-`ActiveStandardBuiltinFunction` is the private closed domain of standard
-builtins whose algorithms need this active-object identity. Its two current
-members are `IteratorConstructor` and `RegExpConstructor`; an exhaustive map
-ties each member to its entry-realm constructor global. This contract bounds
-the Iterator projection: its arm selects `IteratorConstructor`, whose mapping
-is `ITERATOR_CONSTRUCTOR_GLOBAL_INDEX`.
+`ActiveStandardBuiltinFunction` is the crate-internal closed domain of standard
+builtins whose algorithms need this active-object identity. Its four members
+are `IteratorConstructor`, `RegExpConstructor`, `AggregateErrorConstructor`
+and `SuppressedErrorConstructor`. The same domain selects self-backing in the
+shared allocator and maps each member exhaustively to its entry-realm
+constructor global. This contract bounds the Iterator projection: its arm
+selects `IteratorConstructor`, whose mapping is
+`ITERATOR_CONSTRUCTOR_GLOBAL_INDEX`.
 
 The active-function emitter consumes that domain and emits the environment-or-
 entry-global choice. The Iterator constructor arm may not read the entry global
 directly. Adding another active-builtin identity without defining its entry
 global is therefore an exhaustive-match compile error, while the structural
 guard rejects bypassing the typed operation in the Iterator arm. RegExp's
-undefined-`NewTarget` normalization is the other consumer of the shared domain;
-this seam does not change or claim its constructor semantics.
+same-constructor call shortcut and undefined-`NewTarget` normalization, plus
+AggregateError and SuppressedError normalization, consume the same identity.
 
 The Function-tag test is conjoined with the active-payload equality before the
 undefined-or-active rejection. A Proxy or bound function around `%Iterator%`
@@ -115,7 +121,7 @@ The active constructor's own `prototype` is non-configurable, so its zero-Get
 requirement is pinned by the algorithm ordering and structural dispatch guard
 rather than replacing that property with an accessor.
 
-The entry self-case also exercises the zero-environment entry-global branch.
+The entry and created self-cases both exercise self-backed function handles.
 The created self-case and created-target/entry-NewTarget case independently
 fail under the former entry-global comparison. The final cross-realm direction
 prevents a replacement from treating every realm-local Iterator constructor as
@@ -123,7 +129,7 @@ the same active object.
 
 ## Focused verification
 
-The integrated 2026-08-24 checkpoint is green. The structural guard passed
+At the historical 2026-08-24 checkpoint, the structural guard passed
 `1/1`, the exact CLI fixture passed `1/1`, and the direct pinned leaf passed
 both ordinary sloppy and strict Wasm-AOT variants (`2/2`) with every failure
 bucket at zero. `cargo check -p lila-aot-wasm`, `cargo xc`, `node --check` and
@@ -138,10 +144,15 @@ cargo test -p lila-cli run_wasm_backend_distinguishes_iterator_active_function_a
 The complete T15 ladder and current-SHA low-RAM publication path remain the
 final closure gates.
 
+The 2026-09-10 allocator correction adds retained-constructor and global
+replacement controls in `aot_regexp_constructor_and_iterator`. Its current
+verification belongs to the [latest baseline repair batch](../latest-baseline-repairs.md);
+the historical checkpoint above does not verify that later change.
+
 ## Non-claims
 
-This seam does not generalize active-function identity to every builtin, change
-RegExp behavior, change the created-realm ABI, or alter the shared
+The active-function domain is limited to the four constructors above. Its
+shared allocation rule does not change the created-realm call ABI or alter the shared
 `GetPrototypeFromConstructor` implementation. It classifies Iterator as
 direct-returning so that its body is the sole owner of that operation and
 allocation. It does not address generator suspension, IteratorClose, helper

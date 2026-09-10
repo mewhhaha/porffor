@@ -43,7 +43,7 @@ fn object_read_realm_source_exhaustively_projects_every_helper_body() {
             .chars()
             .filter(|character| !character.is_whitespace())
             .collect::<String>()
-            .matches("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead=>Self::ObjectReadHelperArgument,")
+            .matches("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead|RuntimeHelperId::ObjectHasProperty=>Self::ObjectReadHelperArgument,")
             .count(),
         1
     );

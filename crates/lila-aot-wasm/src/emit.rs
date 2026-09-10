@@ -152,14 +152,23 @@ pub(crate) enum ReturnAbi {
 /// a copyable schema to pair with another section.
 enum FunctionModuleState<'a> {
     Main(&'a FinalizedModuleGlobals),
+    PreparedScript(&'a PreparedScriptUnit),
     Internal,
 }
 
 impl FunctionModuleState<'_> {
+    const fn parameter_count(&self) -> usize {
+        match self {
+            Self::Main(_) => 0,
+            Self::Internal => JS_FUNCTION_PARAM_COUNT,
+            Self::PreparedScript(_) => PREPARED_SCRIPT_PARAM_COUNT,
+        }
+    }
+
     const fn return_abi(&self) -> ReturnAbi {
         match self {
             Self::Main(_) => ReturnAbi::MainExport,
-            Self::Internal => ReturnAbi::MultiValue,
+            Self::Internal | Self::PreparedScript(_) => ReturnAbi::MultiValue,
         }
     }
 }
@@ -308,6 +317,7 @@ impl NumericErrorRealmSource {
             | RuntimeHelperId::ValueToPrimitiveNumber
             | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::ObjectHasProperty
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -343,7 +353,8 @@ impl ProxyExecutionRealmSource {
         match helper {
             RuntimeHelperId::ObjectRead
             | RuntimeHelperId::ObjectReadProxy
-            | RuntimeHelperId::IndexedElementRead => Self::ObjectReadHelperArgument,
+            | RuntimeHelperId::IndexedElementRead
+            | RuntimeHelperId::ObjectHasProperty => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -467,6 +478,7 @@ impl ObjectMutationErrorRealmSource {
             | RuntimeHelperId::ValueToPrimitiveNumber
             | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::ObjectHasProperty
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -486,7 +498,8 @@ impl ObjectReadErrorRealmSource {
         match helper {
             RuntimeHelperId::ObjectRead
             | RuntimeHelperId::ObjectReadProxy
-            | RuntimeHelperId::IndexedElementRead => Self::ObjectReadHelperArgument,
+            | RuntimeHelperId::IndexedElementRead
+            | RuntimeHelperId::ObjectHasProperty => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -575,6 +588,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) body: &'a BlockIr,
     pub(crate) params: &'a [FunctionParamIr],
     pub(crate) owned_env_bindings: &'a [OwnedEnvBindingIr],
+    eval_environment: Option<&'a lila_ir::EvalEnvironmentRoleIr>,
     pub(crate) captured_bindings: &'a [lila_ir::CapturedBindingIr],
     pub(crate) strings: &'a StringPool,
     pub(crate) functions: &'a FunctionMetaRegistry,
@@ -596,10 +610,10 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) binding_scopes: Vec<BTreeMap<String, BindingStorage>>,
     pub(crate) hoisted_vars: Vec<String>,
     pub(crate) next_binding_local: u32,
-    pub(crate) total_binding_local_count: u32,
     pub(crate) temp_local_count: u32,
     pub(crate) current_env_local: u32,
     pub(crate) class_function_context_local: u32,
+    pub(crate) captured_direct_eval_execution_context_local: Option<u32>,
     pub(crate) active_private_environment_locals: Vec<u32>,
     pub(crate) named_function_context_local: u32,
     pub(crate) result_local: u32,
@@ -1015,6 +1029,7 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         | StatementIr::Lexical { .. }
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Var(_)
+        | StatementIr::DeclarationEvaluation(_)
         | StatementIr::Expression(_)
         | StatementIr::Debugger
         | StatementIr::Throw(_)
@@ -1473,6 +1488,7 @@ fn emit_script_with_forced_builtins(
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
             script.functions.as_slice(),
+            &script.prepared_scripts,
             &compiled_standard_builtins,
             &stubbed_standard_builtins,
             &compiled_host_builtins,
@@ -1481,6 +1497,8 @@ fn emit_script_with_forced_builtins(
         ),
         compiled_host_builtins.iter().copied().collect(),
         host_import_function_indices,
+        script.prepared_dynamic_functions.clone(),
+        script.prepared_scripts.clone(),
     );
     let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
     let string_pool =
@@ -1590,6 +1608,7 @@ fn emit_script_with_forced_builtins(
     let module_sections = module_types.finalize_globals(globals);
 
     let callable_function_count = script.functions.len()
+        + script.prepared_script_units().count()
         + emitted_standard_builtins.len()
         + usize::from(has_shared_stub)
         + compiled_host_builtins.len();
@@ -1631,7 +1650,10 @@ fn emit_script_with_forced_builtins(
     for function in &script.functions {
         let mut builder = FunctionBuilder::new_function(
             function,
-            &script.global_bindings,
+            script
+                .prepared_script_units()
+                .find(|unit| unit.function_ids.contains(&function.id))
+                .map_or(&script.global_bindings, |unit| &unit.global_bindings),
             &string_pool,
             &function_metas,
             uses_heap,
@@ -1647,6 +1669,28 @@ fn emit_script_with_forced_builtins(
             FunctionIdentity::Script {
                 id: function.id.clone(),
                 name: function.name.clone(),
+            },
+            builder.compile()?,
+        ));
+    }
+    for unit in script.prepared_script_units() {
+        let mut builder = FunctionBuilder::new_prepared_script(
+            unit,
+            &string_pool,
+            &function_metas,
+            uses_heap,
+            runtime_bootstrap_plan.clone(),
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
+        );
+        compiled_functions.push(EmittedFunction::new(
+            FunctionIdentity::Script {
+                id: unit.id.function_id(),
+                name: unit.id.function_id(),
             },
             builder.compile()?,
         ));
@@ -2161,6 +2205,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_json_stringify_value_helper()
         })
         .transpose()?;
+    let object_has_property_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_object_has_property_helper()
+        })
+        .transpose()?;
     let indexed_element_read_helper_function = uses_heap
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -2453,6 +2514,11 @@ fn emit_script_with_forced_builtins(
                 .expect("temporal calendar identifier helper must exist when heap is enabled"),
         );
         helper_bodies.insert(
+            RuntimeHelperId::ObjectHasProperty,
+            object_has_property_helper_function
+                .expect("object has-property helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
             RuntimeHelperId::IndexedElementRead,
             indexed_element_read_helper_function
                 .expect("indexed element-read helper must exist when heap is enabled"),
@@ -2499,8 +2565,14 @@ fn emit_script_with_forced_builtins(
         RuntimeHelperEmission::NONE.with(RuntimeHelperFact::UsesJsonStringify, uses_json_stringify);
     let mut functions = FunctionSection::new();
     functions.function(0);
-    for _ in 0..callable_function_count {
-        functions.function(JS_FUNCTION_TYPE_INDEX);
+    for index in 0..callable_function_count {
+        let prepared_start = script.functions.len();
+        let prepared_end = prepared_start + script.prepared_script_units().count();
+        functions.function(if (prepared_start..prepared_end).contains(&index) {
+            PREPARED_SCRIPT_TYPE_INDEX
+        } else {
+            JS_FUNCTION_TYPE_INDEX
+        });
     }
     if uses_heap {
         for helper in RuntimeHelperId::ALL {
@@ -3026,6 +3098,7 @@ impl<'a> FunctionBuilder<'a> {
             &script.body,
             &[],
             script.owned_env_bindings.as_slice(),
+            script.eval_environment.as_ref(),
             &[],
             strings,
             functions,
@@ -3038,6 +3111,48 @@ impl<'a> FunctionBuilder<'a> {
             Some(&script.global_bindings),
             uses_heap,
             FunctionModuleState::Main(module_globals),
+            NumericErrorRealmSource::GlobalFallback,
+            false,
+            runtime_bootstrap_plan,
+            heap_alloc_function_index,
+            object_append_data_property_function_index,
+            object_append_accessor_property_function_index,
+            function_object_alloc_function_index,
+            plain_object_alloc_function_index,
+            array_alloc_function_index,
+        )
+    }
+
+    fn new_prepared_script(
+        unit: &'a PreparedScriptUnit,
+        strings: &'a StringPool,
+        functions: &'a FunctionMetaRegistry,
+        uses_heap: bool,
+        runtime_bootstrap_plan: RuntimeBootstrapPlan,
+        heap_alloc_function_index: Option<u32>,
+        object_append_data_property_function_index: Option<u32>,
+        object_append_accessor_property_function_index: Option<u32>,
+        function_object_alloc_function_index: Option<u32>,
+        plain_object_alloc_function_index: Option<u32>,
+        array_alloc_function_index: Option<u32>,
+    ) -> Self {
+        Self::new(
+            &unit.body,
+            &[],
+            &unit.owned_env_bindings,
+            unit.eval_environment.as_ref(),
+            &[],
+            strings,
+            functions,
+            Some(unit.id.function_id()),
+            FunctionFlavor::Ordinary,
+            FunctionArgumentsProtocol::script_main(),
+            None,
+            unit.strict,
+            None,
+            Some(&unit.global_bindings),
+            uses_heap,
+            FunctionModuleState::PreparedScript(unit),
             NumericErrorRealmSource::GlobalFallback,
             false,
             runtime_bootstrap_plan,
@@ -3069,6 +3184,7 @@ impl<'a> FunctionBuilder<'a> {
             &function.body,
             function.params.as_slice(),
             function.owned_env_bindings.as_slice(),
+            function.eval_environment.as_ref(),
             function.captured_bindings.as_slice(),
             strings,
             functions,
@@ -3110,6 +3226,7 @@ impl<'a> FunctionBuilder<'a> {
             &EMPTY_BLOCK,
             &[],
             &[],
+            None,
             &[],
             strings,
             functions,
@@ -3151,6 +3268,7 @@ impl<'a> FunctionBuilder<'a> {
             &EMPTY_BLOCK,
             &[],
             &[],
+            None,
             &[],
             strings,
             functions,
@@ -3193,6 +3311,7 @@ impl<'a> FunctionBuilder<'a> {
             &EMPTY_BLOCK,
             &[],
             &[],
+            None,
             &[],
             strings,
             functions,
@@ -3223,6 +3342,7 @@ impl<'a> FunctionBuilder<'a> {
         body: &'a BlockIr,
         params: &'a [FunctionParamIr],
         owned_env_bindings: &'a [OwnedEnvBindingIr],
+        eval_environment: Option<&'a lila_ir::EvalEnvironmentRoleIr>,
         captured_bindings: &'a [lila_ir::CapturedBindingIr],
         strings: &'a StringPool,
         functions: &'a FunctionMetaRegistry,
@@ -3249,13 +3369,21 @@ impl<'a> FunctionBuilder<'a> {
         let hoisted_vars = match &module_state {
             FunctionModuleState::Main(_) => script_global_bindings
                 .expect("main builder must carry the global binding plan")
-                .main_frame_cache_bindings()
+                .main_frame_write_bindings()
                 .map(|binding| binding.name.clone())
                 .collect(),
-            FunctionModuleState::Internal => collect_hoisted_vars_block_root(body),
+            FunctionModuleState::PreparedScript(unit) if unit.has_global_variable_environment() => {
+                unit.global_bindings
+                    .main_frame_write_bindings()
+                    .map(|binding| binding.name.clone())
+                    .collect()
+            }
+            FunctionModuleState::Internal | FunctionModuleState::PreparedScript(_) => {
+                collect_hoisted_vars_block_root(body)
+            }
         };
         let self_binding_local_count = usize::from(self_binding_name.is_some());
-        let param_local_count = count_param_locals(return_abi) as u32;
+        let param_local_count = module_state.parameter_count() as u32;
         let needs_arguments_binding_locals = function_arguments_protocol.present().is_some();
         let captured_arguments_local_count = if captured_bindings
             .iter()
@@ -3276,6 +3404,10 @@ impl<'a> FunctionBuilder<'a> {
         let class_function_context_local = current_env_local + 5;
         let named_function_context_local = class_function_context_local + 1;
         let scratch_local = named_function_context_local + 1;
+        let captured_direct_eval_execution_context_local = captured_bindings
+            .iter()
+            .any(|binding| binding.name == lila_ir::DIRECT_EVAL_EXECUTION_CONTEXT_NAME)
+            .then_some(scratch_local + 1);
         let object_read_error_realm_source =
             ObjectReadErrorRealmSource::for_initial_body(numeric_error_realm_source);
         let object_mutation_error_realm_source =
@@ -3286,6 +3418,7 @@ impl<'a> FunctionBuilder<'a> {
             body,
             params,
             owned_env_bindings,
+            eval_environment,
             captured_bindings,
             strings,
             functions,
@@ -3307,10 +3440,10 @@ impl<'a> FunctionBuilder<'a> {
             hoisted_vars,
             binding_scopes: Vec::new(),
             next_binding_local: param_local_count,
-            total_binding_local_count,
             temp_local_count,
             current_env_local,
             class_function_context_local,
+            captured_direct_eval_execution_context_local,
             active_private_environment_locals: Vec::new(),
             named_function_context_local,
             result_local: current_env_local + 1,
@@ -3318,7 +3451,9 @@ impl<'a> FunctionBuilder<'a> {
             completion_local: current_env_local + 3,
             completion_aux_local: current_env_local + 4,
             scratch_local,
-            temp_local_base: scratch_local + 1,
+            temp_local_base: scratch_local
+                + 1
+                + u32::from(captured_direct_eval_execution_context_local.is_some()),
             temp_stack_depth: 0,
             max_temp_stack_depth: 0,
             environment_depth: 0,
@@ -3594,15 +3729,87 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn local_count(&self) -> usize {
-        self.total_binding_local_count as usize + 8 + self.temp_local_count as usize
+        self.temp_local_base as usize - self.module_state.parameter_count()
+            + self.temp_local_count as usize
     }
 
     pub(crate) fn emitted_local_count(&self) -> u32 {
-        self.total_binding_local_count + 8 + self.max_temp_stack_depth
+        self.temp_local_base - self.module_state.parameter_count() as u32
+            + self.max_temp_stack_depth
     }
 
     pub(crate) const fn is_main(&self) -> bool {
         matches!(self.return_abi(), ReturnAbi::MainExport)
+    }
+
+    pub(crate) fn has_global_script_bindings(&self) -> bool {
+        match self.module_state {
+            FunctionModuleState::Main(_) => true,
+            FunctionModuleState::PreparedScript(unit) => unit.has_global_variable_environment(),
+            FunctionModuleState::Internal => false,
+        }
+    }
+
+    pub(crate) fn direct_eval_derived_constructor_owner(&self) -> Option<&FunctionId> {
+        match self.module_state {
+            FunctionModuleState::PreparedScript(unit) => match &unit.kind {
+                PreparedScriptKind::DirectEval(context) => context.derived_constructor_owner(),
+                PreparedScriptKind::RealmScript | PreparedScriptKind::IndirectEval => None,
+            },
+            FunctionModuleState::Main(_) | FunctionModuleState::Internal => {
+                self.captured_direct_eval_execution_context_local?;
+                let function_id = self
+                    .function_id
+                    .as_ref()
+                    .expect("capturing arrow has an id");
+                let unit = self
+                    .functions
+                    .prepared_scripts()
+                    .iter()
+                    .find_map(|entry| match &entry.outcome {
+                        PreparedScriptOutcome::Executable(unit)
+                            if unit.function_ids.contains(function_id) =>
+                        {
+                            Some(unit)
+                        }
+                        PreparedScriptOutcome::Executable(_)
+                        | PreparedScriptOutcome::DeferredSyntaxError { .. } => None,
+                    })
+                    .expect("capturing arrow belongs to an independently prepared Script");
+                let PreparedScriptKind::DirectEval(context) = &unit.kind else {
+                    panic!("only direct eval supplies a caller execution context");
+                };
+                context.derived_constructor_owner()
+            }
+        }
+    }
+
+    pub(crate) fn direct_eval_execution_context_local(&self) -> Option<u32> {
+        match self.module_state {
+            FunctionModuleState::PreparedScript(unit)
+                if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) =>
+            {
+                Some(9)
+            }
+            FunctionModuleState::Main(_)
+            | FunctionModuleState::Internal
+            | FunctionModuleState::PreparedScript(_) => {
+                self.captured_direct_eval_execution_context_local
+            }
+        }
+    }
+
+    pub(crate) fn direct_eval_private_environment_param_local(&self) -> Option<u32> {
+        match self.module_state {
+            FunctionModuleState::PreparedScript(unit)
+                if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) =>
+            {
+                Some(8)
+            }
+            FunctionModuleState::Main(_)
+            | FunctionModuleState::Internal
+            | FunctionModuleState::PreparedScript(_) => None,
+        }
     }
 
     pub(crate) const fn return_abi(&self) -> ReturnAbi {
@@ -3703,7 +3910,12 @@ impl<'a> FunctionBuilder<'a> {
         self.ensure_heap_ptr_after_static_data(&mut function);
         self.init_current_realm(&mut function)?;
         self.init_current_env(&mut function)?;
+        self.initialize_direct_eval_execution_context(&mut function)?;
+        if let FunctionModuleState::PreparedScript(unit) = self.module_state {
+            self.emit_instantiate_prepared_script_declarations(unit, &mut function)?;
+        }
         self.init_runtime_roots(&mut function)?;
+        self.emit_initialize_main_global_lexicals(&mut function)?;
         self.init_script_global_object(&mut function)?;
         self.init_template_objects(&mut function)?;
         self.bind_captured_bindings(&mut function);
@@ -3769,9 +3981,8 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.bind_parameters(&mut function)?;
         self.set_completion_kind(CompletionKind::Normal, &mut function);
-        self.emit_statement_result(&mut function, ValueKind::Undefined);
         for name in self.hoisted_vars.clone() {
-            // A main-frame cache name always owns storage. Internal functions
+            // A main-frame write name always owns storage. Internal functions
             // may instead reuse their parameter or implicit `arguments`
             // binding, preserving their existing hoisting behavior.
             let reuses_function_binding = !self.is_main()
@@ -3798,7 +4009,7 @@ impl<'a> FunctionBuilder<'a> {
                 .insert(name, storage);
             self.initialize_binding_undefined(storage, &mut function);
         }
-        self.seed_cached_script_global_bindings(&mut function)?;
+        self.emit_statement_result(&mut function, ValueKind::Undefined);
         if let Some(initialized_offset) = resumable_initialized_offset {
             self.initialize_direct_lexical_bindings(&self.body.statements, &mut function);
             let activation_local = self
@@ -3857,6 +4068,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
         if matches!(self.return_abi(), ReturnAbi::MultiValue)
+            && !matches!(self.module_state, FunctionModuleState::PreparedScript(_))
             && !self
                 .current_function_meta()
                 .is_some_and(|meta| meta.protocol.class_kind() == ClassFunctionKind::Constructor)
@@ -3864,7 +4076,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_statement_result(&mut function, ValueKind::Undefined);
         }
         self.normalize_base_class_constructor_result(&mut function);
-        self.normalize_derived_constructor_result(&mut function)?;
+        self.emit_derived_constructor_body_result(&mut function)?;
         if self.is_main() && self.uses_heap {
             if self
                 .functions
@@ -4051,7 +4263,7 @@ impl<'a> FunctionBuilder<'a> {
     fn initialize_runtime_gc_anchor_root(&self, function: &mut Function) {
         let module_globals = match &self.module_state {
             FunctionModuleState::Main(module_globals) => module_globals,
-            FunctionModuleState::Internal => return,
+            FunctionModuleState::Internal | FunctionModuleState::PreparedScript(_) => return,
         };
 
         // Construct the anchor, make it reachable through the holder's
@@ -4071,7 +4283,7 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn verify_and_clear_runtime_gc_anchor_root(&self, function: &mut Function) {
         let module_globals = match &self.module_state {
             FunctionModuleState::Main(module_globals) => module_globals,
-            FunctionModuleState::Internal => return,
+            FunctionModuleState::Internal | FunctionModuleState::PreparedScript(_) => return,
         };
         module_globals.emit_verify_and_clear_anchor_root(function);
     }
@@ -4107,6 +4319,7 @@ impl<'a> FunctionBuilder<'a> {
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
         self.push_scope();
         self.init_current_env(&mut function)?;
+        self.initialize_direct_eval_execution_context(&mut function)?;
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         if let Some(builtin) = StandardBuiltinId::from_function_id(&function_id) {
@@ -4304,6 +4517,7 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::BigIntArithmetic
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
+            | RuntimeHelperId::ObjectHasProperty
             // Deliberately recursive: see above.
             | RuntimeHelperId::JsonStringifyValue => {}
         }
@@ -5136,8 +5350,14 @@ impl<'a> FunctionBuilder<'a> {
     fn init_current_env(&mut self, function: &mut Function) -> Result<(), EmitError> {
         match self.return_abi() {
             ReturnAbi::MainExport => {
-                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
                 function.instruction(&Instruction::LocalSet(self.current_env_local));
+                self.load_i64_to_local_from_offset(
+                    self.current_env_local,
+                    HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
+                    self.current_env_local,
+                    function,
+                );
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(self.class_function_context_local));
                 function.instruction(&Instruction::I64Const(0));
@@ -5171,12 +5391,14 @@ impl<'a> FunctionBuilder<'a> {
                 {
                     function.instruction(&Instruction::LocalGet(self.current_env_local));
                     function.instruction(&Instruction::LocalSet(self.named_function_context_local));
-                    self.load_i64_to_local_from_offset(
-                        self.current_env_local,
-                        ENV_PARENT_OFFSET,
-                        self.current_env_local,
-                        function,
-                    );
+                    if self.eval_environment.is_none() {
+                        self.load_i64_to_local_from_offset(
+                            self.current_env_local,
+                            ENV_PARENT_OFFSET,
+                            self.current_env_local,
+                            function,
+                        );
+                    }
                 } else {
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::LocalSet(self.named_function_context_local));
@@ -5194,7 +5416,14 @@ impl<'a> FunctionBuilder<'a> {
             self.new_target_payload_local()
                 .map(|activation_local| (activation_local, environment_offset))
         });
-        if self.owned_env_bindings.is_empty() {
+        let has_function_body_environment = self.body.statements.iter().any(|statement| {
+            matches!(statement, StatementIr::Block(body) if body.lexical_environment.as_ref().is_some_and(|environment|
+                matches!(environment.initialization, lila_ir::LexicalEnvironmentInitializationIr::FunctionBody { .. })))
+        });
+        if self.owned_env_bindings.is_empty()
+            && self.eval_environment.is_none()
+            && !has_function_body_environment
+        {
             if let Some((activation_local, environment_offset)) = resumable_activation {
                 self.load_i64_to_local_from_offset(
                     activation_local,
@@ -5236,6 +5465,26 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::Else);
         }
 
+        if matches!(
+            self.eval_environment,
+            Some(lila_ir::EvalEnvironmentRoleIr::Declarative {
+                kind: lila_ir::EvalDeclarativeEnvironmentKindIr::Parameters,
+                ..
+            })
+        ) {
+            self.emit_allocate_lexical_environment_record(
+                &LexicalEnvironmentIr {
+                    initialization: lila_ir::LexicalEnvironmentInitializationIr::Uninitialized,
+                    eval_environment: Some(lila_ir::EvalEnvironmentRoleIr::Declarative {
+                        kind: lila_ir::EvalDeclarativeEnvironmentKindIr::Variable,
+                        bindings: Vec::new(),
+                    }),
+                    bindings: Vec::new(),
+                },
+                function,
+            )?;
+        }
+
         let parent_env_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(self.current_env_local));
         function.instruction(&Instruction::LocalSet(parent_env_local));
@@ -5250,6 +5499,14 @@ impl<'a> FunctionBuilder<'a> {
             parent_env_local,
             function,
         );
+        self.emit_initialize_named_environment_header(
+            self.current_env_local,
+            self.eval_environment,
+            function,
+        )?;
+        if resumable_activation.is_some() {
+            self.emit_prepare_resumable_function_body_environment(function)?;
+        }
         for binding in self.owned_env_bindings {
             self.store_i64_const_at_offset(
                 self.current_env_local,

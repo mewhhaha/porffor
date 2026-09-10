@@ -1134,7 +1134,7 @@ require_fixed_string_count \
   'for_finalized_body' \
   0 \
   'body-only source-call proof admission'
-for source_call_flow_variant_spec in 'StatementIr|34' 'ExprIr|83' 'SpecOperationIr|29'; do
+for source_call_flow_variant_spec in 'StatementIr|35' 'ExprIr|84' 'SpecOperationIr|29'; do
   source_call_flow_variant_domain="${source_call_flow_variant_spec%%|*}"
   expected_source_call_flow_variants="${source_call_flow_variant_spec#*|}"
   observed_source_call_flow_variants="$({
@@ -2352,11 +2352,11 @@ async_function_for_of_iterator_owner="$({
     "$wasm_async_function_for_of_iterator"
 })"
 async_function_for_of_iterator_owner_lines="$(printf '%s\n' "$async_function_for_of_iterator_owner" | wc -l | tr -d '[:space:]')"
-if [ "$async_function_for_of_iterator_owner_lines" -ne 421 ]; then
-  fail "$wasm_async_function_for_of_iterator must retain the reviewed 421-line complete owner (found $async_function_for_of_iterator_owner_lines)"
+if [ "$async_function_for_of_iterator_owner_lines" -ne 429 ]; then
+  fail "$wasm_async_function_for_of_iterator must retain the reviewed 429-line complete owner (found $async_function_for_of_iterator_owner_lines)"
 fi
 async_function_for_of_iterator_owner_sha256="$(printf '%s\n' "$async_function_for_of_iterator_owner" | sha256_stream)"
-if [ "$async_function_for_of_iterator_owner_sha256" != 'c1360bb1911b15ec1bf52ec7820774edb1085f460fbb4f0bcc22300abafbf4c0' ]; then
+if [ "$async_function_for_of_iterator_owner_sha256" != 'e471357da1e0d6071cbfdd38ce5c5e39b178bd70bfa131ba5762e2eeaa717f88' ]; then
   fail "$wasm_async_function_for_of_iterator complete owner changed from the reviewed synchronous-iterator consumer SHA-256 (found $async_function_for_of_iterator_owner_sha256)"
 fi
 if ! awk '
@@ -2916,6 +2916,15 @@ wasm_bigint_radix_formatting="crates/lila-aot-wasm/src/builtins/bigint/radix_for
 wasm_numeric_operations="crates/lila-aot-wasm/src/operations.rs"
 wasm_emit="crates/lila-aot-wasm/src/emit.rs"
 wasm_host_builtins="crates/lila-aot-wasm/src/builtins/host.rs"
+wasm_host_detach_array_buffer="crates/lila-aot-wasm/src/builtins/host/detach_array_buffer.rs"
+require_file "$wasm_host_detach_array_buffer"
+require_exact_line_count "$wasm_host_builtins" 'mod detach_array_buffer;' 1 \
+  'private host ArrayBuffer detach module declaration'
+require_fixed_string_count "$wasm_host_detach_array_buffer" \
+  'fn compile_host_detach_array_buffer_builtin(' 1 'host ArrayBuffer detach owner'
+require_fixed_string_count "$wasm_host_builtins" \
+  'fn compile_host_detach_array_buffer_builtin(' 0 'no parent host ArrayBuffer detach copy'
+check_raw_line_budget "$wasm_host_detach_array_buffer" 50
 wasm_created_realm_weak_ref_intrinsics="crates/lila-aot-wasm/src/builtins/host/created_realm_weak_ref_intrinsics.rs"
 require_file "$wasm_created_realm_weak_ref_intrinsics"
 check_no_inline_legacy_includes "$wasm_host_builtins"
@@ -3011,21 +3020,27 @@ fi
 require_fixed_string_count \
   "$wasm_emit" \
   '            NumericErrorRealmSource::GlobalFallback,' \
-  4 \
-  'main/user/host/runtime-helper fallback constructor'
-main_numeric_realm_source="$(
-  sed -n '/^    fn new_main(/,/^    fn new_function(/p' "$wasm_emit"
-)"
-main_fallback_count="$(
-  printf '%s\n' "$main_numeric_realm_source" \
-    | grep -Fc 'NumericErrorRealmSource::GlobalFallback' \
-    || true
-)"
-if [ "$main_fallback_count" -ne 1 ] \
-  || printf '%s\n' "$main_numeric_realm_source" \
-    | grep -Eq 'NumericErrorRealmSource::(StandardBuiltinEnvironment|NumericConversionHelperArgument)'; then
-  fail "$wasm_emit new_main must select exactly one GlobalFallback numeric-error Realm source"
-fi
+  5 \
+  'main/prepared-script/user/host/runtime-helper fallback constructor'
+for source_constructor in new_main new_prepared_script; do
+  source_numeric_realm_source="$(
+    awk -v constructor="$source_constructor" '
+      $0 ~ "^    fn " constructor "\\(" { active = 1 }
+      active && $0 ~ "^    fn " && $0 !~ "^    fn " constructor "\\(" { exit }
+      active { print }
+    ' "$wasm_emit"
+  )"
+  source_fallback_count="$(
+    printf '%s\n' "$source_numeric_realm_source" \
+      | grep -Fc 'NumericErrorRealmSource::GlobalFallback' \
+      || true
+  )"
+  if [ "$source_fallback_count" -ne 1 ] \
+    || printf '%s\n' "$source_numeric_realm_source" \
+      | grep -Eq 'NumericErrorRealmSource::(StandardBuiltinEnvironment|NumericConversionHelperArgument)'; then
+    fail "$wasm_emit $source_constructor must select exactly one GlobalFallback numeric-error Realm source"
+  fi
+done
 require_fixed_string_count \
   "$wasm_emit" \
   '            NumericErrorRealmSource::StandardBuiltinEnvironment,' \
@@ -3575,7 +3590,7 @@ for promise_internal_method_visibility_count in \
   'emit_promise_internal_function_value crate 13' \
   'emit_load_promise_internal_function_context crate 12' \
   'release_promise_internal_function_materialization_context crate 20' \
-  'emit_load_promise_internal_function_realm_intrinsics super 3'
+  'emit_load_promise_internal_function_realm_intrinsics super 4'
 do
   set -- $promise_internal_method_visibility_count
   promise_internal_method="$1"
@@ -5801,24 +5816,34 @@ if [ ! -f docs/rust-rewrite/contracts/object-builtin-policy-domains.md ]; then
 fi
 
 # T10's complete [[HasProperty]] entry is crate-visible, while the
-# representation dispatcher stays private to objects.rs. The branch order is
+# representation dispatcher stays private to objects/has_property.rs. The branch order is
 # declared once and consumed exhaustively both here and by the direct
 # [[GetOwnProperty]] authority below.
 require_fixed_string_count \
-  crates/lila-aot-wasm/src/objects.rs \
+  crates/lila-aot-wasm/src/objects/has_property.rs \
   'pub(crate) fn emit_object_has_property_i32(' \
   1 \
   'crate-visible HasProperty entry'
 require_fixed_string_count \
-  crates/lila-aot-wasm/src/objects.rs \
+  crates/lila-aot-wasm/src/objects/has_property.rs \
   'pub(crate) fn emit_object_has_property_with_key_tag_i32(' \
   1 \
   'crate-visible tagged-key HasProperty entry'
 require_fixed_string_count \
-  crates/lila-aot-wasm/src/objects.rs \
+  crates/lila-aot-wasm/src/objects/has_property.rs \
   '    fn emit_has_property_dispatch_with_key_tag_i32(' \
   1 \
   'private HasProperty representation dispatcher'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects/has_property.rs \
+  'self.emit_has_property_dispatch_with_key_tag_i32(' \
+  1 \
+  'sole helper-owned HasProperty traversal call'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects/has_property.rs \
+  'RuntimeHelperId::ObjectHasProperty.index(' \
+  1 \
+  'shared HasProperty call boundary'
 object_internal_method_macro="$(sed -n \
   '/^macro_rules! object_internal_method_branches {/,/^}$/p' \
   crates/lila-aot-wasm/src/objects.rs | tr -d '[:space:]')"
@@ -5833,8 +5858,8 @@ if [ "$object_internal_method_order" != 'object_internal_method_branches!(Proxy,
   fail 'object internal methods must retain the reviewed exotic-to-ordinary dispatch order'
 fi
 has_property_dispatch_body="$(sed -n \
-  '/^    fn emit_has_property_dispatch_with_key_tag_i32(/,/^    pub(crate) fn emit_data_property_read_no_call(/p' \
-  crates/lila-aot-wasm/src/objects.rs)"
+  '/^    fn emit_has_property_dispatch_with_key_tag_i32(/,/^}/p' \
+  crates/lila-aot-wasm/src/objects/has_property.rs)"
 if [ "$(grep -Fc 'for branch in ObjectInternalMethodBranch::ORDER.iter().copied() {' <<<"$has_property_dispatch_body" || true)" -ne 1 ]; then
   fail 'HasProperty must consume the closed object-internal-method branch order once'
 fi
@@ -5867,8 +5892,13 @@ require_fixed_string_count \
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
   'for branch in ObjectInternalMethodBranch::ORDER.iter().copied() {' \
-  2 \
-  'closed object-internal-method branch consumer'
+  1 \
+  'closed direct-own-descriptor branch consumer'
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/objects/has_property.rs \
+  'for branch in ObjectInternalMethodBranch::ORDER.iter().copied() {' \
+  1 \
+  'closed HasProperty branch consumer'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$own_descriptor_fact" 3 'own-descriptor fact definition/HasProperty/Proxy Delete call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$own_descriptor_fact" 2 'Object.getOwnPropertyDescriptor invariant call'
 require_fixed_string_count \
@@ -6119,7 +6149,8 @@ require_fixed_string_count \
   'pub(crate) fn emit_load_live_proxy_slots(' \
   1 \
   'typed live-Proxy-slot reader authority'
-require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 9 'live-Proxy-slot reader definition/internal call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 8 'live-Proxy-slot reader definition/internal call'
+require_fixed_string_count crates/lila-aot-wasm/src/objects/has_property.rs "$proxy_slot_reader" 1 'shared HasProperty live-Proxy-slot reader call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$proxy_slot_reader" 1 'public descriptor live-Proxy-slot reader call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/reflect.rs "$proxy_slot_reader" 1 'live-Proxy-slot reader call in Reflect builtins'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'HEAP_PROXY_HANDLER_TAG_OFFSET' 2 'Proxy handler-tag writer/reader authority'
@@ -6545,7 +6576,7 @@ for created_realm_array_prototype_call_census in \
   'reserve_realm_array_prototype_local 1' \
   'emit_initialize_realm_array_prototype 1' \
   'emit_store_realm_array_prototype 1' \
-  'emit_define_realm_array_prototype_data_with_flags 3' \
+  'emit_define_realm_array_prototype_data_with_flags 4' \
   'emit_bind_realm_array_constructor_prototype 1' \
   'release_realm_array_prototype_local 1'
 do
@@ -6618,13 +6649,13 @@ ordinary_default_prototype_domain="$(sed -n '/^pub(crate) enum OrdinaryDefaultPr
 require_text_regex_count \
   "$ordinary_default_prototype_domain" \
   '^[[:space:]]{4}([[:alnum:]]+|MessageError\(ErrorMessageConstructorKind\)),[[:space:]]*$' \
-  9 \
+  12 \
   'complete ordinary default-prototype domain'
 ordinary_default_prototype_offsets="$(sed -n '/^impl OrdinaryDefaultPrototype {$/,/^}$/p' "$wasm_required_resolved_realm_ordinary_prototype")"
 if grep -Eq '(^|[^[:alnum:]])_[[:space:]]*=>' <<<"$ordinary_default_prototype_offsets"; then
   fail "$wasm_required_resolved_realm_ordinary_prototype must map every ordinary default prototype exhaustively"
 fi
-for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise; do
+for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError; do
   require_text_regex_count \
     "$ordinary_default_prototype_offsets" \
     "Self::${ordinary_default_prototype_variant}(\\(kind\\))?[[:space:]]*=>" \
@@ -6877,20 +6908,20 @@ do
     'retired static-generator backend protocol'
 done
 
-# Every ordinary, generator and async catch/finally clause seeds its own empty
-# statement-list completion after preserving the incoming completion. The three
-# combined owners contain one catch seed and one finally seed.
+# Every catch/finally clause seeds its own statement-list completion after
+# preserving the incoming completion. Ordinary try clauses also seed undefined
+# for TryStatement's UpdateEmpty, since empty blocks preserve the list value.
 try_clause_seed_pattern='^[[:space:]]*self\.emit_statement_result\(function, ValueKind::Undefined\);[[:space:]]*$'
 for try_clause_seed_owner in \
-  'compile_try_catch emit_generator_state_in_range 1' \
+  'compile_try_catch emit_generator_state_in_range 2' \
   'compile_generator_try_catch compile_generator_try_finally 1' \
   'compile_generator_try_finally compile_generator_try_catch_finally 1' \
   'compile_generator_try_catch_finally compile_async_try_catch 2' \
   'compile_async_try_catch compile_async_try_catch_finally 1' \
   'compile_async_try_catch_finally compile_async_try_finally 2' \
   'compile_async_try_finally compile_try_finally 1' \
-  'compile_try_finally compile_async_disposable_scope 1' \
-  'compile_try_catch_finally compile_while 2'
+  'compile_try_finally compile_async_disposable_scope 2' \
+  'compile_try_catch_finally compile_while 3'
 do
   set -- $try_clause_seed_owner
   try_clause_seed_owner_source="$(sed -n "/fn ${1}(/,/fn ${2}(/p" "$wasm_control_flow")"

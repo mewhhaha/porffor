@@ -531,27 +531,22 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_dispatch_async_generator_completion(function);
             }
             GeneratorResumeModeIr::AssignIdentifier(name) => {
-                if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
-                    self.emit_global_property_write(
-                        name,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                } else {
-                    let storage = self.lookup_binding(name).ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                        ))
-                    })?;
-                    self.write_binding_from_locals(
-                        storage,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    );
-                    self.mirror_binding_to_global_object(name, storage, function)?;
-                }
+                self.emit_resumed_binding_assignment(
+                    name,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_statement_result(function, ValueKind::Undefined);
+            }
+            GeneratorResumeModeIr::AssignGlobal { name, strictness } => {
+                self.emit_resumed_global_assignment(
+                    name,
+                    value_payload_local,
+                    value_tag_local,
+                    *strictness,
+                    function,
+                )?;
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
             GeneratorResumeModeIr::AssignProperty(reference) => {
@@ -1262,27 +1257,22 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_dispatch_current_completion(function)?;
             }
             GeneratorResumeModeIr::AssignIdentifier(name) => {
-                if self.is_script_global_binding(name) && self.lookup_binding(name).is_none() {
-                    self.emit_global_property_write(
-                        name,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                } else {
-                    let storage = self.lookup_binding(name).ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
-                        ))
-                    })?;
-                    self.write_binding_from_locals(
-                        storage,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    );
-                    self.mirror_binding_to_global_object(name, storage, function)?;
-                }
+                self.emit_resumed_binding_assignment(
+                    name,
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_statement_result(function, ValueKind::Undefined);
+            }
+            GeneratorResumeModeIr::AssignGlobal { name, strictness } => {
+                self.emit_resumed_global_assignment(
+                    name,
+                    value_payload_local,
+                    value_tag_local,
+                    *strictness,
+                    function,
+                )?;
                 self.emit_statement_result(function, ValueKind::Undefined);
             }
             GeneratorResumeModeIr::AssignProperty(reference) => {

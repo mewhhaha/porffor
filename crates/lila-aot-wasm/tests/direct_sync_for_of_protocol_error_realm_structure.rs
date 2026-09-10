@@ -217,6 +217,14 @@ fn resumable_sync_for_of_delegates_five_typed_protocol_checks() {
         0
     );
 
+    let resume = bounded(
+        owner,
+        "        if has_iteration_environment {",
+        "        let resumed_iterator_storage = self",
+    );
+    assert!(resume.contains("HEAP_ASYNC_ENV_OFFSET"));
+    assert!(resume.contains("self.current_env_local"));
+
     let acquisition_delegation = bounded(
         owner,
         "        self.emit_get_iterator_from_value_locals(",

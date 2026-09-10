@@ -408,12 +408,13 @@ fn slice_kind_is_one_capability_free_borrowed_authority() {
     assert_eq!(implementation.code.matches("matchself{").count(), 6);
     assert!(!implementation.code.contains("matchself{_=>"));
     let pre_hardening_semantics = implementation.code.replace("&self", "self");
+    // Includes the typed Shared/Immutable ArrayBufferFlag word projections.
     assert_eq!(
         (
             pre_hardening_semantics.len(),
             fnv1a(&pre_hardening_semantics)
         ),
-        (1179, 0x21c8_12f9_ad84_ac3e)
+        (1191, 0xa955_c615_11b0_6992)
     );
 
     let owner = normalize_rust(bounded_inclusive(
@@ -444,7 +445,7 @@ fn slice_kind_is_one_capability_free_borrowed_authority() {
     }
     assert_eq!(
         (owner.code.len(), fnv1a(&owner.code)),
-        (14341, 0xd07f_66f9_6448_5b66)
+        (14326, 0xd074_a254_b75b_8ba9)
     );
 }
 
@@ -608,9 +609,10 @@ fn grouped_slice_body_borrows_then_hands_off_the_policy_once() {
         .find(handoff_route)
         .expect("owned copy-policy handoff");
     assert!(!body.code[handoff + handoff_route.len()..].contains("copy_policy"));
+    // Default species allocation selects the same memory as subsequent byte access.
     assert_eq!(
         (body.code.len(), fnv1a(&body.code)),
-        (14341, 0xd07f_66f9_6448_5b66)
+        (14326, 0xd074_a254_b75b_8ba9)
     );
 }
 
@@ -644,9 +646,10 @@ fn copy_writer_borrows_twice_then_consumes_the_policy() {
         "self.release_temp_local(source_byte_length_local);",
         "self.release_temp_local(source_flags_local);Ok(())}"
     )));
+    // Immutable allocation uses buffer memory after the source's final bounds check.
     assert_eq!(
         (writer.code.len(), fnv1a(&writer.code)),
-        (7153, 0x3229_1bb0_8809_c608)
+        (7131, 0x0b2e_1bf7_2a3f_c279)
     );
 }
 

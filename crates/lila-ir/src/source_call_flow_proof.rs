@@ -96,6 +96,7 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             source_name: _source_name,
             block_storage_name: _block_storage_name,
             target: _target,
+            admission: _admission,
         } => false,
         StatementIr::LexicalBlock(statements) => {
             statements.iter().all(statement_preserves_caller_flow)
@@ -120,7 +121,9 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
                 .as_ref()
                 .is_none_or(expr_preserves_caller_flow)
         }),
-        StatementIr::Expression(expr) => expr_preserves_caller_flow(expr),
+        StatementIr::DeclarationEvaluation(expr) | StatementIr::Expression(expr) => {
+            expr_preserves_caller_flow(expr)
+        }
         StatementIr::GeneratorYield {
             value: _value,
             form: _form,
@@ -301,6 +304,7 @@ fn for_init_preserves_caller_flow(init: &ForInitIr) -> bool {
 
 fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
     match &expr.expr {
+        ExprIr::EnvironmentIdentifier(_) => false,
         ExprIr::Undefined
         | ExprIr::ArrayHole
         | ExprIr::Null
@@ -501,6 +505,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             args: _args,
         } => false,
         ExprIr::CallIndirect {
+            direct_eval: _,
             callee: _callee,
             this_arg: _this_arg,
             args: _args,

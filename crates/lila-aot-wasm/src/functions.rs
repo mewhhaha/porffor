@@ -1,4 +1,5 @@
 use super::*;
+use crate::builtins::ActiveStandardBuiltinFunction;
 use crate::objects::{
     AccessorDescriptorLocals, AccessorGetterLocals, AccessorSetterLocals, TaggedLocals,
 };
@@ -9,7 +10,12 @@ mod bound_function_allocation;
 mod created_realm_array_prototype;
 mod current_function_realm_array_prototype;
 mod current_function_realm_async_disposable_stack;
+mod current_function_realm_disposable_stack;
+mod direct_eval;
+pub(crate) mod direct_eval_invocation;
+mod eval_intrinsic;
 mod function_realm;
+mod indirect_call;
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
 mod required_resolved_realm_ordinary_prototype;
@@ -114,16 +120,21 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     ReferenceErrorPrototype,
     SyntaxErrorPrototype,
     URIErrorPrototype,
+    AggregateErrorPrototype,
+    SuppressedErrorPrototype,
     PromisePrototype,
     FunctionPrototype,
     PromiseConstructor,
+    EvalFunction,
     AsyncDisposableStackPrototype,
+    DisposableStackPrototype,
     GeneratorFunctionConstructor,
     AsyncFunctionConstructor,
     AsyncGeneratorFunctionConstructor,
     ObjectPrototype,
     ArrayIteratorPrototype,
     StringIteratorPrototype,
+    RegExpStringIteratorPrototype,
     MapIteratorPrototype,
     SetIteratorPrototype,
     IteratorHelperPrototype,
@@ -227,7 +238,7 @@ macro_rules! error_message_constructor_kinds {
                 }
             }
 
-            const fn prototype_slot(self) -> NonArrayRealmIntrinsicSlot {
+            pub(crate) const fn prototype_slot(self) -> NonArrayRealmIntrinsicSlot {
                 match self {
                     $(Self::$variant => NonArrayRealmIntrinsicSlot::$prototype_slot,)+
                 }
@@ -302,7 +313,7 @@ pub(crate) enum NewTargetPrototypeFallback {
 }
 
 impl NonArrayRealmIntrinsicSlot {
-    const fn offset(self) -> u64 {
+    pub(crate) const fn offset(self) -> u64 {
         match self {
             Self::ThrowTypeError => HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET,
             Self::TypeErrorPrototype => HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
@@ -312,11 +323,19 @@ impl NonArrayRealmIntrinsicSlot {
             Self::ReferenceErrorPrototype => HEAP_REALM_INTRINSICS_REFERENCE_ERROR_PROTOTYPE_OFFSET,
             Self::SyntaxErrorPrototype => HEAP_REALM_INTRINSICS_SYNTAX_ERROR_PROTOTYPE_OFFSET,
             Self::URIErrorPrototype => HEAP_REALM_INTRINSICS_URI_ERROR_PROTOTYPE_OFFSET,
+            Self::AggregateErrorPrototype => HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+            Self::SuppressedErrorPrototype => {
+                HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET
+            }
             Self::PromisePrototype => HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
             Self::FunctionPrototype => HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET,
             Self::PromiseConstructor => HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET,
+            Self::EvalFunction => HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET,
             Self::AsyncDisposableStackPrototype => {
                 HEAP_REALM_INTRINSICS_ASYNC_DISPOSABLE_STACK_PROTOTYPE_OFFSET
+            }
+            Self::DisposableStackPrototype => {
+                HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET
             }
             Self::GeneratorFunctionConstructor => {
                 HEAP_REALM_INTRINSICS_GENERATOR_FUNCTION_CONSTRUCTOR_OFFSET
@@ -330,6 +349,9 @@ impl NonArrayRealmIntrinsicSlot {
             Self::ObjectPrototype => HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
             Self::ArrayIteratorPrototype => HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET,
             Self::StringIteratorPrototype => HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET,
+            Self::RegExpStringIteratorPrototype => {
+                HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET
+            }
             Self::MapIteratorPrototype => HEAP_REALM_INTRINSICS_MAP_ITERATOR_PROTOTYPE_OFFSET,
             Self::SetIteratorPrototype => HEAP_REALM_INTRINSICS_SET_ITERATOR_PROTOTYPE_OFFSET,
             Self::IteratorHelperPrototype => HEAP_REALM_INTRINSICS_ITERATOR_HELPER_PROTOTYPE_OFFSET,
@@ -529,7 +551,7 @@ mod realm_function_materialization_tests {
         let mut direct_sites = 0;
         let marker = "self.emit_function_value_payload_in_realm(";
         for (source_name, realm_bootstrap_source, expected_sites, context_argument) in [
-            ("builtins/host.rs", host, 87, "&realm_functions"),
+            ("builtins/host.rs", host, 88, "&realm_functions"),
             (
                 "builtins/host/created_realm_iterator_next.rs",
                 created_realm_iterator_next,
@@ -557,7 +579,7 @@ mod realm_function_materialization_tests {
             direct_sites += source_sites;
         }
         assert_eq!(
-            direct_sites, 88,
+            direct_sites, 89,
             "created-realm bootstrap site count drifted"
         );
 
@@ -725,7 +747,7 @@ mod bound_this_capture_tests {
             .expect("common target-call path should be bounded")
             .0;
         assert!(common_call.contains("FUNCTION_FLAG_STRICT"));
-        assert!(common_call.contains("emit_value_to_object_locals"));
+        assert!(common_call.contains("emit_value_to_function_realm_object_locals"));
     }
 }
 
@@ -1995,11 +2017,12 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             function.instruction(&Instruction::LocalSet(prototype_payload_local));
             function.instruction(&Instruction::Else);
-            self.emit_alloc_plain_object_with_prototype(
-                None,
-                Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            self.emit_source_literal_prototype_payload(
+                crate::environments::global_environment::SourceLiteralPrototype::Object,
                 function,
-            )?;
+            );
+            function.instruction(&Instruction::LocalSet(value_payload_local));
+            self.emit_alloc_plain_object_with_prototype(Some(value_payload_local), None, function)?;
             function.instruction(&Instruction::LocalSet(prototype_payload_local));
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
@@ -2007,11 +2030,12 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_alloc_plain_object_with_prototype(None, None, function)?;
             function.instruction(&Instruction::LocalSet(prototype_payload_local));
         } else {
-            self.emit_alloc_plain_object_with_prototype(
-                None,
-                Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            self.emit_source_literal_prototype_payload(
+                crate::environments::global_environment::SourceLiteralPrototype::Object,
                 function,
-            )?;
+            );
+            function.instruction(&Instruction::LocalSet(value_payload_local));
+            self.emit_alloc_plain_object_with_prototype(Some(value_payload_local), None, function)?;
             function.instruction(&Instruction::LocalSet(prototype_payload_local));
         }
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -2555,53 +2579,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(heritage_payload_local);
         self.release_temp_local(constructor_tag_local);
         self.release_temp_local(constructor_local);
-        Ok(())
-    }
-
-    pub(crate) fn normalize_derived_constructor_result(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        // Nested arrows carry the same activation metadata so their lexical
-        // `this`/`super` reads reach the owner invocation, but they remain
-        // ordinary calls. Only the actual derived [[Construct]] body applies
-        // the special object/undefined return normalization.
-        if !self.is_derived_constructor {
-            return Ok(());
-        }
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_is_heap_object_like_tag_i32(self.result_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // An object returned explicitly from a derived constructor wins, even
-        // when `super()` was never evaluated.
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_get_derived_this_to_locals(self.result_local, self.result_tag_local, function)?;
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error_to_active_handler(
-            "TypeError",
-            "derived constructor may only return object or undefined",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_get_derived_this_to_locals(self.result_local, self.result_tag_local, function)?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         Ok(())
     }
 
@@ -3180,6 +3157,7 @@ impl<'a> FunctionBuilder<'a> {
             .get(&StandardBuiltinId::BooleanConstructor.function_id())
             .map(|meta| meta.table_index as i64);
         let direct_returning_constructor_table_indices: Vec<i64> = [
+            StandardBuiltinId::FunctionConstructor,
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
@@ -3213,9 +3191,19 @@ impl<'a> FunctionBuilder<'a> {
                 .into_iter()
                 .map(ErrorMessageConstructorKind::constructor),
         )
-        .filter_map(|builtin| {
+        .map(StandardBuiltinId::function_id)
+        .chain(
+            [
+                HostBuiltinId::GeneratorFunctionConstructor,
+                HostBuiltinId::AsyncFunctionConstructor,
+                HostBuiltinId::AsyncGeneratorFunctionConstructor,
+            ]
+            .into_iter()
+            .map(HostBuiltinId::function_id),
+        )
+        .filter_map(|function_id| {
             self.functions
-                .get(&builtin.function_id())
+                .get(&function_id)
                 .map(|meta| meta.table_index as i64)
         })
         .collect();
@@ -3261,8 +3249,9 @@ impl<'a> FunctionBuilder<'a> {
 
         // Derived constructors provide their receiver through `super()`, so
         // their [[Construct]] path must not inspect newTarget.prototype or
-        // allocate a base receiver first. Their function body already
-        // normalizes its result according to the derived-constructor rules.
+        // allocate a base receiver first. The body returns either its explicit
+        // value or its live receiver; undefined means `this` remains unbound.
+        // Result errors are created here, after the callee context has ended.
         function.instruction(&Instruction::LocalGet(callee_flags_local));
         function.instruction(&Instruction::I64Const(
             FUNCTION_FLAG_DERIVED_CONSTRUCTOR as i64,
@@ -3302,6 +3291,30 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(call_tag_local));
         function.instruction(&Instruction::LocalSet(tag_local));
         self.emit_throw_from_locals(payload_local, tag_local, function)?;
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
+        self.emit_is_heap_object_like_tag_i32(call_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(call_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_error(
+            "ReferenceError",
+            "must call super() before accessing `this`",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_throw_current_function_realm_type_error(
+            "derived constructor may only return object or undefined",
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(call_payload_local));
@@ -3912,7 +3925,7 @@ impl<'a> FunctionBuilder<'a> {
     /// a trusted Realm record or zero. A user function's nonzero environment
     /// is a lexical-environment allocation with a different layout and must
     /// never be interpreted as realm metadata by a builtin.
-    fn emit_standard_builtin_realm_env_argument(&self, function: &mut Function) {
+    fn emit_standard_builtin_realm_env_argument(&mut self, function: &mut Function) {
         self.emit_set_path_realm_environment_argument(function);
     }
 
@@ -4013,6 +4026,19 @@ impl<'a> FunctionBuilder<'a> {
                 self.current_env_local,
                 function,
             );
+            self.emit_initialize_named_environment_header(
+                named_context_local,
+                Some(&lila_ir::EvalEnvironmentRoleIr::Declarative {
+                    kind: lila_ir::EvalDeclarativeEnvironmentKindIr::Lexical,
+                    bindings: vec![lila_ir::EvalVisibleBindingIr {
+                        source_name: meta.name.clone(),
+                        slot: 0,
+                        mode: BindingMode::Const,
+                        declaration: lila_ir::EvalBindingDeclarationIr::NamedFunctionExpression,
+                    }],
+                }),
+                function,
+            )?;
         }
         if let Some(function_context_local) = function_context_local {
             self.emit_alloc_class_execution_context(
@@ -4064,6 +4090,20 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::Call(function_object_alloc_function_index));
         function.instruction(&Instruction::LocalSet(object_local));
+        if meta.host_builtin == Some(HostBuiltinId::RealmEvalScript)
+            || meta.standard_builtin == Some(StandardBuiltinId::EvalFunction)
+            || meta
+                .standard_builtin
+                .and_then(ActiveStandardBuiltinFunction::from_builtin)
+                .is_some()
+        {
+            self.store_i64_local_at_offset(
+                object_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                object_local,
+                function,
+            );
+        }
         if meta.has_function_context() {
             let function_context_local =
                 function_context_local.expect("function context must be allocated");
@@ -4087,6 +4127,28 @@ impl<'a> FunctionBuilder<'a> {
                 ValueKind::Function.tag() as u64,
                 function,
             );
+        }
+
+        // The permitted legacy caller extension never exposes an activation.
+        // Builtin metadata is strict; only ordinary sloppy ECMAScript functions
+        // receive this immutable null property (ECMA-262, Forbidden Extensions).
+        if !meta.strict && meta.protocol == FunctionProtocolIr::OrdinaryCallAndConstruct {
+            function.instruction(&Instruction::I64Const(self.strings.payload("caller")));
+            function.instruction(&Instruction::LocalSet(key_local));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(proto_value_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+            function.instruction(&Instruction::LocalSet(proto_tag_local));
+            self.emit_object_append_data_property_with_flags(
+                object_local,
+                key_local,
+                proto_value_local,
+                proto_tag_local,
+                false,
+                false,
+                false,
+                function,
+            )?;
         }
 
         if !meta.length_name_configurable {
@@ -4178,6 +4240,12 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
 
+        if meta.standard_builtin.is_none()
+            && meta.host_builtin.is_none()
+            && self.has_source_execution_environment()
+        {
+            self.emit_install_source_function_execution_realm(meta, object_local, function);
+        }
         function.instruction(&Instruction::LocalGet(object_local));
         self.release_temp_local(proto_tag_local);
         self.release_temp_local(proto_value_local);
@@ -4655,6 +4723,7 @@ impl<'a> FunctionBuilder<'a> {
             0,
             function,
         );
+        self.emit_alloc_realm_global_environment(realm_local, function)?;
         self.release_temp_local(intrinsics_local);
         Ok(RealmRecordLocal(realm_local))
     }
@@ -6263,11 +6332,9 @@ impl<'a> FunctionBuilder<'a> {
                             .instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                     }
                     None => {
-                        function.instruction(&Instruction::GlobalGet(
-                            SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX,
-                        ));
+                        function.instruction(&Instruction::I64Const(0));
                         function
-                            .instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                     }
                 }
                 function.instruction(&Instruction::LocalGet(argc_local));
@@ -6364,7 +6431,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::I32And);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                self.emit_function_global_this_payload(callee_payload_local, function);
                 function.instruction(&Instruction::LocalSet(call_this_payload_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(call_this_tag_local));
@@ -6378,7 +6445,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64And);
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_value_to_object_locals(
+                self.emit_value_to_function_realm_object_locals(
+                    callee_payload_local,
                     this_payload_local,
                     this_tag_local,
                     call_this_payload_local,
@@ -6394,10 +6462,21 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(call_this_tag_local));
             }
         } else {
-            function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+            function.instruction(&Instruction::LocalGet(flags_local));
+            function.instruction(&Instruction::I64Const(FUNCTION_FLAG_STRICT as i64));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_function_global_this_payload(callee_payload_local, function);
             function.instruction(&Instruction::LocalSet(call_this_payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
             function.instruction(&Instruction::LocalSet(call_this_tag_local));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(call_this_payload_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::LocalSet(call_this_tag_local));
+            function.instruction(&Instruction::End);
         }
         if let Some(proxy_revocable_table_index) = proxy_revocable_table_index {
             function.instruction(&Instruction::LocalGet(table_index_local));
@@ -7007,7 +7086,9 @@ impl<'a> FunctionBuilder<'a> {
         ctor_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if self.lexical_derived_activation.is_none() {
+        if self.lexical_derived_activation.is_none()
+            && self.direct_eval_derived_constructor_owner().is_none()
+        {
             return Err(EmitError::unsupported(
                 "unsupported in lila wasm-aot first slice: super outside derived constructor",
             ));
@@ -7086,10 +7167,14 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         let owner_function_id = self
-            .lexical_derived_activation
-            .expect("derived super call must have activation metadata")
-            .owner_function_id
-            .clone();
+            .direct_eval_derived_constructor_owner()
+            .cloned()
+            .unwrap_or_else(|| {
+                self.lexical_derived_activation
+                    .expect("derived super call must have activation metadata")
+                    .owner_function_id
+                    .clone()
+            });
         let constructor_meta = self.functions.get(&owner_function_id).cloned().ok_or_else(|| {
             EmitError::unsupported(format!(
                 "unsupported in lila wasm-aot first slice: unknown derived constructor `{owner_function_id}`"
@@ -7465,7 +7550,10 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.store_i64_const_at_offset(arguments_local, offset, 0, function);
         }
-        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_source_literal_prototype_payload(
+            crate::environments::global_environment::SourceLiteralPrototype::Object,
+            function,
+        );
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         self.store_i64_local_at_offset(
             arguments_local,
@@ -8859,6 +8947,35 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(context) = self.direct_eval_execution_context_local() {
+            use crate::functions::direct_eval_invocation::{
+                DIRECT_EVAL_HOME_OBJECT_PAYLOAD_OFFSET, DIRECT_EVAL_HOME_OBJECT_TAG_OFFSET,
+            };
+            let home = self.reserve_temp_local();
+            let home_tag = self.reserve_temp_local();
+            self.load_i64_to_local_from_offset(
+                context,
+                DIRECT_EVAL_HOME_OBJECT_PAYLOAD_OFFSET,
+                home,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                context,
+                DIRECT_EVAL_HOME_OBJECT_TAG_OFFSET,
+                home_tag,
+                function,
+            );
+            self.emit_load_super_base_from_home_object(
+                home,
+                home_tag,
+                payload_local,
+                tag_local,
+                function,
+            );
+            self.release_temp_local(home_tag);
+            self.release_temp_local(home);
+            return Ok(());
+        }
         if self
             .current_function_meta()
             .is_some_and(WasmFunctionMeta::has_home_object_execution_context)
@@ -9587,7 +9704,9 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_return_current_completion(function);
             }
         } else {
-            if meta.standard_builtin.is_some() {
+            if meta.standard_builtin.is_some()
+                || meta.host_builtin == Some(HostBuiltinId::RealmEvalScript)
+            {
                 self.emit_standard_builtin_realm_env_argument(function);
             } else if let Some(environment_local) = environment_local {
                 function.instruction(&Instruction::LocalGet(environment_local));
@@ -9659,263 +9778,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(default_this_payload_local);
         self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_indirect_call(
-        &mut self,
-        callee: &TypedExpr,
-        this_arg: Option<&TypedExpr>,
-        args: &[TypedExpr],
-        static_regexp_compilation: Option<&StaticRegExpCompilation>,
-        payload_local: u32,
-        tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        if args.is_empty()
-            && static_regexp_compilation.is_none()
-            && self
-                .current_function_meta()
-                .is_some_and(|meta| meta.protocol.class_kind() == ClassFunctionKind::Constructor)
-        {
-            if let (ExprIr::FunctionValue(function_id), Some(this_arg)) = (&callee.expr, this_arg) {
-                if matches!(this_arg.expr, ExprIr::This) {
-                    let initializer_meta =
-                        self.functions.get(function_id).cloned().filter(|meta| {
-                            meta.class_element_execution_kind
-                                == ClassElementExecutionKind::InstanceFieldInitializer
-                        });
-                    if let Some(initializer_meta) = initializer_meta {
-                        let this_payload_local = self.reserve_temp_local();
-                        let this_tag_local = self.reserve_temp_local();
-                        self.compile_expr_to_locals(
-                            this_arg,
-                            this_payload_local,
-                            this_tag_local,
-                            function,
-                        )?;
-                        self.emit_direct_class_element_js_call(
-                            &initializer_meta,
-                            self.class_function_context_local,
-                            Some((this_payload_local, Some(this_tag_local))),
-                            &[],
-                            payload_local,
-                            tag_local,
-                            function,
-                        )?;
-                        self.release_temp_local(this_tag_local);
-                        self.release_temp_local(this_payload_local);
-                        return Ok(());
-                    }
-                }
-            }
-        }
-
-        let string_match_function_id = StandardBuiltinId::StringPrototypeMatch.function_id();
-        let string_split_function_id = StandardBuiltinId::StringPrototypeSplit.function_id();
-        let string_slice_function_id = StandardBuiltinId::StringPrototypeSlice.function_id();
-        if let (Some(function_id), Some(this_arg)) =
-            (callee.function_targets.exact_single_target(), this_arg)
-        {
-            if function_id == &string_match_function_id
-                || function_id == &string_split_function_id
-                || function_id == &string_slice_function_id
-            {
-                if function_id == &string_match_function_id {
-                    return self.emit_string_match_method_call(
-                        this_arg,
-                        args,
-                        payload_local,
-                        tag_local,
-                        function,
-                    );
-                }
-                if function_id == &string_slice_function_id {
-                    return self.emit_string_slice_method_call(
-                        this_arg,
-                        args,
-                        payload_local,
-                        tag_local,
-                        function,
-                    );
-                }
-                return self.emit_string_split_method_call(
-                    this_arg,
-                    args,
-                    payload_local,
-                    tag_local,
-                    function,
-                );
-            }
-        }
-        if let (
-            ExprIr::PropertyRead {
-                key: PropertyKeyIr::StaticString(name),
-                ..
-            },
-            Some(this_arg),
-        ) = (&callee.expr, this_arg)
-        {
-            let string_or_undefined = KindSet::from_kind(ValueKind::String)
-                .union(KindSet::from_kind(ValueKind::Undefined));
-            if name == "split" && this_arg.possible_kinds.is_subset_of(string_or_undefined) {
-                return self.emit_string_split_method_call(
-                    this_arg,
-                    args,
-                    payload_local,
-                    tag_local,
-                    function,
-                );
-            }
-        }
-        let reflect_define_property_function_id =
-            StandardBuiltinId::ReflectDefineProperty.function_id();
-        let object_define_property_function_id =
-            StandardBuiltinId::ObjectDefineProperty.function_id();
-        let is_reflect_define_property_access = matches!(
-            &callee.expr,
-            ExprIr::PropertyRead {
-                target,
-                key: PropertyKeyIr::StaticString(name),
-            } if name == "defineProperty"
-                && matches!(
-                    &target.expr,
-                    ExprIr::GlobalPropertyRead { name } | ExprIr::Identifier(name)
-                        if name == REFLECT_NAME
-                )
-        );
-        if is_reflect_define_property_access
-            && callee
-                .function_targets
-                .exact_single_target()
-                .is_some_and(|function_id| {
-                    function_id == &reflect_define_property_function_id
-                        || function_id == &object_define_property_function_id
-                })
-        {
-            let callee_payload_local = self.reserve_temp_local();
-            let callee_tag_local = self.reserve_temp_local();
-            self.compile_expr_to_locals(callee, callee_payload_local, callee_tag_local, function)?;
-            let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-            let meta = self
-                .functions
-                .get(&reflect_define_property_function_id)
-                .cloned()
-                .ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing builtin meta `Reflect.defineProperty`",
-                    )
-                })?;
-            function.instruction(&Instruction::LocalGet(self.current_env_local));
-            self.emit_default_this_for_known_strictness(meta.strict, function);
-            self.emit_undefined_new_target(function);
-            function.instruction(&Instruction::LocalGet(argc_local));
-            function.instruction(&Instruction::LocalGet(argv_local));
-            function.instruction(&Instruction::Call(meta.wasm_index));
-            self.store_call_results(payload_local, tag_local, function);
-            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-            self.set_completion_kind(CompletionKind::Normal, function);
-            self.release_temp_local(argv_local);
-            self.release_temp_local(argc_local);
-            self.release_temp_local(callee_tag_local);
-            self.release_temp_local(callee_payload_local);
-            return Ok(());
-        }
-
-        let callee_payload_local = self.reserve_temp_local();
-        let callee_tag_local = self.reserve_temp_local();
-        let default_this_payload_local = self.reserve_temp_local();
-        let default_this_tag_local = self.reserve_temp_local();
-        self.compile_expr_to_locals(callee, callee_payload_local, callee_tag_local, function)?;
-
-        let this_locals = if let Some(this_arg) = this_arg {
-            let this_payload_local = self.reserve_temp_local();
-            let this_tag_local = self.reserve_temp_local();
-            self.compile_expr_to_locals(this_arg, this_payload_local, this_tag_local, function)?;
-            Some((this_payload_local, this_tag_local))
-        } else {
-            None
-        };
-        let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
-
-        if let Some(StaticRegExpCompilation::InvalidSyntax { message }) = static_regexp_compilation
-        {
-            self.emit_throw_runtime_error(
-                SYNTAX_ERROR_NAME,
-                message,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-            self.release_temp_local(argv_local);
-            self.release_temp_local(argc_local);
-            if let Some((this_payload_local, this_tag_local)) = this_locals {
-                self.release_temp_local(this_tag_local);
-                self.release_temp_local(this_payload_local);
-            }
-            self.release_temp_local(default_this_tag_local);
-            self.release_temp_local(default_this_payload_local);
-            self.release_temp_local(callee_tag_local);
-            self.release_temp_local(callee_payload_local);
-            return Ok(());
-        }
-
-        let (this_payload_local, this_tag_local) =
-            if let Some((this_payload_local, this_tag_local)) = this_locals {
-                (this_payload_local, this_tag_local)
-            } else {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(default_this_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(default_this_tag_local));
-                (default_this_payload_local, default_this_tag_local)
-            };
-
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            callee_payload_local,
-            callee_tag_local,
-            this_payload_local,
-            this_tag_local,
-            argc_local,
-            argv_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        self.set_completion_kind(CompletionKind::Normal, function);
-        if let Some(StaticRegExpCompilation::Program(program)) = static_regexp_compilation {
-            if callee.function_targets.exact_single_target()
-                == Some(&StandardBuiltinId::RegExpPrototypeCompile.function_id())
-            {
-                if let Some((this_payload_local, _)) = this_locals {
-                    self.emit_regexp_program_slots(this_payload_local, Some(program), function);
-                }
-            } else {
-                function.instruction(&Instruction::LocalGet(callee_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(callee_payload_local));
-                function.instruction(&Instruction::GlobalGet(REGEXP_CONSTRUCTOR_GLOBAL_INDEX));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_regexp_program_slots(payload_local, Some(program), function);
-                function.instruction(&Instruction::End);
-            }
-        }
-
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        if let Some((this_payload_local, this_tag_local)) = this_locals {
-            self.release_temp_local(this_tag_local);
-            self.release_temp_local(this_payload_local);
-        }
-        self.release_temp_local(default_this_tag_local);
-        self.release_temp_local(default_this_payload_local);
-        self.release_temp_local(callee_tag_local);
-        self.release_temp_local(callee_payload_local);
         Ok(())
     }
 
@@ -12024,7 +11886,7 @@ impl<'a> FunctionBuilder<'a> {
                 let global_object_tag_local = self.reserve_temp_local();
                 function.instruction(&Instruction::I64Const(self.strings.payload(name)));
                 function.instruction(&Instruction::LocalSet(key_local));
-                function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                self.emit_execution_global_object_payload(function);
                 function.instruction(&Instruction::LocalSet(global_object_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(global_object_tag_local));
@@ -12095,7 +11957,7 @@ impl<'a> FunctionBuilder<'a> {
                 let global_object_tag_local = self.reserve_temp_local();
                 function.instruction(&Instruction::I64Const(self.strings.payload(name)));
                 function.instruction(&Instruction::LocalSet(key_local));
-                function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                self.emit_execution_global_object_payload(function);
                 function.instruction(&Instruction::LocalSet(global_object_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(global_object_tag_local));

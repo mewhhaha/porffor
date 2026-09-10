@@ -331,7 +331,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.store_i64_const_at_offset(array_local, HEAP_CAP_OFFSET, capacity, function);
-        function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_source_literal_prototype_payload(
+            crate::environments::global_environment::SourceLiteralPrototype::Array,
+            function,
+        );
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         self.store_i64_local_at_offset(
             array_local,
@@ -19107,7 +19110,6 @@ impl<'a> FunctionBuilder<'a> {
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
-        let index_number_payload_local = self.reserve_temp_local();
 
         self.emit_is_heap_object_like_tag_i32(input_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
@@ -19155,18 +19157,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(len_local));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_index_to_flat_map_key_local(
+        self.emit_typed_array_or_object_index_read_from_locals(
+            input_payload_local,
+            input_tag_local,
             index_local,
-            index_number_payload_local,
-            key_local,
-            function,
-        )?;
-        self.emit_object_read(
-            input_payload_local,
-            input_tag_local,
-            input_payload_local,
-            input_tag_local,
-            key_local,
             value_payload_local,
             value_tag_local,
             function,
@@ -19206,7 +19200,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(dst_payload_local));
         function.instruction(&Instruction::LocalSet(payload_local));
 
-        self.release_temp_local(index_number_payload_local);
         self.release_temp_local(key_local);
         self.release_temp_local(value_tag_local);
         self.release_temp_local(value_payload_local);

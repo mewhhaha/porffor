@@ -65,15 +65,21 @@ fn publication_context_and_token_have_one_private_move_only_owner() {
         "type_error_prototype_local: u32,",
         "array_iterator_prototype_local: u32,",
         "string_iterator_prototype_local: u32,",
+        "regexp_string_iterator_prototype_local: u32,",
         "map_iterator_prototype_local: u32,",
         "set_iterator_prototype_local: u32,",
     ] {
-        assert_eq!(context.matches(field).count(), 1, "{field}");
+        assert_eq!(
+            context.lines().filter(|line| line.trim() == field).count(),
+            1,
+            "{field}"
+        );
     }
     assert!(!context.contains("pub realm_functions:"));
     assert!(!context.contains("pub type_error_prototype_local:"));
     assert!(!context.contains("pub array_iterator_prototype_local:"));
     assert!(!context.contains("pub string_iterator_prototype_local:"));
+    assert!(!context.contains("pub regexp_string_iterator_prototype_local:"));
     assert!(!context.contains("pub map_iterator_prototype_local:"));
     assert!(!context.contains("pub set_iterator_prototype_local:"));
     let constructor = bounded(
@@ -85,7 +91,7 @@ fn publication_context_and_token_have_one_private_move_only_owner() {
     assert!(constructor.contains(concat!(
         "Self{realm_functions,type_error_prototype_local,",
         "array_iterator_prototype_local,string_iterator_prototype_local,",
-        "map_iterator_prototype_local,set_iterator_prototype_local,}"
+        "regexp_string_iterator_prototype_local,map_iterator_prototype_local,set_iterator_prototype_local,}"
     )));
 
     assert!(OWNER_SOURCE
@@ -105,13 +111,13 @@ fn publication_context_and_token_have_one_private_move_only_owner() {
 }
 
 #[test]
-fn target_domain_maps_only_the_four_iterator_next_builtins() {
+fn target_domain_maps_only_the_five_iterator_next_builtins() {
     let target = bounded(
         OWNER_SOURCE,
         "pub(super) enum CreatedRealmIteratorNextTarget {",
         "impl CreatedRealmIteratorNextTarget {",
     );
-    for variant in ["Array", "String", "Map", "Set"] {
+    for variant in ["Array", "String", "RegExpString", "Map", "Set"] {
         assert_eq!(target.matches(&format!("    {variant},")).count(), 1);
     }
     assert!(!target.contains("u32"));
@@ -125,13 +131,14 @@ fn target_domain_maps_only_the_four_iterator_next_builtins() {
     for (variant, builtin_id) in [
         ("Array", "ArrayIteratorNext"),
         ("String", "StringIteratorNext"),
+        ("RegExpString", "RegExpStringIteratorNext"),
         ("Map", "MapIteratorNext"),
         ("Set", "SetIteratorNext"),
     ] {
         let mapping = format!("Self::{variant} => StandardBuiltinId::{builtin_id},");
         assert_eq!(builtin.matches(&mapping).count(), 1, "{variant} mapping");
     }
-    assert_eq!(builtin.matches("StandardBuiltinId::").count(), 4);
+    assert_eq!(builtin.matches("StandardBuiltinId::").count(), 5);
     assert!(!builtin.contains("_ =>"));
 
     let prototype = bounded(
@@ -142,12 +149,16 @@ fn target_domain_maps_only_the_four_iterator_next_builtins() {
     for (variant, field) in [
         ("Array", "array_iterator_prototype_local"),
         ("String", "string_iterator_prototype_local"),
+        ("RegExpString", "regexp_string_iterator_prototype_local"),
         ("Map", "map_iterator_prototype_local"),
         ("Set", "set_iterator_prototype_local"),
     ] {
-        let mapping = format!("CreatedRealmIteratorNextTarget::{variant} => self.{field},");
+        let mapping = format!("CreatedRealmIteratorNextTarget::{variant}=>self.{field}");
         assert_eq!(
-            prototype.matches(&mapping).count(),
+            without_whitespace(prototype)
+                .replace(['{', '}'], "")
+                .matches(&mapping)
+                .count(),
             1,
             "{variant} prototype"
         );
@@ -156,7 +167,7 @@ fn target_domain_maps_only_the_four_iterator_next_builtins() {
         prototype
             .matches("CreatedRealmIteratorNextTarget::")
             .count(),
-        4
+        5
     );
     assert!(!prototype.contains("_ =>"));
     assert!(!OWNER_SOURCE.contains("ArrayIteratorIdentity"));
@@ -301,29 +312,29 @@ fn publication_consumes_the_token_then_releases_its_owned_locals() {
 }
 
 #[test]
-fn created_realm_bootstrap_uses_the_exact_four_typed_targets() {
+fn created_realm_bootstrap_uses_the_exact_five_typed_targets() {
     let create_realm = bounded(
         HOST_SOURCE,
         "    pub(crate) fn compile_host_create_realm_builtin(",
-        "    pub(crate) fn compile_host_realm_eval_script_builtin(",
+        "    pub(crate) fn compile_host_agent_start_builtin(",
     );
     assert_eq!(
         create_realm
             .matches("self.emit_materialize_created_realm_iterator_next(")
             .count(),
-        4
+        5
     );
     assert_eq!(
         create_realm
             .matches("self.emit_publish_created_realm_iterator_next(")
             .count(),
-        4
+        5
     );
     assert_eq!(
         create_realm
             .matches("CreatedRealmIteratorNextTarget::")
             .count(),
-        4
+        5
     );
     assert_eq!(
         create_realm
@@ -348,7 +359,8 @@ fn created_realm_bootstrap_uses_the_exact_four_typed_targets() {
         "letiterator_next_publication_context=",
         "CreatedRealmIteratorNextPublicationContext::new(&realm_functions,",
         "type_error_prototype_local,array_iterator_prototype_local,",
-        "string_iterator_prototype_local,map_iterator_prototype_local,",
+        "string_iterator_prototype_local,regexp_string_iterator_prototype_local,",
+        "map_iterator_prototype_local,",
         "set_iterator_prototype_local,);"
     );
     assert_eq!(create_realm.matches(context).count(), 1);
@@ -359,6 +371,7 @@ fn created_realm_bootstrap_uses_the_exact_four_typed_targets() {
     for (name, variant) in [
         ("array", "Array"),
         ("string", "String"),
+        ("regexp_string", "RegExpString"),
         ("map", "Map"),
         ("set", "Set"),
     ] {

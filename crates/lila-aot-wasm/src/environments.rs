@@ -1,6 +1,15 @@
 use super::*;
 use lila_ir::LexicalEnvironmentIr;
 
+pub(crate) mod environment_reference;
+mod eval_declaration_instantiation;
+mod function_body_environment;
+mod global_declaration_instantiation;
+pub(crate) mod global_environment;
+mod named_binding_mutation;
+pub(crate) mod named_environment;
+use global_environment::GlobalBindingFailure;
+
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_enter_for_in_of_tdz_scope(
         &mut self,
@@ -64,6 +73,11 @@ impl<'a> FunctionBuilder<'a> {
             parent_env_local,
             function,
         );
+        self.emit_initialize_named_environment_header(
+            self.current_env_local,
+            environment.eval_environment.as_ref(),
+            function,
+        )?;
         for binding in &environment.bindings {
             self.store_i64_const_at_offset(
                 self.current_env_local,
@@ -78,6 +92,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
+        self.emit_initialize_function_body_bindings(environment, parent_env_local, function);
         self.release_temp_local(parent_env_local);
         Ok(())
     }
@@ -175,6 +190,11 @@ impl<'a> FunctionBuilder<'a> {
             parent_env_local,
             function,
         );
+        self.emit_initialize_named_environment_header(
+            self.current_env_local,
+            environment.eval_environment.as_ref(),
+            function,
+        )?;
         for binding in &environment.bindings {
             self.store_i64_const_at_offset(
                 self.current_env_local,
@@ -293,17 +313,20 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(payload_local));
             }
             BindingStorage::EnvSlot { slot, hops } => {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.scratch_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.write_env_slot_from_locals(
-                    slot,
-                    hops,
-                    self.scratch_local,
-                    self.result_tag_local,
+                let env_local = self.resolve_env_handle_local(hops, function);
+                self.store_i64_const_at_offset(
+                    env_local,
+                    Self::env_slot_offset(slot, ENV_SLOT_TAG_OFFSET),
+                    ValueKind::Undefined.tag() as u64,
                     function,
                 );
+                self.store_i64_const_at_offset(
+                    env_local,
+                    Self::env_slot_offset(slot, ENV_SLOT_PAYLOAD_OFFSET),
+                    0,
+                    function,
+                );
+                self.release_temp_local(env_local);
             }
         }
     }
@@ -328,17 +351,20 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(payload_local));
             }
             BindingStorage::EnvSlot { slot, hops } => {
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.scratch_local));
-                function.instruction(&Instruction::I64Const(ENV_SLOT_UNINITIALIZED_TAG));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.write_env_slot_from_locals(
-                    slot,
-                    hops,
-                    self.scratch_local,
-                    self.result_tag_local,
+                let env_local = self.resolve_env_handle_local(hops, function);
+                self.store_i64_const_at_offset(
+                    env_local,
+                    Self::env_slot_offset(slot, ENV_SLOT_TAG_OFFSET),
+                    ENV_SLOT_UNINITIALIZED_TAG as u64,
                     function,
                 );
+                self.store_i64_const_at_offset(
+                    env_local,
+                    Self::env_slot_offset(slot, ENV_SLOT_PAYLOAD_OFFSET),
+                    0,
+                    function,
+                );
+                self.release_temp_local(env_local);
             }
         }
     }
@@ -592,6 +618,11 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.direct_eval_execution_context_local().is_some() {
+            self.compile_this_to_locals(self.scratch_local, self.result_tag_local, function)?;
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+            return Ok(());
+        }
         match self.function_flavor {
             FunctionFlavor::Ordinary => {
                 if self.lexical_derived_activation.is_some() {
@@ -606,8 +637,7 @@ impl<'a> FunctionBuilder<'a> {
                 if let Some(this_payload_local) = self.this_payload_local {
                     function.instruction(&Instruction::LocalGet(this_payload_local));
                 } else if self.is_main() {
-                    function
-                        .instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                    self.emit_execution_global_object_payload(function);
                 } else {
                     return Err(EmitError::unsupported(
                         "unsupported in lila wasm-aot first slice: top-level `this`",
@@ -625,8 +655,7 @@ impl<'a> FunctionBuilder<'a> {
                 } else if let Some(storage) = self.lookup_binding(LEXICAL_THIS_NAME) {
                     self.read_binding_payload(storage, function)?;
                 } else {
-                    function
-                        .instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                    self.emit_execution_global_object_payload(function);
                 }
             }
         }
@@ -639,6 +668,64 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(context) = self.direct_eval_execution_context_local() {
+            use crate::functions::direct_eval_invocation::{
+                DIRECT_EVAL_THIS_CELL_OFFSET, DIRECT_EVAL_THIS_PAYLOAD_OFFSET,
+                DIRECT_EVAL_THIS_STATUS_CELL_OFFSET, DIRECT_EVAL_THIS_TAG_OFFSET,
+            };
+            let cell = self.reserve_temp_local();
+            let status = self.reserve_temp_local();
+            self.load_i64_to_local_from_offset(
+                context,
+                DIRECT_EVAL_THIS_CELL_OFFSET,
+                cell,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(cell));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.load_i64_to_local_from_offset(
+                context,
+                DIRECT_EVAL_THIS_PAYLOAD_OFFSET,
+                payload_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                context,
+                DIRECT_EVAL_THIS_TAG_OFFSET,
+                tag_local,
+                function,
+            );
+            function.instruction(&Instruction::Else);
+            self.load_i64_to_local_from_offset(
+                context,
+                DIRECT_EVAL_THIS_STATUS_CELL_OFFSET,
+                status,
+                function,
+            );
+            self.load_i64_to_local_from_offset(status, ENV_SLOT_PAYLOAD_OFFSET, status, function);
+            function.instruction(&Instruction::LocalGet(status));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_derived_this_reference_error(
+                "must call super() before accessing `this`",
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+            self.load_i64_to_local_from_offset(
+                cell,
+                ENV_SLOT_PAYLOAD_OFFSET,
+                payload_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(cell, ENV_SLOT_TAG_OFFSET, tag_local, function);
+            function.instruction(&Instruction::End);
+            self.release_temp_local(status);
+            self.release_temp_local(cell);
+            return Ok(());
+        }
         match self.function_flavor {
             FunctionFlavor::Ordinary => {
                 if self.lexical_derived_activation.is_some() {
@@ -656,8 +743,7 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalGet(this_tag_local));
                     function.instruction(&Instruction::LocalSet(tag_local));
                 } else if self.is_main() {
-                    function
-                        .instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                    self.emit_execution_global_object_payload(function);
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
@@ -673,8 +759,7 @@ impl<'a> FunctionBuilder<'a> {
                 } else if let Some(storage) = self.lookup_binding(LEXICAL_THIS_NAME) {
                     self.read_binding_to_locals(storage, payload_local, tag_local, function)?;
                 } else {
-                    function
-                        .instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+                    self.emit_execution_global_object_payload(function);
                     function.instruction(&Instruction::LocalSet(payload_local));
                     function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                     function.instruction(&Instruction::LocalSet(tag_local));
@@ -684,13 +769,13 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_default_this(&self, function: &mut Function) {
-        function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+    pub(crate) fn emit_default_this(&mut self, function: &mut Function) {
+        self.emit_execution_global_object_payload(function);
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
     }
 
     pub(crate) fn emit_default_this_for_known_strictness(
-        &self,
+        &mut self,
         strict: bool,
         function: &mut Function,
     ) {
@@ -713,6 +798,22 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(context) = self.direct_eval_execution_context_local() {
+            self.load_i64_to_local_from_offset(
+                context,
+                crate::functions::direct_eval_invocation::DIRECT_EVAL_NEW_TARGET_PAYLOAD_OFFSET,
+                payload_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                context,
+                crate::functions::direct_eval_invocation::DIRECT_EVAL_NEW_TARGET_TAG_OFFSET,
+                tag_local,
+                function,
+            );
+            return Ok(());
+        }
+
         if self.current_function_meta().is_some_and(|meta| {
             matches!(
                 meta.protocol.execution_kind(),
@@ -988,9 +1089,15 @@ impl<'a> FunctionBuilder<'a> {
     /// Resolves a compiler-private derived-constructor activation binding.
     /// The owner has an owned slot; arrows reach the same slot through their
     /// recorded captured binding and hop count.
-    fn derived_activation_storage(&self, name: &str) -> Result<BindingStorage, EmitError> {
+    pub(crate) fn derived_activation_storage(
+        &self,
+        name: &str,
+    ) -> Result<BindingStorage, EmitError> {
         self.owned_env_slot(name)
-            .map(|slot| BindingStorage::EnvSlot { slot, hops: 0 })
+            .map(|slot| BindingStorage::EnvSlot {
+                slot,
+                hops: self.environment_depth,
+            })
             .or_else(|| self.lookup_binding(name))
             .ok_or_else(|| {
                 EmitError::unsupported(format!(
@@ -1018,6 +1125,37 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             self.emit_return_current_completion(function);
         }
+        Ok(())
+    }
+
+    pub(crate) fn emit_derived_constructor_body_result(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if !self.is_derived_constructor {
+            return Ok(());
+        }
+        let activation = self
+            .lexical_derived_activation
+            .expect("derived constructor body must have activation metadata");
+        let this = self.derived_activation_storage(&activation.this_binding)?;
+        // The activation starts with an undefined receiver and BindThisValue
+        // replaces it with an object. Preserve that value across the call ABI;
+        // [[Construct]] performs the final checks in its caller's realm.
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(self.completion_local));
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_RETURN));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(self.result_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.read_binding_to_locals(this, self.result_local, self.result_tag_local, function)?;
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
@@ -1060,6 +1198,24 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(context) = self.direct_eval_execution_context_local() {
+            let cell = self.reserve_temp_local();
+            self.load_i64_to_local_from_offset(
+                context,
+                crate::functions::direct_eval_invocation::DIRECT_EVAL_NEW_TARGET_CELL_OFFSET,
+                cell,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                cell,
+                ENV_SLOT_PAYLOAD_OFFSET,
+                payload_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(cell, ENV_SLOT_TAG_OFFSET, tag_local, function);
+            self.release_temp_local(cell);
+            return Ok(());
+        }
         let activation = self.lexical_derived_activation.ok_or_else(|| {
             EmitError::unsupported("derived new.target requested without activation metadata")
         })?;
@@ -1074,6 +1230,24 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(context) = self.direct_eval_execution_context_local() {
+            let cell = self.reserve_temp_local();
+            self.load_i64_to_local_from_offset(
+                context,
+                crate::functions::direct_eval_invocation::DIRECT_EVAL_ACTIVE_FUNCTION_CELL_OFFSET,
+                cell,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                cell,
+                ENV_SLOT_PAYLOAD_OFFSET,
+                payload_local,
+                function,
+            );
+            self.load_i64_to_local_from_offset(cell, ENV_SLOT_TAG_OFFSET, tag_local, function);
+            self.release_temp_local(cell);
+            return Ok(());
+        }
         let activation = self.lexical_derived_activation.ok_or_else(|| {
             EmitError::unsupported("derived active function requested without activation metadata")
         })?;
@@ -1092,6 +1266,61 @@ impl<'a> FunctionBuilder<'a> {
         error_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if let Some(context) = self.direct_eval_execution_context_local() {
+            use crate::functions::direct_eval_invocation::{
+                DIRECT_EVAL_THIS_CELL_OFFSET, DIRECT_EVAL_THIS_STATUS_CELL_OFFSET,
+            };
+            let this = self.reserve_temp_local();
+            let status = self.reserve_temp_local();
+            let initialized = self.reserve_temp_local();
+            self.load_i64_to_local_from_offset(
+                context,
+                DIRECT_EVAL_THIS_CELL_OFFSET,
+                this,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                context,
+                DIRECT_EVAL_THIS_STATUS_CELL_OFFSET,
+                status,
+                function,
+            );
+            self.load_i64_to_local_from_offset(
+                status,
+                ENV_SLOT_PAYLOAD_OFFSET,
+                initialized,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(initialized));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_derived_this_reference_error(
+                "super() called twice in derived constructor",
+                error_payload_local,
+                error_tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+            self.store_i64_local_at_offset(
+                this,
+                ENV_SLOT_PAYLOAD_OFFSET,
+                value_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(this, ENV_SLOT_TAG_OFFSET, value_tag_local, function);
+            self.store_i64_const_at_offset(status, ENV_SLOT_PAYLOAD_OFFSET, 1, function);
+            self.store_i64_const_at_offset(
+                status,
+                ENV_SLOT_TAG_OFFSET,
+                ValueKind::Boolean.tag() as u64,
+                function,
+            );
+            self.release_temp_local(initialized);
+            self.release_temp_local(status);
+            self.release_temp_local(this);
+            return Ok(());
+        }
         let activation = self.lexical_derived_activation.ok_or_else(|| {
             EmitError::unsupported("derived `this` bind requested without activation metadata")
         })?;
@@ -1132,9 +1361,14 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let object_local = self.reserve_temp_local();
         let object_tag_local = self.reserve_temp_local();
+        let lexical_entry_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+        self.emit_global_lexical_entry_to_local(key_local, lexical_entry_local, function);
+        function.instruction(&Instruction::LocalGet(lexical_entry_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_execution_global_object_payload(function);
         function.instruction(&Instruction::LocalSet(object_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
@@ -1148,6 +1382,10 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
+        function.instruction(&Instruction::Else);
+        self.emit_global_lexical_read(lexical_entry_local, payload_local, tag_local, function)?;
+        function.instruction(&Instruction::End);
+        self.release_temp_local(lexical_entry_local);
         self.release_temp_local(object_tag_local);
         self.release_temp_local(object_local);
         self.release_temp_local(key_local);
@@ -1164,10 +1402,15 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let object_local = self.reserve_temp_local();
         let object_tag_local = self.reserve_temp_local();
+        let lexical_entry_local = self.reserve_temp_local();
         let has_property_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+        self.emit_global_lexical_entry_to_local(key_local, lexical_entry_local, function);
+        function.instruction(&Instruction::LocalGet(lexical_entry_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_execution_global_object_payload(function);
         function.instruction(&Instruction::LocalSet(object_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
@@ -1193,15 +1436,18 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            REFERENCE_ERROR_NAME,
-            "unbound identifier",
+        self.emit_throw_global_binding_error(
+            GlobalBindingFailure::Unresolvable,
             payload_local,
             tag_local,
             function,
         )?;
         function.instruction(&Instruction::End);
         self.release_temp_local(has_property_local);
+        function.instruction(&Instruction::Else);
+        self.emit_global_lexical_read(lexical_entry_local, payload_local, tag_local, function)?;
+        function.instruction(&Instruction::End);
+        self.release_temp_local(lexical_entry_local);
         self.release_temp_local(object_tag_local);
         self.release_temp_local(object_local);
         self.release_temp_local(key_local);
@@ -1218,9 +1464,14 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let object_local = self.reserve_temp_local();
         let object_tag_local = self.reserve_temp_local();
+        let lexical_entry_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+        self.emit_global_lexical_entry_to_local(key_local, lexical_entry_local, function);
+        function.instruction(&Instruction::LocalGet(lexical_entry_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_execution_global_object_payload(function);
         function.instruction(&Instruction::LocalSet(object_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
@@ -1232,6 +1483,10 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
+        function.instruction(&Instruction::Else);
+        self.emit_global_lexical_write(lexical_entry_local, payload_local, tag_local, function)?;
+        function.instruction(&Instruction::End);
+        self.release_temp_local(lexical_entry_local);
         self.release_temp_local(object_tag_local);
         self.release_temp_local(object_local);
         self.release_temp_local(key_local);
@@ -1265,10 +1520,15 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let object_local = self.reserve_temp_local();
         let object_tag_local = self.reserve_temp_local();
+        let lexical_entry_local = self.reserve_temp_local();
         let has_property_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+        self.emit_global_lexical_entry_to_local(key_local, lexical_entry_local, function);
+        function.instruction(&Instruction::LocalGet(lexical_entry_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_execution_global_object_payload(function);
         function.instruction(&Instruction::LocalSet(object_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
@@ -1282,9 +1542,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(has_property_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            REFERENCE_ERROR_NAME,
-            "assignment to unresolvable reference",
+        self.emit_throw_global_binding_error(
+            GlobalBindingFailure::UnresolvableAssignment,
             payload_local,
             tag_local,
             function,
@@ -1304,6 +1563,10 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.release_temp_local(has_property_local);
+        function.instruction(&Instruction::Else);
+        self.emit_global_lexical_write(lexical_entry_local, payload_local, tag_local, function)?;
+        function.instruction(&Instruction::End);
+        self.release_temp_local(lexical_entry_local);
         self.release_temp_local(object_tag_local);
         self.release_temp_local(object_local);
         self.release_temp_local(key_local);
@@ -1323,9 +1586,14 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let object_local = self.reserve_temp_local();
         let object_tag_local = self.reserve_temp_local();
+        let lexical_entry_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(self.strings.payload(name)));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::GlobalGet(SCRIPT_GLOBAL_OBJECT_GLOBAL_INDEX));
+        self.emit_global_lexical_entry_to_local(key_local, lexical_entry_local, function);
+        function.instruction(&Instruction::LocalGet(lexical_entry_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_execution_global_object_payload(function);
         function.instruction(&Instruction::LocalSet(object_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(object_tag_local));
@@ -1345,9 +1613,8 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(result_local));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
-                "Cannot delete property",
+            self.emit_throw_global_binding_error(
+                GlobalBindingFailure::NonConfigurableDelete,
                 error_payload_local,
                 error_tag_local,
                 function,
@@ -1364,6 +1631,11 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(error_tag_local);
             self.release_temp_local(error_payload_local);
         }
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        self.release_temp_local(lexical_entry_local);
         self.release_temp_local(object_tag_local);
         self.release_temp_local(object_local);
         self.release_temp_local(key_local);
@@ -1376,7 +1648,7 @@ impl<'a> FunctionBuilder<'a> {
         storage: BindingStorage,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if !self.is_main() || !self.is_script_global_binding(name) {
+        if !self.has_global_script_bindings() || !self.is_script_global_binding(name) {
             return Ok(());
         }
         if self
@@ -1388,54 +1660,9 @@ impl<'a> FunctionBuilder<'a> {
             return Ok(());
         }
 
+        let saved = self.save_statement_list_value(function);
         self.read_binding_to_locals(storage, self.scratch_local, self.result_tag_local, function)?;
         self.emit_global_property_write(name, self.scratch_local, self.result_tag_local, function)?;
-        self.emit_propagate_current_completion_if_throw(function);
-        // The global object remains authoritative after instantiation too. A
-        // script can make a fresh `var` property non-writable before a later
-        // assignment, so every mirrored Set must refresh the frame cache from
-        // the property rather than only doing so for properties that existed
-        // when GlobalDeclarationInstantiation ran.
-        self.emit_global_property_read(name, self.scratch_local, self.result_tag_local, function)?;
-        self.write_binding_from_locals(
-            storage,
-            self.scratch_local,
-            self.result_tag_local,
-            function,
-        );
-        Ok(())
-    }
-
-    pub(crate) fn seed_cached_script_global_bindings(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        if !self.is_main() {
-            return Ok(());
-        }
-        let bindings = self
-            .script_global_bindings
-            .expect("main builder must carry the global binding plan")
-            .main_frame_cache_bindings()
-            .map(|binding| binding.name.clone())
-            .collect::<Vec<_>>();
-        for name in bindings {
-            let storage = self.lookup_owner_binding(&name).ok_or_else(|| {
-                EmitError::unsupported(format!("script-global cache `{name}` has no owner binding"))
-            })?;
-            self.emit_global_property_read(
-                &name,
-                self.scratch_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.write_binding_from_locals(
-                storage,
-                self.scratch_local,
-                self.result_tag_local,
-                function,
-            );
-        }
-        Ok(())
+        self.restore_statement_list_value(saved, function)
     }
 }

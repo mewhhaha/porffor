@@ -2,6 +2,7 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_new(&mut self, new_expr: &New) -> TypedExpr {
+        self.register_dynamic_source_candidates(new_expr.constructor(), new_expr.arguments());
         let mut callee = self.lower_expression(new_expr.constructor());
         if callee
             .function_targets

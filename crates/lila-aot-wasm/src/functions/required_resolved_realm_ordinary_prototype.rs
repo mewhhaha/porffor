@@ -18,6 +18,9 @@ pub(crate) enum OrdinaryDefaultPrototype {
     Iterator,
     RegExp,
     Promise,
+    DisposableStack,
+    AggregateError,
+    SuppressedError,
 }
 
 impl OrdinaryDefaultPrototype {
@@ -32,6 +35,9 @@ impl OrdinaryDefaultPrototype {
             Self::Iterator => HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET,
             Self::RegExp => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
             Self::Promise => HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
+            Self::DisposableStack => HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
+            Self::AggregateError => HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
+            Self::SuppressedError => HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
         }
     }
 }

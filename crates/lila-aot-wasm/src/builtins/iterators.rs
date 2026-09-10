@@ -794,15 +794,30 @@ impl<'a> FunctionBuilder<'a> {
         let index_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
 
+        let realm_local = self.reserve_temp_local();
         function.instruction(&Instruction::GlobalGet(
-            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
         ));
         function.instruction(&Instruction::LocalSet(prototype_local));
-        self.emit_load_function_defining_realm_array_iterator_prototype(
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
             self.current_env_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            realm_local,
+            function,
+        );
+        self.emit_load_realm_intrinsic_prototype_or_global(
+            realm_local,
+            HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET,
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
             prototype_local,
             function,
         );
+        function.instruction(&Instruction::End);
+        self.release_temp_local(realm_local);
         self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.emit_object_define_local_data(

@@ -1,12 +1,42 @@
 use super::super::*;
 
 impl<'a> ScriptLowerer<'a> {
+    pub(super) fn lower_direct_eval_call(
+        &mut self,
+        source_callee: &Expression,
+        source_args: &[Expression],
+    ) -> Option<TypedExpr> {
+        let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(source_callee)
+        else {
+            return None;
+        };
+        if self.interner.resolve_expect(identifier.sym()).to_string() != "eval" {
+            return None;
+        }
+        let context = self.direct_eval_context();
+        self.register_direct_eval_source(&context, source_args);
+        let mut callee = self.lower_expression(source_callee);
+        let args = self
+            .lower_call_args_expanding_spread(source_args)
+            .into_arguments_after_expression(&mut callee);
+        self.invalidate_unknown_user_code_effects();
+        Some(TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Dynamic),
+            ExprIr::CallIndirect {
+                direct_eval: Some(context),
+                callee: Box::new(callee),
+                this_arg: None,
+                args,
+                static_regexp_compilation: None,
+            },
+        ))
+    }
+
     pub(super) fn lower_non_property_call(
         &mut self,
         callee: &Expression,
         args: &[Expression],
     ) -> TypedExpr {
-        let source_callee = callee;
         let callee = self.lower_expression(callee);
         let callee = match callee {
             TypedExpr {
@@ -48,37 +78,14 @@ impl<'a> ScriptLowerer<'a> {
             callee => callee,
         };
         let lower_generic_indirect_call = |this: &mut Self, mut callee: TypedExpr| {
-            let erased_direct_eval = callee
-                .function_targets
-                .exact_targets()
-                .is_none()
-                .then(|| this.capture_erased_direct_eval_call(source_callee, &callee))
-                .flatten();
             let lowered_args = this
                 .lower_call_args_expanding_spread(args)
                 .into_arguments_after_expression(&mut callee);
-            if let Some(erased_direct_eval) = erased_direct_eval {
-                let resolved = erased_direct_eval.resolve(this, args, &lowered_args);
-                match resolved {
-                    ResolvedDynamicSourceCall::EvalPassThrough(_) => {}
-                    ResolvedDynamicSourceCall::EmptyFunction(_) => {
-                        unreachable!("erased eval cannot resolve to Function construction")
-                    }
-                    ResolvedDynamicSourceCall::Unsupported(unsupported) => {
-                        this.record_unsupported_dynamic_source(unsupported);
-                        return TypedExpr::undefined();
-                    }
-                }
-            }
             let analysis = this.analyze_known_call_candidates(
                 &callee.value_info(),
                 None,
                 &lowered_args,
-                CallCandidateSource::DirectSyntax {
-                    source_callee,
-                    lowered_callee: &callee,
-                    arguments: args,
-                },
+                CallCandidateSource::IndirectSyntax(args),
             );
             let CallCandidateAnalysis::Accepted { result, effects } = analysis else {
                 return TypedExpr::undefined();
@@ -86,6 +93,7 @@ impl<'a> ScriptLowerer<'a> {
             let result = TypedExpr::from_info(
                 result,
                 ExprIr::CallIndirect {
+                    direct_eval: None,
                     callee: Box::new(callee),
                     this_arg: None,
                     args: lowered_args,
@@ -176,14 +184,13 @@ impl<'a> ScriptLowerer<'a> {
         self.mark_host_builtin_from_function_id(&function_id);
         self.host_builtin_calls +=
             usize::from(HostBuiltinId::from_function_id(&function_id).is_some());
-        let context = self.resolved_builtin_call_context(source_callee, &callee, &function_id);
         let prepared_static_json_parse_reviver =
             self.prepare_static_json_parse_reviver(&function_id, args);
         let (effective_function_id, args, info, invocation_effects) = self
             .lower_call_args_with_target(
                 &function_id,
                 args,
-                context,
+                BuiltinCallContext::Call,
                 InvocationThisObservation::Default,
             );
         if let Some(builtin) = StandardBuiltinId::from_function_id(&effective_function_id) {
@@ -212,6 +219,7 @@ impl<'a> ScriptLowerer<'a> {
         let call = TypedExpr::from_info(
             info,
             ExprIr::CallIndirect {
+                direct_eval: None,
                 callee: Box::new(callee),
                 this_arg: None,
                 args,

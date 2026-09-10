@@ -48,9 +48,17 @@ impl<'a> ScriptLowerer<'a> {
         let mut pattern_initializer: Option<(BindingMode, Pattern)> = None;
         let mut assignment_pattern_initializer: Option<Pattern> = None;
         let mut access_initializer: Option<PropertyAccess> = None;
+        let mut borrowed_var_name = None;
         let (mode, name) =
             if let Some(binding) = self.for_in_initializer_binding(for_in.initializer()) {
-                binding
+                if matches!(for_in.initializer(), IterableLoopInitializer::Var(_))
+                    && self.borrows_direct_eval_variable_environment()
+                {
+                    borrowed_var_name = Some(binding.1);
+                    (BindingMode::Let, self.alloc_temp_binding_name("forin.var"))
+                } else {
+                    binding
+                }
             } else {
                 match for_in.initializer() {
                     IterableLoopInitializer::Var(variable) => {
@@ -95,7 +103,10 @@ impl<'a> ScriptLowerer<'a> {
             for_in as *const boa_ast::statement::iteration::ForInLoop as usize,
         );
         let mut target = match pattern_initializer.as_ref() {
-            None if access_initializer.is_none() && assignment_pattern_initializer.is_none() => {
+            None if access_initializer.is_none()
+                && assignment_pattern_initializer.is_none()
+                && borrowed_var_name.is_none() =>
+            {
                 self.lower_for_head_expression_with_tdz(mode, &name, for_in.target())
             }
             None => self.lower_expression(for_in.target()),
@@ -216,6 +227,7 @@ impl<'a> ScriptLowerer<'a> {
             || pattern_initializer.is_some()
             || assignment_pattern_initializer.is_some()
             || access_initializer.is_some()
+            || borrowed_var_name.is_some()
         {
             name.clone()
         } else {
@@ -249,7 +261,18 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
-        let mut pattern_prefix = if let Some(access) = access_initializer.as_ref() {
+        let mut pattern_prefix = if let Some(source_name) = borrowed_var_name {
+            let value =
+                TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
+            vec![StatementIr::DeclarationEvaluation(
+                self.environment_identifier(
+                    source_name,
+                    EnvironmentIdentifierOperationIr::Assign {
+                        value: Box::new(value),
+                    },
+                ),
+            )]
+        } else if let Some(access) = access_initializer.as_ref() {
             let value =
                 TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
             let access = access.clone();
@@ -358,8 +381,19 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
         variable.init()?;
-        self.lower_var_declarator(variable)
-            .map(|declarator| StatementIr::Var(vec![declarator]))
+        let declarator = self.lower_var_declarator(variable)?;
+        if self.borrows_direct_eval_variable_environment() {
+            declarator.init.map(|value| {
+                StatementIr::DeclarationEvaluation(self.environment_identifier(
+                    declarator.name,
+                    EnvironmentIdentifierOperationIr::Assign {
+                        value: Box::new(value),
+                    },
+                ))
+            })
+        } else {
+            Some(StatementIr::Var(vec![declarator]))
+        }
     }
 
     fn prepend_statement(

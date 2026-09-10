@@ -197,16 +197,15 @@ impl<'a> FunctionBuilder<'a> {
                     }
                     NumericUpdateValueKind::BigInt => {}
                 }
-                self.emit_update_delta_from_locals(
+                self.emit_numeric_update_to_locals(
                     *op,
                     *value_kind,
                     old_value_payload,
                     old_value_tag,
+                    new_value_payload,
+                    new_value_tag,
                     function,
-                );
-                function.instruction(&Instruction::LocalSet(new_value_payload));
-                function.instruction(&Instruction::LocalGet(old_value_tag));
-                function.instruction(&Instruction::LocalSet(new_value_tag));
+                )?;
 
                 self.emit_put_value_from_coerced_super_property_reference(
                     coerced_reference,

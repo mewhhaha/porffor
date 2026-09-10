@@ -1,5 +1,7 @@
 const ANALYSIS_SOURCE: &str = include_str!("../src/analysis.rs");
 const OWNER_SOURCE: &str = include_str!("../src/analysis/environment_kind.rs");
+const FUNCTION_ENVIRONMENT_SOURCE: &str = include_str!("../src/analysis/function_environment.rs");
+const EVAL_ENVIRONMENT_SOURCE: &str = include_str!("../src/analysis/eval_environment.rs");
 const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
 const FUNCTION_DEFINITION_SOURCE: &str = include_str!("../src/lowering/function_definition.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
@@ -59,8 +61,7 @@ fn environment_kind_preserves_the_closed_materialization_domains() {
     );
     assert_eq!(
         code_without_whitespace(variants),
-        "Activation,Block,WithObject,ClassName,SwitchCaseBlock,CatchParameter,\
-         ForLexicalHead,ForInOfTdzHead,ForInOfIteration,}"
+        "Activation,FunctionParameters,FunctionBody,ParameterEvalVariable,Block,WithObject,ClassName,NamedFunctionExpression,SwitchCaseBlock,CatchParameter,SimpleCatchParameter,ForLexicalHead,ForInOfTdzHead,ForInOfIteration,}"
     );
 
     let stage_a = bounded(
@@ -70,7 +71,7 @@ fn environment_kind_preserves_the_closed_materialization_domains() {
     );
     assert_eq!(
         code_without_whitespace(stage_a),
-        "matches!(self,Self::Block|Self::SwitchCaseBlock|Self::CatchParameter)}"
+        "matches!(self,Self::FunctionParameters|Self::FunctionBody|Self::Block|Self::SwitchCaseBlock|Self::CatchParameter|Self::SimpleCatchParameter)}"
     );
 
     let materialized = OWNER_SOURCE
@@ -79,9 +80,7 @@ fn environment_kind_preserves_the_closed_materialization_domains() {
         .1;
     assert_eq!(
         code_without_whitespace(materialized),
-        "matches!(self,Self::Block|Self::ClassName|Self::WithObject|\
-         Self::SwitchCaseBlock|Self::CatchParameter|Self::ForLexicalHead|\
-         Self::ForInOfTdzHead|Self::ForInOfIteration)}}"
+        "matches!(self,Self::FunctionParameters|Self::FunctionBody|Self::ParameterEvalVariable|Self::Block|Self::NamedFunctionExpression|Self::ClassName|Self::WithObject|Self::SwitchCaseBlock|Self::CatchParameter|Self::SimpleCatchParameter|Self::ForLexicalHead|Self::ForInOfTdzHead|Self::ForInOfIteration)}}"
     );
     assert!(!OWNER_SOURCE.contains("_ =>"));
 }
@@ -95,15 +94,31 @@ fn environment_kind_keeps_the_reviewed_projection_and_external_census() {
         1
     );
     assert_eq!(ANALYSIS_SOURCE.matches(".is_materialized()").count(), 3);
-    assert_eq!(ANALYSIS_SOURCE.matches("EnvironmentKind").count(), 23);
-    assert_eq!(LOWERING_SOURCE.matches("EnvironmentKind").count(), 2);
+    assert_eq!(ANALYSIS_SOURCE.matches("EnvironmentKind").count(), 26);
+    assert_eq!(LOWERING_SOURCE.matches("EnvironmentKind").count(), 1);
     assert_eq!(
         FUNCTION_DEFINITION_SOURCE
             .matches("EnvironmentKind")
             .count(),
         1
     );
-    for source in [LOWERING_SOURCE, FUNCTION_DEFINITION_SOURCE, LIB_SOURCE] {
+    assert_eq!(
+        FUNCTION_ENVIRONMENT_SOURCE
+            .matches("EnvironmentKind")
+            .count(),
+        3
+    );
+    assert_eq!(
+        EVAL_ENVIRONMENT_SOURCE.matches("EnvironmentKind").count(),
+        34
+    );
+    for source in [
+        LOWERING_SOURCE,
+        FUNCTION_DEFINITION_SOURCE,
+        FUNCTION_ENVIRONMENT_SOURCE,
+        EVAL_ENVIRONMENT_SOURCE,
+        LIB_SOURCE,
+    ] {
         assert!(!source.contains("enum EnvironmentKind"));
         assert!(!source.contains("impl EnvironmentKind"));
     }

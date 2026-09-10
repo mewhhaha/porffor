@@ -33,6 +33,7 @@ mod proxy;
 mod reflect;
 mod regexp;
 mod standard;
+pub(crate) use standard::ActiveStandardBuiltinFunction;
 mod string;
 pub(crate) use string::StringNormalizationForm;
 mod symbol;

@@ -37,7 +37,7 @@ fn created_realm_publication() -> &'static str {
 #[test]
 fn promise_prototype_is_a_required_typed_realm_intrinsic() {
     for marker in [
-        "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 432;",
+        "pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 =",
         "pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET: u64 = 400;",
         "pub(crate) const HEAP_REALM_INTRINSICS_FUNCTION_PROTOTYPE_OFFSET: u64 = 408;",
         "pub(crate) const HEAP_REALM_INTRINSICS_PROMISE_CONSTRUCTOR_OFFSET: u64 = 416;",

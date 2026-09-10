@@ -148,12 +148,12 @@ where
 
         if let Some(Some(token)) = self.peeked.front() {
             if skip_line_terminators && token.kind() == &TokenKind::LineTerminator {
-                // We only store 1 contiguous line terminator, so if the first token
-                // was a line terminator, we know that the next won't be one.
-                self.peeked.pop_front();
-                if self.peeked.is_empty() {
+                // Keep the terminator in the buffer while filling so `fill`
+                // coalesces further terminators, including those after comments.
+                if self.peeked.len() == 1 {
                     self.fill(interner)?;
                 }
+                self.peeked.pop_front();
             }
             let tok = self.peeked.pop_front().flatten();
 
