@@ -144,6 +144,33 @@ struct TypedArrayWitnessLocals {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    pub(crate) fn emit_array_buffer_backing_store_alloc(
+        &mut self,
+        byte_length_local: u32,
+        destination_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if let Some(allocator) = self.functions.shared_memory_alloc_function_index() {
+            function.instruction(&Instruction::LocalGet(byte_length_local));
+            function.instruction(&Instruction::Call(allocator));
+        } else {
+            self.emit_heap_alloc_from_local(byte_length_local, function)?;
+        }
+        function.instruction(&Instruction::LocalSet(destination_local));
+        function.instruction(&Instruction::LocalGet(destination_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "ArrayBuffer allocation exceeds the wasm-aot buffer-memory limit",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
     pub(crate) fn emit_array_buffer_memory_load(
         &self,
         _buffer_flags_local: u32,
@@ -813,8 +840,11 @@ impl<'a> FunctionBuilder<'a> {
                     source_data_local,
                     function,
                 );
-                self.emit_heap_alloc_from_local(locals.requested_len_local, function)?;
-                function.instruction(&Instruction::LocalSet(*target_data_local));
+                self.emit_array_buffer_backing_store_alloc(
+                    locals.requested_len_local,
+                    *target_data_local,
+                    function,
+                )?;
                 self.emit_alloc_plain_object_with_prototype(
                     None,
                     Some(ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX),

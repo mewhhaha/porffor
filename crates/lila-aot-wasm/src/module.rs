@@ -2044,9 +2044,14 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX as usize + 1,
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX as usize + 1,
             "the fixed scalar registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
+        );
+        assert!(
+            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX
+                > THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX,
+            "the RegExp String Iterator prototype is appended so existing global indices stay stable"
         );
         assert!(
             THROW_ERROR_MESSAGE_HEAP_GLOBAL_INDEX > INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,

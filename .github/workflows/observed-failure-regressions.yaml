@@ -83,7 +83,7 @@ jobs:
           --test aot_suppressed_error_constructor_realm
           --test aot_string_numeric_prefixes --test aot_proto_getter_receiver
           --test aot_temporal_month_code --test aot_typed_array_reference_get --test aot_bigint_numeric_updates
-          --test aot_bigint_number_conversion
+          --test aot_bigint_number_conversion --test aot_buffer_backing_store
           --test aot_regexp_constructor_and_iterator
           --test aot_promise_combinator_intrinsics
           -- --test-threads=2

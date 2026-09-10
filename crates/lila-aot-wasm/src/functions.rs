@@ -551,7 +551,7 @@ mod realm_function_materialization_tests {
         let mut direct_sites = 0;
         let marker = "self.emit_function_value_payload_in_realm(";
         for (source_name, realm_bootstrap_source, expected_sites, context_argument) in [
-            ("builtins/host.rs", host, 87, "&realm_functions"),
+            ("builtins/host.rs", host, 88, "&realm_functions"),
             (
                 "builtins/host/created_realm_iterator_next.rs",
                 created_realm_iterator_next,
@@ -579,7 +579,7 @@ mod realm_function_materialization_tests {
             direct_sites += source_sites;
         }
         assert_eq!(
-            direct_sites, 88,
+            direct_sites, 89,
             "created-realm bootstrap site count drifted"
         );
 

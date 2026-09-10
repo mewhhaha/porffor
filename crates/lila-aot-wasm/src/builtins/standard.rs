@@ -19873,27 +19873,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
-                let buffer_memory_alloc = self.functions.shared_memory_alloc_function_index();
-                if let Some(buffer_memory_alloc) = buffer_memory_alloc {
-                    function.instruction(&Instruction::LocalGet(max_byte_length_local));
-                    function.instruction(&Instruction::Call(buffer_memory_alloc));
-                } else {
-                    self.emit_heap_alloc_from_local(max_byte_length_local, function)?;
-                }
-                function.instruction(&Instruction::LocalSet(data_ptr_local));
-                if buffer_memory_alloc.is_some() {
-                    function.instruction(&Instruction::LocalGet(data_ptr_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_throw_current_function_realm_range_error(
-                        "SharedArrayBuffer allocation exceeds the wasm-aot shared-memory limit",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion(function);
-                    function.instruction(&Instruction::End);
-                }
+                self.emit_array_buffer_backing_store_alloc(
+                    max_byte_length_local,
+                    data_ptr_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(zero_index_local));
                 function.instruction(&Instruction::Block(BlockType::Empty));
@@ -20917,8 +20901,11 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalGet(new_object_local));
                         function.instruction(&Instruction::I64Eqz);
                         function.instruction(&Instruction::If(BlockType::Empty));
-                        self.emit_heap_alloc_from_local(new_len_local, function)?;
-                        function.instruction(&Instruction::LocalSet(new_data_ptr_local));
+                        self.emit_array_buffer_backing_store_alloc(
+                            new_len_local,
+                            new_data_ptr_local,
+                            function,
+                        )?;
                         self.emit_alloc_plain_object_with_prototype(
                             None,
                             Some(slice_kind.default_result_prototype()),
@@ -21271,8 +21258,11 @@ impl<'a> FunctionBuilder<'a> {
                     _ => unreachable!(),
                 }
 
-                self.emit_heap_alloc_from_local(new_len_local, function)?;
-                function.instruction(&Instruction::LocalSet(new_data_ptr_local));
+                self.emit_array_buffer_backing_store_alloc(
+                    new_max_byte_length_local,
+                    new_data_ptr_local,
+                    function,
+                )?;
 
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(index_local));
@@ -24938,25 +24928,11 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::End);
                 }
 
-                if let Some(buffer_memory_alloc) = buffer_memory_alloc {
-                    function.instruction(&Instruction::LocalGet(byte_length_local));
-                    function.instruction(&Instruction::Call(buffer_memory_alloc));
-                } else {
-                    self.emit_heap_alloc_from_local(byte_length_local, function)?;
-                }
-                function.instruction(&Instruction::LocalSet(data_ptr_local));
-                function.instruction(&Instruction::LocalGet(data_ptr_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
-                    "TypedArray allocation exceeds the wasm-aot buffer-memory limit",
-                    self.result_local,
-                    self.result_tag_local,
+                self.emit_array_buffer_backing_store_alloc(
+                    byte_length_local,
+                    data_ptr_local,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalGet(data_ptr_local));
                 function.instruction(&Instruction::I32WrapI64);
                 function.instruction(&Instruction::I32Const(0));

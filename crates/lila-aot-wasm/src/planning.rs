@@ -85,6 +85,16 @@ mod tests {
             .expect("script should lower")
     }
 
+    fn run_deep_planning_test(test: impl FnOnce() + Send + 'static) {
+        // Match the compiler worker stack for recursive IR traversal and drop.
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(test)
+            .expect("deep planning worker should spawn")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    }
+
     #[test]
     fn heap_bigint_literals_require_the_emitted_result_tag() {
         let literal = ExprIr::BigInt(BigIntLiteralIr::from_u64_payload(1_u64 << 63));
@@ -94,37 +104,39 @@ mod tests {
 
     #[test]
     fn numeric_updates_keep_runtime_tags_and_both_value_pairs_live() {
-        let script = lower_script("let value = 9223372036854775807n; ++value;");
-        let Some(StatementIr::Expression(update)) = script.body.statements.last() else {
-            panic!("numeric update must remain the script result");
-        };
-        assert!(matches!(
-            update.expr,
-            ExprIr::UpdateIdentifier {
-                value_kind: NumericUpdateValueKind::BigInt,
-                ..
-            }
-        ));
-        assert_eq!(update.possible_kinds, KindSet::from_kind(ValueKind::BigInt));
-        assert!(expr_result_tag_is_runtime_dynamic(&update.expr));
-        assert_eq!(
-            count_expr_temp_locals(update),
-            4 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
-        );
+        run_deep_planning_test(|| {
+            let script = lower_script("let value = 9223372036854775807n; ++value;");
+            let Some(StatementIr::Expression(update)) = script.body.statements.last() else {
+                panic!("numeric update must remain the script result");
+            };
+            assert!(matches!(
+                update.expr,
+                ExprIr::UpdateIdentifier {
+                    value_kind: NumericUpdateValueKind::BigInt,
+                    ..
+                }
+            ));
+            assert_eq!(update.possible_kinds, KindSet::from_kind(ValueKind::BigInt));
+            assert!(expr_result_tag_is_runtime_dynamic(&update.expr));
+            assert_eq!(
+                count_expr_temp_locals(update),
+                4 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
+            );
 
-        const DEPTH: usize = 1010;
-        let expression = (0..DEPTH).fold(update.clone(), |value, _| {
-            TypedExpr::from_info(
-                value.value_info(),
-                ExprIr::AssignIdentifier {
-                    name: "published".to_string(),
-                    value: Box::new(value),
-                },
-            )
+            const DEPTH: usize = 1010;
+            let expression = (0..DEPTH).fold(update.clone(), |value, _| {
+                TypedExpr::from_info(
+                    value.value_info(),
+                    ExprIr::AssignIdentifier {
+                        name: "published".to_string(),
+                        value: Box::new(value),
+                    },
+                )
+            });
+            let expected = DEPTH * 2 + 4 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
+            assert!(expected > 2048);
+            assert_eq!(count_expr_temp_locals(&expression), expected);
         });
-        let expected = DEPTH * 2 + 4 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
-        assert!(expected > 2048);
-        assert_eq!(count_expr_temp_locals(&expression), expected);
     }
 
     #[test]
@@ -194,68 +206,72 @@ mod tests {
 
     #[test]
     fn deeply_nested_coercive_arithmetic_budgets_live_operands_and_conversion_phases() {
-        let one = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Number),
-            ExprIr::Number(1.0_f64.to_bits()),
-        );
-        for (op, depth, retained, final_phase) in [
-            (
-                ArithmeticBinaryOp::Mul,
-                510,
-                4,
-                COERCIVE_NUMERIC_ERROR_TEMP_LOCALS,
-            ),
-            (ArithmeticBinaryOp::Add, 330, 6, 90),
-        ] {
-            let expression = (0..depth).fold(one.clone(), |lhs, _| {
-                TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Number),
-                    ExprIr::CoerciveBinaryNumber {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(one.clone()),
-                    },
-                )
-            });
-            let expected = depth * retained + final_phase;
-            assert!(
-                expected > 2048,
-                "regression must cross the local-count floor"
+        run_deep_planning_test(|| {
+            let one = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(1.0_f64.to_bits()),
             );
-            assert_eq!(count_expr_temp_locals(&expression), expected);
-        }
+            for (op, depth, retained, final_phase) in [
+                (
+                    ArithmeticBinaryOp::Mul,
+                    510,
+                    4,
+                    COERCIVE_NUMERIC_ERROR_TEMP_LOCALS,
+                ),
+                (ArithmeticBinaryOp::Add, 330, 6, 90),
+            ] {
+                let expression = (0..depth).fold(one.clone(), |lhs, _| {
+                    TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Number),
+                        ExprIr::CoerciveBinaryNumber {
+                            op,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(one.clone()),
+                        },
+                    )
+                });
+                let expected = depth * retained + final_phase;
+                assert!(
+                    expected > 2048,
+                    "regression must cross the local-count floor"
+                );
+                assert_eq!(count_expr_temp_locals(&expression), expected);
+            }
+        });
     }
 
     #[test]
     fn coercive_addition_budgets_raw_object_pairs_during_child_evaluation() {
-        const DEPTH: usize = 1030;
-        let object = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Object),
-            ExprIr::Identifier("operand".to_string()),
-        );
-        let operand = (0..DEPTH).fold(object, |body, index| {
-            TypedExpr::from_info(
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 1030;
+            let object = TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Object),
-                ExprIr::MaterializeBinding {
-                    name: format!("retained{index}"),
-                    value: Box::new(TypedExpr::undefined()),
-                    body: Box::new(body),
+                ExprIr::Identifier("operand".to_string()),
+            );
+            let operand = (0..DEPTH).fold(object, |body, index| {
+                TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Object),
+                    ExprIr::MaterializeBinding {
+                        name: format!("retained{index}"),
+                        value: Box::new(TypedExpr::undefined()),
+                        body: Box::new(body),
+                    },
+                )
+            });
+            let addition = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::CoerciveAdd {
+                    lhs: Box::new(operand.clone()),
+                    rhs: Box::new(operand),
                 },
-            )
+            );
+            let expected = DEPTH * 2 + 6 + 2 + 2;
+            assert!(
+                expected > 2048,
+                "regression must cross the local-count floor"
+            );
+            assert_eq!(count_expr_temp_locals(&addition), expected);
         });
-        let addition = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Number),
-            ExprIr::CoerciveAdd {
-                lhs: Box::new(operand.clone()),
-                rhs: Box::new(operand),
-            },
-        );
-        let expected = DEPTH * 2 + 6 + 2 + 2;
-        assert!(
-            expected > 2048,
-            "regression must cross the local-count floor"
-        );
-        assert_eq!(count_expr_temp_locals(&addition), expected);
     }
 
     #[test]
@@ -494,23 +510,25 @@ mod tests {
 
     #[test]
     fn deeply_nested_global_assignments_budget_each_live_rhs_pair() {
-        const DEPTH: usize = 1010;
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 1010;
 
-        let expression = (0..DEPTH).fold(TypedExpr::undefined(), |value, _| {
-            TypedExpr::from_info(
-                ValueInfo::undefined(),
-                ExprIr::AssignIdentifier {
-                    name: "published".to_string(),
-                    value: Box::new(value),
-                },
-            )
+            let expression = (0..DEPTH).fold(TypedExpr::undefined(), |value, _| {
+                TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::AssignIdentifier {
+                        name: "published".to_string(),
+                        value: Box::new(value),
+                    },
+                )
+            });
+            let expected = DEPTH * 2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
+            assert!(
+                expected > 2048,
+                "regression must cross the local-count floor",
+            );
+            assert_eq!(count_expr_temp_locals(&expression), expected);
         });
-        let expected = DEPTH * 2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
-        assert!(
-            expected > 2048,
-            "regression must cross the local-count floor",
-        );
-        assert_eq!(count_expr_temp_locals(&expression), expected);
     }
 
     #[test]

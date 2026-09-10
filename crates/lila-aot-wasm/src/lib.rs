@@ -900,6 +900,7 @@ mod tests {
         for (variant, slot) in [
             ("DisposableStack", "DISPOSABLE_STACK"),
             ("AggregateError", "AGGREGATE_ERROR"),
+            ("SuppressedError", "SUPPRESSED_ERROR"),
         ] {
             assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
             assert_eq!(
@@ -916,8 +917,8 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            11,
-            "the closed domain count must include DisposableStack and AggregateError"
+            12,
+            "the closed domain count must include DisposableStack, AggregateError and SuppressedError"
         );
     }
 
@@ -1561,7 +1562,14 @@ mod tests {
             ),
             ("OrdinaryDefaultPrototype::RegExp", 1),
             ("emit_alloc_plain_object_with_prototype_and_tag(", 1),
-            ("OBJECT_INTERNAL_BRAND_REGEXP", 1),
+            (
+                "Instruction::I64Const(OBJECT_INTERNAL_BRAND_REGEXP as i64)",
+                1,
+            ),
+            (
+                "self.store_i64_const_at_offset(\n                    object_local,\n                    HEAP_OBJECT_INTERNAL_BRAND_OFFSET,\n                    OBJECT_INTERNAL_BRAND_REGEXP,",
+                1,
+            ),
         ] {
             assert_eq!(
                 constructor.matches(operation).count(),
