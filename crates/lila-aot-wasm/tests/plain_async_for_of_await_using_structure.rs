@@ -468,7 +468,7 @@ fn backend_typestate_and_exhaustive_consumers_make_the_async_head_compile_visibl
     for (start, end) in [
         (
             "pub(crate) fn compile_statement(",
-            "fn compile_return_position_expr(",
+            "pub(crate) fn compile_labelled_statement(",
         ),
         (
             "pub(crate) fn compile_labelled_statement(",

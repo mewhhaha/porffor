@@ -103,6 +103,7 @@ impl<'a> ScriptLowerer<'a> {
                         Expression::Assign(assignment)
                             if assignment.op() == AssignOp::Assign
                                 && matches!(assignment.rhs(), Expression::Yield(_))
+                                && !contains(assignment.lhs(), ContainsSymbol::YieldExpression)
                     )
                     && contains(expression, ContainsSymbol::YieldExpression) =>
             {

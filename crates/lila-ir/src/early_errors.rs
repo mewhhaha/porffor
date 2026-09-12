@@ -342,6 +342,12 @@ fn statement_contains_this_before_super(
         return;
     }
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => {
+            for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
+                statement_contains_this_before_super(statement, state);
+            }
+            expr_contains_this_before_super(plan.expression(), state);
+        }
         StatementIr::ModuleUnitOnce { block, .. } => {
             for statement in &block.statements {
                 statement_contains_this_before_super(statement, state);

@@ -874,6 +874,10 @@ fn async_generator_contains_suspension(
     suspension: AsyncGeneratorSuspension,
 ) -> bool {
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => plan
+            .prefixes()
+            .flat_map(|prefix| prefix.statements())
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
         StatementIr::AsyncAwait { .. } => matches!(suspension, AsyncGeneratorSuspension::Await),
         StatementIr::GeneratorYield { .. } => {
             matches!(suspension, AsyncGeneratorSuspension::Yield)
@@ -1024,6 +1028,10 @@ fn async_generator_contains_suspension(
 
 fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Option<&'static str> {
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => plan
+            .prefixes()
+            .flat_map(|prefix| prefix.statements())
+            .find_map(async_generator_dispatcher_unsupported_feature),
         StatementIr::ModuleUnitOnce { .. } => Some("module unit evaluation"),
         StatementIr::Empty
         | StatementIr::Lexical { .. }

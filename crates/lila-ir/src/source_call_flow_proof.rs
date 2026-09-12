@@ -121,6 +121,7 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
                 .as_ref()
                 .is_none_or(expr_preserves_caller_flow)
         }),
+        StatementIr::ResumableClassDefinition(_) => false,
         StatementIr::DeclarationEvaluation(expr) | StatementIr::Expression(expr) => {
             expr_preserves_caller_flow(expr)
         }

@@ -37,6 +37,27 @@ fn direct_eval_inherits_strict_grammar_without_source_wrapping() {
 }
 
 #[test]
+fn spread_call_arguments_remain_syntax_and_source_uses_the_caller_eval_grammar() {
+    for strict in ["", "'use strict';"] {
+        assert!(lila_front::parse(
+            format!("{strict} function caller(iterable) {{ eval(...iterable, 'value = 1;'); }}"),
+            lila_front::ParseOptions::script(),
+        )
+        .is_ok());
+        assert!(prepare_eval_source(
+            "value = 1;".into(),
+            &direct(EvalInvocationContext::Function, !strict.is_empty(), &[]),
+        )
+        .is_ok());
+    }
+    assert!(prepare_eval_source(
+        "let duplicate; let duplicate;".into(),
+        &direct(EvalInvocationContext::Function, false, &[]),
+    )
+    .is_err());
+}
+
+#[test]
 fn eval_new_target_super_and_private_permissions_are_from_the_caller() {
     assert!(prepare_eval_source(
         "new.target".into(),

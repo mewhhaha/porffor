@@ -1134,7 +1134,7 @@ require_fixed_string_count \
   'for_finalized_body' \
   0 \
   'body-only source-call proof admission'
-for source_call_flow_variant_spec in 'StatementIr|35' 'ExprIr|84' 'SpecOperationIr|29'; do
+for source_call_flow_variant_spec in 'StatementIr|36' 'ExprIr|84' 'SpecOperationIr|29'; do
   source_call_flow_variant_domain="${source_call_flow_variant_spec%%|*}"
   expected_source_call_flow_variants="${source_call_flow_variant_spec#*|}"
   observed_source_call_flow_variants="$({

@@ -7,6 +7,7 @@ use lila_ir::{ClassMethodKindIr, NativeErrorKind, StaticRegExpCompilation};
 
 mod arguments_index_mapping;
 mod bound_function_allocation;
+mod class_definition;
 mod created_realm_array_prototype;
 mod current_function_realm_array_prototype;
 mod current_function_realm_async_disposable_stack;
@@ -23,6 +24,11 @@ pub(crate) use function_realm::FunctionRealmRevokedRoute;
 use function_realm::ResolvedFunctionRealmLocal;
 pub(crate) use proxy_creation_execution_realm::ProxyCreationExecutionRealm;
 pub(crate) use required_resolved_realm_ordinary_prototype::OrdinaryDefaultPrototype;
+
+pub(crate) enum CallContinuation {
+    Continue,
+    Return,
+}
 
 /// What the proxy-aware call state machine does after producing a throw.
 ///
@@ -1774,818 +1780,6 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion(function);
         }
         function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    pub(crate) fn compile_class_definition_payload(
-        &mut self,
-        class: &ClassDefinitionIr,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let constructor_meta = self
-            .functions
-            .get(&class.constructor_function_id)
-            .ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: unknown class constructor `{}`",
-                    class.constructor_function_id
-                ))
-            })?
-            .clone();
-        if let Some(name_binding) = &class.name_binding {
-            self.push_scope();
-            self.emit_enter_lexical_environment(&name_binding.environment, function)?;
-        }
-        let constructor_local = self.reserve_temp_local();
-        let constructor_tag_local = self.reserve_temp_local();
-        let heritage_payload_local = self.reserve_temp_local();
-        let heritage_tag_local = self.reserve_temp_local();
-        let prototype_key_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-        let prototype_tag_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-        let flags_local = self.reserve_temp_local();
-        let computed_field_key_count = class
-            .element_plan
-            .definitions
-            .iter()
-            .filter_map(|definition| match definition {
-                ClassElementDefinitionIr::ComputedFieldKey { slot, .. } => Some(*slot + 1),
-                ClassElementDefinitionIr::AutoAccessor(accessor) => match &accessor.key {
-                    ClassFieldKeyIr::ComputedPublic(slot) => Some(*slot + 1),
-                    ClassFieldKeyIr::Public(_) | ClassFieldKeyIr::Private(_) => None,
-                },
-                ClassElementDefinitionIr::PublicMethod(_)
-                | ClassElementDefinitionIr::PrivateMethod(_) => None,
-            })
-            .max()
-            .unwrap_or(0);
-        let class_element_context_local = class
-            .element_plan
-            .static_elements
-            .iter()
-            .any(|element| match element {
-                ClassStaticElementIr::Field(field) => field.init_function_id.is_some(),
-                ClassStaticElementIr::AutoAccessorBacking(accessor) => {
-                    accessor.init_function_id.is_some()
-                }
-                ClassStaticElementIr::Block(_) => true,
-            })
-            .then(|| self.reserve_temp_local());
-        let field_keys_local = (computed_field_key_count > 0).then(|| self.reserve_temp_local());
-        let class_private_scope = class
-            .private_environment
-            .map(|environment| environment.class_scope());
-        debug_assert!(class
-            .private_name_ids
-            .values()
-            .all(|private_name_id| Some(private_name_id.class_scope()) == class_private_scope));
-        let private_environment_local = Some(self.reserve_temp_local());
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(heritage_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(heritage_tag_local));
-        if let Some(heritage) = &class.heritage {
-            self.compile_expr_to_locals(
-                heritage,
-                heritage_payload_local,
-                heritage_tag_local,
-                function,
-            )?;
-        }
-
-        match class.heritage_kind {
-            ClassHeritageKind::Constructable => {
-                if class.heritage.is_none() {
-                    return Err(EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing class heritage",
-                    ));
-                }
-                function.instruction(&Instruction::LocalGet(heritage_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(heritage_payload_local));
-                function.instruction(&Instruction::Else);
-                self.emit_is_constructor_i32(heritage_tag_local, heritage_payload_local, function)?;
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    "TypeError",
-                    "class extends value is not a constructor or null",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                if let Some(target) = self.active_throw_target() {
-                    self.emit_branch_to_target(target, function);
-                } else {
-                    self.emit_return_current_completion(function);
-                }
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-            }
-            ClassHeritageKind::Null | ClassHeritageKind::None => {}
-        }
-
-        self.emit_function_value_payload(&constructor_meta, function)?;
-        function.instruction(&Instruction::LocalSet(constructor_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(constructor_tag_local));
-        if let Some(private_environment_local) = private_environment_local {
-            self.emit_current_private_environment_to_local(key_local, function);
-            if let Some(class_private_scope) = class_private_scope {
-                self.emit_heap_alloc_const(
-                    HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET
-                        + class
-                            .private_environment
-                            .expect("class private scope must have an environment")
-                            .slot_count() as u64
-                            * HEAP_PRIVATE_ENV_SLOT_SIZE,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(private_environment_local));
-                self.store_i64_local_at_offset(
-                    private_environment_local,
-                    HEAP_PRIVATE_ENV_PARENT_OFFSET,
-                    key_local,
-                    function,
-                );
-                self.store_i64_const_at_offset(
-                    private_environment_local,
-                    HEAP_PRIVATE_ENV_CLASS_SCOPE_OFFSET,
-                    class_private_scope as u64,
-                    function,
-                );
-            } else {
-                function.instruction(&Instruction::LocalGet(key_local));
-                function.instruction(&Instruction::LocalSet(private_environment_local));
-            }
-            self.load_i64_to_local_from_offset(
-                constructor_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                key_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                key_local,
-                HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET,
-                private_environment_local,
-                function,
-            );
-            self.active_private_environment_locals
-                .push(private_environment_local);
-        }
-        if let Some(field_keys_local) = field_keys_local {
-            self.load_i64_to_local_from_offset(
-                constructor_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                key_local,
-                function,
-            );
-            self.emit_heap_alloc_const(
-                ENV_SLOT_BASE_OFFSET + computed_field_key_count as u64 * ENV_SLOT_SIZE,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(field_keys_local));
-            self.store_i64_const_at_offset(field_keys_local, ENV_PARENT_OFFSET, 0, function);
-            self.store_i64_local_at_offset(
-                key_local,
-                HEAP_CLASS_FUNCTION_CONTEXT_FIELD_KEYS_OFFSET,
-                field_keys_local,
-                function,
-            );
-        }
-        if class.heritage_kind == ClassHeritageKind::Constructable {
-            function.instruction(&Instruction::LocalGet(heritage_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_load_function_flags(constructor_local, flags_local, function);
-            function.instruction(&Instruction::LocalGet(flags_local));
-            function.instruction(&Instruction::I64Const(
-                FUNCTION_FLAG_NULL_HERITAGE_CONSTRUCTOR as i64,
-            ));
-            function.instruction(&Instruction::I64Or);
-            function.instruction(&Instruction::LocalSet(flags_local));
-            self.store_i64_local_at_offset(
-                constructor_local,
-                HEAP_FUNCTION_FLAGS_OFFSET,
-                flags_local,
-                function,
-            );
-            function.instruction(&Instruction::Else);
-            self.store_i64_local_at_offset(
-                constructor_local,
-                HEAP_PROTOTYPE_OFFSET,
-                heritage_payload_local,
-                function,
-            );
-            self.store_i64_local_at_offset(
-                constructor_local,
-                HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-                heritage_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("prototype")));
-        function.instruction(&Instruction::LocalSet(prototype_key_local));
-        if class.heritage_kind == ClassHeritageKind::Constructable {
-            function.instruction(&Instruction::LocalGet(heritage_tag_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-            function.instruction(&Instruction::LocalSet(prototype_payload_local));
-            function.instruction(&Instruction::Else);
-            self.emit_object_read(
-                heritage_payload_local,
-                heritage_tag_local,
-                heritage_payload_local,
-                heritage_tag_local,
-                prototype_key_local,
-                value_payload_local,
-                value_tag_local,
-                function,
-            )?;
-            self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_alloc_plain_object_with_prototype_and_tag(
-                Some(value_payload_local),
-                Some(value_tag_local),
-                None,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(prototype_payload_local));
-            function.instruction(&Instruction::Else);
-            self.emit_source_literal_prototype_payload(
-                crate::environments::global_environment::SourceLiteralPrototype::Object,
-                function,
-            );
-            function.instruction(&Instruction::LocalSet(value_payload_local));
-            self.emit_alloc_plain_object_with_prototype(Some(value_payload_local), None, function)?;
-            function.instruction(&Instruction::LocalSet(prototype_payload_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        } else if class.heritage_kind == ClassHeritageKind::Null {
-            self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-            function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        } else {
-            self.emit_source_literal_prototype_payload(
-                crate::environments::global_environment::SourceLiteralPrototype::Object,
-                function,
-            );
-            function.instruction(&Instruction::LocalSet(value_payload_local));
-            self.emit_alloc_plain_object_with_prototype(Some(value_payload_local), None, function)?;
-            function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        }
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(prototype_tag_local));
-        self.store_i64_local_at_offset(
-            constructor_local,
-            HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-            prototype_tag_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            constructor_local,
-            HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-            prototype_payload_local,
-            function,
-        );
-        // Constructors are allocated before their `.prototype` exists.  Now
-        // that the exact instance home object has been created, complete the
-        // immutable class-function context used by direct constructor `super`.
-        self.store_function_home_object(
-            constructor_local,
-            prototype_payload_local,
-            ValueKind::Object,
-            function,
-        );
-        if let Some(class_element_context_local) = class_element_context_local {
-            self.emit_alloc_class_execution_context(
-                self.current_env_local,
-                Some((constructor_local, ValueKind::Function)),
-                class_element_context_local,
-                function,
-            )?;
-            if let Some(private_environment_local) = private_environment_local {
-                self.store_i64_local_at_offset(
-                    class_element_context_local,
-                    HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET,
-                    private_environment_local,
-                    function,
-                );
-            }
-        }
-        self.emit_object_define_data_with_configurable(
-            constructor_local,
-            prototype_key_local,
-            prototype_payload_local,
-            prototype_tag_local,
-            false,
-            false,
-            false,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::LocalGet(constructor_local));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_define_data(
-            prototype_payload_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-
-        let mut static_private_method_brands = BTreeSet::new();
-        for definition in &class.element_plan.definitions {
-            if let ClassElementDefinitionIr::AutoAccessor(accessor) = definition {
-                if let Some(computed_key) = &accessor.computed_key {
-                    let ClassFieldKeyIr::ComputedPublic(slot) = accessor.key else {
-                        return Err(EmitError::unsupported(
-                            "auto-accessor computed key requires a computed key slot",
-                        ));
-                    };
-                    let field_keys_local =
-                        field_keys_local.expect("computed field key cache must be allocated");
-                    self.compile_object_key_to_locals(
-                        computed_key,
-                        key_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                    self.store_i64_local_at_offset(
-                        field_keys_local,
-                        ENV_SLOT_BASE_OFFSET
-                            + slot as u64 * ENV_SLOT_SIZE
-                            + ENV_SLOT_PAYLOAD_OFFSET,
-                        key_local,
-                        function,
-                    );
-                    self.store_i64_local_at_offset(
-                        field_keys_local,
-                        ENV_SLOT_BASE_OFFSET + slot as u64 * ENV_SLOT_SIZE + ENV_SLOT_TAG_OFFSET,
-                        value_tag_local,
-                        function,
-                    );
-                }
-                match &accessor.key {
-                    ClassFieldKeyIr::Public(key) => {
-                        function.instruction(&Instruction::I64Const(self.strings.payload(key)));
-                        function.instruction(&Instruction::LocalSet(key_local));
-                    }
-                    ClassFieldKeyIr::ComputedPublic(slot) => {
-                        let field_keys_local =
-                            field_keys_local.expect("computed field key cache must be allocated");
-                        self.load_i64_to_local_from_offset(
-                            field_keys_local,
-                            ENV_SLOT_BASE_OFFSET
-                                + *slot as u64 * ENV_SLOT_SIZE
-                                + ENV_SLOT_PAYLOAD_OFFSET,
-                            key_local,
-                            function,
-                        );
-                    }
-                    ClassFieldKeyIr::Private(private_name_id) => {
-                        self.emit_private_name_token_to_local(
-                            *private_name_id,
-                            key_local,
-                            function,
-                        )?;
-                    }
-                }
-                let target_local = match accessor.placement {
-                    ClassMethodPlacementIr::Instance => prototype_payload_local,
-                    ClassMethodPlacementIr::Static => constructor_local,
-                };
-                let getter_meta = self
-                    .functions
-                    .get(accessor.functions.getter())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in lila wasm-aot first slice: unknown auto-accessor getter `{}`",
-                            accessor.functions.getter()
-                        ))
-                    })?;
-                self.emit_class_function_value_payload(
-                    getter_meta,
-                    target_local,
-                    private_environment_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(value_payload_local));
-                let setter_payload_local = self.reserve_temp_local();
-                let setter_meta = self
-                    .functions
-                    .get(accessor.functions.setter())
-                    .ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in lila wasm-aot first slice: unknown auto-accessor setter `{}`",
-                            accessor.functions.setter()
-                        ))
-                    })?;
-                self.emit_class_function_value_payload(
-                    setter_meta,
-                    target_local,
-                    private_environment_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalSet(setter_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::LocalSet(value_tag_local));
-                if matches!(accessor.key, ClassFieldKeyIr::Private(_)) {
-                    self.emit_private_getter_definition_add(
-                        key_local,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                    self.emit_private_setter_definition_add(
-                        key_local,
-                        setter_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                    if accessor.placement == ClassMethodPlacementIr::Static {
-                        let ClassFieldKeyIr::Private(private_name_id) = accessor.key else {
-                            unreachable!()
-                        };
-                        static_private_method_brands.insert(private_name_id);
-                    }
-                } else {
-                    if accessor.placement == ClassMethodPlacementIr::Static {
-                        self.emit_reject_static_class_prototype_definition(
-                            key_local,
-                            prototype_key_local,
-                            function,
-                        )?;
-                    }
-                    self.emit_object_define_accessor(
-                        target_local,
-                        key_local,
-                        AccessorDescriptorLocals::GetterAndSetter {
-                            getter: AccessorGetterLocals::new(TaggedLocals::new(
-                                value_payload_local,
-                                value_tag_local,
-                            )),
-                            setter: AccessorSetterLocals::new(TaggedLocals::new(
-                                setter_payload_local,
-                                value_tag_local,
-                            )),
-                        },
-                        function,
-                    )?;
-                }
-                self.release_temp_local(setter_payload_local);
-                continue;
-            }
-            let (function_id, placement, kind, private_name_id) = match definition {
-                ClassElementDefinitionIr::PublicMethod(method) => {
-                    let compiled_key_local =
-                        self.compile_object_key_to_local(&method.key, function)?;
-                    function.instruction(&Instruction::LocalGet(compiled_key_local));
-                    function.instruction(&Instruction::LocalSet(key_local));
-                    self.release_temp_local(compiled_key_local);
-                    (&method.function_id, method.placement, method.kind, None)
-                }
-                ClassElementDefinitionIr::PrivateMethod(method) => (
-                    &method.function_id,
-                    method.placement,
-                    method.kind,
-                    Some(method.private_name_id),
-                ),
-                ClassElementDefinitionIr::ComputedFieldKey { slot, key } => {
-                    let field_keys_local =
-                        field_keys_local.expect("computed field key cache must be allocated");
-                    self.compile_object_key_to_locals(key, key_local, value_tag_local, function)?;
-                    self.store_i64_local_at_offset(
-                        field_keys_local,
-                        ENV_SLOT_BASE_OFFSET
-                            + *slot as u64 * ENV_SLOT_SIZE
-                            + ENV_SLOT_PAYLOAD_OFFSET,
-                        key_local,
-                        function,
-                    );
-                    self.store_i64_local_at_offset(
-                        field_keys_local,
-                        ENV_SLOT_BASE_OFFSET + *slot as u64 * ENV_SLOT_SIZE + ENV_SLOT_TAG_OFFSET,
-                        value_tag_local,
-                        function,
-                    );
-                    continue;
-                }
-                ClassElementDefinitionIr::AutoAccessor(_) => unreachable!(),
-            };
-            let target_local = match placement {
-                ClassMethodPlacementIr::Instance => prototype_payload_local,
-                ClassMethodPlacementIr::Static => constructor_local,
-            };
-            let meta = self.functions.get(function_id).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: unknown class method `{function_id}`"
-                ))
-            })?;
-            self.emit_class_function_value_payload(
-                meta,
-                target_local,
-                private_environment_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(value_payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(value_tag_local));
-            if placement == ClassMethodPlacementIr::Static && private_name_id.is_none() {
-                self.emit_reject_static_class_prototype_definition(
-                    key_local,
-                    prototype_key_local,
-                    function,
-                )?;
-            }
-            match kind {
-                ClassMethodKindIr::Method => {
-                    if let Some(private_name_id) = private_name_id {
-                        self.emit_private_name_token_to_local(
-                            private_name_id,
-                            key_local,
-                            function,
-                        )?;
-                        self.emit_private_method_definition_add(
-                            key_local,
-                            value_payload_local,
-                            value_tag_local,
-                            function,
-                        )?;
-                    } else {
-                        self.emit_object_define_data(
-                            target_local,
-                            key_local,
-                            value_payload_local,
-                            value_tag_local,
-                            function,
-                        )?;
-                    }
-                }
-                ClassMethodKindIr::Getter => {
-                    if let Some(private_name_id) = private_name_id {
-                        self.emit_private_name_token_to_local(
-                            private_name_id,
-                            key_local,
-                            function,
-                        )?;
-                        self.emit_private_getter_definition_add(
-                            key_local,
-                            value_payload_local,
-                            value_tag_local,
-                            function,
-                        )?;
-                    } else {
-                        self.emit_object_define_accessor(
-                            target_local,
-                            key_local,
-                            AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(
-                                TaggedLocals::new(value_payload_local, value_tag_local),
-                            )),
-                            function,
-                        )?;
-                    }
-                }
-                ClassMethodKindIr::Setter => {
-                    if let Some(private_name_id) = private_name_id {
-                        self.emit_private_name_token_to_local(
-                            private_name_id,
-                            key_local,
-                            function,
-                        )?;
-                        self.emit_private_setter_definition_add(
-                            key_local,
-                            value_payload_local,
-                            value_tag_local,
-                            function,
-                        )?;
-                    } else {
-                        self.emit_object_define_accessor(
-                            target_local,
-                            key_local,
-                            AccessorDescriptorLocals::Setter(AccessorSetterLocals::new(
-                                TaggedLocals::new(value_payload_local, value_tag_local),
-                            )),
-                            function,
-                        )?;
-                    }
-                }
-            }
-            if placement == ClassMethodPlacementIr::Static {
-                if let Some(private_name_id) = private_name_id {
-                    static_private_method_brands.insert(private_name_id);
-                }
-            }
-        }
-
-        if let Some(name_binding) = &class.name_binding {
-            let storage = self
-                .lookup_current_scope_binding(&name_binding.storage_name)
-                .expect("class name environment must expose its binding");
-            self.write_binding_from_locals(
-                storage,
-                constructor_local,
-                constructor_tag_local,
-                function,
-            );
-        }
-        for private_name_id in static_private_method_brands {
-            self.emit_private_name_token_to_local(private_name_id, key_local, function)?;
-            self.emit_private_brand_add(
-                constructor_local,
-                constructor_tag_local,
-                key_local,
-                function,
-            )?;
-        }
-
-        for static_element in &class.element_plan.static_elements {
-            match static_element {
-                ClassStaticElementIr::Field(field) => {
-                    self.load_i64_to_local_from_offset(
-                        constructor_local,
-                        HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                        value_tag_local,
-                        function,
-                    );
-                    self.emit_class_field_key_to_local(
-                        &field.key,
-                        value_tag_local,
-                        key_local,
-                        function,
-                    );
-                    if let Some(init_function_id) = &field.init_function_id {
-                        let meta = self.functions.get(init_function_id).ok_or_else(|| {
-                            EmitError::unsupported(format!(
-                                "unsupported in lila wasm-aot first slice: unknown class field init `{init_function_id}`"
-                            ))
-                        })?;
-                        if meta.class_element_execution_kind
-                            != ClassElementExecutionKind::StaticFieldInitializer
-                        {
-                            return Err(EmitError::unsupported(format!(
-                                "unsupported in lila wasm-aot first slice: class field init `{init_function_id}` has invalid execution kind"
-                            )));
-                        }
-                        self.emit_direct_class_element_js_call(
-                            meta,
-                            class_element_context_local
-                                .expect("static initializer context must exist"),
-                            Some((constructor_local, Some(constructor_tag_local))),
-                            &[],
-                            value_payload_local,
-                            value_tag_local,
-                            function,
-                        )?;
-                    } else {
-                        function.instruction(&Instruction::I64Const(0));
-                        function.instruction(&Instruction::LocalSet(value_payload_local));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(value_tag_local));
-                    }
-                    if let ClassFieldKeyIr::Private(private_name_id) = &field.key {
-                        self.emit_private_name_token_to_local(
-                            *private_name_id,
-                            key_local,
-                            function,
-                        )?;
-                        self.emit_private_field_add(
-                            constructor_local,
-                            constructor_tag_local,
-                            key_local,
-                            value_payload_local,
-                            value_tag_local,
-                            function,
-                        )?;
-                    } else {
-                        self.emit_reject_static_class_prototype_definition(
-                            key_local,
-                            prototype_key_local,
-                            function,
-                        )?;
-                        self.emit_object_define_enumerable_data(
-                            constructor_local,
-                            key_local,
-                            value_payload_local,
-                            value_tag_local,
-                            function,
-                        )?;
-                    }
-                }
-                ClassStaticElementIr::AutoAccessorBacking(accessor) => {
-                    if let Some(init_function_id) = &accessor.init_function_id {
-                        let meta = self.functions.get(init_function_id).ok_or_else(|| {
-                            EmitError::unsupported(format!(
-                                "unsupported in lila wasm-aot first slice: unknown auto-accessor init `{init_function_id}`"
-                            ))
-                        })?;
-                        if meta.class_element_execution_kind
-                            != ClassElementExecutionKind::StaticFieldInitializer
-                        {
-                            return Err(EmitError::unsupported(format!(
-                                "unsupported in lila wasm-aot first slice: auto-accessor init `{init_function_id}` has invalid execution kind"
-                            )));
-                        }
-                        self.emit_direct_class_element_js_call(
-                            meta,
-                            class_element_context_local
-                                .expect("static initializer context must exist"),
-                            Some((constructor_local, Some(constructor_tag_local))),
-                            &[],
-                            value_payload_local,
-                            value_tag_local,
-                            function,
-                        )?;
-                    } else {
-                        function.instruction(&Instruction::I64Const(0));
-                        function.instruction(&Instruction::LocalSet(value_payload_local));
-                        function
-                            .instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                        function.instruction(&Instruction::LocalSet(value_tag_local));
-                    }
-                    self.emit_private_name_token_to_local(
-                        accessor.backing_name.private_name_id(),
-                        key_local,
-                        function,
-                    )?;
-                    self.emit_private_field_add(
-                        constructor_local,
-                        constructor_tag_local,
-                        key_local,
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                }
-                ClassStaticElementIr::Block(block) => {
-                    let meta = self.functions.get(&block.function_id).ok_or_else(|| {
-                        EmitError::unsupported(format!(
-                            "unsupported in lila wasm-aot first slice: unknown class static block `{}`",
-                            block.function_id
-                        ))
-                    })?;
-                    if meta.class_element_execution_kind != ClassElementExecutionKind::StaticBlock {
-                        return Err(EmitError::unsupported(format!(
-                            "unsupported in lila wasm-aot first slice: class static block `{}` has invalid execution kind",
-                            block.function_id
-                        )));
-                    }
-                    self.emit_direct_class_element_js_call(
-                        meta,
-                        class_element_context_local.expect("static block context must exist"),
-                        Some((constructor_local, Some(constructor_tag_local))),
-                        &[],
-                        value_payload_local,
-                        value_tag_local,
-                        function,
-                    )?;
-                }
-            }
-        }
-
-        if private_environment_local.is_some() {
-            self.active_private_environment_locals.pop();
-        }
-        if class.name_binding.is_some() {
-            self.emit_leave_lexical_environment(function);
-            self.pop_scope();
-        }
-        function.instruction(&Instruction::LocalGet(constructor_local));
-        if let Some(private_environment_local) = private_environment_local {
-            self.release_temp_local(private_environment_local);
-        }
-        if let Some(field_keys_local) = field_keys_local {
-            self.release_temp_local(field_keys_local);
-        }
-        if let Some(class_element_context_local) = class_element_context_local {
-            self.release_temp_local(class_element_context_local);
-        }
-        self.release_temp_local(flags_local);
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(prototype_tag_local);
-        self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(prototype_key_local);
-        self.release_temp_local(heritage_tag_local);
-        self.release_temp_local(heritage_payload_local);
-        self.release_temp_local(constructor_tag_local);
-        self.release_temp_local(constructor_local);
         Ok(())
     }
 
@@ -6133,16 +5327,29 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_handle_call_with_argv_without_throw_propagation(
-            current_payload_local,
-            current_tag_local,
-            Some((this_payload_local, Some(this_tag_local))),
-            argc_local,
-            argv_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        if !self.outline_proxy_call {
+            // The outlined dispatcher has no work after forwarding [[Call]].
+            self.emit_tail_call_with_argv(
+                current_payload_local,
+                current_tag_local,
+                this_payload_local,
+                this_tag_local,
+                argc_local,
+                argv_local,
+                function,
+            )?;
+        } else {
+            self.emit_function_handle_call_with_argv_without_throw_propagation(
+                current_payload_local,
+                current_tag_local,
+                Some((this_payload_local, Some(this_tag_local))),
+                argc_local,
+                argv_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+        }
         if throw_routing.returns_current_function() {
             self.emit_return_current_completion_if_throw(function);
         }
@@ -6249,20 +5456,43 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_install_proxy_execution_realm_array_prototype(trap_args_payload_local, function);
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(argv_tag_local));
-        self.emit_proxy_call_helper_leave_throw_completion(
-            trap_payload_local,
-            trap_tag_local,
-            handler_payload_local,
-            handler_tag_local,
-            &[
-                (target_payload_local, target_tag_local),
-                (this_payload_local, this_tag_local),
-                (trap_args_payload_local, argv_tag_local),
-            ],
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        let trap_args = [
+            (target_payload_local, target_tag_local),
+            (this_payload_local, this_tag_local),
+            (trap_args_payload_local, argv_tag_local),
+        ];
+        if !self.outline_proxy_call {
+            let trap_argc_local = self.reserve_temp_local();
+            let trap_argv_local = self.reserve_temp_local();
+            self.emit_pre_evaluated_arg_vector(
+                &trap_args,
+                trap_argc_local,
+                trap_argv_local,
+                function,
+            )?;
+            self.emit_tail_call_with_argv(
+                trap_payload_local,
+                trap_tag_local,
+                handler_payload_local,
+                handler_tag_local,
+                trap_argc_local,
+                trap_argv_local,
+                function,
+            )?;
+            self.release_temp_local(trap_argv_local);
+            self.release_temp_local(trap_argc_local);
+        } else {
+            self.emit_proxy_call_helper_leave_throw_completion(
+                trap_payload_local,
+                trap_tag_local,
+                handler_payload_local,
+                handler_tag_local,
+                &trap_args,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+        }
         if throw_routing.returns_current_function() {
             self.emit_return_current_completion_if_throw(function);
         }
@@ -9793,14 +9023,31 @@ impl<'a> FunctionBuilder<'a> {
         callee: &TypedExpr,
         this_arg: Option<&TypedExpr>,
         args: &[TypedExpr],
+        direct_eval: Option<&lila_ir::DirectEvalContextIr>,
         function: &mut Function,
     ) -> Result<bool, EmitError> {
-        let Some(function_helper) = self.function_call_helper_function_index() else {
+        let Some(_) = self.function_call_helper_function_index() else {
             return Ok(false);
         };
-        let Some(proxy_helper) = self.proxy_call_helper_function_index() else {
+        let Some(_) = self.proxy_call_helper_function_index() else {
             return Ok(false);
         };
+
+        if let Some(context) = direct_eval {
+            self.emit_direct_eval_call(
+                context,
+                callee,
+                this_arg,
+                args,
+                &CallContinuation::Return,
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+            self.set_completion_kind(CompletionKind::Normal, function);
+            self.emit_return_current_completion(function);
+            return Ok(true);
+        }
 
         let callee_payload_local = self.reserve_temp_local();
         let callee_tag_local = self.reserve_temp_local();
@@ -9828,6 +9075,41 @@ impl<'a> FunctionBuilder<'a> {
         }
         let (argc_local, argv_local) = self.emit_call_args_vector(args, function)?;
 
+        self.emit_tail_call_with_argv(
+            callee_payload_local,
+            callee_tag_local,
+            this_payload_local,
+            this_tag_local,
+            argc_local,
+            argv_local,
+            function,
+        )?;
+
+        self.release_temp_local(argv_local);
+        self.release_temp_local(argc_local);
+        self.release_temp_local(this_tag_local);
+        self.release_temp_local(this_payload_local);
+        self.release_temp_local(callee_tag_local);
+        self.release_temp_local(callee_payload_local);
+        Ok(true)
+    }
+
+    fn emit_tail_call_with_argv(
+        &mut self,
+        callee_payload_local: u32,
+        callee_tag_local: u32,
+        this_payload_local: u32,
+        this_tag_local: u32,
+        argc_local: u32,
+        argv_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let function_helper = self
+            .function_call_helper_function_index()
+            .expect("tail-call function helper is rooted");
+        let proxy_helper = self
+            .proxy_call_helper_function_index()
+            .expect("tail-call proxy helper is rooted");
         function.instruction(&Instruction::LocalGet(callee_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -9851,13 +9133,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::ReturnCall(proxy_helper));
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(argv_local);
-        self.release_temp_local(argc_local);
-        self.release_temp_local(this_tag_local);
-        self.release_temp_local(this_payload_local);
-        self.release_temp_local(callee_tag_local);
-        self.release_temp_local(callee_payload_local);
-        Ok(true)
+        Ok(())
     }
 
     fn emit_custom_array_named_method_call(

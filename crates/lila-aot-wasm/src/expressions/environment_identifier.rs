@@ -1,5 +1,6 @@
 use super::*;
 use crate::environments::environment_reference::EnvironmentIdentifierRead;
+use crate::functions::CallContinuation;
 use lila_ir::{
     EnvironmentCompoundOperationIr, EnvironmentIdentifierIr, EnvironmentIdentifierOperationIr,
 };
@@ -28,6 +29,7 @@ impl FunctionBuilder<'_> {
     pub(crate) fn compile_environment_identifier_to_locals(
         &mut self,
         identifier: &EnvironmentIdentifierIr,
+        continuation: &CallContinuation,
         output: u32,
         output_tag: u32,
         function: &mut Function,
@@ -165,16 +167,29 @@ impl FunctionBuilder<'_> {
                             receiver,
                             receiver_tag,
                         );
-                        let result = self.emit_indirect_call(
-                            &callee,
-                            Some(&this),
-                            args,
-                            None,
-                            direct_eval.as_ref(),
-                            value,
-                            tag,
-                            function,
-                        );
+                        let result = (|| {
+                            if matches!(continuation, CallContinuation::Return)
+                                && self.emit_tail_indirect_call(
+                                    &callee,
+                                    Some(&this),
+                                    args,
+                                    direct_eval.as_ref(),
+                                    function,
+                                )?
+                            {
+                                return Ok(());
+                            }
+                            self.emit_indirect_call(
+                                &callee,
+                                Some(&this),
+                                args,
+                                None,
+                                direct_eval.as_ref(),
+                                value,
+                                tag,
+                                function,
+                            )
+                        })();
                         self.pop_scope();
                         result?;
                         self.release_temp_local(receiver_tag);

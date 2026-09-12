@@ -63,7 +63,9 @@ pub(crate) fn flatten_suspending_lexical_blocks(statements: Vec<StatementIr>) ->
 fn is_direct_suspension(statement: &StatementIr) -> bool {
     matches!(
         statement,
-        StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. }
+        StatementIr::GeneratorYield { .. }
+            | StatementIr::AsyncAwait { .. }
+            | StatementIr::ResumableClassDefinition(_)
     )
 }
 
@@ -789,7 +791,15 @@ pub(crate) fn linear_generator_plan_with_reason(
     for item in body.statements() {
         let StatementListItem::Statement(statement) = item else {
             if contains(item, ContainsSymbol::YieldExpression) {
-                return Err(GeneratorPlanRejection::YieldInDeclaration);
+                let count = staged_generator_declaration_yield_count(item)
+                    .ok_or(GeneratorPlanRejection::YieldInDeclaration)?;
+                for _ in 0..count {
+                    suspension_points.push(GeneratorSuspensionPointIr {
+                        suspend_state: current_state,
+                        resume_state: current_state + 1,
+                    });
+                    current_state += 1;
+                }
             }
             continue;
         };
@@ -800,7 +810,8 @@ pub(crate) fn linear_generator_plan_with_reason(
                     && matches!(
                         assignment.lhs(),
                         AssignTarget::Identifier(_) | AssignTarget::Access(_)
-                    ) =>
+                    )
+                    && !contains(assignment.lhs(), ContainsSymbol::YieldExpression) =>
             {
                 match assignment.rhs() {
                     Expression::Yield(expression) => Some((expression, false)),
@@ -1009,8 +1020,17 @@ fn append_structured_generator_suspensions(
 ) -> Option<()> {
     for item in statements {
         let StatementListItem::Statement(statement) = item else {
-            if contains(item, ContainsSymbol::YieldExpression) {
-                return None;
+            let count = if contains(item, ContainsSymbol::YieldExpression) {
+                staged_generator_declaration_yield_count(item)?
+            } else {
+                0
+            };
+            for _ in 0..count {
+                suspension_points.push(GeneratorSuspensionPointIr {
+                    suspend_state: *current_state,
+                    resume_state: *current_state + 1,
+                });
+                *current_state += 1;
             }
             continue;
         };
@@ -1021,7 +1041,8 @@ fn append_structured_generator_suspensions(
                     && matches!(
                         assignment.lhs(),
                         AssignTarget::Identifier(_) | AssignTarget::Access(_)
-                    ) =>
+                    )
+                    && !contains(assignment.lhs(), ContainsSymbol::YieldExpression) =>
             {
                 match assignment.rhs() {
                     Expression::Yield(expression) => Some((expression, false)),
@@ -1132,7 +1153,68 @@ fn direct_generator_yield_count(
     staged_generator_expression_yield_count(target)?.checked_add(1)
 }
 
+fn staged_generator_declaration_yield_count(item: &StatementListItem) -> Option<u32> {
+    let StatementListItem::Declaration(declaration) = item else {
+        return None;
+    };
+    match declaration.as_ref() {
+        Declaration::ClassDeclaration(class) => class_evaluation_expressions(
+            class.super_ref(),
+            class.elements(),
+        )
+        .try_fold(0u32, |count, expression| {
+            count.checked_add(staged_generator_expression_yield_count(expression)?)
+        }),
+        Declaration::Lexical(
+            lexical @ (LexicalDeclaration::Let(_) | LexicalDeclaration::Const(_)),
+        ) => lexical
+            .variable_list()
+            .as_ref()
+            .iter()
+            .try_fold(0u32, |count, variable| {
+                if !matches!(variable.binding(), Binding::Identifier(_)) {
+                    return None;
+                }
+                count.checked_add(match variable.init() {
+                    Some(init) => staged_generator_expression_yield_count(init)?,
+                    None => 0,
+                })
+            }),
+        _ => None,
+    }
+}
+
+fn class_evaluation_expressions<'a>(
+    heritage: Option<&'a Expression>,
+    elements: &'a [ClassElement],
+) -> impl Iterator<Item = &'a Expression> {
+    heritage
+        .into_iter()
+        .chain(elements.iter().filter_map(|element| {
+            let name = match element {
+                ClassElement::MethodDefinition(method) => match method.name() {
+                    ClassElementName::PropertyName(name) => name,
+                    ClassElementName::PrivateName(_) => return None,
+                },
+                ClassElement::FieldDefinition(field)
+                | ClassElement::StaticFieldDefinition(field)
+                | ClassElement::AccessorFieldDefinition(field)
+                | ClassElement::StaticAccessorFieldDefinition(field) => field.name(),
+                ClassElement::PrivateFieldDefinition(_)
+                | ClassElement::PrivateStaticFieldDefinition(_)
+                | ClassElement::StaticBlock(_) => return None,
+            };
+            match name {
+                PropertyName::Computed(expression) => Some(expression),
+                PropertyName::Literal(_) => None,
+            }
+        }))
+}
+
 fn staged_generator_expression_yield_count(expression: &Expression) -> Option<u32> {
+    if !contains(expression, ContainsSymbol::YieldExpression) {
+        return Some(0);
+    }
     match expression {
         Expression::Parenthesized(parenthesized) => {
             staged_generator_expression_yield_count(parenthesized.expression())
@@ -1145,18 +1227,46 @@ fn staged_generator_expression_yield_count(expression: &Expression) -> Option<u3
             nested_count.checked_add(1)
         }
         Expression::Call(call) => {
-            if contains(call.function(), ContainsSymbol::YieldExpression)
-                || call
-                    .args()
-                    .iter()
-                    .any(|arg| matches!(arg, Expression::Spread(_)))
+            if call
+                .args()
+                .iter()
+                .any(|arg| matches!(arg, Expression::Spread(_)))
             {
                 return None;
             }
-            call.args().iter().try_fold(0u32, |count, argument| {
-                count.checked_add(staged_generator_expression_yield_count(argument)?)
-            })
+            call.args().iter().try_fold(
+                staged_generator_expression_yield_count(call.function())?,
+                |count, argument| {
+                    count.checked_add(staged_generator_expression_yield_count(argument)?)
+                },
+            )
         }
+        Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
+            let count = staged_generator_expression_yield_count(access.target())?;
+            match access.field() {
+                PropertyAccessField::Const(_) => Some(count),
+                PropertyAccessField::Expr(key) => {
+                    count.checked_add(staged_generator_expression_yield_count(key)?)
+                }
+            }
+        }
+        Expression::Assign(assignment) if assignment.op() == AssignOp::Assign => {
+            let AssignTarget::Access(PropertyAccess::Simple(access)) = assignment.lhs() else {
+                return None;
+            };
+            let mut count = staged_generator_expression_yield_count(access.target())?;
+            if let PropertyAccessField::Expr(key) = access.field() {
+                count = count.checked_add(staged_generator_expression_yield_count(key)?)?;
+            }
+            count.checked_add(staged_generator_expression_yield_count(assignment.rhs())?)
+        }
+        Expression::ClassExpression(class) => class_evaluation_expressions(
+            class.super_ref(),
+            class.elements(),
+        )
+        .try_fold(0u32, |count, operand| {
+            count.checked_add(staged_generator_expression_yield_count(operand)?)
+        }),
         Expression::ArrayLiteral(array) => {
             array
                 .as_ref()
@@ -1197,7 +1307,19 @@ fn append_discarded_generator_block_suspensions(
 ) -> Option<()> {
     for item in statements {
         let StatementListItem::Statement(statement) = item else {
-            return None;
+            let count = if contains(item, ContainsSymbol::YieldExpression) {
+                staged_generator_declaration_yield_count(item)?
+            } else {
+                0
+            };
+            for _ in 0..count {
+                suspension_points.push(GeneratorSuspensionPointIr {
+                    suspend_state: *current_state,
+                    resume_state: *current_state + 1,
+                });
+                *current_state += 1;
+            }
+            continue;
         };
         match statement.as_ref() {
             Statement::Expression(expression) => {
@@ -1353,6 +1475,30 @@ fn append_discarded_generator_expression_suspensions(
                     suspend_state,
                     resume_state: *current_state,
                 });
+            }
+            Some(())
+        }
+        Expression::Assign(assignment)
+            if assignment.op() == AssignOp::Assign
+                && matches!(assignment.lhs(), AssignTarget::Identifier(_)) =>
+        {
+            append_discarded_generator_expression_suspensions(
+                assignment.rhs(),
+                current_state,
+                suspension_points,
+            )
+        }
+        Expression::ClassExpression(_)
+        | Expression::Call(_)
+        | Expression::PropertyAccess(_)
+        | Expression::Assign(_) => {
+            let count = staged_generator_expression_yield_count(expression)?;
+            for _ in 0..count {
+                suspension_points.push(GeneratorSuspensionPointIr {
+                    suspend_state: *current_state,
+                    resume_state: *current_state + 1,
+                });
+                *current_state += 1;
             }
             Some(())
         }
@@ -2073,6 +2219,10 @@ pub(crate) fn await_is_conditionally_reached(expression: &Expression) -> bool {
                 || template.exprs().iter().any(await_is_conditionally_reached)
         }
         Expression::ImportCall(call) => await_is_conditionally_reached(call.argument()),
+        Expression::ClassExpression(class) => {
+            class_evaluation_expressions(class.super_ref(), class.elements())
+                .any(await_is_conditionally_reached)
+        }
         // `contains` proved an `await` is in there, and this walk cannot show
         // it is always reached.
         _ => true,

@@ -1069,6 +1069,125 @@ pub struct ClassDefinitionIr {
     pub private_environment: Option<ClassPrivateEnvironmentIr>,
 }
 
+/// A class operand's statement prefix and the continuation states it spans.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassEvaluationPrefixIr {
+    statements: Vec<StatementIr>,
+    entry_state: u32,
+    exit_state: u32,
+}
+
+impl ClassEvaluationPrefixIr {
+    pub(crate) fn new(statements: Vec<StatementIr>, entry_state: u32, exit_state: u32) -> Self {
+        assert!(entry_state <= exit_state);
+        Self {
+            statements,
+            entry_state,
+            exit_state,
+        }
+    }
+    pub fn statements(&self) -> &[StatementIr] {
+        &self.statements
+    }
+    pub fn entry_state(&self) -> u32 {
+        self.entry_state
+    }
+    pub fn exit_state(&self) -> u32 {
+        self.exit_state
+    }
+}
+
+/// ClassDefinitionEvaluation owns its environment and prepared constructor
+/// across suspension. Keeping this in statement position prevents expression
+/// temporaries from being mistaken for activation storage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumableClassDefinitionIr {
+    expression: Box<TypedExpr>,
+    constructor_binding: String,
+    name_environment_binding: Option<String>,
+    completion_binding: String,
+    heritage_prefix: ClassEvaluationPrefixIr,
+    element_prefixes: BTreeMap<usize, ClassEvaluationPrefixIr>,
+    exit_state: u32,
+}
+
+impl ResumableClassDefinitionIr {
+    pub(crate) fn new(
+        expression: TypedExpr,
+        constructor_binding: String,
+        name_environment_binding: Option<String>,
+        completion_binding: String,
+        heritage_prefix: ClassEvaluationPrefixIr,
+        element_prefixes: BTreeMap<usize, ClassEvaluationPrefixIr>,
+        exit_state: u32,
+    ) -> Self {
+        let ExprIr::ClassDefinition(class) = &expression.expr else {
+            panic!("resumable class evaluation requires a class definition");
+        };
+        assert_eq!(
+            class.name_binding.is_some(),
+            name_environment_binding.is_some()
+        );
+        let mut state = heritage_prefix.exit_state;
+        assert!(heritage_prefix.entry_state <= state);
+        for (index, prefix) in &element_prefixes {
+            assert!(*index < class.element_plan.definitions.len());
+            assert_eq!(prefix.entry_state, state);
+            assert!(prefix.entry_state <= prefix.exit_state);
+            state = prefix.exit_state;
+        }
+        assert_eq!(state, exit_state);
+        assert!(heritage_prefix.entry_state < exit_state);
+        Self {
+            expression: Box::new(expression),
+            constructor_binding,
+            name_environment_binding,
+            completion_binding,
+            heritage_prefix,
+            element_prefixes,
+            exit_state,
+        }
+    }
+
+    pub fn constructor_binding(&self) -> &str {
+        &self.constructor_binding
+    }
+    pub fn name_environment_binding(&self) -> Option<&str> {
+        self.name_environment_binding.as_deref()
+    }
+    pub fn completion_binding(&self) -> &str {
+        &self.completion_binding
+    }
+    pub fn heritage_prefix(&self) -> &ClassEvaluationPrefixIr {
+        &self.heritage_prefix
+    }
+    pub fn element_prefix(&self, index: usize) -> Option<&ClassEvaluationPrefixIr> {
+        self.element_prefixes.get(&index)
+    }
+    pub fn exit_state(&self) -> u32 {
+        self.exit_state
+    }
+
+    pub fn expression(&self) -> &TypedExpr {
+        &self.expression
+    }
+
+    pub fn class(&self) -> &ClassDefinitionIr {
+        match &self.expression.expr {
+            ExprIr::ClassDefinition(class) => class,
+            _ => unreachable!("constructed only from a class definition"),
+        }
+    }
+
+    pub fn entry_state(&self) -> u32 {
+        self.heritage_prefix.entry_state
+    }
+
+    pub fn prefixes(&self) -> impl Iterator<Item = &ClassEvaluationPrefixIr> {
+        std::iter::once(&self.heritage_prefix).chain(self.element_prefixes.values())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PropertyKeyIr {
     StaticString(String),
@@ -3466,6 +3585,7 @@ pub struct FunctionIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementIr {
     Empty,
+    ResumableClassDefinition(Box<ResumableClassDefinitionIr>),
     /// Runs module `module`'s hoist or body block exactly once.
     ///
     /// Re-entry is a no-op, which is what makes a cyclic graph and a repeated
@@ -4008,6 +4128,7 @@ impl StatementIr {
             Self::Break { label } => Some(CompletionRecordIr::break_(None, label.clone())),
             Self::Continue { label } => Some(CompletionRecordIr::continue_(None, label.clone())),
             Self::Empty
+            | Self::ResumableClassDefinition(_)
             | Self::ModuleUnitOnce { .. }
             | Self::Lexical { .. }
             | Self::AnnexBFunctionCopy { .. }
@@ -4700,6 +4821,12 @@ impl IrSummaryCounts {
             self.suspensions += 1;
         }
         match statement {
+            StatementIr::ResumableClassDefinition(plan) => {
+                self.visit_expr(plan.expression());
+                for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
+                    self.visit_statement(statement);
+                }
+            }
             StatementIr::Empty | StatementIr::AnnexBFunctionCopy { .. } => {}
             StatementIr::ModuleUnitOnce { block, .. } => self.visit_block(block),
             StatementIr::Lexical { mode, init, .. } => {

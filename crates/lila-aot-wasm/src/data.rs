@@ -3234,6 +3234,12 @@ impl StringPool {
 
     fn collect_statement(&mut self, statement: &StatementIr) {
         match statement {
+            StatementIr::ResumableClassDefinition(plan) => {
+                self.collect_expr(plan.expression());
+                for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
+                    self.collect_statement(statement);
+                }
+            }
             StatementIr::ModuleUnitOnce { block, .. } => self.collect_block(block),
             StatementIr::Empty
             | StatementIr::Debugger
@@ -4352,6 +4358,7 @@ impl StringPool {
                 self.intern_string("constructor");
                 self.intern_string("$IsHTMLDDA");
                 self.intern_string("class extends value is not a constructor or null");
+                self.intern_string("class extends prototype is not an object or null");
                 for definition in &class.element_plan.definitions {
                     match definition {
                         ClassElementDefinitionIr::PublicMethod(method) => {

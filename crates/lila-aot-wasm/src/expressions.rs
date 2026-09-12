@@ -1727,6 +1727,7 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::EnvironmentIdentifier(identifier) => {
                 self.compile_environment_identifier_to_locals(
                     identifier,
+                    &crate::functions::CallContinuation::Continue,
                     self.scratch_local,
                     self.result_tag_local,
                     function,
@@ -3668,6 +3669,7 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::EnvironmentIdentifier(identifier) => {
                 self.compile_environment_identifier_to_locals(
                     identifier,
+                    &crate::functions::CallContinuation::Continue,
                     payload_local,
                     tag_local,
                     function,

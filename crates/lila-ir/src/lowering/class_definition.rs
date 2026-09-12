@@ -12,26 +12,31 @@ impl<'a> ScriptLowerer<'a> {
         elements: &[ClassElement],
         name_binding: Option<ClassNameBindingIr>,
     ) -> TypedExpr {
-        let heritage = heritage.map(|expr| self.lower_expression(expr));
+        let entry_state = self.class_evaluation_state();
+        let (heritage_prefix, heritage) = match heritage {
+            Some(expression) => {
+                let (prefix, value) = self.lower_class_evaluation_operand(expression);
+                (prefix, Some(value))
+            }
+            None => (self.empty_class_evaluation_prefix(), None),
+        };
         let mut heritage_kind = ClassHeritageKind::None;
         let mut heritage_function_id = None;
         if let Some(heritage) = heritage.as_ref() {
             if heritage.possible_kinds == KindSet::from_kind(ValueKind::Null) {
                 heritage_kind = ClassHeritageKind::Null;
             } else {
-                if !heritage.possible_kinds.contains(ValueKind::Function) {
-                    return self.unsupported_expr("class extends");
-                }
                 if let Some(function_id) = self.resolve_single_function_target(heritage) {
-                    let Some(signature) = self.function_signatures.get(&function_id) else {
-                        return self.unsupported_expr("class extends");
-                    };
-                    if !signature.protocol.is_constructable() {
-                        return self.unsupported_expr("class extends");
+                    if self
+                        .function_signatures
+                        .get(&function_id)
+                        .is_some_and(|signature| signature.protocol.is_constructable())
+                    {
+                        heritage_function_id = Some(function_id);
                     }
-                    heritage_function_id = Some(function_id);
                 }
                 heritage_kind = ClassHeritageKind::Constructable;
+                self.invalidate_unknown_user_code_effects();
             }
         }
 
@@ -78,6 +83,7 @@ impl<'a> ScriptLowerer<'a> {
         #[derive(Clone)]
         struct PublicMethodPlan<'b> {
             key: PropertyKeyIr,
+            key_prefix: Option<ClassEvaluationPrefixIr>,
             function_id: FunctionId,
             method: &'b ClassMethodDefinition,
             placement: ClassMethodPlacementIr,
@@ -89,6 +95,7 @@ impl<'a> ScriptLowerer<'a> {
         struct FieldPlan<'b> {
             key: ClassFieldKeyIr,
             computed_key: Option<PropertyKeyIr>,
+            key_prefix: Option<ClassEvaluationPrefixIr>,
             init_function_id: Option<FunctionId>,
             initializer: Option<&'b Expression>,
             placement: ClassMethodPlacementIr,
@@ -116,6 +123,7 @@ impl<'a> ScriptLowerer<'a> {
         struct AutoAccessorPlan<'b> {
             key: ClassFieldKeyIr,
             computed_key: Option<PropertyKeyIr>,
+            key_prefix: Option<ClassEvaluationPrefixIr>,
             backing_name: AutoAccessorBackingNameIr,
             functions: AutoAccessorFunctionPairIr,
             init_function_id: Option<FunctionId>,
@@ -185,9 +193,12 @@ impl<'a> ScriptLowerer<'a> {
                     };
                     match method.name() {
                         ClassElementName::PropertyName(name) => {
-                            let key = match name {
-                                PropertyName::Literal(name) => PropertyKeyIr::StaticString(
-                                    self.interner.resolve_expect(name.sym()).to_string(),
+                            let (key, key_prefix) = match name {
+                                PropertyName::Literal(name) => (
+                                    PropertyKeyIr::StaticString(
+                                        self.interner.resolve_expect(name.sym()).to_string(),
+                                    ),
+                                    None,
                                 ),
                                 PropertyName::Computed(expr) => {
                                     let Some(key) = self.lower_class_property_key(
@@ -202,6 +213,7 @@ impl<'a> ScriptLowerer<'a> {
                             let method_index = public_methods.len();
                             public_methods.push(PublicMethodPlan {
                                 key,
+                                key_prefix,
                                 function_id: self
                                     .analysis
                                     .class_execution_ids
@@ -256,22 +268,27 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 ClassElement::FieldDefinition(field)
                 | ClassElement::StaticFieldDefinition(field) => {
-                    let (key, computed_key) = match field.name() {
+                    let (key, computed_key, key_prefix) = match field.name() {
                         PropertyName::Literal(name) => (
                             ClassFieldKeyIr::Public(
                                 self.interner.resolve_expect(name.sym()).to_string(),
                             ),
                             None,
+                            None,
                         ),
                         PropertyName::Computed(expr) => {
-                            let Some(computed_key) = self
+                            let Some((computed_key, key_prefix)) = self
                                 .lower_class_property_key(expr, class_body_private_environment_id)
                             else {
                                 return self.unsupported_expr("computed class field");
                             };
                             let slot = computed_field_key_count;
                             computed_field_key_count += 1;
-                            (ClassFieldKeyIr::ComputedPublic(slot), Some(computed_key))
+                            (
+                                ClassFieldKeyIr::ComputedPublic(slot),
+                                Some(computed_key),
+                                key_prefix,
+                            )
                         }
                     };
                     let placement = if matches!(element, ClassElement::StaticFieldDefinition(_)) {
@@ -283,6 +300,7 @@ impl<'a> ScriptLowerer<'a> {
                     fields.push(FieldPlan {
                         key,
                         computed_key,
+                        key_prefix,
                         init_function_id: field.initializer().map(|initializer| {
                             let execution_key = class_field_initializer_key(initializer);
                             self.analysis
@@ -337,6 +355,7 @@ impl<'a> ScriptLowerer<'a> {
                         auto_accessors.push(AutoAccessorPlan {
                             key: ClassFieldKeyIr::Private(private_name_id),
                             computed_key: None,
+                            key_prefix: None,
                             backing_name,
                             functions: AutoAccessorFunctionPairIr::new(
                                 self.alloc_generated_function_id("auto-accessor.get"),
@@ -382,22 +401,27 @@ impl<'a> ScriptLowerer<'a> {
                     if !field.decorators().is_empty() {
                         return self.unsupported_expr("decorated auto-accessor class field");
                     }
-                    let (key, computed_key) = match field.name() {
+                    let (key, computed_key, key_prefix) = match field.name() {
                         PropertyName::Literal(name) => (
                             ClassFieldKeyIr::Public(
                                 self.interner.resolve_expect(name.sym()).to_string(),
                             ),
                             None,
+                            None,
                         ),
                         PropertyName::Computed(expr) => {
-                            let Some(computed_key) = self
+                            let Some((computed_key, key_prefix)) = self
                                 .lower_class_property_key(expr, class_body_private_environment_id)
                             else {
                                 return self.unsupported_expr("computed auto-accessor class field");
                             };
                             let slot = computed_field_key_count;
                             computed_field_key_count += 1;
-                            (ClassFieldKeyIr::ComputedPublic(slot), Some(computed_key))
+                            (
+                                ClassFieldKeyIr::ComputedPublic(slot),
+                                Some(computed_key),
+                                key_prefix,
+                            )
                         }
                     };
                     let placement =
@@ -414,6 +438,7 @@ impl<'a> ScriptLowerer<'a> {
                     auto_accessors.push(AutoAccessorPlan {
                         key,
                         computed_key,
+                        key_prefix,
                         backing_name,
                         functions: AutoAccessorFunctionPairIr::new(
                             self.alloc_generated_function_id("auto-accessor.get"),
@@ -1345,7 +1370,68 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        TypedExpr::from_info(
+        let mut element_prefixes = BTreeMap::new();
+        let mut definitions = Vec::new();
+        for element in &element_order {
+            let mut key_prefix = None;
+            let definition = match element {
+                ClassElementOrder::PublicMethod(index) => {
+                    let method = &public_methods[*index];
+                    key_prefix = method.key_prefix.as_ref();
+                    Some(ClassElementDefinitionIr::PublicMethod(
+                        ClassPublicMethodIr {
+                            key: method.key.clone(),
+                            function_id: method.function_id.clone(),
+                            placement: method.placement,
+                            kind: method.kind,
+                        },
+                    ))
+                }
+                ClassElementOrder::PrivateMethod(index) => {
+                    let method = &private_methods[*index];
+                    Some(ClassElementDefinitionIr::PrivateMethod(
+                        ClassPrivateMethodIr {
+                            private_name_id: method.private_name_id,
+                            function_id: method.function_id.clone(),
+                            placement: method.placement,
+                            kind: method.kind,
+                        },
+                    ))
+                }
+                ClassElementOrder::PublicField(index) => {
+                    let field = &fields[*index];
+                    key_prefix = field.key_prefix.as_ref();
+                    field.computed_key.clone().map(|key| {
+                        let ClassFieldKeyIr::ComputedPublic(slot) = &field.key else {
+                            unreachable!("computed field key must use a cache slot")
+                        };
+                        ClassElementDefinitionIr::ComputedFieldKey { slot: *slot, key }
+                    })
+                }
+                ClassElementOrder::AutoAccessor(index) => {
+                    let accessor = &auto_accessors[*index];
+                    key_prefix = accessor.key_prefix.as_ref();
+                    Some(ClassElementDefinitionIr::AutoAccessor(
+                        ClassAutoAccessorIr {
+                            key: accessor.key.clone(),
+                            computed_key: accessor.computed_key.clone(),
+                            backing_name: accessor.backing_name,
+                            functions: accessor.functions.clone(),
+                            init_function_id: accessor.init_function_id.clone(),
+                            placement: accessor.placement,
+                        },
+                    ))
+                }
+                ClassElementOrder::PrivateField(_) | ClassElementOrder::StaticBlock(_) => None,
+            };
+            if let Some(definition) = definition {
+                if let Some(prefix) = key_prefix {
+                    element_prefixes.insert(definitions.len(), prefix.clone());
+                }
+                definitions.push(definition);
+            }
+        }
+        let expression = TypedExpr::from_info(
             class_info,
             ExprIr::ClassDefinition(Box::new(ClassDefinitionIr {
                 name: class_name,
@@ -1355,57 +1441,7 @@ impl<'a> ScriptLowerer<'a> {
                 heritage_kind,
                 heritage: heritage.map(Box::new),
                 element_plan: ClassElementPlanIr {
-                    definitions: element_order
-                        .iter()
-                        .filter_map(|element| match element {
-                            ClassElementOrder::PublicMethod(index) => {
-                                let method = &public_methods[*index];
-                                Some(ClassElementDefinitionIr::PublicMethod(
-                                    ClassPublicMethodIr {
-                                        key: method.key.clone(),
-                                        function_id: method.function_id.clone(),
-                                        placement: method.placement,
-                                        kind: method.kind,
-                                    },
-                                ))
-                            }
-                            ClassElementOrder::PrivateMethod(index) => {
-                                let method = &private_methods[*index];
-                                Some(ClassElementDefinitionIr::PrivateMethod(
-                                    ClassPrivateMethodIr {
-                                        private_name_id: method.private_name_id,
-                                        function_id: method.function_id.clone(),
-                                        placement: method.placement,
-                                        kind: method.kind,
-                                    },
-                                ))
-                            }
-                            ClassElementOrder::PublicField(index) => {
-                                let field = &fields[*index];
-                                field.computed_key.clone().map(|key| {
-                                    let ClassFieldKeyIr::ComputedPublic(slot) = &field.key else {
-                                        unreachable!("computed field key must use a cache slot")
-                                    };
-                                    ClassElementDefinitionIr::ComputedFieldKey { slot: *slot, key }
-                                })
-                            }
-                            ClassElementOrder::AutoAccessor(index) => {
-                                let accessor = &auto_accessors[*index];
-                                Some(ClassElementDefinitionIr::AutoAccessor(
-                                    ClassAutoAccessorIr {
-                                        key: accessor.key.clone(),
-                                        computed_key: accessor.computed_key.clone(),
-                                        backing_name: accessor.backing_name,
-                                        functions: accessor.functions.clone(),
-                                        init_function_id: accessor.init_function_id.clone(),
-                                        placement: accessor.placement,
-                                    },
-                                ))
-                            }
-                            ClassElementOrder::PrivateField(_)
-                            | ClassElementOrder::StaticBlock(_) => None,
-                        })
-                        .collect(),
+                    definitions,
                     static_elements: element_order
                         .iter()
                         .filter_map(|element| match element {
@@ -1453,6 +1489,7 @@ impl<'a> ScriptLowerer<'a> {
                     .as_ref()
                     .map(|plan| ClassPrivateEnvironmentIr::new(plan.id.0, plan.slot_count)),
             })),
-        )
+        );
+        self.finish_class_evaluation(expression, entry_state, heritage_prefix, element_prefixes)
     }
 }

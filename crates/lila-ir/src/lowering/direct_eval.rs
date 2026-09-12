@@ -77,37 +77,33 @@ impl ScriptLowerer<'_> {
         context: &DirectEvalContextIr,
         arguments: &[Expression],
     ) {
-        let Some(argument) = arguments.first() else {
-            return;
-        };
-        let mut pending = vec![argument];
         let mut sources = BTreeSet::new();
-        while let Some(argument) = pending.pop() {
-            match Self::unwrap_parenthesized_expr(argument) {
-                Expression::Binary(binary) if binary.op() == BinaryOp::Comma => {
-                    pending.push(binary.rhs())
-                }
-                Expression::Conditional(conditional) => {
-                    pending.push(conditional.if_true());
-                    pending.push(conditional.if_false());
-                }
+        for argument in arguments {
+            let (candidates, spread) = match Self::unwrap_parenthesized_expr(argument) {
                 Expression::Spread(spread) => {
-                    if let Expression::ArrayLiteral(array) =
-                        Self::unwrap_parenthesized_expr(spread.target())
-                    {
-                        if let Some(Some(first)) = array.as_ref().first() {
-                            pending.push(first);
-                        }
-                    }
+                    (self.finite_spread_source_candidates(spread.target()), true)
                 }
-                argument => {
-                    if let Some(source) = self
-                        .aot_source_text(argument)
-                        .or_else(|| self.static_string_receiver_value(argument))
-                    {
-                        sources.insert(source);
-                    }
-                }
+                argument => (self.function_source_value_candidates(argument), false),
+            };
+            sources.extend(
+                candidates
+                    .into_iter()
+                    .filter_map(|candidate| match candidate {
+                        FiniteSourceValue::Text(source) => Some(source),
+                        FiniteSourceValue::Function(_)
+                        | FiniteSourceValue::FunctionConstructor(_)
+                        | FiniteSourceValue::Record(_)
+                        | FiniteSourceValue::Array(_) => None,
+                    }),
+            );
+            if sources.len() > super::finite_function_source::MAX_SOURCE_CANDIDATES {
+                return;
+            }
+            // A spread can be empty, including after mutation or an overridden
+            // iterator. The next ordinary argument ends the possible source
+            // prefix; all remaining arguments still execute at runtime.
+            if !spread {
+                break;
             }
         }
         for source in sources {
