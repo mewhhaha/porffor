@@ -72,9 +72,10 @@ This cohort remains separate from the published full-suite status.
 
 The [Uint8Array codec baseline follow-up](docs/rust-rewrite/uint8array-codec-baseline-follow-up.md)
 adds the six Base64 and hexadecimal conversion methods through native Wasm
-codegen. A replay against merged main reproduces all 108 selected failures;
-the candidate verification checkpoint is pending. The full pinned codec scope
-contains 136 executions, including 28 historical passes.
+codegen. All 108 failures reproduced on merged main are repaired in the audited
+136/136 passing pinned replay; 32 focused Wasmtime regressions also pass.
+The replay includes 28 historical passes and remains separate from the published
+full-suite status.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for

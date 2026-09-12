@@ -3,8 +3,9 @@
 The six Uint8Array Base64 and hexadecimal methods now have Rust lowering and
 native Wasm codegen: `fromBase64`, `fromHex`, `setFromBase64`, `setFromHex`,
 `toBase64`, and `toHex`. No parser, interpreter, or host codec is embedded in
-emitted programs. Candidate verification is pending; the measurements below
-are from the frozen baseline and a separate current-main replay.
+emitted programs. All 108 selected failures reproduced on merged main are
+repaired in the audited 136/136 passing pinned replay. The measurements below
+separate the frozen baseline, current-main replay, and candidate verification.
 
 ## Scope and provenance
 
@@ -66,11 +67,27 @@ host memory-exhaustion behavior is unchanged by this feature.
 
 ## Verification
 
-The coordinated checkpoint will run the three new native codec targets,
-neighboring buffer/typed-array/Temporal regressions, the full 136-execution
-pinned codec replay, IR and backend library tests, related backend structural
-tests, workspace checks, and the complete fake suite. The fake suite and this
-focused real-suite cohort remain separate from published full-suite status.
+The 2026-09-12 checkpoint passes the complete 136-execution pinned codec
+subtree, repairing all 108 failures reproduced on main, with zero timeouts or
+infrastructure errors. All 32 native regressions pass: 22 codec tests and ten
+neighboring buffer, typed-array, and Temporal tests. The compiler checks pass
+1,125 IR library tests, 428 backend library tests, and 109 structural tests
+across all 31 selected targets. The release workspace check passes for all
+targets, and the complete fake suite passes 191/191 executions. All 77 Test262
+tooling tests also pass, including 37 tests for the reusable replay auditor.
+The [verification record](../../test262/replays/uint8array-codecs-20260912.verification.json)
+retains the exact commands, outcomes, cohorts, and evidence hashes.
+
+The frozen compiler and native/replay evidence use source commit `c8944ed0f`.
+Later validation commits update only test inventories and structural assertions;
+all production inputs remain unchanged. The IR library checkpoint uses
+`ccb46b27b`, the backend checkpoint uses `5fbe454ad`, and the structural and
+workspace checkpoint uses `1beec89f6`. The evidence verifies each stage's exact
+source identity. Structural corrections include pre-existing stale boundaries
+on main and explicit ownership checks for the new codec buffer operations.
+Earlier failed attempts are retained separately and excluded from passing
+counts. The fake suite and this focused real-suite cohort remain separate from
+published full-suite status.
 
 Refresh the focused real-suite evidence with:
 
