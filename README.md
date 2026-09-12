@@ -77,6 +77,15 @@ codegen. All 108 failures reproduced on merged main are repaired in the audited
 The replay includes 28 historical passes and remains separate from the published
 full-suite status.
 
+The [expression-suspension follow-up](docs/rust-rewrite/expression-suspension-baseline-follow-up.md)
+adds await/yield in computed class names, generator call and property-assignment
+staging, finite eval spreads, and proper tail calls through eval bindings.
+The `2026-09-12` audited replay passes 110/110 pinned executions, repairing
+38 failures reproduced on merged main and preserving 72 passing controls;
+37 focused Wasmtime regressions also pass. The notes include refresh commands,
+source provenance, and a separate existing async-assignment issue. These counts
+remain separate from the generated full-suite status.
+
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace
