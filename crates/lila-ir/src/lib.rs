@@ -6364,6 +6364,50 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn records_empty_names_and_exact_sources_for_unnamed_function_expressions() {
+        for (syntax, protocol) in [
+            ("function", FunctionProtocolIr::OrdinaryCallAndConstruct),
+            ("function*", FunctionProtocolIr::Generator),
+            ("async function", FunctionProtocolIr::Async),
+            ("async function*", FunctionProtocolIr::AsyncGenerator),
+        ] {
+            let anonymous_source = format!("{syntax} () {{}}");
+            let explicit_source = format!("{syntax} explicit() {{}}");
+            let program = lower_script(&format!(
+                "let inferred = {anonymous_source}; let values = [{explicit_source}, (0, {anonymous_source})];"
+            ));
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.expect("script IR");
+            let functions = script
+                .functions
+                .iter()
+                .filter(|function| function.protocol == protocol)
+                .collect::<Vec<_>>();
+            assert_eq!(functions.len(), 3, "{syntax}");
+            assert_eq!(
+                functions
+                    .iter()
+                    .map(|function| function.name.as_str())
+                    .collect::<BTreeSet<_>>(),
+                BTreeSet::from(["", "explicit", "inferred"]),
+                "{syntax}"
+            );
+            for function in functions {
+                let expected_source = if function.name == "explicit" {
+                    &explicit_source
+                } else {
+                    &anonymous_source
+                };
+                assert_eq!(
+                    function.to_string_representation,
+                    CallableToStringRepresentation::ExactSource(expected_source.clone())
+                );
+                assert_eq!(function.is_named_expression, function.name == "explicit");
+            }
+        }
+    }
+
+    #[test]
     fn lowers_arrow_function_from_generator_object_parameter_default() {
         let program = lower_script("let f = function* ({ arrow = () => 1 }) {};");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
@@ -18076,7 +18120,10 @@ eval(1);
 
         assert!(getter.owned_env_bindings.is_empty(), "{getter:#?}");
         assert_eq!(registered.hops, 0);
-        assert_eq!(trace.hops, 1);
+        assert!(disposer.owned_env_bindings.is_empty(), "{disposer:#?}");
+        // The resumable arrow retains its own empty activation frame, then
+        // crosses the try-block TDZ environment to reach the owner parameter.
+        assert_eq!(trace.hops, 2);
         assert_eq!(registered.slot, trace.slot);
         assert!(owner
             .owned_env_bindings

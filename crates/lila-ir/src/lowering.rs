@@ -892,6 +892,7 @@ pub fn lower_with_host_surface_policy(
             source.source_text.len(),
             vec![LoweringStage::ParsedSource],
             None,
+            &modules::DefaultExportDefinitions::default(),
             host_surface_policy,
         ),
         ParsedSource::Module(source) => lower_module_graph_with_host_surface_policy(
@@ -1020,11 +1021,12 @@ fn lower_graph(
         }
     };
 
+    let default_export_definitions = linked.default_export_definitions;
     let linked = match lila_front::parse(
-        linked.source_text,
+        linked.source.source_text,
         lila_front::ParseOptions {
             goal: ParseGoal::Script,
-            filename: linked.filename,
+            filename: linked.source.filename,
         },
     ) {
         Ok(ParsedSource::Script(linked)) => linked,
@@ -1048,6 +1050,7 @@ fn lower_graph(
         source_len,
         stages,
         Some(graph),
+        &default_export_definitions,
         host_surface_policy,
     )
 }
@@ -1074,6 +1077,7 @@ fn lower_script_program(
     source_len: usize,
     stages: Vec<LoweringStage>,
     modules: Option<ModuleGraphIr>,
+    default_export_definitions: &modules::DefaultExportDefinitions,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
     lower_script_program_with_allocations(
@@ -1082,6 +1086,7 @@ fn lower_script_program(
         source_len,
         stages,
         modules,
+        default_export_definitions,
         host_surface_policy,
         &mut AnalysisAllocationState::default(),
         ScriptInstantiation::FreshEntry,
@@ -1094,6 +1099,7 @@ fn lower_script_program_with_allocations(
     source_len: usize,
     stages: Vec<LoweringStage>,
     modules: Option<ModuleGraphIr>,
+    default_export_definitions: &modules::DefaultExportDefinitions,
     host_surface_policy: HostSurfacePolicy,
     allocations: &mut AnalysisAllocationState,
     instantiation: ScriptInstantiation,
@@ -1114,6 +1120,7 @@ fn lower_script_program_with_allocations(
         let t0 = std::time::Instant::now();
         let mut analysis = AnalysisBuilder::with_allocations(*allocations, instantiation.clone())
             .finish(script, interner, script_source.source_text.as_str());
+        default_export_definitions.apply(script, &mut analysis);
         analysis.prepare_runtime_script_slots(script, interner);
         *allocations = analysis.allocations;
         if trace_phases {
@@ -3584,6 +3591,7 @@ impl<'a> ScriptLowerer<'a> {
 
         for item in items {
             match item {
+                _ if self.analysis.is_hoisted_default_export_initializer(item) => {}
                 StatementListItem::Declaration(declaration)
                     if matches!(declaration.as_ref(), Declaration::FunctionDeclaration(_)) => {}
                 StatementListItem::Declaration(declaration)
@@ -7846,6 +7854,20 @@ impl<'a> ScriptLowerer<'a> {
     /// before this existed.
     fn ordered_operands_for_pinning(expression: &Expression) -> Vec<&Expression> {
         match expression {
+            Expression::Assign(assignment) if assignment.op() == AssignOp::Assign => {
+                let AssignTarget::Access(PropertyAccess::Simple(access)) = assignment.lhs() else {
+                    return Vec::new();
+                };
+                // Retain GetValue of the base and raw key before a later
+                // await. The ordinary Reference still owns ToPropertyKey and
+                // PutValue after the RHS, including its resumed value.
+                let mut operands = vec![access.target()];
+                if let PropertyAccessField::Expr(key) = access.field() {
+                    operands.push(key);
+                }
+                operands.push(assignment.rhs());
+                operands
+            }
             Expression::Call(call) => {
                 let mut operands = Self::callee_operands_for_pinning(call.function());
                 operands.extend(call.args());

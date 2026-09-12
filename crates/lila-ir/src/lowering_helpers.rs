@@ -1951,6 +1951,13 @@ pub(crate) fn class_static_block_key(block: &StaticBlockBody) -> String {
 }
 
 fn source_slice_from_utf16_span(source_text: &str, span: boa_ast::LinearSpan) -> String {
+    source_text[source_byte_range_from_utf16_span(source_text, span)].to_string()
+}
+
+pub(crate) fn source_byte_range_from_utf16_span(
+    source_text: &str,
+    span: boa_ast::LinearSpan,
+) -> std::ops::Range<usize> {
     let mut utf16_offset = 0;
     let mut start_byte = None;
     for (byte_offset, width) in source_text
@@ -1963,7 +1970,7 @@ fn source_slice_from_utf16_span(source_text: &str, span: boa_ast::LinearSpan) ->
         }
         if utf16_offset == span.end().pos() {
             let start_byte = start_byte.expect("parser source span starts at a UTF-16 boundary");
-            return source_text[start_byte..byte_offset].to_string();
+            return start_byte..byte_offset;
         }
         utf16_offset += width;
     }
@@ -2105,6 +2112,27 @@ pub(crate) fn labelled_base_statement<'b>(labelled: &'b AstLabelled) -> Option<&
             LabelledItem::FunctionDeclaration(_) => return None,
         }
     }
+}
+
+pub(crate) fn contains_async_property_assignment(expression: &Expression) -> bool {
+    struct PropertyAssignment;
+    impl<'ast> Visitor<'ast> for PropertyAssignment {
+        type BreakTy = ();
+
+        fn visit_expression(&mut self, expression: &'ast Expression) -> ControlFlow<()> {
+            if !contains(expression, ContainsSymbol::AwaitExpression) {
+                return ControlFlow::Continue(());
+            }
+            if matches!(expression, Expression::Assign(assignment)
+                if assignment.op() == AssignOp::Assign
+                    && matches!(assignment.lhs(), AssignTarget::Access(PropertyAccess::Simple(_))))
+            {
+                return ControlFlow::Break(());
+            }
+            expression.visit_with(self)
+        }
+    }
+    PropertyAssignment.visit_expression(expression).is_break()
 }
 
 /// True when hoisting the `await`s out of `expression` would change *which* of

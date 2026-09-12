@@ -5421,39 +5421,23 @@ impl<'a> FunctionBuilder<'a> {
                 FunctionExecutionKind::AsyncGenerator => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
                 FunctionExecutionKind::Ordinary => return None,
             };
-            self.new_target_payload_local()
-                .map(|activation_local| (activation_local, environment_offset))
+            Some((
+                self.new_target_payload_local()
+                    .expect("resumable function bodies use the function call ABI"),
+                environment_offset,
+            ))
         });
         let has_function_body_environment = self.body.statements.iter().any(|statement| {
             matches!(statement, StatementIr::Block(body) if body.lexical_environment.as_ref().is_some_and(|environment|
                 matches!(environment.initialization, lila_ir::LexicalEnvironmentInitializationIr::FunctionBody { .. })))
         });
+        // Capture analysis counts every resumable activation, even before
+        // lowering adds any suspension-owned operand slots to it.
         if self.owned_env_bindings.is_empty()
             && self.eval_environment.is_none()
             && !has_function_body_environment
+            && resumable_activation.is_none()
         {
-            if let Some((activation_local, environment_offset)) = resumable_activation {
-                self.load_i64_to_local_from_offset(
-                    activation_local,
-                    environment_offset,
-                    self.scratch_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::LocalGet(self.scratch_local));
-                function.instruction(&Instruction::LocalSet(self.current_env_local));
-                function.instruction(&Instruction::Else);
-                self.store_i64_local_at_offset(
-                    activation_local,
-                    environment_offset,
-                    self.current_env_local,
-                    function,
-                );
-                function.instruction(&Instruction::End);
-            }
             return Ok(());
         }
 

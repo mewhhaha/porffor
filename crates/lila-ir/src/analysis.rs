@@ -226,6 +226,8 @@ pub(crate) struct Analysis<'a> {
     pub(crate) annex_b_function_plans: BTreeMap<String, AnnexBFunctionPlan>,
     pub(crate) function_expr_ids: BTreeMap<String, FunctionId>,
     pub(crate) class_execution_ids: BTreeMap<String, FunctionId>,
+    pub(crate) default_export_class_ids: BTreeSet<FunctionId>,
+    pub(crate) hoisted_default_export_function_ids: BTreeSet<FunctionId>,
     pub(crate) class_name_environment_ids: BTreeMap<String, EnvironmentId>,
     pub(crate) private_environment_plans: BTreeMap<PrivateEnvironmentId, PrivateEnvironmentPlan>,
     pub(crate) class_private_environment_ids: BTreeMap<String, PrivateEnvironmentId>,
@@ -263,7 +265,10 @@ impl Analysis<'_> {
     }
 
     pub(crate) fn environment_has_runtime_storage(&self, environment: &EnvironmentPlan) -> bool {
-        environment_has_runtime_storage(environment)
+        environment_has_runtime_storage(
+            environment,
+            self.owner_plans[&environment.owner_id].execution_kind,
+        )
     }
 
     pub(crate) fn materialized_environment(
@@ -275,8 +280,22 @@ impl Analysis<'_> {
     }
 }
 
-fn environment_has_runtime_storage(environment: &EnvironmentPlan) -> bool {
+fn environment_has_runtime_storage(
+    environment: &EnvironmentPlan,
+    execution_kind: FunctionExecutionKind,
+) -> bool {
+    // Lowering adds suspension-owned operands after capture hops are fixed.
+    // Every resumable activation therefore owns a frame even before it has
+    // slots, so adding those operands cannot change the environment chain.
+    let resumable_activation = environment.kind == EnvironmentKind::Activation
+        && match execution_kind {
+            FunctionExecutionKind::Ordinary => false,
+            FunctionExecutionKind::Generator
+            | FunctionExecutionKind::Async
+            | FunctionExecutionKind::AsyncGenerator => true,
+        };
     (environment.eval_visible
+        || resumable_activation
         || matches!(
             environment.kind,
             EnvironmentKind::FunctionBody | EnvironmentKind::FunctionParameters
@@ -520,6 +539,8 @@ impl<'a> AnalysisBuilder<'a> {
             annex_b_function_plans: self.annex_b_function_plans,
             function_expr_ids: self.function_expr_ids,
             class_execution_ids: self.class_execution_ids,
+            default_export_class_ids: BTreeSet::new(),
+            hoisted_default_export_function_ids: BTreeSet::new(),
             class_name_environment_ids: self.class_name_environment_ids,
             private_environment_plans: self.private_environment_plans,
             class_private_environment_ids: self.class_private_environment_ids,
@@ -5839,7 +5860,7 @@ impl<'a> AnalysisBuilder<'a> {
                     let name = function
                         .name()
                         .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
-                        .unwrap_or_else(|| "<anonymous>".to_string());
+                        .unwrap_or_default();
                     let self_binding_name = function.has_binding_identifier().then(|| name.clone());
                     let pending = PendingFunction {
                         id,
@@ -6894,7 +6915,7 @@ impl<'a> AnalysisBuilder<'a> {
     fn capture_hops(&self, current_owner_id: &str, target_environment_id: EnvironmentId) -> u32 {
         let owner = &self.owner_plans[current_owner_id];
         let activation = &self.environment_plans[&owner.activation_environment_id];
-        let mut cursor = if !environment_has_runtime_storage(activation) {
+        let mut cursor = if !environment_has_runtime_storage(activation, owner.execution_kind) {
             owner
                 .parent_owner_id
                 .as_ref()
@@ -6908,7 +6929,10 @@ impl<'a> AnalysisBuilder<'a> {
         let mut hops = 0;
         while let Some(current) = cursor {
             let environment = &self.environment_plans[&current.environment_id];
-            if environment_has_runtime_storage(environment) {
+            if environment_has_runtime_storage(
+                environment,
+                self.owner_plans[&environment.owner_id].execution_kind,
+            ) {
                 if environment.id == target_environment_id {
                     return hops;
                 }
