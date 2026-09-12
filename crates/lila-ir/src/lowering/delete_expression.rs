@@ -2,8 +2,9 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_delete(&mut self, target: &Expression) -> TypedExpr {
+        let target = Self::unwrap_parenthesized_expr(target);
         if self.uses_runtime_identifier_environment() {
-            if let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(target) {
+            if let Expression::Identifier(identifier) = target {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 return self.environment_identifier(name, EnvironmentIdentifierOperationIr::Delete);
             }
@@ -35,80 +36,40 @@ impl<'a> ScriptLowerer<'a> {
                     target.heap_shape = None;
                     target.function_targets.widen_for_possible_replacement();
                 }
-                let key = match target.kind {
-                    ValueKind::Object | ValueKind::Function | ValueKind::Dynamic => {
-                        match access.field() {
-                            PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
-                                self.interner.resolve_expect(name.sym()).to_string(),
-                            ),
-                            PropertyAccessField::Expr(expr) => {
-                                if let Some(key) = self.lower_static_property_key(expr) {
-                                    key
-                                } else {
-                                    let mut lowered = self.lower_expression(expr);
-                                    if lowered.kind == ValueKind::Undefined
-                                        && self.is_current_param_expr(expr)
-                                    {
-                                        lowered.kind = ValueKind::Dynamic;
-                                        lowered.possible_kinds = KindSet::all_runtime_tags();
-                                        lowered.heap_shape = None;
-                                        lowered.function_targets.widen_for_possible_replacement();
-                                    }
-                                    if lowered.kind == ValueKind::Number {
-                                        PropertyKeyIr::ArrayIndex(Box::new(lowered))
-                                    } else if lowered.kind == ValueKind::String
-                                        || lowered.kind == ValueKind::Symbol
-                                        || lowered.possible_kinds.contains(ValueKind::String)
-                                        || lowered.possible_kinds.contains(ValueKind::Symbol)
-                                        || lowered
-                                            .possible_kinds
-                                            .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
-                                        || lowered.possible_kinds == KindSet::all_runtime_tags()
-                                    {
-                                        PropertyKeyIr::StringExpr(Box::new(lowered))
-                                    } else {
-                                        return self.unsupported_expr("unsupported unary operator");
-                                    }
-                                }
+                let key = match access.field() {
+                    PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
+                        self.interner.resolve_expect(name.sym()).to_string(),
+                    ),
+                    PropertyAccessField::Expr(expr) => {
+                        if let Some(key) = self.lower_static_property_key(expr) {
+                            key
+                        } else {
+                            let mut lowered = self.lower_expression(expr);
+                            if lowered.kind == ValueKind::Undefined
+                                && self.is_current_param_expr(expr)
+                            {
+                                lowered.kind = ValueKind::Dynamic;
+                                lowered.possible_kinds = KindSet::all_runtime_tags();
+                                lowered.heap_shape = None;
+                                lowered.function_targets.widen_for_possible_replacement();
+                            }
+                            if lowered.kind == ValueKind::Number {
+                                PropertyKeyIr::ArrayIndex(Box::new(lowered))
+                            } else if lowered.kind == ValueKind::String
+                                || lowered.kind == ValueKind::Symbol
+                                || lowered.possible_kinds.contains(ValueKind::String)
+                                || lowered.possible_kinds.contains(ValueKind::Symbol)
+                                || lowered
+                                    .possible_kinds
+                                    .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
+                                || lowered.possible_kinds == KindSet::all_runtime_tags()
+                            {
+                                PropertyKeyIr::StringExpr(Box::new(lowered))
+                            } else {
+                                return self.unsupported_expr("unsupported unary operator");
                             }
                         }
                     }
-                    ValueKind::Array | ValueKind::Arguments => match access.field() {
-                        PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
-                            self.interner.resolve_expect(name.sym()).to_string(),
-                        ),
-                        PropertyAccessField::Expr(expr) => {
-                            if let Some(key) = self.lower_static_property_key(expr) {
-                                key
-                            } else {
-                                let mut lowered = self.lower_expression(expr);
-                                if lowered.kind == ValueKind::Undefined
-                                    && self.is_current_param_expr(expr)
-                                {
-                                    lowered.kind = ValueKind::Dynamic;
-                                    lowered.possible_kinds = KindSet::all_runtime_tags();
-                                    lowered.heap_shape = None;
-                                    lowered.function_targets.widen_for_possible_replacement();
-                                }
-                                if lowered.kind == ValueKind::Number {
-                                    PropertyKeyIr::ArrayIndex(Box::new(lowered))
-                                } else if lowered.kind == ValueKind::String
-                                    || lowered.kind == ValueKind::Symbol
-                                    || lowered.possible_kinds.contains(ValueKind::String)
-                                    || lowered.possible_kinds.contains(ValueKind::Symbol)
-                                    || lowered
-                                        .possible_kinds
-                                        .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
-                                    || lowered.possible_kinds == KindSet::all_runtime_tags()
-                                {
-                                    PropertyKeyIr::StringExpr(Box::new(lowered))
-                                } else {
-                                    return self.unsupported_expr("unsupported unary operator");
-                                }
-                            }
-                        }
-                    },
-                    _ => return self.unsupported_expr("unsupported unary operator"),
                 };
                 if self.is_global_this_expr(access.target()) {
                     if let PropertyKeyIr::StaticString(name) = &key {
@@ -162,63 +123,32 @@ impl<'a> ScriptLowerer<'a> {
             }
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                if self.is_unshadowed_script_global_binding(&name) {
-                    self.record_global_property_delete(&name);
-                    return TypedExpr::from_info(
+                let reference = self.locate_identifier_reference(&name);
+                let selected = self
+                    .with_environment_chain
+                    .select_preceding(reference.declarative_position());
+                let fallback = if selected.is_some()
+                    && matches!(reference, LocatedIdentifierReference::Unresolvable)
+                {
+                    // HasBinding/unscopables can create the global property
+                    // before rejecting this object environment candidate.
+                    TypedExpr::from_info(
                         ValueInfo::new(ValueKind::Boolean),
                         ExprIr::DeleteGlobalProperty {
-                            name,
+                            name: name.clone(),
                             strictness: Strictness::Sloppy,
                         },
-                    );
+                    )
+                } else {
+                    self.lower_identifier_delete_fallback(name.clone())
+                };
+                if let Some(objects) = selected {
+                    self.invalidate_unknown_user_code_effects();
+                    self.with_environment_reference_plan(name, objects)
+                        .delete_binding(fallback)
+                } else {
+                    fallback
                 }
-                if name == GLOBAL_THIS_NAME
-                    || name == "undefined"
-                    || self.lookup_binding(&name).is_some()
-                    || (self.root_functions_need_body_initialization()
-                        && self.visible_function_names.contains_key(&name))
-                    || (name == "arguments"
-                        && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some())
-                {
-                    return TypedExpr::from_info(
-                        ValueInfo::new(ValueKind::Boolean),
-                        ExprIr::DeleteIdentifier {
-                            name,
-                            kind: DeleteIdentifierKindIr::NonDeletable,
-                        },
-                    );
-                }
-                if let Some(info) = self.lookup_global_property_info(&name).cloned() {
-                    if info.proven_present && info.configurable {
-                        self.record_global_property_delete(&name);
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Boolean),
-                            // `delete <identifier>` is an early SyntaxError in
-                            // strict code, and this arm only fires for a
-                            // configurable property, so [[Delete]] cannot fail.
-                            ExprIr::DeleteGlobalProperty {
-                                name,
-                                strictness: Strictness::Sloppy,
-                            },
-                        );
-                    }
-                    if info.proven_present {
-                        return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Boolean),
-                            ExprIr::DeleteIdentifier {
-                                name,
-                                kind: DeleteIdentifierKindIr::NonDeletable,
-                            },
-                        );
-                    }
-                }
-                TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::DeleteIdentifier {
-                        name,
-                        kind: DeleteIdentifierKindIr::Missing,
-                    },
-                )
             }
             _ => TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Boolean),
@@ -227,5 +157,64 @@ impl<'a> ScriptLowerer<'a> {
                 },
             ),
         }
+    }
+
+    fn lower_identifier_delete_fallback(&mut self, name: String) -> TypedExpr {
+        if self.is_unshadowed_script_global_binding(&name) {
+            self.record_global_property_delete(&name);
+            return TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Boolean),
+                ExprIr::DeleteGlobalProperty {
+                    name,
+                    strictness: Strictness::Sloppy,
+                },
+            );
+        }
+        if name == GLOBAL_THIS_NAME
+            || name == "undefined"
+            || self.lookup_binding(&name).is_some()
+            || (self.root_functions_need_body_initialization()
+                && self.visible_function_names.contains_key(&name))
+            || (name == "arguments" && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some())
+        {
+            return TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Boolean),
+                ExprIr::DeleteIdentifier {
+                    name,
+                    kind: DeleteIdentifierKindIr::NonDeletable,
+                },
+            );
+        }
+        if let Some(info) = self.lookup_global_property_info(&name).cloned() {
+            if info.proven_present && info.configurable {
+                self.record_global_property_delete(&name);
+                return TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Boolean),
+                    // `delete <identifier>` is an early SyntaxError in
+                    // strict code, and this arm only fires for a
+                    // configurable property, so [[Delete]] cannot fail.
+                    ExprIr::DeleteGlobalProperty {
+                        name,
+                        strictness: Strictness::Sloppy,
+                    },
+                );
+            }
+            if info.proven_present {
+                return TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::DeleteIdentifier {
+                        name,
+                        kind: DeleteIdentifierKindIr::NonDeletable,
+                    },
+                );
+            }
+        }
+        TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::DeleteIdentifier {
+                name,
+                kind: DeleteIdentifierKindIr::Missing,
+            },
+        )
     }
 }

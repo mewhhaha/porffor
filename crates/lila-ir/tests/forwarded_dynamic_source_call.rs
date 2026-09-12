@@ -40,7 +40,7 @@ fn intrinsic_call_forwards_aot_known_eval_source_as_indirect_eval() {
 
 #[test]
 fn intrinsic_call_forwards_runtime_eval_source_as_indirect_eval() {
-    let program = lower_script("eval.call(undefined, String('source'));");
+    let program = lower_script("eval.call(undefined, globalThis.unknownSource);");
 
     assert_eq!(
         dynamic_source_gaps(&program),

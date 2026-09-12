@@ -1513,6 +1513,32 @@ impl WithEnvironmentResolution {
         }
     }
 
+    fn delete_binding_or_else(self, referenced_name: &str, fallback: TypedExpr) -> TypedExpr {
+        let Self {
+            binding_object,
+            unscopables_binding,
+        } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let deletion = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::DeleteProperty {
+                target: Box::new(binding_object.read()),
+                key: PropertyKeyIr::StaticString(referenced_name.to_string()),
+                // Object Environment DeleteBinding forwards [[Delete]]'s
+                // boolean; strict identifier deletion is an early error.
+                strictness: Strictness::Sloppy,
+            },
+        );
+        TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Boolean),
+            ExprIr::Conditional {
+                condition: Box::new(binding_visible),
+                then_expr: Box::new(deletion),
+                else_expr: Box::new(fallback),
+            },
+        )
+    }
+
     fn get_value_or_else(
         self,
         referenced_name: &str,
@@ -1764,7 +1790,7 @@ impl WithEnvironmentIdentifierCallReferencePlan {
 /// [`Self::put_value`], [`Self::logical_assignment`], [`Self::numeric_update`]
 /// and [`Self::compound_assignment`] consume it, making a second use E0382.
 #[derive(Debug)]
-#[must_use = "a with-environment Reference must be consumed by GetValue, PutValue, logical assignment, numeric update, or compound assignment"]
+#[must_use = "a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment"]
 pub(crate) struct WithEnvironmentReferencePlan {
     innermost: WithEnvironmentResolution,
     outer: Vec<WithEnvironmentResolution>,
@@ -1986,6 +2012,23 @@ impl WithEnvironmentReferencePlan {
             referenced_name,
             strictness,
         }
+    }
+
+    /// DeleteBinding consumes the selected environment without GetValue or
+    /// another HasProperty query, retaining the HasBinding/unscopables order.
+    #[must_use]
+    pub(crate) fn delete_binding(self, fallback: TypedExpr) -> TypedExpr {
+        let Self {
+            innermost,
+            outer,
+            referenced_name,
+            strictness: _,
+        } = self;
+        let mut resolved = fallback;
+        for environment in outer {
+            resolved = environment.delete_binding_or_else(&referenced_name, resolved);
+        }
+        innermost.delete_binding_or_else(&referenced_name, resolved)
     }
 
     #[must_use]

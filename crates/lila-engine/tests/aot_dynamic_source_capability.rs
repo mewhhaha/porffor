@@ -170,7 +170,7 @@ fn agent_script_error(source: &str) -> EngineError {
 }
 
 const RUNTIME_DIRECT_EVAL: &str = "eval('1/*' + Math.random() + '*/');";
-const COMPILE_UNSUPPORTED_INDIRECT_EVAL: &str = "eval.call(undefined, String('1'));";
+const COMPILE_UNSUPPORTED_INDIRECT_EVAL: &str = "eval.call(undefined, globalThis.unknownSource);";
 
 const EVAL_WORKER: &str = "var holder = { invoke: eval }; \
     var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1/*' + Math.random() + '*/');";

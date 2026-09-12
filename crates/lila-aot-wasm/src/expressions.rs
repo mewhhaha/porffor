@@ -1665,18 +1665,12 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(rhs_string_local);
                     self.release_temp_local(lhs_string_local);
                 } else if matches!(op, ArithmeticBinaryOp::Mod) {
-                    function.instruction(&Instruction::LocalGet(temp_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(temp_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Div);
-                    function.instruction(&Instruction::F64Trunc);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Mul);
-                    function.instruction(&Instruction::F64Sub);
+                    self.emit_number_remainder_payload(
+                        temp_local,
+                        self.scratch_local,
+                        self.scratch_local,
+                        function,
+                    );
                 } else if matches!(op, ArithmeticBinaryOp::Exp) {
                     let output_local = self.reserve_temp_local();
                     self.emit_number_pow_payload(
@@ -1702,13 +1696,14 @@ impl<'a> FunctionBuilder<'a> {
                         ArithmeticBinaryOp::Exp => unreachable!(),
                     };
                 }
-                if !matches!(op, ArithmeticBinaryOp::Add | ArithmeticBinaryOp::Exp) {
+                if !matches!(
+                    op,
+                    ArithmeticBinaryOp::Add | ArithmeticBinaryOp::Mod | ArithmeticBinaryOp::Exp
+                ) {
                     function.instruction(&Instruction::I64ReinterpretF64);
                     function.instruction(&Instruction::LocalSet(self.scratch_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(rhs_tag_local));
                 }
-                if matches!(op, ArithmeticBinaryOp::Exp) {
+                if !matches!(op, ArithmeticBinaryOp::Add) {
                     function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                     function.instruction(&Instruction::LocalSet(rhs_tag_local));
                 }
@@ -1836,18 +1831,12 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(rhs_string_local);
                     self.release_temp_local(lhs_string_local);
                 } else if matches!(op, ArithmeticBinaryOp::Mod) {
-                    function.instruction(&Instruction::LocalGet(temp_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(temp_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Div);
-                    function.instruction(&Instruction::F64Trunc);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Mul);
-                    function.instruction(&Instruction::F64Sub);
+                    self.emit_number_remainder_payload(
+                        temp_local,
+                        self.scratch_local,
+                        self.scratch_local,
+                        function,
+                    );
                 } else if matches!(op, ArithmeticBinaryOp::Exp) {
                     let output_local = self.reserve_temp_local();
                     self.emit_number_pow_payload(
@@ -1873,13 +1862,14 @@ impl<'a> FunctionBuilder<'a> {
                         ArithmeticBinaryOp::Exp => unreachable!(),
                     };
                 }
-                if !matches!(op, ArithmeticBinaryOp::Add | ArithmeticBinaryOp::Exp) {
+                if !matches!(
+                    op,
+                    ArithmeticBinaryOp::Add | ArithmeticBinaryOp::Mod | ArithmeticBinaryOp::Exp
+                ) {
                     function.instruction(&Instruction::I64ReinterpretF64);
                     function.instruction(&Instruction::LocalSet(self.scratch_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(rhs_tag_local));
                 }
-                if matches!(op, ArithmeticBinaryOp::Exp) {
+                if !matches!(op, ArithmeticBinaryOp::Add) {
                     function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
                     function.instruction(&Instruction::LocalSet(rhs_tag_local));
                 }
@@ -2029,23 +2019,16 @@ impl<'a> FunctionBuilder<'a> {
                     self.release_temp_local(rhs_local);
                     self.release_temp_local(lhs_local);
                 } else if matches!(op, ArithmeticBinaryOp::Mod) {
+                    let lhs_local = self.reserve_temp_local();
+                    let rhs_local = self.reserve_temp_local();
                     self.compile_expr_payload(lhs, function)?;
-                    function.instruction(&Instruction::LocalSet(self.result_local));
+                    function.instruction(&Instruction::LocalSet(lhs_local));
                     self.compile_expr_payload(rhs, function)?;
-                    function.instruction(&Instruction::LocalSet(self.scratch_local));
-                    function.instruction(&Instruction::LocalGet(self.result_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(self.result_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Div);
-                    function.instruction(&Instruction::F64Trunc);
-                    function.instruction(&Instruction::LocalGet(self.scratch_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Mul);
-                    function.instruction(&Instruction::F64Sub);
-                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(rhs_local));
+                    self.emit_number_remainder_payload(lhs_local, rhs_local, lhs_local, function);
+                    function.instruction(&Instruction::LocalGet(lhs_local));
+                    self.release_temp_local(rhs_local);
+                    self.release_temp_local(lhs_local);
                 } else {
                     self.compile_expr_payload(lhs, function)?;
                     function.instruction(&Instruction::F64ReinterpretI64);

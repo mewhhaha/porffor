@@ -5,8 +5,11 @@ use crate::emit::NumericErrorRealmSource;
 use lila_ir::StaticRegExpCompilation;
 
 mod has_instance;
+mod number_remainder;
 mod number_to_string;
 mod string_trim;
+
+pub(crate) use number_remainder::NUMBER_REMAINDER_TEMP_LOCALS;
 
 /// Whether a Number primitive is admitted by a value-to-BigInt conversion.
 ///
@@ -4500,20 +4503,12 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(payload_local));
             }
             ArithmeticBinaryOp::Mod => {
-                function.instruction(&Instruction::LocalGet(lhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(lhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(rhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Div);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::LocalGet(rhs_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Mul);
-                function.instruction(&Instruction::F64Sub);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(payload_local));
+                self.emit_number_remainder_payload(
+                    lhs_payload_local,
+                    rhs_payload_local,
+                    payload_local,
+                    function,
+                );
             }
             ArithmeticBinaryOp::Exp => {
                 self.emit_number_pow_payload(
@@ -5437,6 +5432,19 @@ impl<'a> FunctionBuilder<'a> {
             output_tag_local,
             function,
         )?;
+        function.instruction(&Instruction::LocalGet(output_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_runtime_error(
+            SYNTAX_ERROR_NAME,
+            "cannot convert value to BigInt",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_throw_runtime_error(
             TYPE_ERROR_NAME,
@@ -5833,15 +5841,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            SYNTAX_ERROR_NAME,
-            "cannot convert value to BigInt",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        // StringToBigInt reports invalid grammar as undefined. ToBigInt's
+        // consumer decides whether that normal parse result is a SyntaxError.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(output_tag_local));
+        function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::LocalGet(limbs_local));
         function.instruction(&Instruction::I64Const(0));
@@ -5933,6 +5939,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::End);
 
         self.release_temp_local(trimmed_string_payload_local);
@@ -7107,6 +7115,42 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::Else);
+        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+        function.instruction(&Instruction::LocalGet(rhs_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
+        function.instruction(&Instruction::LocalGet(lhs_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        let bigint_payload_local = self.reserve_temp_local();
+        let bigint_tag_local = self.reserve_temp_local();
+        let string_payload_local = self.reserve_temp_local();
+        for (left, right, output) in [
+            (lhs_payload_local, rhs_payload_local, bigint_payload_local),
+            (lhs_tag_local, rhs_tag_local, bigint_tag_local),
+            (rhs_payload_local, lhs_payload_local, string_payload_local),
+        ] {
+            function.instruction(&Instruction::LocalGet(left));
+            function.instruction(&Instruction::LocalGet(right));
+            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+            function.instruction(&Instruction::Select);
+            function.instruction(&Instruction::LocalSet(output));
+        }
+        self.emit_bigint_string_equality_i32(
+            bigint_tag_local,
+            bigint_payload_local,
+            string_payload_local,
+            function,
+        )?;
+        self.release_temp_local(string_payload_local);
+        self.release_temp_local(bigint_tag_local);
+        self.release_temp_local(bigint_payload_local);
+        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -7117,7 +7161,54 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         self.release_temp_local(temp_number_local);
+        Ok(())
+    }
+
+    fn emit_bigint_string_equality_i32(
+        &mut self,
+        bigint_tag_local: u32,
+        bigint_payload_local: u32,
+        string_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let parsed_payload_local = self.reserve_temp_local();
+        let parsed_tag_local = self.reserve_temp_local();
+        self.emit_string_to_bigint_locals(
+            string_payload_local,
+            parsed_payload_local,
+            parsed_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(parsed_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(bigint_tag_local));
+        function.instruction(&Instruction::LocalGet(parsed_tag_local));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_tagged_payload_equality_i32(
+            bigint_tag_local,
+            bigint_payload_local,
+            parsed_tag_local,
+            parsed_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_mixed_bigint_equality_i32(
+            bigint_tag_local,
+            bigint_payload_local,
+            parsed_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(parsed_tag_local);
+        self.release_temp_local(parsed_payload_local);
         Ok(())
     }
 

@@ -49,7 +49,7 @@ fn number_arithmetic_emission_exhaustively_matches_every_ir_operation() {
 }
 
 #[test]
-fn every_number_operation_retains_its_exact_wasm_sequence() {
+fn every_number_operation_uses_its_authoritative_wasm_emitter() {
     let body = normalized(bounded(
         OPERATIONS_SOURCE,
         "function.instruction(&Instruction::Else);\n        match op {",
@@ -72,26 +72,46 @@ fn every_number_operation_retains_its_exact_wasm_sequence() {
     }
     assert!(body.contains(concat!(
         "ArithmeticBinaryOp::Mod=>{",
-        "function.instruction(&Instruction::LocalGet(lhs_payload_local));",
-        "function.instruction(&Instruction::F64ReinterpretI64);",
-        "function.instruction(&Instruction::LocalGet(lhs_payload_local));",
-        "function.instruction(&Instruction::F64ReinterpretI64);",
-        "function.instruction(&Instruction::LocalGet(rhs_payload_local));",
-        "function.instruction(&Instruction::F64ReinterpretI64);",
-        "function.instruction(&Instruction::F64Div);",
-        "function.instruction(&Instruction::F64Trunc);",
-        "function.instruction(&Instruction::LocalGet(rhs_payload_local));",
-        "function.instruction(&Instruction::F64ReinterpretI64);",
-        "function.instruction(&Instruction::F64Mul);",
-        "function.instruction(&Instruction::F64Sub);",
-        "function.instruction(&Instruction::I64ReinterpretF64);",
-        "function.instruction(&Instruction::LocalSet(payload_local));}"
+        "self.emit_number_remainder_payload(lhs_payload_local,rhs_payload_local,",
+        "payload_local,function,);}"
     )));
     assert!(body.contains(concat!(
         "ArithmeticBinaryOp::Exp=>{",
         "self.emit_number_pow_payload(lhs_payload_local,rhs_payload_local,",
         "payload_local,function,)?;}"
     )));
+}
+
+#[test]
+fn remainder_has_one_integer_reduction_owner_and_all_four_consumers() {
+    let remainder = include_str!("../src/operations/number_remainder.rs");
+    let expressions = include_str!("../src/expressions.rs");
+    assert_eq!(
+        remainder
+            .matches("fn emit_number_remainder_payload(")
+            .count(),
+        1
+    );
+    assert_eq!(remainder.matches("self.reserve_temp_local()").count(), 5);
+    assert_eq!(remainder.matches("self.release_temp_local(").count(), 5);
+    assert_eq!(
+        OPERATIONS_SOURCE
+            .matches("self.emit_number_remainder_payload(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        expressions
+            .matches("self.emit_number_remainder_payload(")
+            .count(),
+        3
+    );
+    assert!(!remainder.contains("Instruction::F64Div"));
+    assert!(!remainder.contains("Instruction::F64Trunc"));
+    assert!(remainder.contains("Instruction::I64Clz"));
+    assert!(remainder.contains("Instruction::I64Sub"));
+    assert!(remainder.contains("Instruction::I64Shl"));
+    assert!(remainder.contains("Instruction::I64ShrU"));
 }
 
 #[test]

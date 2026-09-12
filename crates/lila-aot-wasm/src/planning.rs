@@ -1,4 +1,5 @@
 use super::*;
+use crate::operations::NUMBER_REMAINDER_TEMP_LOCALS;
 use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr};
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncDisposableResourcesIr, AsyncResumeModeIr,
@@ -93,6 +94,61 @@ mod tests {
             .expect("deep planning worker should spawn")
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    }
+
+    #[test]
+    fn nested_delete_keys_keep_the_reference_live_across_dispatch() {
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 420;
+            let mut key = TypedExpr::undefined();
+            for _ in 0..DEPTH {
+                key = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::DeleteProperty {
+                        target: Box::new(TypedExpr::from_info(
+                            lila_ir::ValueInfo::new(ValueKind::Dynamic),
+                            ExprIr::Identifier("target".to_string()),
+                        )),
+                        key: PropertyKeyIr::StringExpr(Box::new(key)),
+                        strictness: Strictness::Strict,
+                    },
+                );
+            }
+            assert_eq!(
+                count_expr_temp_locals(&key),
+                DEPTH * DELETE_REFERENCE_PERSISTENT_TEMP_LOCALS
+                    + DELETE_REFERENCE_DISPATCH_TEMP_LOCALS,
+            );
+            assert!(count_expr_temp_locals(&key) > 2048);
+        });
+    }
+
+    #[test]
+    fn nested_loose_equality_retains_operands_across_coercion_and_parsing() {
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 220;
+            let dynamic = || {
+                TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Dynamic),
+                    ExprIr::Identifier("value".to_string()),
+                )
+            };
+            let mut value = dynamic();
+            for _ in 0..DEPTH {
+                value = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::SpecOperation {
+                        operation: SpecOperationIr::IsLooselyEqual,
+                        operands: vec![dynamic(), value],
+                    },
+                );
+            }
+            assert_eq!(
+                count_expr_temp_locals(&value),
+                DEPTH * 10 + LOOSE_EQUALITY_COMPARISON_TEMP_LOCALS,
+            );
+            assert!(count_expr_temp_locals(&value) > 2048);
+        });
     }
 
     #[test]
@@ -237,6 +293,60 @@ mod tests {
                 );
                 assert_eq!(count_expr_temp_locals(&expression), expected);
             }
+        });
+    }
+
+    #[test]
+    fn remainder_budgets_retained_operands_and_exact_reduction() {
+        run_deep_planning_test(|| {
+            let one = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(1.0_f64.to_bits()),
+            );
+            const DEPTH: usize = 1030;
+            let nested = (0..DEPTH).fold(one.clone(), |rhs, _| {
+                TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Number),
+                    ExprIr::BinaryNumber {
+                        op: ArithmeticBinaryOp::Mod,
+                        lhs: Box::new(one.clone()),
+                        rhs: Box::new(rhs),
+                    },
+                )
+            });
+            let expected = DEPTH * 2 + NUMBER_REMAINDER_TEMP_LOCALS;
+            assert!(expected > 2048);
+            assert_eq!(count_expr_temp_locals(&nested), expected);
+            for expression in [
+                ExprIr::CompoundAssignIdentifier {
+                    name: "local".to_string(),
+                    op: ArithmeticBinaryOp::Mod,
+                    value: Box::new(nested.clone()),
+                },
+                ExprIr::GlobalPropertyCompoundAssign {
+                    name: "global".to_string(),
+                    op: ArithmeticBinaryOp::Mod,
+                    value: Box::new(nested.clone()),
+                    strictness: Strictness::Strict,
+                },
+            ] {
+                assert_eq!(
+                    count_expr_temp_locals(&TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::Number),
+                        expression,
+                    )),
+                    3 + expected,
+                );
+            }
+            let coercive = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::CoerciveBinaryNumber {
+                    op: ArithmeticBinaryOp::Mod,
+                    lhs: Box::new(one),
+                    rhs: Box::new(nested),
+                },
+            );
+            assert_eq!(count_expr_temp_locals(&coercive), 4 + expected);
         });
     }
 
@@ -8090,6 +8200,41 @@ fn count_async_disposable_scope_temp_locals(
     acquisition_peak.max(disposal_peak).max(body_temps)
 }
 
+// Delete retains the raw base/key pairs and result across both children.
+// Its widest dispatch phase keeps fourteen Proxy traversal locals and three
+// invariant locals across error creation (four error locals, three descriptor
+// flags, twelve array descriptor locals and six growth locals). Other phases,
+// including ToObject/ToPropertyKey and ordinary/typed-array deletion, are smaller.
+const DELETE_REFERENCE_PERSISTENT_TEMP_LOCALS: usize = 5;
+const DELETE_REFERENCE_DISPATCH_TEMP_LOCALS: usize = 14 + 3 + 4 + 3 + 12 + 6;
+
+// The exact parser keeps 23 locals while trim retains seven, slicing keeps
+// five, and byte copying uses four. Allocation and limb growth are smaller
+// disjoint phases. Tagged equality adds its Number scratch, three selected
+// operand locals and the parsed payload/tag pair.
+const STRING_TO_BIGINT_TEMP_LOCALS: usize = 23 + 7 + 5 + 4;
+const LOOSE_EQUALITY_COMPARISON_TEMP_LOCALS: usize = 1 + 3 + 2 + STRING_TO_BIGINT_TEMP_LOCALS;
+
+fn count_loose_equality_temp_locals(lhs: &TypedExpr, rhs: &TypedExpr) -> usize {
+    let primitive = lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
+        && rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY);
+    let persistent = if primitive {
+        if lhs.possible_kinds.contains(ValueKind::String)
+            || rhs.possible_kinds.contains(ValueKind::String)
+        {
+            4
+        } else {
+            5
+        }
+    } else {
+        10
+    };
+    persistent
+        + count_expr_temp_locals(lhs)
+            .max(count_expr_temp_locals(rhs))
+            .max(LOOSE_EQUALITY_COMPARISON_TEMP_LOCALS)
+}
+
 pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
     match &expr.expr {
         ExprIr::EnvironmentIdentifier(identifier) => {
@@ -8162,8 +8307,16 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             4 + NUMERIC_UPDATE_DELTA_TEMP_LOCALS
                 .max(REFERENCE_STRICTNESS_FLAG_LOCALS + GLOBAL_PROPERTY_UPDATE_WRITE_TEMP_LOCALS)
         }
-        ExprIr::GlobalPropertyCompoundAssign { value, .. } => {
-            count_expr_temp_locals(value).max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
+        ExprIr::GlobalPropertyCompoundAssign { op, value, .. } => {
+            if matches!(op, ArithmeticBinaryOp::Mod) {
+                3 + count_expr_temp_locals(value)
+                    .max(NUMBER_REMAINDER_TEMP_LOCALS)
+                    .max(
+                        REFERENCE_STRICTNESS_FLAG_LOCALS + GLOBAL_PROPERTY_UPDATE_WRITE_TEMP_LOCALS,
+                    )
+            } else {
+                count_expr_temp_locals(value).max(14) + REFERENCE_STRICTNESS_FLAG_LOCALS
+            }
         }
         ExprIr::ObjectLiteral(properties) => {
             let child = properties
@@ -8276,7 +8429,8 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     count_expr_temp_locals(expr)
                 }
             });
-            child.max(12)
+            DELETE_REFERENCE_PERSISTENT_TEMP_LOCALS
+                + child.max(DELETE_REFERENCE_DISPATCH_TEMP_LOCALS)
         }
         ExprIr::OrdinaryPropertyAssignment(assignment) => {
             let key_child = match assignment.referenced_name() {
@@ -8375,6 +8529,8 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 5 + child
             } else if matches!(op, ArithmeticBinaryOp::Exp) {
                 6 + child
+            } else if matches!(op, ArithmeticBinaryOp::Mod) {
+                3 + child.max(NUMBER_REMAINDER_TEMP_LOCALS)
             } else {
                 3 + child
             };
@@ -8552,12 +8708,16 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::SpecOperation {
             operation: SpecOperationIr::IsLooselyEqual,
             operands,
-        } => operands
-            .iter()
-            .map(count_expr_temp_locals)
-            .max()
-            .unwrap_or(0)
-            .max(9),
+        } => {
+            let [lhs, rhs] = operands.as_slice() else {
+                return operands
+                    .iter()
+                    .map(count_expr_temp_locals)
+                    .max()
+                    .unwrap_or(0);
+            };
+            count_loose_equality_temp_locals(lhs, rhs)
+        }
         ExprIr::SpecOperation {
             operation: SpecOperationIr::Get | SpecOperationIr::GetV,
             operands,
@@ -8674,10 +8834,17 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             4 + count_expr_temp_locals(lhs)
                 .max(count_expr_temp_locals(rhs))
                 .max(COERCIVE_NUMERIC_ERROR_TEMP_LOCALS)
+                .max(NUMBER_REMAINDER_TEMP_LOCALS)
         }
         ExprIr::BinaryNumber { op, lhs, rhs } => {
             let child = count_expr_temp_locals(lhs).max(count_expr_temp_locals(rhs));
-            if matches!(op, ArithmeticBinaryOp::Exp) {
+            if matches!(op, ArithmeticBinaryOp::Mod) {
+                if expr.kind == ValueKind::BigInt {
+                    4 + child
+                } else {
+                    2 + child.max(NUMBER_REMAINDER_TEMP_LOCALS)
+                }
+            } else if matches!(op, ArithmeticBinaryOp::Exp) {
                 child.max(12)
             } else {
                 child
@@ -8814,9 +8981,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 child
             }
         }
-        ExprIr::LooseEquality { lhs, rhs, .. } => count_expr_temp_locals(lhs)
-            .max(count_expr_temp_locals(rhs))
-            .max(5),
+        ExprIr::LooseEquality { lhs, rhs, .. } => count_loose_equality_temp_locals(lhs, rhs),
         ExprIr::AssertSameValue {
             actual, expected, ..
         } => count_expr_temp_locals(actual)
