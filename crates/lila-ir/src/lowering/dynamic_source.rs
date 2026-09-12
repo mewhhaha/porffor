@@ -302,6 +302,7 @@ impl ScriptLowerer<'_> {
             .filter_map(|candidate| match candidate {
                 FiniteSourceValue::FunctionConstructor(kind) => Some(kind),
                 FiniteSourceValue::Text(_)
+                | FiniteSourceValue::Function(_)
                 | FiniteSourceValue::Record(_)
                 | FiniteSourceValue::Array(_) => None,
             })

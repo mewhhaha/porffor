@@ -7,6 +7,9 @@ const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const REALM_OWNER_SOURCE: &str = include_str!("../src/functions/proxy_execution_realm.rs");
 const GLOBAL_ENVIRONMENT_SOURCE: &str = include_str!("../src/environments/global_environment.rs");
 const PROXY_BUILTIN_SOURCE: &str = include_str!("../src/builtins/proxy.rs");
+const DIRECT_EVAL_SOURCE: &str = include_str!("../src/functions/direct_eval.rs");
+const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
+const RETURN_POSITION_SOURCE: &str = include_str!("../src/control_flow/return_position.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -131,7 +134,9 @@ fn initial_and_helper_body_sources_project_exhaustively() {
     for (source, helper_arm) in [
         (
             "Self::ObjectReadHelperArgument",
-            concat!("RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead|RuntimeHelperId::ObjectHasProperty=>",),
+            concat!(
+                "RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead|RuntimeHelperId::ObjectHasProperty=>",
+            ),
         ),
         (
             "Self::ProxyDispatchHelperArgument",
@@ -397,7 +402,7 @@ fn proxy_and_object_read_helpers_restore_parameter_six_and_forward_it() {
 
     let tail_dispatch = bounded(
         FUNCTIONS_SOURCE,
-        "pub(crate) fn emit_tail_indirect_call(",
+        "fn emit_tail_call_with_argv(",
         "fn emit_custom_array_named_method_call(",
     );
     let plain_function_tail = normalized(bounded(
@@ -428,6 +433,106 @@ fn proxy_and_object_read_helpers_restore_parameter_six_and_forward_it() {
         "function.instruction(&Instruction::ReturnCall(proxy_helper));"
     )));
     assert!(!proxy_tail.contains("Instruction::I64Const(0)"));
+}
+
+#[test]
+fn tail_continuations_preserve_eval_identity_cleanup_and_proxy_forwarding() {
+    assert_eq!(
+        CONTROL_FLOW_SOURCE.matches("mod return_position;").count(),
+        1
+    );
+    assert!(!CONTROL_FLOW_SOURCE.contains("fn compile_return_position_expr("));
+    assert_eq!(
+        RETURN_POSITION_SOURCE
+            .matches("pub(super) fn compile_return_position_expr(")
+            .count(),
+        1
+    );
+    let return_statement = bounded(
+        CONTROL_FLOW_SOURCE,
+        "            StatementIr::Return(value) => {",
+        "            StatementIr::Break { label }",
+    );
+    assert!(normalized(return_statement).contains(concat!(
+        "ifself.strict&&self.throw_handler_stack.is_empty()",
+        "&&self.finally_stack.is_empty()&&!self.is_derived_constructor{",
+        "self.compile_return_position_expr(value,function)?;"
+    )));
+
+    let eval_call = bounded(
+        DIRECT_EVAL_SOURCE,
+        "    pub(super) fn emit_direct_eval_call(",
+        "    pub(crate) fn emit_direct_eval_or_call_with_argv(",
+    );
+    let arguments = eval_call
+        .find("self.emit_call_args_vector(args, function)?")
+        .expect("arguments are fully evaluated before call dispatch");
+    let dispatch = eval_call
+        .find("self.emit_direct_eval_or_call_with_argv(")
+        .expect("direct-eval identity dispatch");
+    assert!(arguments < dispatch);
+    let eval_dispatch = bounded(
+        DIRECT_EVAL_SOURCE,
+        "    pub(crate) fn emit_direct_eval_or_call_with_argv(",
+        "    fn emit_direct_eval_argument(",
+    );
+    let actual_eval = bounded(
+        eval_dispatch,
+        "function.instruction(&Instruction::If(BlockType::Empty));",
+        "function.instruction(&Instruction::Else);",
+    );
+    assert_eq!(
+        actual_eval
+            .matches("self.emit_direct_eval_argument(")
+            .count(),
+        1
+    );
+    assert!(!actual_eval.contains("emit_tail_call_with_argv"));
+    let ordinary_call = eval_dispatch
+        .split_once("function.instruction(&Instruction::Else);")
+        .expect("non-intrinsic eval call branch")
+        .1;
+    assert_eq!(
+        ordinary_call
+            .matches("CallContinuation::Continue =>")
+            .count(),
+        1
+    );
+    assert_eq!(
+        ordinary_call.matches("CallContinuation::Return =>").count(),
+        1
+    );
+    assert_eq!(
+        ordinary_call
+            .matches("self.emit_tail_call_with_argv(")
+            .count(),
+        1
+    );
+    assert!(!ordinary_call.contains("_ =>"));
+
+    let proxy_call = bounded(
+        FUNCTIONS_SOURCE,
+        "    fn emit_function_or_proxy_call_with_argv_inner(",
+        "    pub(crate) fn emit_function_handle_call_with_argv_inner(",
+    );
+    assert_eq!(
+        proxy_call.matches("if !self.outline_proxy_call {").count(),
+        2
+    );
+    assert_eq!(
+        proxy_call.matches("self.emit_tail_call_with_argv(").count(),
+        2
+    );
+    assert_eq!(
+        proxy_call
+            .matches("self.emit_pre_evaluated_arg_vector(")
+            .count(),
+        1
+    );
+    assert!(
+        proxy_call.find("self.emit_pre_evaluated_arg_vector(")
+            < proxy_call.rfind("self.emit_tail_call_with_argv(")
+    );
 }
 
 #[test]

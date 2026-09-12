@@ -331,6 +331,11 @@ mod tests {
             copies: &mut Vec<(String, String, AnnexBFunctionCopyTargetIr)>,
         ) {
             match statement {
+                StatementIr::ResumableClassDefinition(plan) => {
+                    for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
+                        collect(statement, copies);
+                    }
+                }
                 StatementIr::AnnexBFunctionCopy {
                     source_name,
                     block_storage_name,
@@ -452,6 +457,17 @@ mod tests {
     fn collect_binding_storage_names(block: &BlockIr) -> BTreeSet<String> {
         fn collect(statement: &StatementIr, names: &mut BTreeSet<String>) {
             match statement {
+                StatementIr::ResumableClassDefinition(plan) => {
+                    names.insert(plan.constructor_binding().to_string());
+                    names.insert(plan.completion_binding().to_string());
+                    names.extend(plan.name_environment_binding().map(str::to_string));
+                    if let Some(binding) = &plan.class().name_binding {
+                        names.insert(binding.storage_name.clone());
+                    }
+                    for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
+                        collect(statement, names);
+                    }
+                }
                 StatementIr::ModuleUnitOnce { block, .. } => {
                     for statement in &block.statements {
                         collect(statement, names);
@@ -764,6 +780,14 @@ mod tests {
 
         fn statement_owns_binding(statement: &StatementIr, name: &str, slot: u32) -> bool {
             match statement {
+                StatementIr::ResumableClassDefinition(plan) => {
+                    plan.class().name_binding.as_ref().is_some_and(|binding| {
+                        lexical_environment_owns_binding(Some(&binding.environment), name, slot)
+                    }) || plan
+                        .prefixes()
+                        .flat_map(|prefix| prefix.statements())
+                        .any(|statement| statement_owns_binding(statement, name, slot))
+                }
                 StatementIr::Block(block) => block_environment_owns_binding(block, name, slot),
                 StatementIr::LexicalBlock(statements) => statements
                     .iter()

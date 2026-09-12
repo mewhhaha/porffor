@@ -42,6 +42,19 @@ jobs:
           --test generator_branch_lexicals
           -- --test-threads=1
 
+      - name: Check suspended class definitions and finite eval spreads
+        run: >-
+          cargo test --locked -p lila-ir
+          --test class_computed_name_suspension --test direct_eval_spread
+          -- --test-threads=1
+
+      - name: Execute suspended expressions and environment tail calls
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_class_computed_name_suspension --test aot_direct_eval_spread
+          --test aot_generator_call_suspension --test aot_tail_call_environment
+          -- --test-threads=1
+
       - name: Validate async-generator loop continuation ranges
         run: >-
           cargo test --locked -p lila-aot-wasm --lib

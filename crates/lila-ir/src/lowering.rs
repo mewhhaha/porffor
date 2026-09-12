@@ -9,13 +9,16 @@ mod builtin_shapes;
 mod call_candidate_analysis;
 mod call_expression;
 mod class_definition;
+mod class_suspension;
 mod define_property_call;
 mod delete_expression;
 mod direct_eval;
 mod dynamic_source;
 mod environment_identifier;
 mod finite_function_source;
+mod finite_iterator_source;
 mod function_source_candidates;
+mod generator_call;
 use finite_function_source::FiniteSourceValue;
 mod prepared_function;
 mod prepared_script;
@@ -1370,18 +1373,6 @@ impl<'a> ScriptLowerer<'a> {
         self.analysis
             .resolve_private_name(self.private_environment_id, &key)
             .map(|(_, private_name_id)| private_name_id)
-    }
-
-    fn lower_class_property_key(
-        &mut self,
-        expression: &Expression,
-        private_environment_id: Option<PrivateEnvironmentId>,
-    ) -> Option<PropertyKeyIr> {
-        let enclosing_private_environment_id = self.private_environment_id;
-        self.private_environment_id = private_environment_id;
-        let key = self.lower_dynamic_object_property_key(expression);
-        self.private_environment_id = enclosing_private_environment_id;
-        key
     }
 
     fn alloc_generated_function_id(&mut self, prefix: &str) -> FunctionId {
@@ -4559,7 +4550,9 @@ impl<'a> ScriptLowerer<'a> {
         let is_suspension = |statement: &StatementIr| {
             matches!(
                 statement,
-                StatementIr::GeneratorYield { .. } | StatementIr::AsyncAwait { .. }
+                StatementIr::GeneratorYield { .. }
+                    | StatementIr::AsyncAwait { .. }
+                    | StatementIr::ResumableClassDefinition(_)
             ) || conditional_yield
                 && matches!(
                     statement,
@@ -4579,6 +4572,16 @@ impl<'a> ScriptLowerer<'a> {
         let after_suspension = before_suspension.split_off(suspension_index + 1);
         let suspension_statement = before_suspension.pop()?;
         let last_resume_state = match &suspension_statement {
+            StatementIr::ResumableClassDefinition(plan) => {
+                if before_suspension
+                    .iter()
+                    .chain(&after_suspension)
+                    .any(statement_contains_suspension)
+                {
+                    return None;
+                }
+                plan.exit_state()
+            }
             StatementIr::AsyncAwait { suspend_state, .. } => {
                 if before_suspension.iter().any(statement_contains_suspension) {
                     return None;
@@ -5408,6 +5411,9 @@ impl<'a> ScriptLowerer<'a> {
         delegate: bool,
         resume_mode: GeneratorResumeModeIr,
     ) -> (StatementIr, ValueKind) {
+        // The caller can invoke escaped functions or mutate shared objects
+        // before resuming, so pre-yield flow facts cannot describe the resume.
+        self.invalidate_unknown_user_code_effects();
         let (suspend_state, resume_state) = if self.current_resumable_plan.is_some() {
             let (suspend_state, resume_state) = self
                 .take_resumable_suspension(ResumableSuspensionKindIr::Yield)
@@ -5501,12 +5507,14 @@ impl<'a> ScriptLowerer<'a> {
                 statements.push(yield_statement);
                 Some((statements, self.lower_identifier_name(result_name, false)))
             }
-            // A composite operand — `return (await p) + 1`, `return [await p]`
-            // — is not a suspension boundary itself, so it lowers through the
-            // ordinary async prefix: each `await` inside it becomes its own
-            // statement and the residual expression is what gets returned.
-            // `yield` still needs the staged path above, which is why an
-            // operand containing one is left to refuse.
+            // A yield-only composite uses the same activation-owned operands
+            // as synchronous generators. The enclosing return still awaits its
+            // final value through the async-generator return continuation.
+            _ if contains(expression, ContainsSymbol::YieldExpression)
+                && !contains(expression, ContainsSymbol::AwaitExpression) =>
+            {
+                self.lower_staged_generator_expression(expression)
+            }
             _ if !contains(expression, ContainsSymbol::YieldExpression) => self
                 .lower_async_prefixed_expression(expression)
                 .or_else(|| {
@@ -5521,6 +5529,9 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         expression: &Expression,
     ) -> Option<(Vec<StatementIr>, TypedExpr)> {
+        if !contains(expression, ContainsSymbol::YieldExpression) {
+            return Some((Vec::new(), self.lower_expression(expression)));
+        }
         match expression {
             Expression::Parenthesized(parenthesized) => {
                 self.lower_staged_generator_expression(parenthesized.expression())
@@ -5555,56 +5566,31 @@ impl<'a> ScriptLowerer<'a> {
                 statements.push(yield_statement);
                 Some((statements, self.lower_identifier_name(received_name, false)))
             }
-            Expression::Call(call)
-                if matches!(
-                    Self::unwrap_parenthesized_expr(call.function()),
-                    Expression::FunctionExpression(_)
-                ) && !call
-                    .args()
-                    .iter()
-                    .any(|arg| matches!(arg, Expression::Spread(_))) =>
+            Expression::Call(call) if contains(expression, ContainsSymbol::YieldExpression) => {
+                self.lower_staged_generator_call(call.function(), call.args())
+            }
+            Expression::Assign(assignment) if assignment.op() == AssignOp::Assign => {
+                let AssignTarget::Access(PropertyAccess::Simple(access)) = assignment.lhs() else {
+                    return None;
+                };
+                self.lower_staged_generator_property_assignment(access, assignment.rhs())
+            }
+            Expression::PropertyAccess(PropertyAccess::Simple(access))
+                if contains(expression, ContainsSymbol::YieldExpression) =>
             {
-                let (mut statements, callee) =
-                    if contains(call.function(), ContainsSymbol::YieldExpression) {
-                        self.lower_staged_generator_expression(call.function())?
-                    } else {
-                        (Vec::new(), self.lower_expression(call.function()))
-                    };
-                let callee_name =
-                    self.alloc_suspension_owned_binding("generator.callee.", callee.value_info());
-                statements.push(StatementIr::Lexical {
-                    mode: BindingMode::Let,
-                    name: callee_name.clone(),
-                    init: callee,
-                });
-                let mut arguments = Vec::with_capacity(call.args().len());
-                for argument in call.args() {
-                    let (argument_statements, argument) =
-                        if contains(argument, ContainsSymbol::YieldExpression) {
-                            self.lower_staged_generator_expression(argument)?
-                        } else {
-                            (Vec::new(), self.lower_expression(argument))
-                        };
-                    statements.extend(argument_statements);
-                    let argument_name = self.alloc_suspension_owned_binding(
-                        "generator.argument.",
-                        argument.value_info(),
-                    );
-                    statements.push(StatementIr::Lexical {
-                        mode: BindingMode::Let,
-                        name: argument_name.clone(),
-                        init: argument,
-                    });
-                    arguments.push(self.lower_identifier_name(argument_name, false));
-                }
-                let callee = self.lower_identifier_name(callee_name, false);
-                Some((
-                    statements,
-                    TypedExpr::spec_call(callee, TypedExpr::undefined(), arguments),
-                ))
+                let (statements, _, value) = self.lower_staged_generator_property(access)?;
+                Some((statements, value))
             }
             Expression::ArrayLiteral(array) => self.lower_staged_generator_array_literal(array),
             Expression::ObjectLiteral(object) => self.lower_staged_generator_object_literal(object),
+            Expression::ClassExpression(class) => {
+                let enclosing_prefix = self.async_expression_prefix.replace(Vec::new());
+                let value = self.lower_class_expression(class);
+                let statements =
+                    std::mem::replace(&mut self.async_expression_prefix, enclosing_prefix)
+                        .expect("class staging owns its evaluation prefix");
+                Some((statements, value))
+            }
             expression if contains(expression, ContainsSymbol::YieldExpression) => None,
             _ => Some((Vec::new(), self.lower_expression(expression))),
         }
@@ -5878,6 +5864,34 @@ impl<'a> ScriptLowerer<'a> {
                         exit_state,
                     },
                 ])
+            }
+            Expression::Assign(assignment)
+                if assignment.op() == AssignOp::Assign
+                    && matches!(assignment.lhs(), AssignTarget::Identifier(_))
+                    && contains(assignment.rhs(), ContainsSymbol::YieldExpression)
+                    && !self.uses_runtime_identifier_environment()
+                    && self.with_environment_chain.is_empty() =>
+            {
+                let AssignTarget::Identifier(identifier) = assignment.lhs() else {
+                    unreachable!("the staged assignment requires an identifier Reference")
+                };
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                let (mut statements, value) =
+                    self.lower_staged_generator_expression(assignment.rhs())?;
+                statements.push(StatementIr::Expression(
+                    self.lower_identifier_assign_value(name, value),
+                ));
+                Some(statements)
+            }
+            Expression::Call(_)
+            | Expression::PropertyAccess(PropertyAccess::Simple(_))
+            | Expression::ClassExpression(_)
+            | Expression::Assign(_)
+                if contains(expression, ContainsSymbol::YieldExpression) =>
+            {
+                let (mut statements, value) = self.lower_staged_generator_expression(expression)?;
+                statements.push(StatementIr::Expression(value));
+                Some(statements)
             }
             expression if contains(expression, ContainsSymbol::YieldExpression) => None,
             _ => Some(vec![StatementIr::Expression(
@@ -6475,34 +6489,20 @@ impl<'a> ScriptLowerer<'a> {
                         return (StatementIr::Empty, ValueKind::Undefined);
                     }
                     if self.current_generator_resume_state.is_some()
-                        && matches!(variable.init(), Some(Expression::Yield(_)))
+                        && variable
+                            .init()
+                            .is_some_and(|init| contains(init, ContainsSymbol::YieldExpression))
                     {
-                        let Some(Expression::Yield(yield_expression)) = variable.init() else {
-                            unreachable!()
+                        let Some((prefix, init)) = self.lower_staged_generator_expression(
+                            variable
+                                .init()
+                                .expect("guarded generator initializer exists"),
+                        ) else {
+                            self.unsupported("generator lexical initializer suspension expression");
+                            return (StatementIr::Empty, ValueKind::Undefined);
                         };
-                        let received_info = ValueInfo {
-                            kind: ValueKind::Dynamic,
-                            possible_kinds: KindSet::all_runtime_tags(),
-                            heap_shape: None,
-                            function_targets: FunctionTargetKnowledge::unknown(),
-                        };
-                        let received_name = self.alloc_suspension_owned_binding(
-                            "generator.lexical.received.",
-                            received_info,
-                        );
-                        statements.push(StatementIr::Lexical {
-                            mode: BindingMode::Let,
-                            name: received_name.clone(),
-                            init: TypedExpr::undefined(),
-                        });
-                        let (yield_statement, _) = self.lower_linear_generator_yield(
-                            yield_expression.target(),
-                            yield_expression.delegate(),
-                            GeneratorResumeModeIr::AssignIdentifier(received_name.clone()),
-                        );
-                        statements.push(yield_statement);
+                        statements.extend(prefix);
                         self.static_iterator_binding_values.remove(&name);
-                        let init = self.lower_identifier_name(received_name, false);
                         statements.push(self.lower_lexical_binding_value(
                             mode,
                             name,
@@ -8319,6 +8319,7 @@ impl<'a> ScriptLowerer<'a> {
         // is still uninitialized in the enclosing scope. That is why the
         // `LoweredInitializer` is minted from the already-computed result rather
         // than the binding being initialized first.
+        let enclosing_prefix = self.async_expression_prefix.replace(Vec::new());
         let init = self.lower_class_common(
             Some(name.clone()),
             class_declaration_source_slice(class, self.source_text),
@@ -8327,6 +8328,8 @@ impl<'a> ScriptLowerer<'a> {
             class.constructor(),
             class.elements(),
         );
+        let mut statements = std::mem::replace(&mut self.async_expression_prefix, enclosing_prefix)
+            .expect("class declaration owns its evaluation prefix");
         // 15.7.16 step 2: InitializeBoundName(className, value, env). In the
         // `Some` arm the outer `storage_name` computed above is deliberately
         // *not* referenced: the token carries the name the creation allocated,
@@ -8341,7 +8344,13 @@ impl<'a> ScriptLowerer<'a> {
                 init.into_expr(),
             ),
         };
-        (initialized.declare(self), ValueKind::Undefined)
+        let declaration = initialized.declare(self);
+        if statements.is_empty() {
+            (declaration, ValueKind::Undefined)
+        } else {
+            statements.push(declaration);
+            (StatementIr::LexicalBlock(statements), ValueKind::Undefined)
+        }
     }
 
     fn lower_class_expression(&mut self, class: &ClassExpression) -> TypedExpr {

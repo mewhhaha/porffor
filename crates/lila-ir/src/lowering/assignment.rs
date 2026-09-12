@@ -57,6 +57,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 AssignTarget::Access(access) => match access {
                     PropertyAccess::Simple(access) => {
+                        self.register_finite_source_property_assignment(access, rhs);
                         self.lower_ordinary_property_plain_assignment(access, rhs)
                     }
                     PropertyAccess::Private(_) | PropertyAccess::Super(_) => {

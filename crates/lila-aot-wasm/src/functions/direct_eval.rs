@@ -8,6 +8,7 @@ impl FunctionBuilder<'_> {
         callee: &TypedExpr,
         this_arg: Option<&TypedExpr>,
         args: &[TypedExpr],
+        continuation: &CallContinuation,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -40,6 +41,7 @@ impl FunctionBuilder<'_> {
             receiver_tag,
             argc,
             argv,
+            continuation,
             payload_local,
             tag_local,
             function,
@@ -63,6 +65,7 @@ impl FunctionBuilder<'_> {
         receiver_tag: u32,
         argc: u32,
         argv: u32,
+        continuation: &CallContinuation,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -89,17 +92,32 @@ impl FunctionBuilder<'_> {
             function,
         )?;
         function.instruction(&Instruction::Else);
-        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
-            callee_payload,
-            callee_tag,
-            receiver_payload,
-            receiver_tag,
-            argc,
-            argv,
-            payload_local,
-            tag_local,
-            function,
-        )?;
+        match continuation {
+            CallContinuation::Continue => {
+                self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
+                    callee_payload,
+                    callee_tag,
+                    receiver_payload,
+                    receiver_tag,
+                    argc,
+                    argv,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            CallContinuation::Return => {
+                self.emit_tail_call_with_argv(
+                    callee_payload,
+                    callee_tag,
+                    receiver_payload,
+                    receiver_tag,
+                    argc,
+                    argv,
+                    function,
+                )?;
+            }
+        }
         function.instruction(&Instruction::End);
         self.release_temp_local(intrinsic);
         self.release_temp_local(realm);

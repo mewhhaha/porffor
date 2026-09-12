@@ -18,6 +18,7 @@ impl FunctionBuilder<'_> {
                 callee,
                 this_arg,
                 args,
+                &CallContinuation::Continue,
                 payload_local,
                 tag_local,
                 function,

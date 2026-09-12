@@ -180,7 +180,7 @@ fn backend_consumes_each_closed_head_and_disposes_before_loop_continue_or_close(
     for (start, end) in [
         (
             "    pub(crate) fn compile_statement(",
-            "    fn compile_return_position_expr(",
+            "    pub(crate) fn compile_labelled_statement(",
         ),
         (
             "    pub(crate) fn compile_labelled_statement(",

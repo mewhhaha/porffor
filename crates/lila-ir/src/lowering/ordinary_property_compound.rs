@@ -938,7 +938,9 @@ impl<'a> ScriptLowerer<'a> {
         (getters, setters)
     }
 
-    fn possible_unknown_accessor_functions(&self) -> (PropertyHookTargets, PropertyHookTargets) {
+    pub(super) fn possible_unknown_accessor_functions(
+        &self,
+    ) -> (PropertyHookTargets, PropertyHookTargets) {
         let mut known_getters =
             BTreeSet::from([StandardBuiltinId::ObjectPrototypeProtoGetter.function_id()]);
         let mut known_setters =

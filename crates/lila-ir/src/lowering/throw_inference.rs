@@ -24,6 +24,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn infer_statement_throw_info(&self, statement: &StatementIr) -> Option<ValueInfo> {
         match statement {
+            StatementIr::ResumableClassDefinition(_) => Some(unknown_runtime_value_info()),
             // A module unit body can throw anything; the link stage fills these
             // blocks in, and until then no unit block exists to inspect.
             StatementIr::ModuleUnitOnce { .. } => Some(ValueInfo::new(ValueKind::Dynamic)),

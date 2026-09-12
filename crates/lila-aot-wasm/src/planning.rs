@@ -3379,6 +3379,13 @@ fn suspended_property_reference_operand_matches(
 
 fn statement_exposes_global_object(statement: &StatementIr) -> bool {
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => {
+            expr_exposes_global_object(plan.expression())
+                || plan
+                    .prefixes()
+                    .flat_map(|prefix| prefix.statements())
+                    .any(statement_exposes_global_object)
+        }
         StatementIr::ModuleUnitOnce { block, .. } => block_exposes_global_object(block),
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
@@ -3898,6 +3905,12 @@ fn collect_block_global_property_names(block: &BlockIr, names: &mut BTreeSet<Str
 
 fn collect_statement_global_property_names(statement: &StatementIr, names: &mut BTreeSet<String>) {
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => {
+            collect_expr_global_property_names(plan.expression(), names);
+            for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
+                collect_statement_global_property_names(statement, names);
+            }
+        }
         StatementIr::ModuleUnitOnce { block, .. } => {
             collect_block_global_property_names(block, names);
         }
@@ -4795,6 +4808,13 @@ pub(crate) fn block_references_function(block: &BlockIr, target: &FunctionId) ->
 
 pub(crate) fn statement_references_function(statement: &StatementIr, target: &FunctionId) -> bool {
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => {
+            expr_references_function(plan.expression(), target)
+                || plan
+                    .prefixes()
+                    .flat_map(|prefix| prefix.statements())
+                    .any(|statement| statement_references_function(statement, target))
+        }
         StatementIr::ModuleUnitOnce { block, .. } => block_references_function(block, target),
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
@@ -7314,6 +7334,11 @@ fn count_for_in_of_binding_lexicals(
 
 pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => plan
+            .prefixes()
+            .flat_map(|prefix| prefix.statements())
+            .map(count_statement_lexicals)
+            .sum(),
         StatementIr::ModuleUnitOnce { block, .. } => {
             block.statements.iter().map(count_statement_lexicals).sum()
         }
@@ -7548,6 +7573,15 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
 
 pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => count_expr_temp_locals(plan.expression())
+            .max(
+                14 + plan
+                    .prefixes()
+                    .flat_map(|prefix| prefix.statements())
+                    .map(count_statement_temp_locals)
+                    .max()
+                    .unwrap_or(0),
+            ),
         StatementIr::ModuleUnitOnce { block, .. } => block
             .statements
             .iter()
@@ -8848,7 +8882,39 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::InstanceOf { lhs, rhs } => count_expr_temp_locals(lhs)
             .max(count_expr_temp_locals(rhs))
             .max(8),
-        ExprIr::ClassDefinition(_) => 24,
+        ExprIr::ClassDefinition(class) => {
+            let key_child = class
+                .element_plan
+                .definitions
+                .iter()
+                .filter_map(|definition| match definition {
+                    ClassElementDefinitionIr::PublicMethod(method) => Some(&method.key),
+                    ClassElementDefinitionIr::ComputedFieldKey { key, .. } => Some(key),
+                    ClassElementDefinitionIr::AutoAccessor(accessor) => {
+                        accessor.computed_key.as_ref()
+                    }
+                    ClassElementDefinitionIr::PrivateMethod(_) => None,
+                })
+                .map(|key| match key {
+                    PropertyKeyIr::StringExpr(value) | PropertyKeyIr::ArrayIndex(value) => {
+                        count_expr_temp_locals(value)
+                    }
+                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => 0,
+                })
+                .max()
+                .unwrap_or(0);
+            // Fourteen retained locals include the optional static context,
+            // computed-field cache and private environment cursor.
+            14 + key_child
+                .max(
+                    class
+                        .heritage
+                        .as_deref()
+                        .map(count_expr_temp_locals)
+                        .unwrap_or(0),
+                )
+                .max(10)
+        }
         ExprIr::SuperConstruct { args } => args
             .iter()
             .map(count_expr_temp_locals)
@@ -8981,6 +9047,11 @@ pub(crate) fn collect_hoisted_vars_statement(
     names: &mut BTreeSet<String>,
 ) {
     match statement {
+        StatementIr::ResumableClassDefinition(plan) => {
+            for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
+                collect_hoisted_vars_statement(statement, names);
+            }
+        }
         // Module top-level `var`s are environment bindings of the module they
         // are written in, not hoisted vars of the merged script body.
         StatementIr::ModuleUnitOnce { .. } => {}

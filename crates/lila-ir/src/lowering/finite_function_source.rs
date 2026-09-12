@@ -1,12 +1,13 @@
 use super::*;
 
-const MAX_SOURCE_CANDIDATES: usize = 256;
+pub(super) const MAX_SOURCE_CANDIDATES: usize = 256;
 
 // Optional compilation hints never replace an expression or authorize a call.
-// Every prepared constructor still checks the live, coerced argument tuple.
+// Prepared constructors and eval still check the live arguments before dispatch.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum FiniteSourceValue {
     Text(String),
+    Function(FunctionId),
     FunctionConstructor(DynamicFunctionKind),
     Record(BTreeMap<String, Vec<FiniteSourceValue>>),
     Array(Vec<FiniteSourceValue>),
@@ -16,12 +17,14 @@ impl FiniteSourceValue {
     pub(super) fn text(&self) -> Option<&str> {
         match self {
             Self::Text(text) => Some(text),
-            Self::FunctionConstructor(_) | Self::Record(_) | Self::Array(_) => None,
+            Self::Function(_) | Self::FunctionConstructor(_) | Self::Record(_) | Self::Array(_) => {
+                None
+            }
         }
     }
 }
 
-fn bounded_candidates(
+pub(super) fn bounded_candidates(
     candidates: impl IntoIterator<Item = FiniteSourceValue>,
 ) -> Vec<FiniteSourceValue> {
     let mut distinct = BTreeSet::new();
@@ -83,16 +86,35 @@ impl ScriptLowerer<'_> {
             _ => None,
         });
         if let Some(kind) = constructor_kind {
-            return vec![FiniteSourceValue::Record(BTreeMap::from([(
+            let mut candidates = vec![FiniteSourceValue::Record(BTreeMap::from([(
                 "constructor".to_string(),
                 vec![FiniteSourceValue::FunctionConstructor(kind)],
             )]))];
+            if let Some(function_id) = match expression {
+                Expression::FunctionExpression(function) => self
+                    .analysis
+                    .function_expr_ids
+                    .get(&function_expression_key(function)),
+                Expression::ArrowFunction(function) => self
+                    .analysis
+                    .function_expr_ids
+                    .get(&arrow_function_key(function)),
+                _ => None,
+            } {
+                candidates.push(FiniteSourceValue::Function(function_id.clone()));
+            }
+            return candidates;
         }
         match expression {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 if let Some(candidates) = self.finite_binding_source_candidates(&name) {
-                    return candidates.to_vec();
+                    return bounded_candidates(
+                        candidates.iter().cloned().chain(
+                            self.static_string_receiver_value(expression)
+                                .map(FiniteSourceValue::Text),
+                        ),
+                    );
                 }
             }
             Expression::ArrayLiteral(array) => {
@@ -110,11 +132,37 @@ impl ScriptLowerer<'_> {
                     .properties()
                     .iter()
                     .filter_map(|property| {
-                        let PropertyDefinition::Property(name, value) = property else {
-                            return None;
+                        let (name, candidates) = match property {
+                            PropertyDefinition::Property(name, value) => {
+                                (name, self.function_source_value_candidates(value))
+                            }
+                            PropertyDefinition::MethodDefinition(method)
+                                if matches!(
+                                    method.kind(),
+                                    MethodDefinitionKind::Ordinary | MethodDefinitionKind::Get
+                                ) =>
+                            {
+                                let function_id = self
+                                    .analysis
+                                    .function_expr_ids
+                                    .get(&object_method_key(method))?;
+                                let candidates =
+                                    vec![FiniteSourceValue::Function(function_id.clone())];
+                                let candidates = if method.kind() == MethodDefinitionKind::Get {
+                                    self.finite_source_call_returns(candidates)
+                                } else {
+                                    candidates
+                                };
+                                (method.name(), candidates)
+                            }
+                            _ => return None,
                         };
-                        let name = self.property_name_to_static_key(name)?;
-                        let candidates = self.function_source_value_candidates(value);
+                        let name = match name {
+                            PropertyName::Computed(expression) => self
+                                .finite_source_computed_key_candidate(expression)
+                                .or_else(|| self.property_name_to_static_key(name)),
+                            PropertyName::Literal(_) => self.property_name_to_static_key(name),
+                        }?;
                         (!candidates.is_empty()).then_some((name, candidates))
                     })
                     .collect();
@@ -129,25 +177,42 @@ impl ScriptLowerer<'_> {
                     PropertyAccessField::Const(identifier) => {
                         Some(self.interner.resolve_expect(identifier.sym()).to_string())
                     }
-                    PropertyAccessField::Expr(expression) => self.aot_source_text(expression),
-                };
-                if let Some(name) = name {
-                    let candidates = bounded_candidates(
-                        self.function_source_value_candidates(access.target())
-                            .into_iter()
-                            .flat_map(|candidate| match candidate {
-                                FiniteSourceValue::Record(mut properties) => {
-                                    properties.remove(&name).unwrap_or_default()
-                                }
-                                FiniteSourceValue::Text(_)
-                                | FiniteSourceValue::FunctionConstructor(_)
-                                | FiniteSourceValue::Array(_) => Vec::new(),
-                            }),
-                    );
-                    if !candidates.is_empty() {
-                        return candidates;
+                    PropertyAccessField::Expr(expression) => {
+                        self.finite_source_computed_key_candidate(expression)
                     }
+                };
+                let candidates = bounded_candidates(
+                    self.function_source_value_candidates(access.target())
+                        .into_iter()
+                        .flat_map(|candidate| match candidate {
+                            FiniteSourceValue::Record(mut properties) => name
+                                .as_ref()
+                                .and_then(|name| properties.remove(name))
+                                .unwrap_or_default(),
+                            FiniteSourceValue::Array(elements)
+                                if matches!(access.field(), PropertyAccessField::Expr(_)) =>
+                            {
+                                elements
+                            }
+                            FiniteSourceValue::Text(_)
+                            | FiniteSourceValue::Function(_)
+                            | FiniteSourceValue::FunctionConstructor(_)
+                            | FiniteSourceValue::Array(_) => Vec::new(),
+                        }),
+                );
+                if !candidates.is_empty() {
+                    return candidates;
                 }
+            }
+            Expression::Binary(binary) if binary.op() == BinaryOp::Comma => {
+                return self.function_source_value_candidates(binary.rhs());
+            }
+            Expression::Conditional(conditional) => {
+                return bounded_candidates(
+                    self.function_source_value_candidates(conditional.if_true())
+                        .into_iter()
+                        .chain(self.function_source_value_candidates(conditional.if_false())),
+                );
             }
             Expression::Binary(binary)
                 if binary.op() == BinaryOp::Arithmetic(ArithmeticOp::Add) =>
@@ -243,6 +308,7 @@ impl ScriptLowerer<'_> {
                 .flat_map(|candidate| match candidate {
                     FiniteSourceValue::Array(elements) => elements,
                     FiniteSourceValue::Text(_)
+                    | FiniteSourceValue::Function(_)
                     | FiniteSourceValue::FunctionConstructor(_)
                     | FiniteSourceValue::Record(_) => Vec::new(),
                 }),
