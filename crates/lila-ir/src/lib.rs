@@ -18120,7 +18120,10 @@ eval(1);
 
         assert!(getter.owned_env_bindings.is_empty(), "{getter:#?}");
         assert_eq!(registered.hops, 0);
-        assert_eq!(trace.hops, 1);
+        assert!(disposer.owned_env_bindings.is_empty(), "{disposer:#?}");
+        // The resumable arrow retains its own empty activation frame, then
+        // crosses the try-block TDZ environment to reach the owner parameter.
+        assert_eq!(trace.hops, 2);
         assert_eq!(registered.slot, trace.slot);
         assert!(owner
             .owned_env_bindings

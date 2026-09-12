@@ -276,3 +276,38 @@ iterator.next().then(result => print(result.value + ":" + result.done));
         &["5:false", "0:true"],
     );
 }
+
+#[test]
+fn await_using_disposer_captures_cross_empty_activation_and_tdz_environments() {
+    assert_trace(
+        r#"
+async function probe(trace, invalid) {
+  try {
+    await using registered = {
+      get [Symbol.asyncDispose]() {
+        trace.push("get");
+        try {
+          registered;
+          trace.push("unexpected initialized resource");
+        } catch (error) {
+          trace.push("tdz:" + (error instanceof ReferenceError));
+        }
+        return async () => {
+          trace.push("dispose before");
+          await 0;
+          trace.push("dispose after");
+        };
+      }
+    };
+    await using rejected = invalid;
+    trace.push("unexpected second resource");
+  } catch (error) {
+    trace.push("caught:" + (error instanceof TypeError));
+  }
+}
+let trace = [];
+probe(trace, 1).then(() => print(trace.join("|")));
+"#,
+        &["get|tdz:true|dispose before|dispose after|caught:true"],
+    );
+}
