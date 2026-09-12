@@ -2,23 +2,22 @@
 
 ## Closed layout identities
 
-The passive Realm record contains exactly nine capability-free
+The passive Realm record contains exactly eight capability-free
 `RealmRecordHeapSlot` identities in Realm-id, Agent-id, global-object,
-global-this, global-environment, intrinsics, host-hooks, module-registry and
-private-elements order.
+global-this, global-environment, intrinsics, host-hooks and module-registry
+order.
 
 One private exhaustive `metadata()` projection is the sole authority for all
-nine identities' record names, slot names, offsets, widths and pointer
+eight identities' record names, slot names, offsets, widths and pointer
 classifications. Every slot remains eight bytes wide. Realm and Agent ids
 occupy offsets 0 and 8. Global object, global this, global environment,
-intrinsics, host hooks, module registry and private elements occupy offsets 16,
-24, 32, 40, 48, 56 and 64. The two ids remain scalar, while all seven Realm
-ownership edges remain pointer-classified.
+intrinsics, host hooks and module registry occupy offsets 16, 24, 32, 40, 48
+and 56. The two ids remain scalar, while all six Realm ownership edges remain
+pointer-classified. The record size is 64 bytes.
 
-This two-scalar/seven-pointer census is a retention invariant. A Realm must
-keep its global state, intrinsic table, host state, module registry and private
-element list visible to tracing, while neither identity word may be scanned as
-an address. An arbitrary row can no longer reverse either side of that
+This two-scalar/six-pointer census is a retention invariant. A Realm must
+keep its global state, intrinsic table, host state and module registry visible
+to tracing, while neither identity word may be scanned as an address. An arbitrary row can no longer reverse either side of that
 relation or reorder one field independently of the closed identity registry.
 
 The focused recursive structure regression pins the exact capability-free
@@ -29,9 +28,18 @@ owner witness asserts every projected field. `RealmRecordLocal`, Realm-id
 allocation and created-Realm publication policies remain independent lifetime
 and semantic authorities.
 
-## Passive boundary
+## Private-element ownership correction
 
-This invariant reorganizes passive Rust layout metadata only. It does not
+The 2026-09-12 correction removes the unused Realm private-element head and its
+initialization. Each Private Name now owns its rows through a pointer-bearing
+slot in its declaring private environment. This prevents foreign-eval class
+definitions from being separated from later instance brands by the caller's
+execution realm. All eight remaining Realm offsets are unchanged. Updated
+layout and runtime verification is pending in the coordinated checkpoint.
+
+## Historical passive boundary
+
+The original nine-slot identity migration reorganized passive Rust layout metadata only. It does not
 change Realm allocation, initialization, lookup, intrinsic publication,
 global-environment behavior, host hooks, module loading, private elements,
 emitted Wasm, root scanning or collector execution. All Realm runtime offset
@@ -47,7 +55,7 @@ rustfmt --check crates/lila-aot-wasm/src/heap_realm_record_layout.rs crates/lila
 git diff --check
 ```
 
-Dry source review pins the exact nine rows, offsets 0, 8, 16, 24, 32, 40, 48,
+At that earlier checkpoint, dry source review pinned the exact nine rows, offsets 0, 8, 16, 24, 32, 40, 48,
 56 and 64, the two-scalar/seven-pointer census, typed registry order and
 unchanged runtime offset consumers. At the Batch AN checkpoint, `cargo xc` is
 green, the new structure target passes `4/4`, the Array and Promise Realm

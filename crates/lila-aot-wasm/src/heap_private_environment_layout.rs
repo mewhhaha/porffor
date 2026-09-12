@@ -5,6 +5,7 @@
 
 use super::heap::{
     HeapLayoutSlot, HEAP_PRIVATE_ENV_CLASS_SCOPE_OFFSET, HEAP_PRIVATE_ENV_PARENT_OFFSET,
+    HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
 };
 
 pub(crate) enum PrivateEnvironmentHeapSlot {
@@ -56,3 +57,12 @@ pub(crate) const HEAP_PRIVATE_ENV_LAYOUT: &[PrivateEnvironmentHeapSlot] = &[
     PrivateEnvironmentHeapSlot::Parent,
     PrivateEnvironmentHeapSlot::ClassScope,
 ];
+
+/// Repeated once per Private Name after the fixed environment header.
+pub(crate) const HEAP_PRIVATE_NAME_LAYOUT: &[HeapLayoutSlot] = &[HeapLayoutSlot {
+    record: "private-name",
+    name: "entries",
+    offset: HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
+    width: 8,
+    pointer: true,
+}];

@@ -3,6 +3,8 @@ use std::path::Path;
 
 const LAYOUT_SOURCE: &str = include_str!("../src/heap_private_environment_layout.rs");
 const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
+const CLASS_SOURCE: &str = include_str!("../src/functions/class_definition.rs");
+const PRIVATE_ELEMENTS_SOURCE: &str = include_str!("../src/objects/private_elements.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/private-environment-heap-slot-authority.md");
@@ -159,4 +161,45 @@ fn private_environment_layout_has_one_private_recursive_owner() {
     );
     assert!(CONTRACT.contains("PrivateEnvironmentHeapSlot"));
     assert!(TASK.contains("private-environment-heap-slot-authority.md"));
+}
+
+#[test]
+fn each_private_name_owns_an_initialized_pointer_to_its_entries() {
+    let layout = normalized(bounded(
+        LAYOUT_SOURCE,
+        "pub(crate) const HEAP_PRIVATE_NAME_LAYOUT",
+        "];",
+    ));
+    assert_eq!(
+        layout,
+        concat!(
+            ":&[HeapLayoutSlot]=&[HeapLayoutSlot{",
+            "record:\"private-name\",name:\"entries\",",
+            "offset:HEAP_PRIVATE_NAME_ENTRIES_OFFSET,width:8,pointer:true,}"
+        )
+    );
+    let allocation = normalized(bounded(
+        CLASS_SOURCE,
+        "if let Some(class_private_scope) = class_private_scope {",
+        "} else {",
+    ));
+    assert!(allocation.contains(concat!(
+        "forordinalin0..class.private_environment.expect(\"classprivatescopeexists\").slot_count(){",
+        "self.store_i64_const_at_offset(private_environment_local,",
+        "HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET+u64::from(ordinal)*HEAP_PRIVATE_ENV_SLOT_SIZE",
+        "+HEAP_PRIVATE_NAME_ENTRIES_OFFSET,0,function,);}",
+    )));
+    let entries = normalized(PRIVATE_ELEMENTS_SOURCE);
+    assert_eq!(
+        entries
+            .matches(concat!(
+                "self.load_i64_to_local_from_offset(token_local,HEAP_PRIVATE_NAME_ENTRIES_OFFSET,"
+            ))
+            .count(),
+        3
+    );
+    assert_eq!(entries.matches(concat!(
+        "self.store_i64_local_at_offset(token_local,HEAP_PRIVATE_NAME_ENTRIES_OFFSET,entry_local,function,);"
+    )).count(), 1);
+    assert!(!entries.contains("CURRENT_REALM_GLOBAL_INDEX"));
 }

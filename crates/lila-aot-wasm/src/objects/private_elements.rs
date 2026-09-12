@@ -311,7 +311,6 @@ impl<'a> FunctionBuilder<'a> {
         entry: PrivateElementEntryLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let realm_local = self.reserve_temp_local();
         let previous_local = self.reserve_temp_local();
         let entry_local = self.reserve_temp_local();
         let kind = entry.kind();
@@ -364,11 +363,9 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(existing_entry_local);
         }
 
-        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(realm_local));
         self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+            token_local,
+            HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
             previous_local,
             function,
         );
@@ -435,15 +432,14 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
         self.store_i64_local_at_offset(
-            realm_local,
-            HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+            token_local,
+            HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
             entry_local,
             function,
         );
 
         self.release_temp_local(entry_local);
         self.release_temp_local(previous_local);
-        self.release_temp_local(realm_local);
         Ok(())
     }
 
@@ -496,16 +492,13 @@ impl<'a> FunctionBuilder<'a> {
         entry_local: u32,
         function: &mut Function,
     ) {
-        let realm_local = self.reserve_temp_local();
         let stored_receiver_local = self.reserve_temp_local();
         let stored_token_local = self.reserve_temp_local();
         let stored_kind_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(realm_local));
         self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+            token_local,
+            HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
             entry_local,
             function,
         );
@@ -556,7 +549,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(stored_kind_local);
         self.release_temp_local(stored_token_local);
         self.release_temp_local(stored_receiver_local);
-        self.release_temp_local(realm_local);
     }
 
     fn emit_private_element_definition_find(
@@ -566,16 +558,13 @@ impl<'a> FunctionBuilder<'a> {
         entry_local: u32,
         function: &mut Function,
     ) {
-        let realm_local = self.reserve_temp_local();
         let stored_receiver_local = self.reserve_temp_local();
         let stored_token_local = self.reserve_temp_local();
         let stored_kind_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(realm_local));
         self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+            token_local,
+            HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
             entry_local,
             function,
         );
@@ -628,7 +617,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(stored_kind_local);
         self.release_temp_local(stored_token_local);
         self.release_temp_local(stored_receiver_local);
-        self.release_temp_local(realm_local);
     }
 
     pub(crate) fn emit_private_brand_has_i32(

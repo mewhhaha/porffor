@@ -26,7 +26,7 @@ combined paired baseline contains 373 executions: 324 Success, 27 Bug and
 
 | Confirmed main failure family | Executions |
 | --- | ---: |
-| Finite indirect/realm class factories and indirect non-string eval | 16 |
+| Finite eval, cross-realm class brands and indirect non-string eval | 16 |
 | Nullish, primitive and `with` deletion | 13 |
 | BigInt/string equality and object coercion | 8 |
 | Number remainder and compound remainder | 8 |
@@ -57,6 +57,11 @@ combined paired baseline contains 373 executions: 324 Success, 27 Bug and
   actual value at runtime, returning non-string values unchanged without
   attempting source conversion. Source discovery remains bounded; this batch
   does not add arbitrary helper forwarding through `.call` or `.apply`.
+- Private fields, methods and accessors keep their entries under their unique
+  Private Name, so class construction and use after foreign eval returns can
+  find the original definitions. Fresh class evaluations still have distinct
+  brands. The obsolete realm-owned list is removed, and every new private-name
+  slot initializes its own entry head.
 - The Test262 runner admits the expression and declaration fixtures for
   `SharedArrayBuffer` subclassing. Direct merged-main Wasm execution already
   supports their construction/prototype behavior and growable storage.

@@ -63,7 +63,6 @@ fn realm_record_heap_slot_is_the_exact_capability_free_domain() {
             "Intrinsics,",
             "HostHooks,",
             "ModuleRegistry,",
-            "PrivateElements,",
         ],
     );
     assert!(!LAYOUT_SOURCE.contains("#[derive"));
@@ -92,14 +91,14 @@ fn realm_record_heap_slot_is_the_exact_capability_free_domain() {
 }
 
 #[test]
-fn one_exhaustive_projection_owns_nine_exact_rows_and_retention_classes() {
+fn one_exhaustive_projection_owns_eight_exact_rows_and_retention_classes() {
     let implementation = bounded(
         LAYOUT_SOURCE,
         "impl RealmRecordHeapSlot {",
         "pub(crate) const HEAP_REALM_RECORD_LAYOUT",
     );
     assert_eq!(implementation.matches("match self {").count(), 1);
-    assert_eq!(implementation.matches("pointer: true").count(), 7);
+    assert_eq!(implementation.matches("pointer: true").count(), 6);
     assert_eq!(implementation.matches("pointer: false").count(), 2);
     assert!(!implementation.contains("_ =>"));
     assert!(!implementation.contains("unreachable!"));
@@ -147,11 +146,6 @@ fn one_exhaustive_projection_owns_nine_exact_rows_and_retention_classes() {
             "record:\"realm-record\",name:\"module_registry\",",
             "offset:HEAP_REALM_MODULE_REGISTRY_OFFSET,width:8,pointer:true,},"
         ),
-        concat!(
-            "Self::PrivateElements=>RealmRecordHeapSlotMetadata{",
-            "record:\"realm-record\",name:\"private_elements\",",
-            "offset:HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,width:8,pointer:true,},"
-        ),
     ] {
         assert!(implementation.contains(row), "missing exact row: {row}");
     }
@@ -165,7 +159,7 @@ fn one_exhaustive_projection_owns_nine_exact_rows_and_retention_classes() {
 }
 
 #[test]
-fn typed_registry_preserves_ids_and_seven_realm_edge_order() {
+fn typed_registry_preserves_ids_and_six_realm_edge_order() {
     let registry = normalized(bounded(
         LAYOUT_SOURCE,
         "pub(crate) const HEAP_REALM_RECORD_LAYOUT",
@@ -182,8 +176,7 @@ fn typed_registry_preserves_ids_and_seven_realm_edge_order() {
             "RealmRecordHeapSlot::GlobalEnvironment,",
             "RealmRecordHeapSlot::Intrinsics,",
             "RealmRecordHeapSlot::HostHooks,",
-            "RealmRecordHeapSlot::ModuleRegistry,",
-            "RealmRecordHeapSlot::PrivateElements,"
+            "RealmRecordHeapSlot::ModuleRegistry,"
         )
     );
 }
@@ -202,7 +195,7 @@ fn realm_record_layout_has_one_private_recursive_owner() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         recursive_rust_source_count(&source_root, "record: \"realm-record\""),
-        9
+        8
     );
     assert_eq!(
         recursive_rust_source_count(&source_root, "pub(crate) enum RealmRecordHeapSlot {"),

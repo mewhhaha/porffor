@@ -113,6 +113,184 @@ try { second.read(first); } catch (error) { print(error instanceof secondRealm.g
 }
 
 #[test]
+fn saved_foreign_evaluators_keep_instance_getter_definitions_and_fresh_brands() {
+    assert_trace(
+        r#"
+let firstRealm = __lilaCreateRealm();
+let secondRealm = __lilaCreateRealm();
+let firstEval = firstRealm.global.eval;
+let secondEval = secondRealm.global.eval;
+let text = `(class {
+  get #value() { return 'test262'; }
+  read(other) { return other.#value; }
+  has(other) { return #value in other; }
+})`;
+let create = function(target) { return new (target(text)); };
+let first = create(firstEval);
+let second = create(secondEval);
+let repeated = create(firstEval);
+let peer = new first.constructor();
+if (first.read(first) !== 'test262' || second.read(second) !== 'test262' ||
+    repeated.read(repeated) !== 'test262' || first.read(peer) !== 'test262') {
+  throw 'matching getter brand';
+}
+if (first.constructor === second.constructor || first.constructor === repeated.constructor ||
+    !(first instanceof firstRealm.global.Object) || !(second instanceof secondRealm.global.Object)) {
+  throw 'class evaluation identity';
+}
+if (!first.has(first) || !first.has(peer) || first.has(second) || first.has(repeated) ||
+    !second.has(second) || second.has(first) || !repeated.has(repeated) || repeated.has(first)) {
+  throw 'getter brand membership';
+}
+function rejects(operation, expected) {
+  try { operation(); } catch (error) {
+    if (error.constructor !== expected || error instanceof TypeError) throw 'wrong getter error realm';
+    return;
+  }
+  throw 'getter brand check did not throw';
+}
+rejects(() => first.read(second), firstRealm.global.TypeError);
+rejects(() => second.read(first), secondRealm.global.TypeError);
+rejects(() => first.read(repeated), firstRealm.global.TypeError);
+rejects(() => repeated.read(first), firstRealm.global.TypeError);
+print('getter brands');
+"#,
+        HostSurfacePolicy::Test262,
+        &["getter brands"],
+    );
+}
+
+#[test]
+fn foreign_instance_setters_and_methods_keep_their_defining_private_environment() {
+    assert_trace(
+        r#"
+let firstRealm = __lilaCreateRealm();
+let secondRealm = __lilaCreateRealm();
+let firstEval = firstRealm.global.eval;
+let secondEval = secondRealm.global.eval;
+let text = `(class {
+  #value = 0;
+  writes = 0;
+  set #write(value) { this.#value = value; this.writes++; }
+  #method(increment) { this.#value += increment; return this.#value; }
+  write(other, value) { other.#write = value; }
+  call(other, increment) { return other.#method(increment); }
+  read() { return this.#value; }
+})`;
+let create = function(target) { return new (target(text)); };
+let first = create(firstEval);
+let second = create(secondEval);
+let repeated = create(firstEval);
+let peer = new first.constructor();
+first.write(first, 11);
+second.write(second, 22);
+repeated.write(repeated, 33);
+first.write(peer, 44);
+if (first.call(first, 1) !== 12 || second.call(second, 2) !== 24 ||
+    repeated.call(repeated, 3) !== 36 || first.call(peer, 4) !== 48) {
+  throw 'matching setter and method receiver';
+}
+function rejects(operation, expected) {
+  try { operation(); } catch (error) {
+    if (error.constructor !== expected || error instanceof TypeError) throw 'wrong instance error realm';
+    return;
+  }
+  throw 'instance brand check did not throw';
+}
+rejects(() => first.write(second, 99), firstRealm.global.TypeError);
+rejects(() => second.write(first, 99), secondRealm.global.TypeError);
+rejects(() => first.write(repeated, 99), firstRealm.global.TypeError);
+rejects(() => repeated.write(first, 99), firstRealm.global.TypeError);
+rejects(() => first.call(second, 99), firstRealm.global.TypeError);
+rejects(() => second.call(first, 99), secondRealm.global.TypeError);
+rejects(() => first.call(repeated, 99), firstRealm.global.TypeError);
+rejects(() => repeated.call(first, 99), firstRealm.global.TypeError);
+if (first.read() !== 12 || second.read() !== 24 || repeated.read() !== 36 || peer.read() !== 48 ||
+    first.writes !== 1 || second.writes !== 1 || repeated.writes !== 1 || peer.writes !== 1) {
+  throw 'failed private writes changed state';
+}
+print('instance setter and method brands');
+"#,
+        HostSurfacePolicy::Test262,
+        &["instance setter and method brands"],
+    );
+}
+
+#[test]
+fn foreign_static_fields_accessors_and_methods_keep_fresh_class_brands() {
+    assert_trace(
+        r#"
+let firstRealm = __lilaCreateRealm();
+let secondRealm = __lilaCreateRealm();
+let firstEval = firstRealm.global.eval;
+let secondEval = secondRealm.global.eval;
+let text = `(class {
+  static #field = 1;
+  static #writes = 0;
+  static get #accessor() { return this.#field; }
+  static set #accessor(value) { this.#field = value; this.#writes++; }
+  static #method(increment) { return this.#field + increment; }
+  static field(other) { return other.#field; }
+  static putField(other, value) { other.#field = value; }
+  static get(other) { return other.#accessor; }
+  static set(other, value) { other.#accessor = value; }
+  static call(other, increment) { return other.#method(increment); }
+  static writes() { return this.#writes; }
+  static has(other) { return #field in other && #accessor in other && #method in other; }
+})`;
+let create = function(target) { return target(text); };
+let first = create(firstEval);
+let second = create(secondEval);
+let repeated = create(firstEval);
+if (first === second || first === repeated || first.field(first) !== 1 ||
+    second.field(second) !== 1 || repeated.field(repeated) !== 1) throw 'static class evaluation identity';
+first.putField(first, 2);
+if (first.get(first) !== 2) throw 'matching static field write';
+first.set(first, 11);
+second.set(second, 22);
+repeated.set(repeated, 33);
+if (first.get(first) !== 11 || second.get(second) !== 22 || repeated.get(repeated) !== 33 ||
+    first.call(first, 1) !== 12 || second.call(second, 2) !== 24 || repeated.call(repeated, 3) !== 36) {
+  throw 'matching static accessor and method receiver';
+}
+if (!first.has(first) || first.has(second) || first.has(repeated) ||
+    !second.has(second) || second.has(first) || !repeated.has(repeated) || repeated.has(first)) {
+  throw 'static brand membership';
+}
+function rejects(operation, expected) {
+  try { operation(); } catch (error) {
+    if (error.constructor !== expected || error instanceof TypeError) throw 'wrong static error realm';
+    return;
+  }
+  throw 'static brand check did not throw';
+}
+rejects(() => first.field(second), firstRealm.global.TypeError);
+rejects(() => second.field(first), secondRealm.global.TypeError);
+rejects(() => first.field(repeated), firstRealm.global.TypeError);
+rejects(() => first.putField(second, 99), firstRealm.global.TypeError);
+rejects(() => second.putField(first, 99), secondRealm.global.TypeError);
+rejects(() => first.putField(repeated, 99), firstRealm.global.TypeError);
+rejects(() => first.get(second), firstRealm.global.TypeError);
+rejects(() => second.get(first), secondRealm.global.TypeError);
+rejects(() => first.get(repeated), firstRealm.global.TypeError);
+rejects(() => first.set(second, 99), firstRealm.global.TypeError);
+rejects(() => second.set(first, 99), secondRealm.global.TypeError);
+rejects(() => first.set(repeated, 99), firstRealm.global.TypeError);
+rejects(() => first.call(second, 99), firstRealm.global.TypeError);
+rejects(() => second.call(first, 99), secondRealm.global.TypeError);
+rejects(() => first.call(repeated, 99), firstRealm.global.TypeError);
+if (first.get(first) !== 11 || second.get(second) !== 22 || repeated.get(repeated) !== 33 ||
+    first.writes() !== 1 || second.writes() !== 1 || repeated.writes() !== 1) {
+  throw 'failed static writes changed state';
+}
+print('static brands');
+"#,
+        HostSurfacePolicy::Test262,
+        &["static brands"],
+    );
+}
+
+#[test]
 fn candidate_hints_preserve_live_sources_and_replaced_callable_identity() {
     assert_trace(
         r#"
