@@ -306,7 +306,23 @@ fn wrapper_owned_default_declarations_use_the_wrappers_function_instantiation() 
                     initializers[0].expr,
                     ExprIr::FunctionValue(default_id.into())
                 );
-                Some(function.id.as_str())
+                // Context specialization compiles another body for the same
+                // lexical owner; every generated body must initialize once.
+                let owner_id = function
+                    .id
+                    .split_once("$exact_helper_context$")
+                    .map_or(function.id.as_str(), |(owner, _)| owner);
+                let owner = script
+                    .functions
+                    .iter()
+                    .find(|candidate| candidate.id == owner_id)
+                    .expect("specialized wrapper retains its source owner");
+                assert_eq!(
+                    function.to_string_representation,
+                    owner.to_string_representation
+                );
+                assert_eq!(function.protocol, owner.protocol);
+                Some(owner_id)
             })
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(
