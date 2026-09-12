@@ -15677,8 +15677,11 @@ eval(1);
 
         let optional_test262 = lower_test262_script(&format!("{name}?.('source');"));
         assert_prepared_script(&optional_test262, PreparedScriptKind::RealmScript);
-        let optional_runtime_test262 =
+        let optional_converted_test262 =
             lower_test262_script(&format!("{name}?.(String('source'));"));
+        assert_prepared_script(&optional_converted_test262, PreparedScriptKind::RealmScript);
+        let optional_runtime_test262 =
+            lower_test262_script(&format!("{name}?.(String(unknownSource));"));
         assert!(optional_runtime_test262
             .diagnostics
             .iter()
