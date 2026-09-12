@@ -24,6 +24,8 @@ fn indexed_receiver_mutation_is_owned_by_the_builtin_catalog() {
             StandardBuiltinId::TypedArrayPrototypeSet,
             StandardBuiltinId::TypedArrayPrototypeReverse,
             StandardBuiltinId::TypedArrayPrototypeSort,
+            StandardBuiltinId::Uint8ArrayPrototypeSetFromBase64,
+            StandardBuiltinId::Uint8ArrayPrototypeSetFromHex,
         ]
     );
 }
