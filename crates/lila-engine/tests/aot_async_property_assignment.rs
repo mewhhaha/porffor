@@ -19,8 +19,9 @@ fn assert_trace(source: &str, expected: &[&str]) {
     assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(
         matches!(outcome.completion, ObservedCompletion::Normal(_)),
-        "{:?}\nsource:\n{source}",
-        outcome.completion
+        "{:?}\noutput: {:?}\nsource:\n{source}",
+        outcome.completion,
+        outcome.output_events
     );
     assert_eq!(
         outcome.output_events,
@@ -71,10 +72,28 @@ async function check() {
   receiver = first;
   let nested = consume(receiver.value = await (receiver = second, marker));
   print(nested === marker);
+  receiver = first;
+  let makeReader = async () => () => receiver;
+  let read = await makeReader();
+  print("empty parent:" + (read() === first));
+  receiver = second;
+  print("live capture:" + (read() === second));
+  let makeNamed = async () => async function reader() { return receiver; };
+  let named = await makeNamed();
+  print("named capture:" + ((await named()) === second));
 }
 check();
 "#,
-        &["7:0", "8:0:true", "true:true:0", "true", "true"],
+        &[
+            "7:0",
+            "8:0:true",
+            "true:true:0",
+            "true",
+            "true",
+            "empty parent:true",
+            "live capture:true",
+            "named capture:true",
+        ],
     );
 }
 

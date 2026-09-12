@@ -1245,7 +1245,7 @@ impl<'a> ScriptLowerer<'a> {
         let constructor_output = if let Some(constructor) = constructor {
             self.lower_generated_ast_function(
                 constructor_id.clone(),
-                display_name.unwrap_or("<class>").to_string(),
+                display_name.unwrap_or_default().to_string(),
                 CallableToStringRepresentation::ExactSource(class_source.clone()),
                 constructor.parameters(),
                 constructor.body(),
@@ -1270,7 +1270,7 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             let constructor_output = self.lower_generated_block_function(
                 constructor_id.clone(),
-                display_name.unwrap_or("<class>").to_string(),
+                display_name.unwrap_or_default().to_string(),
                 CallableToStringRepresentation::ExactSource(class_source.clone()),
                 FunctionProtocolIr::ClassConstructor,
                 false,

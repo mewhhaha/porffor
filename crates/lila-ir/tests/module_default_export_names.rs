@@ -122,10 +122,12 @@ fn explicit_and_nested_same_spelled_definitions_are_not_default_exports() {
         class_names(&module("class Named {} export { Named as default };")),
         ["Named"]
     );
+    assert_eq!(class_names(&module("export default (0, class {});")), [""]);
     assert_eq!(
-        class_names(&module("export default (0, class {});")),
-        ["<class>"]
+        class_names(&module("export default (0, class { constructor() {} });")),
+        [""]
     );
+    assert_eq!(class_names(&module("const classes = [class {}];")), [""]);
     let function = module("export default (function $d0$() {});");
     assert!(function
         .functions

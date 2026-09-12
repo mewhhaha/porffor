@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower, AsyncResumeModeIr, ExprIr, FunctionIr, KindSet, OrdinaryPropertyAssignmentIr,
-    PropertyKeyIr, StatementIr, Strictness, TypedExpr,
+    lower, AsyncResumeModeIr, ExprIr, FunctionIr, FunctionProtocolIr, KindSet,
+    OrdinaryPropertyAssignmentIr, PropertyKeyIr, StatementIr, Strictness, TypedExpr,
 };
 
 fn lower_assignment(source: &str) -> FunctionIr {
@@ -41,6 +41,10 @@ fn assignment<'a>(statements: &[&'a StatementIr]) -> &'a OrdinaryPropertyAssignm
         .iter()
         .find_map(|statement| match statement {
             StatementIr::Expression(TypedExpr {
+                expr: ExprIr::OrdinaryPropertyAssignment(assignment),
+                ..
+            })
+            | StatementIr::Return(TypedExpr {
                 expr: ExprIr::OrdinaryPropertyAssignment(assignment),
                 ..
             }) => Some(assignment),
@@ -172,4 +176,61 @@ fn direct_identifier_await_assignment_keeps_its_existing_resume_mode() {
     assert!(matches!(statements.as_slice(),
         [StatementIr::AsyncAwait { resume_mode: AsyncResumeModeIr::AssignIdentifier(name), .. }]
             if name == "target"));
+}
+
+#[test]
+fn async_arrow_capture_hops_include_activation_frames_before_operand_slots_exist() {
+    let unit = parse(
+        "function outer(target, key, rhs) { let assign = async () => target[key] = await rhs; let make = async () => () => target; return [assign, make]; }",
+        ParseOptions::script(),
+    )
+    .expect("nested async arrows parse");
+    let program = lower(&unit);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.expect("script IR");
+    let assign = script
+        .functions
+        .iter()
+        .find(|function| function.name == "assign")
+        .expect("assignment arrow");
+    assert_eq!(assign.protocol, FunctionProtocolIr::AsyncArrow);
+    let mut statements = Vec::new();
+    flatten(&assign.body.statements, &mut statements);
+    let reference = assignment(&statements);
+    let PropertyKeyIr::StringExpr(key) = reference.referenced_name() else {
+        panic!("computed raw key");
+    };
+    for operand in [reference.base_and_receiver(), key, reference.rhs()] {
+        assert!(assign
+            .owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == identifier(operand)));
+    }
+    for source_name in ["target", "key", "rhs"] {
+        let capture = assign
+            .captured_bindings
+            .iter()
+            .find(|capture| capture.source_name == source_name)
+            .expect("source operand capture");
+        assert_eq!(capture.hops, 1, "{source_name}");
+    }
+    let make = script
+        .functions
+        .iter()
+        .find(|function| function.name == "make")
+        .expect("empty async parent");
+    assert_eq!(make.protocol, FunctionProtocolIr::AsyncArrow);
+    assert!(make.owned_env_bindings.is_empty());
+    let reader = script
+        .functions
+        .iter()
+        .find(|function| function.protocol == FunctionProtocolIr::Arrow)
+        .expect("nested ordinary arrow");
+    assert!(reader.owned_env_bindings.is_empty());
+    let capture = reader
+        .captured_bindings
+        .iter()
+        .find(|capture| capture.source_name == "target")
+        .expect("reader crosses its empty async parent");
+    assert_eq!(capture.hops, 1);
 }

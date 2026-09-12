@@ -97,16 +97,17 @@ fn anonymous_function_protocols_and_parenthesized_expressions_receive_default() 
 fn explicit_names_non_definitions_and_static_name_overrides_are_preserved() {
     assert_modules(
         &[
-            ("entry.js", "import a from './a.js'; import b from './b.js'; import c from './c.js'; import d from './d.js'; import e from './e.js'; import f from './f.js'; print(a.name + ':' + b.name + ':' + c.name + ':' + d.name + ':' + e.name()); print(f.name);"),
+            ("entry.js", "import a from './a.js'; import b from './b.js'; import c from './c.js'; import d from './d.js'; import e from './e.js'; import f from './f.js'; import g from './g.js'; print(a.name + ':' + b.name + ':' + c.name + ':' + d.name + ':' + e.name()); print(f.name); print('constructed:[' + g.name + ']:' + new g().value); let bare = [class { static { print('array:[' + this.name + ']'); } }][0]; print('array descriptor:[' + Object.getOwnPropertyDescriptor(bare, 'name').value + ']');"),
             ("a.js", "export default class Named { static { print(this.name); } }"),
             ("b.js", "class Exported {} export { Exported as default };"),
             ("c.js", "export default (function Explicit() {});"),
-            ("d.js", "export default (0, class {});"),
+            ("d.js", "export default (0, class { static { print('anonymous:[' + this.name + ']'); } });"),
             ("e.js", "export default class { static name() { return 'override'; } static { print(this.name()); } }"),
             ("f.js", "export default (function $d6$() {});"),
+            ("g.js", "export default (0, class { constructor() { this.value = 5; } static { print('constructor:[' + this.name + ']'); } });"),
         ],
         EntryGoal::Module,
-        &["Named", "override", "Named:Exported:Explicit::override", "$d6$"],
+        &["Named", "anonymous:[]", "override", "constructor:[]", "Named:Exported:Explicit::override", "$d6$", "constructed:[]:5", "array:[]", "array descriptor:[]"],
     );
 }
 

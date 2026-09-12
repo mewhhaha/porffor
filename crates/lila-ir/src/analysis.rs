@@ -264,7 +264,10 @@ impl Analysis<'_> {
     }
 
     pub(crate) fn environment_has_runtime_storage(&self, environment: &EnvironmentPlan) -> bool {
-        environment_has_runtime_storage(environment)
+        environment_has_runtime_storage(
+            environment,
+            self.owner_plans[&environment.owner_id].execution_kind,
+        )
     }
 
     pub(crate) fn materialized_environment(
@@ -276,8 +279,22 @@ impl Analysis<'_> {
     }
 }
 
-fn environment_has_runtime_storage(environment: &EnvironmentPlan) -> bool {
+fn environment_has_runtime_storage(
+    environment: &EnvironmentPlan,
+    execution_kind: FunctionExecutionKind,
+) -> bool {
+    // Lowering adds suspension-owned operands after capture hops are fixed.
+    // Every resumable activation therefore owns a frame even before it has
+    // slots, so adding those operands cannot change the environment chain.
+    let resumable_activation = environment.kind == EnvironmentKind::Activation
+        && match execution_kind {
+            FunctionExecutionKind::Ordinary => false,
+            FunctionExecutionKind::Generator
+            | FunctionExecutionKind::Async
+            | FunctionExecutionKind::AsyncGenerator => true,
+        };
     (environment.eval_visible
+        || resumable_activation
         || matches!(
             environment.kind,
             EnvironmentKind::FunctionBody | EnvironmentKind::FunctionParameters
@@ -6896,7 +6913,7 @@ impl<'a> AnalysisBuilder<'a> {
     fn capture_hops(&self, current_owner_id: &str, target_environment_id: EnvironmentId) -> u32 {
         let owner = &self.owner_plans[current_owner_id];
         let activation = &self.environment_plans[&owner.activation_environment_id];
-        let mut cursor = if !environment_has_runtime_storage(activation) {
+        let mut cursor = if !environment_has_runtime_storage(activation, owner.execution_kind) {
             owner
                 .parent_owner_id
                 .as_ref()
@@ -6910,7 +6927,10 @@ impl<'a> AnalysisBuilder<'a> {
         let mut hops = 0;
         while let Some(current) = cursor {
             let environment = &self.environment_plans[&current.environment_id];
-            if environment_has_runtime_storage(environment) {
+            if environment_has_runtime_storage(
+                environment,
+                self.owner_plans[&environment.owner_id].execution_kind,
+            ) {
                 if environment.id == target_environment_id {
                     return hops;
                 }
