@@ -158,6 +158,12 @@ pub fn evaluation_components(graph: &ModuleGraphIr) -> Vec<Vec<ModuleUnitId>> {
     components
 }
 
+#[derive(Debug)]
+pub(crate) struct LinkedScriptSource {
+    pub(crate) source: SourceUnit,
+    pub(crate) default_export_names: super::DefaultExportNames,
+}
+
 /// Script-goal source text for the whole linked graph, or the reasons it could
 /// not be linked.
 ///
@@ -169,7 +175,7 @@ pub fn evaluation_components(graph: &ModuleGraphIr) -> Vec<Vec<ModuleUnitId>> {
 pub(crate) fn linked_script_source(
     sources: &ModuleGraphSources,
     graph: &mut ModuleGraphIr,
-) -> Result<SourceUnit, Vec<IrDiagnostic>> {
+) -> Result<LinkedScriptSource, Vec<IrDiagnostic>> {
     collect_observed_namespaces(graph);
 
     let mut diagnostics = Vec::new();
@@ -220,6 +226,7 @@ pub(crate) fn linked_script_source(
         text.push('\n');
     }
 
+    let mut default_export_names = super::DefaultExportNames::default();
     let mut position = 0usize;
     // The Script entry of a script graph, kept aside: it is emitted after the
     // wrapper that holds every module, not inside it.
@@ -285,6 +292,16 @@ pub(crate) fn linked_script_source(
                 if position > 0 {
                     text.push_str("\n;\n");
                 }
+                if matches!(
+                    unit.record.default_export_form(),
+                    DefaultExportFormIr::Anonymous { .. }
+                ) {
+                    if let Err(reason) =
+                        default_export_names.record_body(&body, unit_id, mode, &text)
+                    {
+                        diagnostics.push(IrDiagnostic::lowering(reason));
+                    }
+                }
                 text.push_str(&body);
                 position += 1;
             }
@@ -310,28 +327,32 @@ pub(crate) fn linked_script_source(
                  `await`",
             )]);
         }
-        wrap_script_graph_modules(graph, &text) + &script_entry_body
+        wrap_script_graph_modules(graph, &text, &mut default_export_names) + &script_entry_body
     } else {
         // 16.2.1.6.1: module code is always strict. The prologue stays outside
         // any wrapper so it is still the merged script's first Directive
         // Prologue item.
         let mut source_text = String::from("\"use strict\";\n");
         if asynchronous {
-            source_text.push_str(&wrap_async_body(&text));
+            source_text.push_str(&wrap_async_body(&text, &mut default_export_names));
         } else {
             source_text.push_str(&text);
         }
+        default_export_names.prepend("\"use strict\";\n");
         source_text
     };
 
-    Ok(SourceUnit {
-        goal: ParseGoal::Script,
-        filename: sources
-            .modules
-            .get(sources.entry as usize)
-            .map(|module| module.key().as_str().to_string())
-            .filter(|key| key != ANONYMOUS_MODULE_KEY),
-        source_text,
+    Ok(LinkedScriptSource {
+        default_export_names,
+        source: SourceUnit {
+            goal: ParseGoal::Script,
+            filename: sources
+                .modules
+                .get(sources.entry as usize)
+                .map(|module| module.key().as_str().to_string())
+                .filter(|key| key != ANONYMOUS_MODULE_KEY),
+            source_text,
+        },
     })
 }
 
@@ -362,7 +383,11 @@ pub(crate) fn linked_script_source(
 ///
 /// Emitted with no interior line terminator apart from the module material's
 /// own, so the Script's line numbers are displaced by a fixed amount.
-fn wrap_script_graph_modules(graph: &ModuleGraphIr, modules: &str) -> String {
+fn wrap_script_graph_modules(
+    graph: &ModuleGraphIr,
+    modules: &str,
+    names: &mut super::DefaultExportNames,
+) -> String {
     let exports = graph.script_entry_dispatcher_exports();
     if exports.is_empty() && modules.trim().is_empty() {
         return String::new();
@@ -379,6 +404,7 @@ fn wrap_script_graph_modules(graph: &ModuleGraphIr, modules: &str) -> String {
         text.push_str(";\n");
     }
     text.push_str("(function () { \"use strict\";\n");
+    names.prepend(&text);
     text.push_str(modules);
     text.push('\n');
     for (exported, dispatcher) in &exports {
@@ -424,7 +450,7 @@ fn wrap_script_graph_modules(graph: &ModuleGraphIr, modules: &str) -> String {
 /// `lower_module_graph` has to report it for a synchronous one. `var`
 /// declarations likewise become function-scoped, which is the module
 /// environment's behaviour rather than the merged script's.
-fn wrap_async_body(body: &str) -> String {
+fn wrap_async_body(body: &str, names: &mut super::DefaultExportNames) -> String {
     // `void` because the call's value is the module's `[[TopLevelCapability]]`
     // promise, and an `ExpressionStatement` yielding it would make that promise
     // the merged script's completion value. A module evaluates to no value.
@@ -432,7 +458,9 @@ fn wrap_async_body(body: &str) -> String {
     // The newline before `}` closes any unit body that ended in an expression
     // without a semicolon: ASI applies at the `}`, exactly as it already does
     // at the end of the unwrapped merged script.
-    format!("void (async function () {{\n{body}\n}})();\n")
+    let prefix = "void (async function () {\n";
+    names.prepend(prefix);
+    format!("{prefix}{body}\n}})();\n")
 }
 
 /// Unit ids in the order their bodies are emitted, entry last.
@@ -747,9 +775,9 @@ mod tests {
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
         assert!(
-            !linked.source_text.contains("async function"),
+            !linked.source.source_text.contains("async function"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -765,18 +793,19 @@ mod tests {
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("top-level await links");
 
-        assert!(linked.source_text.starts_with("\"use strict\";"));
+        assert!(linked.source.source_text.starts_with("\"use strict\";"));
         assert!(
             linked
+                .source
                 .source_text
                 .contains("void (async function () {\nconst value = await 1;"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            linked.source_text.trim_end().ends_with("})();"),
+            linked.source.source_text.trim_end().ends_with("})();"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -800,22 +829,27 @@ mod tests {
 
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
         let exporter = linked
+            .source
             .source_text
             .find("await 7")
             .expect("exporter body is present");
         let importer = linked
+            .source
             .source_text
             .find("print(value + 1);")
             .expect("importer body is present");
         assert!(
             exporter < importer,
             "the awaited dependency must precede its importer: {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            linked.source_text.contains("void (async function () {"),
+            linked
+                .source
+                .source_text
+                .contains("void (async function () {"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -832,13 +866,15 @@ mod tests {
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
 
-        assert_eq!(linked.goal, ParseGoal::Script);
-        assert!(linked.source_text.starts_with("\"use strict\";"));
+        assert_eq!(linked.source.goal, ParseGoal::Script);
+        assert!(linked.source.source_text.starts_with("\"use strict\";"));
         let exporter = linked
+            .source
             .source_text
             .find("const value = 41;")
             .expect("exporter body is present");
         let importer = linked
+            .source
             .source_text
             .find("print(value + 1);")
             .expect("importer body is present");
@@ -847,9 +883,9 @@ mod tests {
             "dependency must be emitted before its importer"
         );
         assert!(
-            !linked.source_text.contains("import"),
+            !linked.source.source_text.contains("import"),
             "import declarations are deleted, got: {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -868,18 +904,18 @@ mod tests {
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("alias should link");
         assert!(
-            linked.source_text.contains(
+            linked.source.source_text.contains(
                 "Object.defineProperty(globalThis, \"outer\", { get: () => value, \
                  enumerable: false, configurable: false });"
             ),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         // The importer's body is untouched: it still reads the name it wrote.
         assert!(
-            linked.source_text.contains("print(outer);"),
+            linked.source.source_text.contains("print(outer);"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -967,12 +1003,13 @@ mod tests {
         let linked = linked_script_source(&sources, &mut graph).expect("agreeing aliases link");
         assert_eq!(
             linked
+                .source
                 .source_text
                 .matches("Object.defineProperty(globalThis, \"z\"")
                 .count(),
             1,
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -995,17 +1032,18 @@ mod tests {
         let binding = binding.as_str();
         assert!(
             linked
+                .source
                 .source_text
                 .contains(&format!("let {binding}     = 42;")),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            linked.source_text.contains(&format!(
+            linked.source.source_text.contains(&format!(
                 "Object.defineProperty(globalThis, \"d\", {{ get: () => {binding},"
             )),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -1028,21 +1066,25 @@ mod tests {
         let binding = MergedName::anonymous_default(0);
         assert!(
             linked
+                .source
                 .source_text
                 .contains(&format!("let {}    =\n 42;", binding.as_str())),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            linked.source_text.contains(&format!(
+            linked.source.source_text.contains(&format!(
                 "Object.defineProperty(globalThis, \"answer\", {{ get: () => {},",
                 binding.as_str()
             )),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
-        lila_front::parse(linked.source_text, lila_front::ParseOptions::script())
-            .expect("span-stable linked output should remain valid Script text");
+        lila_front::parse(
+            linked.source.source_text,
+            lila_front::ParseOptions::script(),
+        )
+        .expect("span-stable linked output should remain valid Script text");
     }
 
     /// Two units may both have an anonymous `export default`: the spec calls
@@ -1065,20 +1107,20 @@ mod tests {
         let linked =
             linked_script_source(&sources, &mut graph).expect("two anonymous defaults link");
         assert!(
-            linked.source_text.contains(&format!(
+            linked.source.source_text.contains(&format!(
                 "let {}     = 1;",
                 MergedName::anonymous_default(0).as_str()
             )),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            linked.source_text.contains(&format!(
+            linked.source.source_text.contains(&format!(
                 "let {}     = 2;",
                 MergedName::anonymous_default(1).as_str()
             )),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -1100,19 +1142,22 @@ mod tests {
         let linked = linked_script_source(&sources, &mut graph).expect("star re-export links");
 
         assert!(
-            linked.source_text.contains("const value = 10;"),
+            linked.source.source_text.contains("const value = 10;"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            !linked.source_text.contains("defineProperty(globalThis"),
+            !linked
+                .source
+                .source_text
+                .contains("defineProperty(globalThis"),
             "a star re-export needs no alias: {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            !linked.source_text.contains("export"),
+            !linked.source.source_text.contains("export"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -1150,25 +1195,29 @@ mod tests {
         assert!(graph.units[0].namespace.is_some());
         assert!(
             linked
+                .source
                 .source_text
                 .contains("function $lila$module$import$0("),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            linked.source_text.contains(&format!(
+            linked.source.source_text.contains(&format!(
                 "resolve({})",
                 MergedName::minted(0, UnitCellRole::Namespace).as_str()
             )),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         // The call site itself no longer spells `import`, so no `ImportCall`
         // node survives to the backend.
         assert!(
-            linked.source_text.contains("$lila$module$import$0('m');"),
+            linked
+                .source
+                .source_text
+                .contains("$lila$module$import$0('m');"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -1191,15 +1240,19 @@ mod tests {
         let cell = cell.as_str();
         assert!(
             linked
+                .source
                 .source_text
                 .contains(&format!("const {cell} = Object.create(null);")),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            linked.source_text.contains(&format!("const ns = {cell};")),
+            linked
+                .source
+                .source_text
+                .contains(&format!("const ns = {cell};")),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -1231,30 +1284,33 @@ mod tests {
         let evaluate = MergedName::minted(0, UnitCellRole::DeferEvaluate);
         let evaluate = evaluate.as_str();
         assert!(
-            linked.source_text.contains(&format!(
+            linked.source.source_text.contains(&format!(
                 "let {};",
                 MergedName::minted(0, UnitCellRole::DeferCells).as_str()
             )),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         // The body is inside the thunk, not at top level.
         let thunk = linked
+            .source
             .source_text
             .find(&format!("function {evaluate}()"))
             .expect("thunk is present");
         let side_effect = linked
+            .source
             .source_text
             .find("print(\"side effect\")")
             .expect("dependency body is present");
-        assert!(thunk < side_effect, "got {}", linked.source_text);
+        assert!(thunk < side_effect, "got {}", linked.source.source_text);
         // And the namespace getter is what calls it.
         assert!(
             linked
+                .source
                 .source_text
                 .contains(&format!("get: () => {evaluate}()[\"value\"]()")),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -1283,23 +1339,27 @@ mod tests {
         let linked = linked_script_source(&sources, &mut graph).expect("source phase should link");
 
         assert!(
-            !linked.source_text.contains("must not run"),
+            !linked.source.source_text.contains("must not run"),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         let cell = MergedName::minted(0, UnitCellRole::ModuleSource);
         let cell = cell.as_str();
         assert!(
             linked
+                .source
                 .source_text
                 .contains(&format!("const {cell} = Object.create(null);")),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
         assert!(
-            linked.source_text.contains(&format!("const src = {cell};")),
+            linked
+                .source
+                .source_text
+                .contains(&format!("const src = {cell};")),
             "got {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 
@@ -1358,7 +1418,7 @@ mod tests {
 
         let linked = linked_script_source(&sources, &mut graph)
             .expect("source-only runtime scaffolding must not reject the active graph");
-        let text = &linked.source_text;
+        let text = &linked.source.source_text;
         let inactive_source = MergedName::minted(0, UnitCellRole::ModuleSource);
         assert!(
             text.contains(&format!(
@@ -1418,17 +1478,19 @@ mod tests {
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
 
         let target = linked
+            .source
             .source_text
             .find("print(\"target\")")
             .expect("target body is present");
         let entry = linked
+            .source
             .source_text
             .find("print(\"entry\")")
             .expect("entry body is present");
         assert!(
             target < entry,
             "the entry component must be emitted last: {}",
-            linked.source_text
+            linked.source.source_text
         );
     }
 }

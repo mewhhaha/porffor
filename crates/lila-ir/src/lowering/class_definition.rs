@@ -67,6 +67,9 @@ impl<'a> ScriptLowerer<'a> {
             .unwrap_or_else(|| {
                 panic!("class constructor execution `{constructor_execution_key}` must be planned")
             });
+        let display_name = self
+            .analysis
+            .class_display_name(&constructor_id, &class_name);
         let class_private_environment_id = self
             .analysis
             .class_private_environment_ids
@@ -1242,7 +1245,7 @@ impl<'a> ScriptLowerer<'a> {
         let constructor_output = if let Some(constructor) = constructor {
             self.lower_generated_ast_function(
                 constructor_id.clone(),
-                class_name.clone().unwrap_or_else(|| "<class>".to_string()),
+                display_name.unwrap_or("<class>").to_string(),
                 CallableToStringRepresentation::ExactSource(class_source.clone()),
                 constructor.parameters(),
                 constructor.body(),
@@ -1267,7 +1270,7 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             let constructor_output = self.lower_generated_block_function(
                 constructor_id.clone(),
-                class_name.clone().unwrap_or_else(|| "<class>".to_string()),
+                display_name.unwrap_or("<class>").to_string(),
                 CallableToStringRepresentation::ExactSource(class_source.clone()),
                 FunctionProtocolIr::ClassConstructor,
                 false,
@@ -1436,7 +1439,7 @@ impl<'a> ScriptLowerer<'a> {
         let expression = TypedExpr::from_info(
             class_info,
             ExprIr::ClassDefinition(Box::new(ClassDefinitionIr {
-                name: class_name,
+                name: display_name.map(str::to_string),
                 name_binding,
                 constructor_function_id: constructor_id,
                 explicit_constructor: constructor.is_some(),

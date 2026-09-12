@@ -11,6 +11,10 @@ impl<'a> ScriptLowerer<'a> {
             Statement::Expression(Expression::Assign(assignment))
                 if self.current_async_resume_state.is_some()
                     && assignment.op() == AssignOp::Assign
+                    && !matches!(
+                        assignment.lhs(),
+                        AssignTarget::Access(PropertyAccess::Simple(_))
+                    )
                     && matches!(assignment.rhs(), Expression::Await(_)) =>
             {
                 let Expression::Await(await_expression) = assignment.rhs() else {
@@ -60,6 +64,16 @@ impl<'a> ScriptLowerer<'a> {
                 if self.current_async_resume_state.is_some()
                     && contains(expression, ContainsSymbol::AwaitExpression) =>
             {
+                if contains_async_property_assignment(expression) {
+                    let Some((mut statements, value)) =
+                        self.lower_async_prefixed_expression(expression)
+                    else {
+                        self.unsupported("conditionally reached or mixed suspension in async property assignment");
+                        return (StatementIr::Empty, ValueKind::Undefined);
+                    };
+                    statements.push(StatementIr::Expression(value));
+                    return (StatementIr::LexicalBlock(statements), ValueKind::Undefined);
+                }
                 // An expression statement discards its value and has always
                 // hoisted every `await` it contains, including ones only some
                 // paths reach, so it keeps that reach here. That hoist is

@@ -13,7 +13,8 @@
 //! `graph` retains the linked record and linking orchestration. `link` merges
 //! the per-module bodies into the single `ScriptIr` the backend emits, and
 //! `source` is the lexical scanner it uses to delete module-goal-only syntax
-//! from a unit's text.
+//! from a unit's text. `default_export_name` carries exact definition identity
+//! through that merge so NamedEvaluation never exposes a minted storage name.
 //! `namespace` owns module namespace exotic objects, deferred namespaces and
 //! module source objects. `dynamic` owns the `import()` component registry.
 //!
@@ -27,6 +28,7 @@
 //! hands the closure over as a [`ModuleGraphSources`]; nothing in this
 //! directory touches the filesystem.
 
+mod default_export_name;
 mod dynamic;
 mod early;
 mod evaluation_mode;
@@ -65,3 +67,5 @@ pub(crate) use dynamic::lower_import_call;
 pub(crate) use graph::link;
 pub(crate) use graph_build::build_graph;
 pub(crate) use link::linked_script_source;
+
+pub(crate) use default_export_name::DefaultExportNames;

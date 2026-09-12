@@ -2107,6 +2107,27 @@ pub(crate) fn labelled_base_statement<'b>(labelled: &'b AstLabelled) -> Option<&
     }
 }
 
+pub(crate) fn contains_async_property_assignment(expression: &Expression) -> bool {
+    struct PropertyAssignment;
+    impl<'ast> Visitor<'ast> for PropertyAssignment {
+        type BreakTy = ();
+
+        fn visit_expression(&mut self, expression: &'ast Expression) -> ControlFlow<()> {
+            if !contains(expression, ContainsSymbol::AwaitExpression) {
+                return ControlFlow::Continue(());
+            }
+            if matches!(expression, Expression::Assign(assignment)
+                if assignment.op() == AssignOp::Assign
+                    && matches!(assignment.lhs(), AssignTarget::Access(PropertyAccess::Simple(_))))
+            {
+                return ControlFlow::Break(());
+            }
+            expression.visit_with(self)
+        }
+    }
+    PropertyAssignment.visit_expression(expression).is_break()
+}
+
 /// True when hoisting the `await`s out of `expression` would change *which* of
 /// them run.
 ///
