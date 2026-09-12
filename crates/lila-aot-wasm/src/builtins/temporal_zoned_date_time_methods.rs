@@ -351,34 +351,11 @@ impl<'a> FunctionBuilder<'a> {
     /// Temporal proposal 6.3.x `until` and `since`, both through
     /// `DifferenceTemporalZonedDateTime`.
     ///
-    /// The result is a `Temporal.Duration`, which is why the ZonedDateTime arm
-    /// of `RuntimeBootstrapPlan::require_standard_builtin` roots
-    /// `TemporalDurationConstructor` — see the comment there; without it the
-    /// PlainDateTime body this delegates to allocates against a prototype
-    /// global nothing bootstrapped.
-    ///
-    /// Two spec checks are performed *here* rather than being left to the
-    /// PlainDateTime delegate, because the delegate cannot see them: the
-    /// PlainDateTime pair produced by the round trip has already lost the time
-    /// zone, and the calendar check has to name the ZonedDateTime operation in
-    /// its message.
-    ///
-    /// ORDERING DIVERGENCE, recorded rather than hidden: the spec reads the
-    /// options bag (`GetDifferenceSettings`) *between* the calendar check and
-    /// the time-zone check. Here both checks run first and the options bag is
-    /// read immediately before the delegate. That is observable only for an
-    /// options object with side-effecting getters passed together with a
-    /// mismatched time zone; none of the 28 era-boundary cases is such a case
-    /// (all are `"UTC"` on both sides with a plain object literal for options).
-    ///
-    /// The two types' default-largest-unit difference is resolved before that
-    /// runtime call. One shared settings producer uses the ZonedDateTime
-    /// `"hour"` fallback, and a linear witness is consumed into an unreachable
-    /// normalized options object. The PlainDateTime delegate therefore sees an
-    /// explicit largest unit while every user getter and conversion hook is
-    /// still observed once. This keeps one copy of the arithmetic body and is
-    /// pinned by the `defaults-to-returning-hours`, `largestunit-undefined` and
-    /// `largestunit-default` families for both operations.
+    /// Calendar equality precedes the single settings read, which uses the
+    /// ZonedDateTime hour fallback. Only date-unit differences then require
+    /// equal zones. Time-unit differences round exact epoch seconds/subseconds;
+    /// date-unit differences pass trusted local fields and resolved settings
+    /// directly to shared arithmetic with the fixed-offset range context.
     fn emit_temporal_zoned_date_time_until_or_since(
         &mut self,
         difference: ZonedDateTimeDifference,

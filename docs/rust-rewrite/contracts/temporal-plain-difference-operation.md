@@ -104,3 +104,12 @@ ZonedDateTime range/option ordering, so the old source-equivalence result does
 not carry forward to those changes. Neither checkpoint establishes named-zone
 or DST support, completion of the broad Date/Temporal ladder, or a new pinned
 Test262 status publication.
+
+## Direct-arithmetic checkpoint completed 2026-09-12
+
+The [ZonedDateTime baseline follow-up](../zoned-date-time-baseline-follow-up.md)
+records 408/408 pinned executions, 49/49 focused Wasmtime regressions (including
+all ten difference tests), 1,122 IR tests, 428 backend tests, 102 Temporal
+structural tests, the workspace check, and 191/191 fake-fixture executions.
+The pinned replay repairs 136 reproduced main failures and retains the other
+46 observed passes. These results do not publish a new full-suite baseline.
