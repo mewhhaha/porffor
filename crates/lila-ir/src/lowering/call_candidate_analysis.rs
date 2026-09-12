@@ -74,6 +74,9 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
+                Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(proof)) => {
+                    pass_through_results.insert(function_id.clone(), proof.into_result_info());
+                }
                 Some(ResolvedDynamicSourceCall::FunctionInvocation(proof)) => {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
@@ -440,7 +443,8 @@ impl<'a> ScriptLowerer<'a> {
             }
             match self.resolve_dynamic_source_call(function_id, Some(source_arguments), arguments) {
                 None => {}
-                Some(ResolvedDynamicSourceCall::EvalPassThrough(_)) => {
+                Some(ResolvedDynamicSourceCall::EvalPassThrough(_))
+                | Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(_)) => {
                     unreachable!("the intrinsic eval function is not constructable")
                 }
                 Some(ResolvedDynamicSourceCall::FunctionInvocation(_))

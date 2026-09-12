@@ -1,8 +1,7 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower_with_host_surface_policy, DynamicSourceGap, DynamicSourceKind, HostSurfacePolicy,
-    PreparedScriptAdmission, PreparedScriptKind, PreparedScriptOutcome, ProgramIr,
-    UnsupportedFeature,
+    lower_with_host_surface_policy, HostSurfacePolicy, PreparedScriptAdmission, PreparedScriptKind,
+    PreparedScriptOutcome, ProgramIr, ValueKind,
 };
 
 fn lower(source: &str) -> ProgramIr {
@@ -20,7 +19,11 @@ fn assert_prepared(program: &ProgramIr, text: &str, kind: PreparedScriptKind) {
                 && source.admission == PreparedScriptAdmission::RuntimeCandidate
                 && matches!(source.outcome, PreparedScriptOutcome::Executable(_))
         }),
-        "missing finite source {text:?}: {prepared:?}"
+        "missing finite source {text:?}: {:?}",
+        prepared
+            .iter()
+            .map(|source| (&source.source, &source.kind, &source.admission))
+            .collect::<Vec<_>>()
     );
     assert!(!prepared
         .iter()
@@ -109,24 +112,26 @@ fn finite_expression_sources_and_syntax_errors_are_prepared_for_runtime_dispatch
 }
 
 #[test]
-fn source_without_a_finite_candidate_retains_its_typed_gap() {
+fn source_parameters_are_available_after_definition_and_before_later_defaults() {
+    for source in [
+        "function create(target) { return target(text); } let text = '47;'; create(eval);",
+        "function create(ignored, target) { { let target = x => x; target('not a script'); } return target(text); } let text = '47;'; create(0, eval);",
+        "function create(source, result = (0, eval)(source)) { return result; } create('47;');",
+        "(function(source = '47;') { return (0, eval)(source); })();",
+    ] {
+        let program = lower(source);
+        assert_prepared(&program, "47;", PreparedScriptKind::IndirectEval);
+        assert!(!program.script.unwrap().prepared_scripts.iter().any(|source| source.source == "not a script"));
+    }
+}
+
+#[test]
+fn source_without_a_finite_candidate_retains_runtime_selection_without_a_prepared_unit() {
     let program = lower("eval.call(undefined, globalThis.unknownSource);");
-    let gaps = program
-        .diagnostics
-        .iter()
-        .filter_map(|diagnostic| match diagnostic.unsupported_feature() {
-            Some(UnsupportedFeature::DynamicSource(gap)) => Some(gap),
-            None => None,
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        gaps,
-        vec![DynamicSourceGap::runtime_source(
-            DynamicSourceKind::IndirectEval
-        )]
-    );
-    assert!(program
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program
         .script
-        .as_ref()
-        .is_none_or(|script| script.prepared_scripts.is_empty()));
+        .expect("runtime indirect eval retains Script IR");
+    assert!(script.prepared_scripts.is_empty());
+    assert_eq!(script.result_kind(), ValueKind::Dynamic);
 }

@@ -20,6 +20,17 @@ Historical failures already fixed by the merged work remain passing controls.
 The complete 437-entry main replay records 175 Success, 118 Bug and
 144 NotImplemented, with no Crash or timeout. Within the selected 210 entries,
 175 already pass and 35 still fail (17 Bug and 18 NotImplemented).
+The 163 adjacent executions add 149 passing controls and 14 failures. The
+combined paired baseline contains 373 executions: 324 Success, 27 Bug and
+22 NotImplemented, with no Crash or timeout.
+
+| Confirmed main failure family | Executions |
+| --- | ---: |
+| Finite indirect/realm class factories and indirect non-string eval | 16 |
+| Nullish, primitive and `with` deletion | 13 |
+| BigInt/string equality and object coercion | 8 |
+| Number remainder and compound remainder | 8 |
+| SharedArrayBuffer subclass feature admission | 4 |
 
 ## Changes
 
@@ -40,7 +51,9 @@ The complete 437-entry main replay records 175 Success, 118 Bug and
   bindings. The compiler prepares those sources ahead of time; runtime callable
   identity, source equality, realm ownership and fresh private environments
   still determine execution. Unmatched source remains an explicit AOT
-  capability failure.
+  capability failure. Indirect eval with widened argument types checks the
+  actual value at runtime, preserving non-string object identity without
+  attempting source conversion.
 - The Test262 runner admits the expression and declaration fixtures for
   `SharedArrayBuffer` subclassing. Direct merged-main Wasm execution already
   supports their construction/prototype behavior and growable storage.
@@ -50,6 +63,24 @@ The complete 437-entry main replay records 175 Success, 118 Bug and
 Verification is in progress. The final replay inventory and audited results
 will be recorded here before publication. Generated full-suite status counts
 are unchanged by this scoped replay.
+
+Refresh the paired execution cohort with a freshly built compiler:
+
+```sh
+cargo build --release --locked -j2 -p lila-cli
+LILA_MODULE_MEMORY_CACHE_ENTRIES=1 ./scripts/run-watched.sh \
+  --label expression-semantics-replay --stall 900 -- \
+  python3 scripts/replay-test262-executions.py \
+  test262/replays/expression-semantics-20260912.executions \
+  --binary target/release/lila \
+  --output-dir target/failure-review/expression-semantics-refresh --workers 4
+```
+
+The replay driver preserves strict/sloppy execution identities. Audit a
+completed replay with `scripts/audit-test262-replay.py`, passing compiler
+metadata with the actual binary SHA-256 and the paired origin report. The
+auditor checks source identities, pinned suite contents, native transcripts,
+snapshots, outcome counts and exact execution membership.
 
 ## Remaining baseline work
 

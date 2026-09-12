@@ -1229,7 +1229,7 @@ pub(crate) struct ScriptLowerer<'a> {
     dynamic_script_sources: Vec<DynamicScriptSource>,
     dynamic_function_sources: Vec<DynamicFunctionSource>,
     function_source_binding_candidates: BTreeMap<String, Vec<FiniteSourceValue>>,
-    array_callback_source_candidates: BTreeMap<FunctionId, Vec<FiniteSourceValue>>,
+    function_source_parameter_candidates: BTreeMap<(FunctionId, usize), Vec<FiniteSourceValue>>,
     interner: &'a Interner,
     analysis: &'a Analysis<'a>,
     source_text: &'a str,
@@ -1820,7 +1820,7 @@ impl<'a> ScriptLowerer<'a> {
             generated_functions: Vec::new(),
             dynamic_function_sources: Vec::new(),
             function_source_binding_candidates: BTreeMap::new(),
-            array_callback_source_candidates: BTreeMap::new(),
+            function_source_parameter_candidates: BTreeMap::new(),
             dynamic_script_sources: Vec::new(),
             generated_owned_env_bindings: Vec::new(),
             next_generated_function_index: 0,
@@ -2254,7 +2254,7 @@ impl<'a> ScriptLowerer<'a> {
         self.exact_context_function_observations = prepass.exact_context_function_observations;
         self.exact_context_callback_observations = prepass.exact_context_callback_observations;
         self.function_source_binding_candidates = prepass.function_source_binding_candidates;
-        self.array_callback_source_candidates = prepass.array_callback_source_candidates;
+        self.function_source_parameter_candidates = prepass.function_source_parameter_candidates;
         self.var_bindings = prepass.var_bindings;
         self.reset_script_global_var_flow_facts();
         self.known_nested_script_global_value_infos = known_script_global_values;
@@ -2418,6 +2418,7 @@ impl<'a> ScriptLowerer<'a> {
             let before = self.function_signatures.clone();
             let before_exact_contexts = self.exact_context_function_observations.clone();
             let before_callback_contexts = self.exact_context_callback_observations.clone();
+            let before_source_parameters = self.function_source_parameter_candidates.clone();
             let mut pass = ScriptLowerer::new(
                 self.interner,
                 self.analysis,
@@ -2444,7 +2445,8 @@ impl<'a> ScriptLowerer<'a> {
             pass.static_string_bindings = self.static_string_bindings.clone();
             pass.function_source_binding_candidates =
                 self.function_source_binding_candidates.clone();
-            pass.array_callback_source_candidates = self.array_callback_source_candidates.clone();
+            pass.function_source_parameter_candidates =
+                self.function_source_parameter_candidates.clone();
             pass.static_to_string_regexp_object_bindings =
                 self.static_to_string_regexp_object_bindings.clone();
             pass.var_bindings = self.var_bindings.clone();
@@ -2468,6 +2470,9 @@ impl<'a> ScriptLowerer<'a> {
                 let _ = pass.lower_function(plan, None, None);
             }
 
+            self.merge_function_source_parameter_candidates(
+                pass.function_source_parameter_candidates,
+            );
             self.merge_signature_propagation(pass.function_signatures);
             self.merge_exact_context_function_observations(
                 pass.exact_context_function_observations,
@@ -2478,6 +2483,7 @@ impl<'a> ScriptLowerer<'a> {
             if self.function_signatures == before
                 && self.exact_context_function_observations == before_exact_contexts
                 && self.exact_context_callback_observations == before_callback_contexts
+                && self.function_source_parameter_candidates == before_source_parameters
             {
                 break;
             }
@@ -2497,6 +2503,7 @@ impl<'a> ScriptLowerer<'a> {
 
         for _ in 0..MAX_EXACT_CONTEXT_PASSES {
             let before_signatures = self.function_signatures.clone();
+            let before_source_parameters = self.function_source_parameter_candidates.clone();
             let before_function_observations = self.exact_context_function_observations.clone();
             let before_callback_observations = self.exact_context_callback_observations.clone();
             let before_function_specializations =
@@ -2512,6 +2519,7 @@ impl<'a> ScriptLowerer<'a> {
                 && self.exact_context_callback_observations == before_callback_observations
                 && self.exact_context_function_specializations == before_function_specializations
                 && self.exact_context_callback_specializations == before_callback_specializations
+                && self.function_source_parameter_candidates == before_source_parameters
             {
                 break;
             }
@@ -2629,7 +2637,8 @@ impl<'a> ScriptLowerer<'a> {
         pass.static_boolean_bindings = self.static_boolean_bindings.clone();
         pass.static_string_bindings = self.static_string_bindings.clone();
         pass.function_source_binding_candidates = self.function_source_binding_candidates.clone();
-        pass.array_callback_source_candidates = self.array_callback_source_candidates.clone();
+        pass.function_source_parameter_candidates =
+            self.function_source_parameter_candidates.clone();
         pass.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         pass.var_bindings = self.var_bindings.clone();
@@ -2653,6 +2662,7 @@ impl<'a> ScriptLowerer<'a> {
             let _ = pass.lower_function(plan, None, Some(key));
         }
 
+        self.merge_function_source_parameter_candidates(pass.function_source_parameter_candidates);
         self.merge_exact_context_function_observations(pass.exact_context_function_observations);
         self.merge_context_keyed_callback_observations(pass.exact_context_callback_observations);
     }
@@ -2714,7 +2724,8 @@ impl<'a> ScriptLowerer<'a> {
         pass.static_boolean_bindings = self.static_boolean_bindings.clone();
         pass.static_string_bindings = self.static_string_bindings.clone();
         pass.function_source_binding_candidates = self.function_source_binding_candidates.clone();
-        pass.array_callback_source_candidates = self.array_callback_source_candidates.clone();
+        pass.function_source_parameter_candidates =
+            self.function_source_parameter_candidates.clone();
         pass.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         pass.var_bindings = self.var_bindings.clone();
@@ -2779,6 +2790,7 @@ impl<'a> ScriptLowerer<'a> {
                 observed_signature,
             );
         }
+        self.merge_function_source_parameter_candidates(pass.function_source_parameter_candidates);
         self.merge_exact_context_function_observations(pass.exact_context_function_observations);
         let callback_observations = pass.exact_context_callback_observations;
         self.merge_context_keyed_callback_observations(callback_observations.clone());
@@ -8788,7 +8800,8 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.static_string_bindings = self.static_string_bindings.clone();
         lowerer.function_source_binding_candidates =
             self.function_source_binding_candidates.clone();
-        lowerer.array_callback_source_candidates = self.array_callback_source_candidates.clone();
+        lowerer.function_source_parameter_candidates =
+            self.function_source_parameter_candidates.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         lowerer.static_generator_call_overrides = self.static_generator_call_overrides.clone();
@@ -9283,7 +9296,8 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.static_string_bindings = self.static_string_bindings.clone();
         lowerer.function_source_binding_candidates =
             self.function_source_binding_candidates.clone();
-        lowerer.array_callback_source_candidates = self.array_callback_source_candidates.clone();
+        lowerer.function_source_parameter_candidates =
+            self.function_source_parameter_candidates.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         lowerer.static_generator_call_overrides = self.static_generator_call_overrides.clone();
@@ -10621,6 +10635,15 @@ impl<'a> ScriptLowerer<'a> {
                     unreachable!("spread arguments cannot prove eval's first value is non-String")
                 }
                 Some(ResolvedDynamicSourceCall::FunctionInvocation(_)) => {}
+                Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(proof)) => {
+                    self.note_standard_builtin_call(StandardBuiltinId::EvalFunction);
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
                 Some(ResolvedDynamicSourceCall::CompiledScript(proof)) => {
                     if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
                         self.note_standard_builtin_call(builtin);
@@ -10682,6 +10705,15 @@ impl<'a> ScriptLowerer<'a> {
             match self.resolve_dynamic_source_call(function_id, Some(args), &lowered_args) {
                 None => None,
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
+                Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(proof)) => {
+                    self.note_standard_builtin_call(StandardBuiltinId::EvalFunction);
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
                 Some(ResolvedDynamicSourceCall::FunctionInvocation(proof)) => {
                     if let Some(builtin) = StandardBuiltinId::from_function_id(function_id) {
                         self.note_standard_builtin_call(builtin);

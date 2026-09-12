@@ -56,6 +56,7 @@ not additional globals. Shared candidate analysis consumes the closed
 | Variant | Authority retained |
 | --- | --- |
 | `EvalPassThrough(ProvenEvalPassThrough)` | A no-source eval result while retaining ordinary callable and argument evaluation |
+| `IndirectEvalInvocation(AdmittedIndirectEvalInvocation)` | Live indirect-eval argument classification, non-String identity, and typed runtime rejection for an unmatched String |
 | `FunctionInvocation(AdmittedFunctionInvocation)` | Function-family execution kind, live argument ToString and guarded source-tuple dispatch |
 | `CompiledScript(ProvenCompiledScript)` | A registered Script unit selected through the actual intrinsic at runtime |
 | `Unsupported(UnsupportedDynamicSourceCall)` | One typed operation/requirement and its builtin-accounting owner |
@@ -238,7 +239,7 @@ cargo test -p lila-engine --test aot_direct_eval_call_identity -- --test-threads
 
 ## Proven no-source `%eval%`
 
-`EvalPassThrough(ProvenEvalPassThrough)` is one of the four resolved-call
+`EvalPassThrough(ProvenEvalPassThrough)` is one of the five resolved-call
 variants above. Its private constructors admit direct or indirect intrinsic
 `%eval%` only when:
 
@@ -248,7 +249,11 @@ variants above. Its private constructors admit direct or indirect intrinsic
 
 An empty kind set is not evidence. String-capable values, spreads and the other
 dynamic-source operations cannot acquire this particular pass-through proof.
-They follow prepared-source admission or typed rejection instead. All
+Indirect eval can instead use `AdmittedIndirectEvalInvocation`: the actual
+intrinsic returns non-String values unchanged and rejects an unprepared String
+with the typed runtime capability failure. This admits widened argument types
+without claiming a static pass-through result or inventing a prepared unit.
+Other operations follow their prepared-source admission or typed rejection. All
 Function-family invocations use `AdmittedFunctionInvocation`, including empty
 ones; no `ProvenEmptyFunction` domain remains. Every retained dynamic-source
 target must admit the call before a multi-target call can proceed.
@@ -315,8 +320,9 @@ candidate preflight as an ordinary call. Its call-site context is always
 indirect: owning `%eval%` as the forwarded receiver cannot manufacture the
 direct-eval caller context. Known source can register an indirect Script or
 Function unit, and missing or proven non-String `%eval%` input retains its
-exact pass-through result. Unsupported source/context combinations retain their
-typed gaps; a Function invocation still performs live coercions before an
+exact pass-through result. Indirect eval with a widened argument uses its live
+classification guard; unsupported source/context combinations retain their
+typed gaps. A Function invocation still performs live coercions before an
 unmatched source tuple rejects at runtime.
 
 The route is considered only while `Function.prototype.call` acquisition

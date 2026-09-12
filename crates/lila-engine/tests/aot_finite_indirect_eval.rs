@@ -53,6 +53,21 @@ try { second.read(first); } catch (error) { print(error instanceof TypeError); }
 }
 
 #[test]
+fn source_parameter_hints_preserve_defaults_and_ordinary_replaced_targets() {
+    assert_trace(
+        r#"
+function create(ignored, target, source = '47;', result = target(source)) { return result; }
+print(create(0, eval));
+print(create(0, source => source));
+function earlier(source, result = (0, eval)(source)) { return result; }
+print(earlier('53;'));
+"#,
+        HostSurfacePolicy::Product,
+        &["47", "47;", "53"],
+    );
+}
+
+#[test]
 fn forwarded_private_static_classes_have_fresh_brands() {
     assert_trace(
         r#"

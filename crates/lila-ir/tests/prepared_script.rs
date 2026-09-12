@@ -257,7 +257,7 @@ fn finite_source_expressions_share_the_syntax_boundary() {
         );
     }
     let program = lower("eval.call(undefined, globalThis.unknownSource);");
-    assert!(!program.is_wasm_supported());
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
     assert!(program
         .script
         .expect("outer Script IR")

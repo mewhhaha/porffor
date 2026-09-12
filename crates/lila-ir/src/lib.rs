@@ -14430,18 +14430,17 @@ invoke();
     }
 
     #[test]
-    fn spread_eval_candidate_keeps_the_runtime_source_gap() {
+    fn spread_eval_candidate_keeps_the_prepared_source_and_runtime_selection() {
         let source = "let candidate = unknown ? eval : undefined; candidate(...['source']);";
         let program = lower_script(source);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.expect("spread call remains executable IR");
         assert!(
-            program.diagnostics.iter().any(|diagnostic| {
-                diagnostic.unsupported_feature()
-                    == Some(UnsupportedFeature::DynamicSource(
-                        DynamicSourceGap::runtime_source(DynamicSourceKind::IndirectEval),
-                    ))
+            script.prepared_scripts.iter().any(|prepared| {
+                prepared.kind == PreparedScriptKind::IndirectEval && prepared.source == "source"
             }),
             "{source}: {:?}",
-            program.diagnostics
+            script.prepared_scripts
         );
     }
 

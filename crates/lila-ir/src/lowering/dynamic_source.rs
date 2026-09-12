@@ -13,10 +13,11 @@ enum DynamicSourceProof {
 ///
 /// Call lowering must consume this value before it can emit executable IR. The
 /// pass-through variant proves that `%eval%` never reaches source evaluation.
-/// The function variant retains runtime coercion and guarded source dispatch.
+/// Invocation variants retain runtime argument checks and guarded source dispatch.
 #[must_use = "resolved dynamic-source calls must consume their admitted proof or record their typed gap"]
 pub(super) enum ResolvedDynamicSourceCall {
     EvalPassThrough(ProvenEvalPassThrough),
+    IndirectEvalInvocation(AdmittedIndirectEvalInvocation),
     FunctionInvocation(AdmittedFunctionInvocation),
     CompiledScript(ProvenCompiledScript),
     Unsupported(UnsupportedDynamicSourceCall),
@@ -27,6 +28,17 @@ pub(super) enum ResolvedDynamicSourceCall {
 pub(super) struct ProvenCompiledScript(());
 
 impl ProvenCompiledScript {
+    pub(super) fn into_result_info(self) -> ValueInfo {
+        ValueInfo::new(ValueKind::Dynamic)
+    }
+}
+
+/// The intrinsic checks the live first argument before selecting source text.
+/// Non-Strings pass through unchanged; an unprepared String is a runtime AOT
+/// capability rejection. This does not prove a pass-through value or a source unit.
+pub(super) struct AdmittedIndirectEvalInvocation(());
+
+impl AdmittedIndirectEvalInvocation {
     pub(super) fn into_result_info(self) -> ValueInfo {
         ValueInfo::new(ValueKind::Dynamic)
     }
@@ -343,18 +355,30 @@ impl ScriptLowerer<'_> {
             candidate_callee = Self::unwrap_parenthesized_expr(binary.rhs());
             forwarded = true;
         }
-        let mut known_constructor_kinds = self
-            .function_source_value_candidates(candidate_callee)
-            .into_iter()
-            .filter_map(|candidate| match candidate {
-                FiniteSourceValue::FunctionConstructor(kind) => Some(kind),
-                FiniteSourceValue::Text(_)
-                | FiniteSourceValue::Function(_)
-                | FiniteSourceValue::Record(_)
-                | FiniteSourceValue::Array(_) => None,
-            })
-            .collect::<Vec<_>>();
+        let mut known_constructor_kinds = Vec::new();
         let mut known_script_kinds = Vec::new();
+        for candidate in self.function_source_value_candidates(candidate_callee) {
+            match candidate {
+                FiniteSourceValue::FunctionConstructor(kind) => known_constructor_kinds.push(kind),
+                FiniteSourceValue::Function(function_id) => {
+                    match dynamic_source_kind_for_function_id(&function_id) {
+                        Some(DynamicSourceKind::Function(kind)) => {
+                            known_constructor_kinds.push(kind)
+                        }
+                        Some(DynamicSourceKind::IndirectEval) => {
+                            known_script_kinds.push(PreparedScriptKind::IndirectEval)
+                        }
+                        Some(DynamicSourceKind::RealmEvalScript) => {
+                            known_script_kinds.push(PreparedScriptKind::RealmScript)
+                        }
+                        Some(DynamicSourceKind::DirectEval) | None => {}
+                    }
+                }
+                FiniteSourceValue::Text(_)
+                | FiniteSourceValue::Record(_)
+                | FiniteSourceValue::Array(_) => {}
+            }
+        }
         let name = match candidate_callee {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
@@ -661,6 +685,13 @@ impl ScriptLowerer<'_> {
             }
         }
 
+        if kind == DynamicSourceKind::IndirectEval {
+            self.invalidate_unknown_user_code_effects();
+            return Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(
+                AdmittedIndirectEvalInvocation(()),
+            ));
+        }
+
         let proof = source_args
             .map(|args| DynamicSourceProof::for_args(kind, args))
             .unwrap_or(DynamicSourceProof::Runtime);
@@ -700,7 +731,8 @@ impl ScriptLowerer<'_> {
             .resolve_dynamic_source_call(function_id, Some(source_args), &lowered_args)
             .expect("dynamic-source construct lowering requires a dynamic-source identity");
         match resolved {
-            ResolvedDynamicSourceCall::EvalPassThrough(_) => {
+            ResolvedDynamicSourceCall::EvalPassThrough(_)
+            | ResolvedDynamicSourceCall::IndirectEvalInvocation(_) => {
                 unreachable!("the intrinsic eval function is not constructable")
             }
             ResolvedDynamicSourceCall::FunctionInvocation(proof) => {
