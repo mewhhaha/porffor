@@ -181,10 +181,10 @@ with `--origin` additionally verifies exact outcome transitions.
 
 ## Separate existing async-assignment issue
 
-A review reproducer outside these 110 executions still selects an assignment's
-receiver too late when its computed key awaits. Both frozen main and the
-candidate print `0:1` below; the assignment must retain `first` before evaluating
-the key, so the expected result is `1:0`:
+At this historical checkpoint, a review reproducer outside these 110 executions
+selected an assignment's receiver too late when its computed key awaited.
+Both frozen main and that candidate printed `0:1` below; the assignment must
+retain `first` before evaluating the key, so the expected result is `1:0`:
 
 ```js
 async function check() {
@@ -195,9 +195,9 @@ async function check() {
 check();
 ```
 
-The existing async property-assignment path needs to retain its Reference
-operands. This is a separate pre-existing issue, not a repaired case in this
-cohort. A property assignment with an awaited RHS also remains explicitly
-unsupported (`async await assignment target`). Local reproducer and paired
-transcript hashes are retained in
+These were separate pre-existing issues, not repaired cases in this cohort.
+A property assignment with an awaited RHS was also explicitly unsupported
+(`async await assignment target`). The later [module-name and async-assignment
+follow-up](module-names-async-assignment-baseline-follow-up.md) repairs both.
+The original reproducer and paired transcript hashes remain in
 `target/failure-review/after-pr48-20260912/async-assignment-unrelated-review.json`.

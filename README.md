@@ -83,8 +83,18 @@ staging, finite eval spreads, and proper tail calls through eval bindings.
 The `2026-09-12` audited replay passes 110/110 pinned executions, repairing
 38 failures reproduced on merged main and preserving 72 passing controls;
 37 focused Wasmtime regressions also pass. The notes include refresh commands,
-source provenance, and a separate existing async-assignment issue. These counts
-remain separate from the generated full-suite status.
+source provenance, and the async-assignment issues repaired by the follow-up
+below. These counts remain separate from the generated full-suite status.
+
+The [module-name and async-assignment follow-up](docs/rust-rewrite/module-names-async-assignment-baseline-follow-up.md)
+fixes default-export names before class static initialization, anonymous default
+function declaration hoisting, empty names for unnamed classes and functions,
+and property assignment references across `await`. Resumable activation
+environments preserve capture paths when lowering adds operand storage. The
+`2026-09-12` audited replay passes 102/102 pinned executions, fixing seven
+failures reproduced on merged main and preserving 95 passing controls; 13 IR
+and 19 Wasmtime regressions also pass. The notes retain exact source provenance
+and replay refresh commands. These counts are separate from the full-suite status.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
