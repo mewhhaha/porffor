@@ -1,5 +1,6 @@
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
+const CLASS_DEFINITION_SOURCE: &str = include_str!("../src/functions/class_definition.rs");
 const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const OBJECT_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/object.rs");
 const FUNCTION_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/functions.rs");
@@ -93,33 +94,45 @@ fn three_definition_boundaries_consume_the_typed_descriptor() {
 
 #[test]
 fn every_definition_producer_names_getter_and_setter_roles() {
-    let production_sources = [OBJECTS_SOURCE, FUNCTIONS_SOURCE, HOST_SOURCE].join("\n");
+    let production_sources = [
+        OBJECTS_SOURCE,
+        FUNCTIONS_SOURCE,
+        CLASS_DEFINITION_SOURCE,
+        HOST_SOURCE,
+    ]
+    .join("\n");
     assert_eq!(
         production_sources
             .matches("AccessorGetterLocals::new(")
             .count(),
-        17
+        19
     );
     assert_eq!(
         production_sources
             .matches("AccessorSetterLocals::new(")
             .count(),
-        8
+        9
     );
     assert_eq!(
         production_sources
             .matches("AccessorDescriptorLocals::")
             .count(),
-        23
+        25
     );
     assert_eq!(
         HOST_SOURCE
             .matches("self.emit_object_define_accessor(")
             .count(),
-        11
+        13
     );
     assert_eq!(
         FUNCTIONS_SOURCE
+            .matches("self.emit_object_define_accessor(")
+            .count(),
+        0
+    );
+    assert_eq!(
+        CLASS_DEFINITION_SOURCE
             .matches("self.emit_object_define_accessor(")
             .count(),
         3

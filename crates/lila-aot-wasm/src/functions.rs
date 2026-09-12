@@ -768,8 +768,9 @@ mod bound_this_capture_tests {
 mod auto_accessor_structure_tests {
     #[test]
     fn auto_accessor_backend_uses_paired_definitions_and_private_backing_fields() {
-        let source = include_str!("functions.rs");
-        let definitions = source
+        let class_definition = include_str!("functions/class_definition.rs");
+        let functions = include_str!("functions.rs");
+        let definitions = class_definition
             .rsplit_once("if let ClassElementDefinitionIr::AutoAccessor(accessor) = definition {")
             .expect("auto-accessor definition arm should exist")
             .1
@@ -790,7 +791,7 @@ mod auto_accessor_structure_tests {
             );
         }
 
-        let static_initialization = source
+        let static_initialization = class_definition
             .rsplit_once("ClassStaticElementIr::AutoAccessorBacking(accessor) => {")
             .expect("static backing initialization arm should exist")
             .1
@@ -800,7 +801,7 @@ mod auto_accessor_structure_tests {
         assert!(static_initialization.contains("emit_private_field_add("));
         assert!(!static_initialization.contains("emit_object_define_enumerable_data("));
 
-        let instance_initialization = source
+        let instance_initialization = functions
             .rsplit_once("for element in plan.elements {")
             .expect("ordered instance element loop should exist")
             .1
