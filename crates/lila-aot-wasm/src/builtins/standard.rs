@@ -23967,6 +23967,24 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(buffer_tag_local);
                 self.release_temp_local(buffer_payload_local);
             }
+            StandardBuiltinId::Uint8ArrayFromBase64 => {
+                self.emit_uint8_array_from_base64(function)?;
+            }
+            StandardBuiltinId::Uint8ArrayFromHex => {
+                self.emit_uint8_array_from_hex(function)?;
+            }
+            StandardBuiltinId::Uint8ArrayPrototypeSetFromBase64 => {
+                self.emit_uint8_array_set_from_base64(function)?;
+            }
+            StandardBuiltinId::Uint8ArrayPrototypeSetFromHex => {
+                self.emit_uint8_array_set_from_hex(function)?;
+            }
+            StandardBuiltinId::Uint8ArrayPrototypeToBase64 => {
+                self.emit_uint8_array_to_base64(function)?;
+            }
+            StandardBuiltinId::Uint8ArrayPrototypeToHex => {
+                self.emit_uint8_array_to_hex(function)?;
+            }
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor

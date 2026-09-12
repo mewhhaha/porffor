@@ -1,0 +1,639 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-12",
+  "scope": "Forty selected historical failures replayed on frozen merged main, separate from the Uint8Array codec cohort.",
+  "limitations": [
+    "This diagnostic sample is not a full-suite conformance denominator.",
+    "Groups report the first observed failure; they do not claim a fully reduced compiler root cause.",
+    "No new builds or replays were performed to produce this summary.",
+    "The seven successes predate the current codec patch and are not codec repairs."
+  ],
+  "test262_tree_pin": "aa55200d1310384c5cf69ea95b2a2ecba457007b",
+  "reconciliation": {
+    "selected": 40,
+    "replayed": 40,
+    "matched_audit_rows": 40,
+    "verified_pinned_sources": 40,
+    "verified_snapshots": 40,
+    "verified_transcripts": 40,
+    "already_passing": 7,
+    "remaining_nonpasses": 33,
+    "timeouts": 0,
+    "outcomes": {
+      "Bug": 28,
+      "Crash": 2,
+      "NotImplemented": 3,
+      "Success": 7
+    }
+  },
+  "groups": [
+    {
+      "id": "already_passing",
+      "label": "Already passing on merged main",
+      "count": 7,
+      "outcomes": {
+        "Success": 7
+      }
+    },
+    {
+      "id": "intl_entrypoints",
+      "label": "Intl constructor and method entry points",
+      "count": 14,
+      "outcomes": {
+        "Bug": 14
+      }
+    },
+    {
+      "id": "intl_semantics",
+      "label": "Intl conversion, formatting and casing",
+      "count": 4,
+      "outcomes": {
+        "Bug": 4
+      }
+    },
+    {
+      "id": "temporal",
+      "label": "Temporal methods, calendars and time zones",
+      "count": 7,
+      "outcomes": {
+        "Bug": 7
+      }
+    },
+    {
+      "id": "typed_array_fill",
+      "label": "TypedArray.fill detachment check",
+      "count": 1,
+      "outcomes": {
+        "Bug": 1
+      }
+    },
+    {
+      "id": "error_realm",
+      "label": "Error and harness realm behavior",
+      "count": 2,
+      "outcomes": {
+        "Bug": 1,
+        "Crash": 1
+      }
+    },
+    {
+      "id": "allocation_trap",
+      "label": "URI stress allocation trap",
+      "count": 1,
+      "outcomes": {
+        "Crash": 1
+      }
+    },
+    {
+      "id": "dynamic_source",
+      "label": "Unprepared indirect eval",
+      "count": 1,
+      "outcomes": {
+        "NotImplemented": 1
+      }
+    },
+    {
+      "id": "generator_suspension",
+      "label": "Generator destructuring suspension",
+      "count": 2,
+      "outcomes": {
+        "NotImplemented": 2
+      }
+    },
+    {
+      "id": "destructuring_assignment",
+      "label": "Destructuring assignment rejection",
+      "count": 1,
+      "outcomes": {
+        "Bug": 1
+      }
+    }
+  ],
+  "base_commit": "6dff6eb0da401710301d705564d8f43c5d93b75f",
+  "compiler_sha256": "e2e46be19feb4682dc52657aa3dab8b904cb189f59b7d4d1a8c8766775bf9cfe",
+  "execution_list_sha256": "0be7b5c13fd88d78f717abb5d47eff108fc9c05776cfe603b344fb5cbafca0f0",
+  "audit_sha256": "f63d2f4e68b4c2cf2c02191c8685a547975cb7776626474ca9e32d0032a42aad",
+  "raw_evidence_directory": "target/failure-review/after-pr47-20260912",
+  "executions": [
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toLocaleString/branding.js",
+      "group": "temporal",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "ZonedDateTime locale-format brand boundary",
+      "finding": "An invalid-receiver assertion expected TypeError, but no exception was thrown.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1712120: assert.throws expected a throw)",
+      "source_sha256": "b39d5299af4245c8baf5f7d9f12222c16b4658a8199edf3f70e20a538845e0e0",
+      "snapshot_sha256": "cf40819749b2bf02269cf39058e11a5b8eac3a2dadc874aed86cc1f9e879e4a2",
+      "transcript_sha256": "dadadb6a39990bac74e050cab12f2ce911f04a83db7077c1dc39492a0eb3a592"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/toString/balance-negative-time-units.js",
+      "group": "already_passing",
+      "main_outcome": "Success",
+      "historical_outcome": "Bug",
+      "selection_reason": "Already repaired ZonedDateTime formatting control",
+      "finding": "This exact historical failure passes on merged main; it is not a remaining failing probe.",
+      "failure_kind": null,
+      "diagnostic": null,
+      "source_sha256": "3ed9d7f782ae67afe051662ae0fe80039899029a97d52ae6ee8c8df4ca1afcef",
+      "snapshot_sha256": "9291d106fa2f4cebed595a3b90b840cecca003ba4b75aca8908d1400d33fbb52",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/Temporal/ZonedDateTime/prototype/with/basic.js",
+      "group": "temporal",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "ZonedDateTime field replacement",
+      "finding": "The basic ZonedDateTime.with call stops at value is not callable.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1861344: value is not callable)",
+      "source_sha256": "83a0132d1170b42de894b80b00ac275799af5e49c839ebbf021f2e67c3a4d653",
+      "snapshot_sha256": "cb41f231862c449f6b477cdfc9ad74f2c1a5ff2fd900565d6aa3cc25b8d9218a",
+      "transcript_sha256": "d8b36d0d19f013d40082aef4d9d7ab6d80a9ada18cd81959c8768497cd6a2693"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/ThrowTypeError/distinct-cross-realm.js",
+      "group": "error_realm",
+      "main_outcome": "Crash",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "Cross-realm ThrowTypeError identity",
+      "finding": "Wasm unreachable in compiled js::gc during the cross-realm ThrowTypeError test; the historical dynamic-Function rejection is no longer its current diagnostic.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x1acb12 - lila!js::gc#f12\n    1: 0x833363 - lila!helper::proxy_call\n    2: 0x1be25c - lila!js::<anonymous>#f30\n    3: 0x7f0dc1 - lila!host::__lilaAssertThrows\n    4: 0x833363 - lila!helper::proxy_call\n    5: 0x1bba48 - lila!js::<anonymous>#f26\n    6: 0x833363 - lila!helper::proxy_call\n    7: 0x139560 - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "source_sha256": "7a8c4f7ed4dd85e5fb8393cc1c8841999e1ed366f6311ce0f027fecc4bc3890e",
+      "snapshot_sha256": "8b246ba5b139d5c648b7004894020352653b8fab446e4af5df5e5280b0b0a924",
+      "transcript_sha256": "d684996fa8b6d5d6918578bc0dd68516fb622138f0175f4d161706b5fd39a0de"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/TypedArray/out-of-bounds-get-and-set.js",
+      "group": "already_passing",
+      "main_outcome": "Success",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "Typed-array resizable-buffer indexed access",
+      "finding": "This exact historical failure passes on merged main; it is not a remaining failing probe.",
+      "failure_kind": null,
+      "diagnostic": null,
+      "source_sha256": "836184d4eccdc57bf618e27cd99e75d0f0d00fcdeee7ca6e9139d01f69144d91",
+      "snapshot_sha256": "584686c268277ade7a829f9103beeeebae67a7a0fa08c5be422f39a5ee70d14d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/TypedArray/prototype/fill/coerced-end-detach.js",
+      "group": "typed_array_fill",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Typed-array fill rechecks detachment after coercion",
+      "finding": "fill does not throw after end coercion detaches the backing buffer; the first reported receiver is Float64Array.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1691288: assert.throws expected a throw (Testing with Float64Array and makePassthrough.))",
+      "source_sha256": "ce2a1d9199a301b09e96dea61c7a2c32fbe4fa3d7d1eb1e858e605baf12dd7cd",
+      "snapshot_sha256": "50435fe20ab147e224a8934a37fcdfebbf0a52eb2f7cc0db4303b5c7cc38bef5",
+      "transcript_sha256": "7e9ef6c0b9c07637c74ebc444bbf4907192605cc9ccd8c1004f34dfc920dbf49"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/WeakMap/prototype/getOrInsertComputed/adds-value-different-callbackfn.js",
+      "group": "already_passing",
+      "main_outcome": "Success",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "WeakMap callback with prepared Function source",
+      "finding": "This exact historical failure passes on merged main; it is not a remaining failing probe.",
+      "failure_kind": null,
+      "diagnostic": null,
+      "source_sha256": "a1d9bf27b36af3dd434ff7bd3cb2f9f5f51ea87b1b52f594e74d6291844e01f8",
+      "snapshot_sha256": "3e990ab4e2a6a0357a5177747d96eed723e0af2cfb77bd9234185e7c2565b295",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206"
+    },
+    {
+      "execution_id": "sloppy-script:built-ins/decodeURI/S15.1.3.1_A2.5_T1.js",
+      "group": "allocation_trap",
+      "main_outcome": "Crash",
+      "historical_outcome": "Crash",
+      "selection_reason": "URI decoding allocation stress (1,048,576 scalar values)",
+      "finding": "Wasm unreachable in helper::heap_alloc reached through decimal_to_binary64/string_to_number in decimalToPercentHexString. The URI stress probe still crashes; the exact allocation cause is not established here.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x48d098 - lila!helper::heap_alloc\n    1: 0x4d116a - lila!helper::decimal_to_binary64\n    2: 0x4a5675 - lila!helper::string_to_number\n    3: 0x1bc39d - lila!js::decimalToPercentHexString#f10\n    4: 0x49bf97 - lila!helper::proxy_call\n    5:  0xb6c5b - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "source_sha256": "73144c6e18e008264415ebc7224cfe8a00ac36550efff62f1f3407a6be6f4cd7",
+      "snapshot_sha256": "66388ad079b25121353d52da500eca91e3814967e11ad48069145084f54e48be",
+      "transcript_sha256": "096e72e0a7e3e560cd7d2c2c07980989c5d3faf1e213eb15885844392319f81b"
+    },
+    {
+      "execution_id": "sloppy-script:harness/assert-throws-same-realm.js",
+      "group": "error_realm",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Harness error realm identity",
+      "finding": "The harness expected Test262Error but received Error while checking same-realm exception behavior.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@2290704: Expected a Test262Error but a \"Error\" was thrown.)",
+      "source_sha256": "86184104e2968586c40702fdb0737a82a503c2d8cc951e0f973192387737f309",
+      "snapshot_sha256": "b4a8d63d40dbd2b0495715531284c066516ab11158cf58846a78d064368cf4f6",
+      "transcript_sha256": "ff29f9100fa3481d22791c65d3a1127c95900ac1225fd6571cc2f58334a11b39"
+    },
+    {
+      "execution_id": "sloppy-script:harness/asyncHelpers-asyncTest-then-rejects.js",
+      "group": "already_passing",
+      "main_outcome": "Success",
+      "historical_outcome": "Bug",
+      "selection_reason": "Harness asynchronous rejection behavior",
+      "finding": "This exact historical failure passes on merged main; it is not a remaining failing probe.",
+      "failure_kind": null,
+      "diagnostic": null,
+      "source_sha256": "9f18dc8923f81bef84112db98ae8aa4719235baf0a763ae3a3a9fb92c64c8739",
+      "snapshot_sha256": "605c9d51dae47d75555d8979e87033285341e8cc589bd5fef74488747b940360",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Collator/default-options-object-prototype.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl.Collator constructor and semantic entry point",
+      "finding": "Collator construction fails with target is not a constructor before the options-prototype assertion.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1538912: target is not a constructor)",
+      "source_sha256": "2d5729fe170851191509dd578e11d81dcea8deef5633f2ea2a6cb3ceb870fadd",
+      "snapshot_sha256": "a42458efe6e22b990f89d40150a95149dcb190398b3ece975b79aa25c3249c50",
+      "transcript_sha256": "aa2c5c69e2b338ea76bca2c08b91ee00b3a633e938fa9cd4a73d621d5fb64129"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+      "group": "intl_semantics",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "DateTimeFormat calendar canonicalization",
+      "finding": "Calendar option resolution reports gregory where the probe expects islamic-civil.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: wasm-aot completion: string(calendar ID is canonicalized (option) Expected SameValue(gregory, islamic-civil) to be true)",
+      "source_sha256": "19e98b3d98c293d7086a96a6ea6b008869ba7f2dc8b2b5e7d6aaab44373041b3",
+      "snapshot_sha256": "4d99851dd2444d9c8ebeb5e217a25b93ee9b60b95b7aa4ca379d268804cb2704",
+      "transcript_sha256": "d93595c7f7e6624d264659651a260d7afc67ff63be15f173948a4b29a0f89c8a"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/DateTimeFormat/canonicalize-timezone.js",
+      "group": "intl_semantics",
+      "main_outcome": "Bug",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "DateTimeFormat named time-zone normalization",
+      "finding": "Named-time-zone canonicalization stops with RangeError: Unsupported timeZone option.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1554944: Unsupported timeZone option)",
+      "source_sha256": "da7f3f0788d890ef5cb4ab6933292173a27f60e09d019f1e4ddb13178237fc0e",
+      "snapshot_sha256": "981aef4fd0844dc8087f23ca55188ff84f29dc4a9825628d103a77e868076aee",
+      "transcript_sha256": "2090334e6b222a744049b2e0ed05014b7547ad3d6b76d29e6ee536657294257c"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/DisplayNames/ctor-default-prototype.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl.DisplayNames constructor and semantic entry point",
+      "finding": "DisplayNames construction fails with target is not a constructor.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1539208: target is not a constructor)",
+      "source_sha256": "272d184284f0817b388620d40476ce7755b06b13e086284200ae32ff3c07e8da",
+      "snapshot_sha256": "5f0fd5270b9a076a9e4d1888ed31ce92174b5fca10487f8c6e4140fce9d3d48c",
+      "transcript_sha256": "4e7a9ee3ca3a0ab3e7585a17bb7a11c09e8392851f9100529e74545731d476cc"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/DurationFormat/constructor-locales-valid.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl.DurationFormat constructor and semantic entry point",
+      "finding": "DurationFormat construction fails with target is not a constructor.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1545424: target is not a constructor)",
+      "source_sha256": "151f2de8fa1a4a18fc717874663650eda473d11bed4203b2c8867a9d2fa16c71",
+      "snapshot_sha256": "d7ed296758314ad6b5a22ddad1e6541bd4b798f839e1d3848377708b29543913",
+      "transcript_sha256": "ef4bb215f366029fe2248232e7785b7d2c63b1c231c92dc12e10fc31bc8707da"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Intl/getCanonicalLocales/complex-language-subtag-replacement.js",
+      "group": "intl_semantics",
+      "main_outcome": "Bug",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "Language tag alias replacement",
+      "finding": "The alias probe stops at RegExp.prototype.exec unsupported pattern; this run does not establish whether language-subtag replacement itself is correct.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@5807536: RegExp.prototype.exec unsupported pattern)",
+      "source_sha256": "9d608179eb4eb60a6760d800a1a6365d90de8da895e3b115d37bc52ab43ecdff",
+      "snapshot_sha256": "80e24a0b6b5359afb14e120454af2f11b0a9329623daee6dca928d84fb56c62b",
+      "transcript_sha256": "8b63d64931907bd58904b091e60fb7df67aed8385e3c73e3e3aaa3d9852d3aa3"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Intl/supportedValuesOf/builtin.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl supported-values registry",
+      "finding": "Intl.supportedValuesOf is undefined where the test requires a function.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: wasm-aot completion: string(Intl.supportedValuesOf is a function Expected SameValue(undefined, function) to be true)",
+      "source_sha256": "bc35a69c145c3c62a03dda1ca8e6b92ed8091f2757e0ed0d5c9a6ab0a6d15283",
+      "snapshot_sha256": "546ae1593d8a036c369830a3441a1349e46757ff77a2b6ed97da916a035a702c",
+      "transcript_sha256": "4890e9662b275cb29e51402de767481bc6ba0d351edb79ebe15b9e480df79d35"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/ListFormat/constructor/constructor/locales-valid.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl.ListFormat constructor and semantic entry point",
+      "finding": "ListFormat construction fails with target is not a constructor.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1547144: target is not a constructor)",
+      "source_sha256": "6613ce16996541126494067d4093c82bdc71e0ac82dbde9f77ca4f5ae374f263",
+      "snapshot_sha256": "3efb8f27d9f05b999b942461631af9007a25ea8d08b81ae11325b208194711fd",
+      "transcript_sha256": "5d3b5723680e80af8b7dd5063f9fc62f1e67f19d9db1e0612a3574d8f642e92d"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Locale/likely-subtags.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Locale likely-subtag operations",
+      "finding": "The Locale likely-subtag probe stops at value is not callable.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1605784: value is not callable)",
+      "source_sha256": "bf0cc7e4c569f481f3d9cae54d6f261d7e61413d262ff03ea634cc66906fad68",
+      "snapshot_sha256": "7829eb84fe16b17d33fde1a6d9fca2ca9a294e874c426977a319092741a6c37e",
+      "transcript_sha256": "d534371cd2514eb724ee9d29c9cc8b93858d6be56ac3aa29d5d8a917e9049392"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Locale/prototype/getCalendars/output-array.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Locale calendar enumeration",
+      "finding": "Locale.getCalendars stops at value is not callable.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1539544: value is not callable)",
+      "source_sha256": "cb00645af3bc647f136e4f45e9c5c66069c028d48eb18e0048b1347b431dde97",
+      "snapshot_sha256": "c915cbced545aa82f291fae876abcfa910271982c5f18e7eb6c4e5f91fcda044",
+      "transcript_sha256": "83b6f6e2605704936d848742d8201af2e400908f914f8b63b994e1888f818100"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Locale/prototype/getTimeZones/output-array-sorted.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Locale time-zone enumeration",
+      "finding": "Locale.getTimeZones stops at value is not callable.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1539576: value is not callable)",
+      "source_sha256": "9da185ea867c9b003be4a2186151186e07d1a60a68d200a5640a3eeca3176616",
+      "snapshot_sha256": "808eeb6ae214ca1b2f7c6dbe094699191e58a022bc9928cdacb55c0d3aaef1df",
+      "transcript_sha256": "803c9b9fca2e7d2d45ca17a2616df7864530e0a66cae04b4591f25a66062350c"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Locale/prototype/getWeekInfo/firstDay-by-id.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Locale week information",
+      "finding": "Locale.getWeekInfo stops at value is not callable.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1552104: value is not callable)",
+      "source_sha256": "85d774a8f38c91516ba37cefd71cae6e01cfe7ebafaf1af6cb88781fc4f4445c",
+      "snapshot_sha256": "0ffc7c9bcd4035c8bcd6d88c207deb9226db1a91e57a73a00413074eb47dbac6",
+      "transcript_sha256": "2db93cce3dc40894e7b6e731801efdfbb7dc59cc9b2e6aabe11177155cfbd1ec"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/NumberFormat/casing-numbering-system-options.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl.NumberFormat constructor and semantic entry point",
+      "finding": "NumberFormat construction fails with target is not a constructor before numbering-system option behavior is checked.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1539784: target is not a constructor)",
+      "source_sha256": "27e842de2b9c1d574bc26fc70da13fbd9a342033c1b3f248f25c6bf2e2574af9",
+      "snapshot_sha256": "ceb78b76dd5731e73f54857ccba4c3eb09a5376a848327762ce1ea512bd0f603",
+      "transcript_sha256": "5f0c78e215cea0369b158e0dcf0a297b2aac0382090a8af59d550bc2aeacb093"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/PluralRules/can-be-subclassed.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl.PluralRules constructor and semantic entry point",
+      "finding": "The PluralRules subclassing probe stops at target is not a constructor.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1543432: target is not a constructor)",
+      "source_sha256": "8e248265ea95e53d0d9a4a4535b5b635b4e50bf2c9a30f73f69405e4824a08cb",
+      "snapshot_sha256": "54773aaeb8d63c31729207052e8d1c0afe4d33206bcb639024da36495e323a95",
+      "transcript_sha256": "7749f8926c8e7f35ab939957b4d3a6b8321934d2e16c0553ce9551af9430a4b7"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/RelativeTimeFormat/constructor/constructor/locales-valid.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl.RelativeTimeFormat constructor and semantic entry point",
+      "finding": "RelativeTimeFormat construction fails with target is not a constructor.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1547160: target is not a constructor)",
+      "source_sha256": "fc9e7fa86f86bf819ed5abe42f462cd1dfce8d6d03263bb81753bc34ad873e06",
+      "snapshot_sha256": "23af5d7dce1e03c70b9ecec2033afe4293f3560f591ef7555ebc7371d58a0e50",
+      "transcript_sha256": "ca8d9f1ef47222a6aaf801273c4fe14c5f356ad497f263d1c35f92b21fd67dfe"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Segmenter/constructor/constructor/locales-valid.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Intl.Segmenter constructor and semantic entry point",
+      "finding": "Segmenter construction fails with target is not a constructor.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1552816: target is not a constructor)",
+      "source_sha256": "b251beefe9f9ab299820090bede72f096ae1bbc89851575114d941c22bb4b2c3",
+      "snapshot_sha256": "79795429fbda31b7d516e716df983c915dfbe72c0218c92ef4f20cf8596bce2b",
+      "transcript_sha256": "475d9a07cb8077944138bfecc02f3aae1fd397adefdec0b536cdf82eb8ad223c"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/String/prototype/localeCompare/returns-same-results-as-Collator.js",
+      "group": "intl_entrypoints",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "String localeCompare Collator delegation",
+      "finding": "The comparison probe stops at target is not a constructor in its Collator control; it does not isolate localeCompare behavior.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1570664: target is not a constructor)",
+      "source_sha256": "2bb61d1d74fac4e4e42240dd66dcded8e94ca08d14960e9b59d3b5e79e69c92e",
+      "snapshot_sha256": "a5607f0b5e4bc6267ecec488bf2df6ed75fff4c3df4b4b41058cafaf620d0918",
+      "transcript_sha256": "d62dd0406e7faac62778eac69c23ffe63bcea2df469e77be10e7231bc0148b98"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/String/prototype/toLocaleLowerCase/special_casing_Turkish.js",
+      "group": "intl_semantics",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Locale-specific casing",
+      "finding": "Turkish lowercasing returns i followed by a combining dot where the probe expects plain i.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: wasm-aot completion: string(LATIN CAPITAL LETTER I WITH DOT ABOVE Expected SameValue(i\u0307, i) to be true)",
+      "source_sha256": "276569cd4105ae12b2211312e004923e42abeacac8474cb1782f621282b714f3",
+      "snapshot_sha256": "30efe09013cee032ab78f10134b2c3b0bb5723cd34fd6444dd1ba1536befe830",
+      "transcript_sha256": "9c8a838ccdfa942a68cfc42c43135ab369738c11b99a659468a3dbde26d94e37"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Temporal/Duration/compare/twenty-five-hour-day.js",
+      "group": "temporal",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Temporal named-zone/DST duration arithmetic",
+      "finding": "The 25-hour-day comparison stops with RangeError: Invalid Temporal time zone identifier; DST arithmetic is not reached.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1700336: Invalid Temporal time zone identifier)",
+      "source_sha256": "5912f50a9951b6455139fc794da7ef799a204332394f7b61551289e0f91c3a8f",
+      "snapshot_sha256": "8c8a6cb3cff7c53066cff56ed44f181f72a51f6310249d97383a96ec392ac217",
+      "transcript_sha256": "33ce226fdc45b9ca65bb5f826a95f73b354552b3e76f72b7dc6aa01161323edf"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Temporal/Instant/prototype/toLocaleString/basic.js",
+      "group": "temporal",
+      "main_outcome": "Bug",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "Temporal locale formatting with named zones",
+      "finding": "Instant locale formatting stops with RangeError: Unsupported timeZone option.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1704704: Unsupported timeZone option)",
+      "source_sha256": "0ebf43ec51984c2bd507b57544541345e644f7c095f5ad6c530f5faad09bb145",
+      "snapshot_sha256": "ffdf016e03eae11f8ba98537182603625b0d5afb336c029055d4111c884c5c05",
+      "transcript_sha256": "968004c14443368b3e6472bf2f44c4b124af3876bea7f3c5aa0586a32c6b29a6"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Temporal/Instant/prototype/toZonedDateTimeISO/timezone-string-datetime.js",
+      "group": "temporal",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Instant to ZonedDateTime ISO conversion",
+      "finding": "Instant.toZonedDateTimeISO stops at value is not callable.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1703456: value is not callable)",
+      "source_sha256": "dfabced724fdf4cd1392265fde3f69dfe811e94fcdfb1a52a9b6a9f73887694b",
+      "snapshot_sha256": "6971f3a911ae7a237b54cda143334002dc5780a22dd715e2e9f5bff8fd3eea36",
+      "transcript_sha256": "98b39deeaf51251ef2909733eb99266c9a86a181f4c813e56e1cc23e97788411"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Temporal/PlainDate/canonicalize-calendar.js",
+      "group": "temporal",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Calendar identifier canonicalization",
+      "finding": "Calendar canonicalization stops with RangeError: Invalid Temporal.PlainDate calendar.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1700576: Invalid Temporal.PlainDate calendar)",
+      "source_sha256": "47492d1b11fbf0b205aaf5f90faa35153dbd05150931492ef5a5910b4614809a",
+      "snapshot_sha256": "69643d40e9c69970c523b77b8375239e3909586745246c38072b16eb52fde239",
+      "transcript_sha256": "a8dbf9c35f277482b071865baabeed96a0ef907a409207e341859e4896608670"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Temporal/PlainDate/from/basic-hebrew.js",
+      "group": "temporal",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Non-ISO calendar field construction",
+      "finding": "The Hebrew PlainDate.from probe throws RangeError: Invalid Temporal.PlainTime string. Its conversion cause needs a separate reduction.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1864664: Invalid Temporal.PlainTime string)",
+      "source_sha256": "03fa58e9f4417e1fb5bbb617a06c0f9709e1559c8ba34862a113822c827bc838",
+      "snapshot_sha256": "a7ed373b8d2272a117494392acbfa1525f5953f8ee03cae6740787d6fbe98dcd",
+      "transcript_sha256": "6e7c15764ae58a2a24cc5bce573f78b70bcef2203d96488a3dc5c75ebb7ad801"
+    },
+    {
+      "execution_id": "sloppy-script:language/eval-code/direct/global-env-rec-with.js",
+      "group": "already_passing",
+      "main_outcome": "Success",
+      "historical_outcome": "Bug",
+      "selection_reason": "Direct eval with-environment lookup",
+      "finding": "This exact historical failure passes on merged main; it is not a remaining failing probe.",
+      "failure_kind": null,
+      "diagnostic": null,
+      "source_sha256": "4dd8f3e5db0a4b23abeff4f2695ca059cddd3d61a2a5b334ca8e389e6d55f91c",
+      "snapshot_sha256": "12189ef1fb84d5c103607a2457d63ea8200930ebdf49b460f18b71a2060b4beb",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206"
+    },
+    {
+      "execution_id": "sloppy-script:language/eval-code/direct/non-string-object.js",
+      "group": "already_passing",
+      "main_outcome": "Success",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "Direct eval non-string identity",
+      "finding": "This exact historical failure passes on merged main; it is not a remaining failing probe.",
+      "failure_kind": null,
+      "diagnostic": null,
+      "source_sha256": "27c56f9e44f1f0e18077ab2c00f1153de4cc526c8194d5a4eb385afafec32617",
+      "snapshot_sha256": "5793c203fed1cceffea2fa75242c5e0dc3280578f0bfc04d33bc49600520d54d",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206"
+    },
+    {
+      "execution_id": "sloppy-script:language/eval-code/indirect/global-env-rec-fun.js",
+      "group": "dynamic_source",
+      "main_outcome": "NotImplemented",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "Indirect eval global declarations",
+      "finding": "Runtime-selected indirect eval has no compiled source/environment specialization; it remains explicitly NotImplemented.",
+      "failure_kind": "Unsupported",
+      "diagnostic": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+      "source_sha256": "1441499ee101a37ca5f95354702b28d206293e946a55ccd00cb5ee0988346da9",
+      "snapshot_sha256": "d4c15868943ddac447193bd3d01a2afaed330df705daf7d6762baea4caa0cb3a",
+      "transcript_sha256": "dd87b5e0f5d6aa77d40b007126d53bce78910abcdfeb132bc5654c0993464edb"
+    },
+    {
+      "execution_id": "sloppy-script:language/expressions/assignment/dstr/array-elem-init-yield-expr.js",
+      "group": "generator_suspension",
+      "main_outcome": "NotImplemented",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "Destructuring defaults suspend at yield",
+      "finding": "The destructuring-default yield path remains explicitly unsupported as generator suspension.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] unsupported in lila wasm-aot first slice: generator suspension",
+      "source_sha256": "32b7d48f689c10217fc00b0765c8c4d243d5a405c69145c052043bc0764e09a8",
+      "snapshot_sha256": "5582771c11e482dfd6a41db078fd7796f69f216938c868e3d54afd4d5de44b2c",
+      "transcript_sha256": "e23b5e4d8a5c1caed6e5cb966f65f456babd39e93a6ecd6369f976a5ad391be9"
+    },
+    {
+      "execution_id": "sloppy-script:language/expressions/assignment/dstr/array-elem-iter-rtrn-close-err.js",
+      "group": "generator_suspension",
+      "main_outcome": "NotImplemented",
+      "historical_outcome": "NotImplemented",
+      "selection_reason": "Destructuring iterator close with suspension",
+      "finding": "A discarded expression statement's yields cannot be flattened into the current linear suspension plan, so the iterator-close probe remains NotImplemented.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a discarded expression statement's yields cannot be flattened into a linear suspension plan",
+      "source_sha256": "bd2a8a7c015203d58825923b72ecbb0b48c851a03c6c852c9a428801c5dbf777",
+      "snapshot_sha256": "3334411609fa9c53dc762c6077fe8b8d7abcd131ccdfa534587e7793460ba5bf",
+      "transcript_sha256": "28c4451557bc7a264786de4740893eed72fdc81f7a760f4d53dc18d793198af5"
+    },
+    {
+      "execution_id": "sloppy-script:language/expressions/assignment/dstr/array-elem-put-let.js",
+      "group": "destructuring_assignment",
+      "main_outcome": "Bug",
+      "historical_outcome": "Bug",
+      "selection_reason": "Destructuring binding assignment errors",
+      "finding": "Assigning from an empty array to a still-uninitialized let binding does not throw the required ReferenceError.",
+      "failure_kind": "Runtime",
+      "diagnostic": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1532824: assert.throws expected a throw)",
+      "source_sha256": "5e60a956097c7c59b49a09f2b5186b0c7ec8d2114231753e0936ced5514b2893",
+      "snapshot_sha256": "4098038d2a881aef003f19660280a0da4415bd39eb7fe2e36605645e72185430",
+      "transcript_sha256": "d680a668339e4c93578b37e1b32cdaded6cc986d4f7c7a335df1fc8b8620c155"
+    },
+    {
+      "execution_id": "sloppy-script:language/expressions/async-arrow-function/unscopables-with-in-nested-fn.js",
+      "group": "already_passing",
+      "main_outcome": "Success",
+      "historical_outcome": "Bug",
+      "selection_reason": "Nested async function with unscopables",
+      "finding": "This exact historical failure passes on merged main; it is not a remaining failing probe.",
+      "failure_kind": null,
+      "diagnostic": null,
+      "source_sha256": "f26be9cd91409d7b0f68f9851aa533f6af722495126a5be1c9f2e3e474024adf",
+      "snapshot_sha256": "d10c75c7647f3416e2577ff8dd939cdf5ad1bf0a93fd36b66f218ef50abef314",
+      "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206"
+    }
+  ]
+}

@@ -16,14 +16,33 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 fn typed_array_iterator_boundaries_share_the_live_buffer_witness() {
     let creation = bounded(
         STANDARD_SOURCE,
-        "StandardBuiltinId::ArrayPrototypeKeys\n            | StandardBuiltinId::ArrayPrototypeEntries",
-        "StandardBuiltinId::ArrayIteratorIdentity => {",
+        "    fn compile_array_iterator_method_builtin(",
+        "    pub(crate) fn compile_standard_builtin(",
     );
     let step = bounded(
         ITERATORS_SOURCE,
         "pub(crate) fn emit_typed_array_iterator_next_from_locals(",
         "pub(crate) fn emit_iterator_result_object_from_locals(",
     );
+
+    let dispatcher = STANDARD_SOURCE
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    for (builtin, method, kind) in [
+        ("TypedArrayPrototypeKeys", "keys", "Key"),
+        ("TypedArrayPrototypeEntries", "entries", "KeyAndValue"),
+        ("TypedArrayPrototypeValues", "values", "Value"),
+    ] {
+        let mapping = format!(
+            "StandardBuiltinId::{builtin}=>{{self.compile_array_iterator_method_builtin(\"TypedArray.prototype.{method}\",&ArrayIteratorKind::{kind},ArrayIteratorReceiverPolicy::TypedArray,function,)?;}}"
+        );
+        assert_eq!(
+            dispatcher.matches(&mapping).count(),
+            1,
+            "{builtin} must reach the shared creation witness with its strict receiver policy"
+        );
+    }
 
     for (label, body) in [("creation", creation), ("step", step)] {
         assert_eq!(

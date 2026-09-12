@@ -1000,12 +1000,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::MathTanh
             | StandardBuiltinId::MathTrunc
             | StandardBuiltinId::MathMin
-            | StandardBuiltinId::MathMax => Some(ValueInfo {
-                kind: ValueKind::Number,
-                possible_kinds: KindSet::from_kind(ValueKind::Number),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::none(),
-            }),
+            | StandardBuiltinId::MathMax => Some(ValueInfo::new(ValueKind::Number)),
             StandardBuiltinId::ArrayPrototypeConcat
             | StandardBuiltinId::ArrayPrototypeSlice
             | StandardBuiltinId::ArrayPrototypeSplice => Some(Self::unshaped_array_result_info()),
@@ -1027,12 +1022,11 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::ArrayPrototypeToLocaleString
             | StandardBuiltinId::TypedArrayPrototypeToString
             | StandardBuiltinId::TypedArrayPrototypeJoin
-            | StandardBuiltinId::TypedArrayPrototypeToLocaleString => Some(ValueInfo {
-                kind: ValueKind::String,
-                possible_kinds: KindSet::from_kind(ValueKind::String),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::none(),
-            }),
+            | StandardBuiltinId::Uint8ArrayPrototypeToBase64
+            | StandardBuiltinId::Uint8ArrayPrototypeToHex
+            | StandardBuiltinId::TypedArrayPrototypeToLocaleString => {
+                Some(ValueInfo::new(ValueKind::String))
+            }
             StandardBuiltinId::ArrayPrototypeFlat => Some(Self::unshaped_array_result_info()),
             StandardBuiltinId::ArrayPrototypeFlatMap => Some(Self::unshaped_array_result_info()),
             StandardBuiltinId::ArrayPrototypeAt | StandardBuiltinId::TypedArrayPrototypeAt => {
@@ -1047,25 +1041,17 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeWith => Some(Self::unshaped_array_result_info()),
             StandardBuiltinId::ArrayPrototypeToSpliced => Some(Self::unshaped_array_result_info()),
             StandardBuiltinId::ArrayPrototypeToSorted => Some(Self::unshaped_array_result_info()),
-            StandardBuiltinId::ArrayPrototypeReverse => Some(ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: Self::object_like_kind_set(),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::unknown(),
-            }),
-            StandardBuiltinId::ArrayPrototypeCopyWithin => Some(ValueInfo {
+            StandardBuiltinId::ArrayPrototypeReverse
+            | StandardBuiltinId::ArrayPrototypeCopyWithin => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: Self::object_like_kind_set(),
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::unknown(),
             }),
             StandardBuiltinId::ArrayPrototypeIncludes
-            | StandardBuiltinId::TypedArrayPrototypeIncludes => Some(ValueInfo {
-                kind: ValueKind::Boolean,
-                possible_kinds: KindSet::from_kind(ValueKind::Boolean),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::none(),
-            }),
+            | StandardBuiltinId::TypedArrayPrototypeIncludes => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
             StandardBuiltinId::ArrayPrototypeIndexOf
             | StandardBuiltinId::TypedArrayPrototypeIndexOf => Some(ValueInfo {
                 kind: ValueKind::Number,
@@ -1462,6 +1448,17 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: FunctionTargetKnowledge::none(),
                 })
             }
+            StandardBuiltinId::Uint8ArrayFromBase64 | StandardBuiltinId::Uint8ArrayFromHex => {
+                Some(Self::value_info_from_shape(Some(
+                    Self::typed_array_instance_shape_for_constructor(
+                        StandardBuiltinId::Uint8ArrayConstructor,
+                    ),
+                )))
+            }
+            StandardBuiltinId::Uint8ArrayPrototypeSetFromBase64
+            | StandardBuiltinId::Uint8ArrayPrototypeSetFromHex => Some(
+                Self::value_info_from_shape(Some(Self::uint8_array_codec_result_shape())),
+            ),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor

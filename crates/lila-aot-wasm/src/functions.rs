@@ -478,6 +478,7 @@ mod realm_function_materialization_tests {
         let host = include_str!("builtins/host.rs");
         let created_realm_iterator_next =
             include_str!("builtins/host/created_realm_iterator_next.rs");
+        let uint8_array_codecs = include_str!("builtins/uint8array_codecs.rs");
         let objects = include_str!("objects.rs");
 
         let context_marker = concat!("pub(crate) struct RealmFunctionMaterialization", "Context");
@@ -551,12 +552,18 @@ mod realm_function_materialization_tests {
         let mut direct_sites = 0;
         let marker = "self.emit_function_value_payload_in_realm(";
         for (source_name, realm_bootstrap_source, expected_sites, context_argument) in [
-            ("builtins/host.rs", host, 88, "&realm_functions"),
+            ("builtins/host.rs", host, 89, "&realm_functions"),
             (
                 "builtins/host/created_realm_iterator_next.rs",
                 created_realm_iterator_next,
                 1,
                 "realm_functions",
+            ),
+            (
+                "builtins/uint8array_codecs.rs",
+                uint8_array_codecs,
+                1,
+                "context",
             ),
         ] {
             let mut remaining = realm_bootstrap_source;
@@ -579,7 +586,7 @@ mod realm_function_materialization_tests {
             direct_sites += source_sites;
         }
         assert_eq!(
-            direct_sites, 89,
+            direct_sites, 91,
             "created-realm bootstrap site count drifted"
         );
 

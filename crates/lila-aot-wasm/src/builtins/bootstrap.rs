@@ -1652,6 +1652,19 @@ impl<'a> FunctionBuilder<'a> {
             prototype_local,
             function,
         );
+        if builtin == StandardBuiltinId::Uint8ArrayConstructor {
+            let buffer_prototype_local = self.reserve_temp_local();
+            function.instruction(&Instruction::GlobalGet(ARRAY_BUFFER_PROTOTYPE_GLOBAL_INDEX));
+            function.instruction(&Instruction::LocalSet(buffer_prototype_local));
+            self.emit_initialize_uint8_array_codec_methods(
+                constructor_local,
+                prototype_local,
+                buffer_prototype_local,
+                None,
+                function,
+            )?;
+            self.release_temp_local(buffer_prototype_local);
+        }
         self.release_temp_local(tag_local);
         self.release_temp_local(key_local);
         self.release_temp_local(prototype_local);

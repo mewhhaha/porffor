@@ -5865,6 +5865,48 @@ standard_builtin_catalog! {
         installer: None,
         native: "toZonedDateTime",
     }
+    Uint8ArrayFromBase64 {
+        function: FunctionOrdinal(806) => BUILTIN_UINT8_ARRAY_FROM_BASE64_FUNCTION_ID,
+        debug: "Uint8Array.fromBase64",
+        flags: [STATIC_METHOD, SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "fromBase64",
+    }
+    Uint8ArrayFromHex {
+        function: FunctionOrdinal(807) => BUILTIN_UINT8_ARRAY_FROM_HEX_FUNCTION_ID,
+        debug: "Uint8Array.fromHex",
+        flags: [STATIC_METHOD],
+        installer: None,
+        native: "fromHex",
+    }
+    Uint8ArrayPrototypeSetFromBase64 {
+        function: FunctionOrdinal(808) => BUILTIN_UINT8_ARRAY_PROTOTYPE_SET_FROM_BASE64_FUNCTION_ID,
+        debug: "Uint8Array.prototype.setFromBase64",
+        flags: [SYNCHRONOUS_USER_CODE, INDEXED_RECEIVER_MUTATION],
+        installer: None,
+        native: "setFromBase64",
+    }
+    Uint8ArrayPrototypeSetFromHex {
+        function: FunctionOrdinal(809) => BUILTIN_UINT8_ARRAY_PROTOTYPE_SET_FROM_HEX_FUNCTION_ID,
+        debug: "Uint8Array.prototype.setFromHex",
+        flags: [INDEXED_RECEIVER_MUTATION],
+        installer: None,
+        native: "setFromHex",
+    }
+    Uint8ArrayPrototypeToBase64 {
+        function: FunctionOrdinal(810) => BUILTIN_UINT8_ARRAY_PROTOTYPE_TO_BASE64_FUNCTION_ID,
+        debug: "Uint8Array.prototype.toBase64",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "toBase64",
+    }
+    Uint8ArrayPrototypeToHex {
+        function: FunctionOrdinal(811) => BUILTIN_UINT8_ARRAY_PROTOTYPE_TO_HEX_FUNCTION_ID,
+        debug: "Uint8Array.prototype.toHex",
+        flags: [],
+        installer: None,
+        native: "toHex",
+    }
 }
 
 impl StandardBuiltinId {
@@ -5878,6 +5920,28 @@ impl StandardBuiltinId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uint8_array_codecs_preserve_ordinals_and_observable_effects() {
+        let members = crate::UINT8_ARRAY_CODEC_STATIC_MEMBERS
+            .into_iter()
+            .chain(crate::UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS);
+        for (index, (name, builtin)) in members.enumerate() {
+            assert_eq!(StandardBuiltinId::all_functions()[806 + index], builtin);
+            assert_eq!(builtin.native_function_name(), Some(name));
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&builtin.function_id()),
+                Some(builtin)
+            );
+            assert!(!builtin.constructable());
+            assert_eq!(builtin.is_static_method(), index < 2);
+            assert_eq!(
+                builtin.may_run_user_code_synchronously(),
+                name.ends_with("Base64")
+            );
+            assert_eq!(builtin.mutates_indexed_receiver(), name.starts_with("set"));
+        }
+    }
 
     #[test]
     fn typed_array_intrinsic_has_one_hidden_constructable_identity() {

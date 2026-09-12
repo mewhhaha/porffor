@@ -66,9 +66,16 @@ The [ZonedDateTime baseline follow-up](docs/rust-rewrite/zoned-date-time-baselin
 compares the next 182 observed failures with merged main: 136 still fail and
 46 already pass. It adds rounding and day operations, PlainDate conversion,
 and exact relative differences for the supported UTC/fixed-offset domain.
-All 49 focused Wasmtime regressions pass; the 408-execution pinned replay and
-broader compiler verification are in progress. This cohort remains separate
-from the published full-suite status.
+All 136 failures are repaired in an audited 408/408 passing pinned replay;
+49 focused Wasmtime regressions and the broader compiler checks also pass.
+This cohort remains separate from the published full-suite status.
+
+The [Uint8Array codec baseline follow-up](docs/rust-rewrite/uint8array-codec-baseline-follow-up.md)
+adds the six Base64 and hexadecimal conversion methods through native Wasm
+codegen. All 108 failures reproduced on merged main are repaired in the audited
+136/136 passing pinned replay; 32 focused Wasmtime regressions also pass.
+The replay includes 28 historical passes and remains separate from the published
+full-suite status.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for

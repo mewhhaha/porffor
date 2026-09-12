@@ -1808,6 +1808,21 @@ impl RuntimeBootstrapPlan {
         if !self.walked.insert(builtin) {
             return;
         }
+        if builtin == StandardBuiltinId::Uint8ArrayConstructor
+            || lila_ir::UINT8_ARRAY_CODEC_STATIC_MEMBERS
+                .iter()
+                .chain(lila_ir::UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS.iter())
+                .any(|&(_, codec)| codec == builtin)
+        {
+            self.require_standard_builtin(StandardBuiltinId::Uint8ArrayConstructor);
+            self.require_standard_builtin(StandardBuiltinId::ArrayBufferConstructor);
+            for &(_, codec) in lila_ir::UINT8_ARRAY_CODEC_STATIC_MEMBERS
+                .iter()
+                .chain(lila_ir::UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS.iter())
+            {
+                self.require_standard_builtin(codec);
+            }
+        }
         if builtin == StandardBuiltinId::FunctionConstructor {
             // `%Function.prototype%` is a callable intrinsic, not an Object
             // shell, and its non-configurable `@@hasInstance` property publishes
@@ -6349,6 +6364,12 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::SetPrototypeIsSupersetOf
         | StandardBuiltinId::SetPrototypeSymmetricDifference
         | StandardBuiltinId::SetPrototypeUnion => 1,
+        StandardBuiltinId::Uint8ArrayFromBase64
+        | StandardBuiltinId::Uint8ArrayFromHex
+        | StandardBuiltinId::Uint8ArrayPrototypeSetFromBase64
+        | StandardBuiltinId::Uint8ArrayPrototypeSetFromHex => 1,
+        StandardBuiltinId::Uint8ArrayPrototypeToBase64
+        | StandardBuiltinId::Uint8ArrayPrototypeToHex => 0,
         StandardBuiltinId::EvalFunction => 1,
         StandardBuiltinId::FunctionPrototypeCall => 1,
         StandardBuiltinId::FunctionPrototypeApply => 2,

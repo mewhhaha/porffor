@@ -51,8 +51,19 @@ day operations must validate their actual endpoint instants.
 ## Verification scope
 
 All 49 focused Wasmtime regressions pass on the committed implementation
-`39a0aeca0ae36f70381b5b45cfa90e2835c3e16a`. Candidate replay and broad
-verification are in progress. The
+`39a0aeca0ae36f70381b5b45cfa90e2835c3e16a`. The audited candidate replay passes
+408/408 with zero timeouts: all 136 reproduced main failures are repaired and
+all 46 previously passing observations remain green. The completed broad
+checkpoint passes 1,122 IR tests, 428 backend tests, all 102 tests across 30
+Temporal structural targets, the workspace check, and all 191 fake-fixture
+executions. The latter suite is separate from pinned real Test262.
+
+The [portable verification record](../../test262/replays/zoned-date-time-follow-up-20260910.verification.json)
+retains source, compiler, list, snapshot and transcript hashes. All 2,881 declared
+build inputs, including Cargo configuration and the Rust toolchain, match the
+recorded implementation commit.
+
+The
 [408-execution replay](../../test262/replays/zoned-date-time-follow-up-20260910.executions)
 contains 182 observations, 44 historical passing neighbors, all 92 executions
 from the pinned PlainDate `prototype/toZonedDateTime` surface, and 90 related
@@ -86,3 +97,10 @@ diagnostics gated on Plain-family builtin bodies. They now reside in the shared
 Temporal pool. A production pool regression verifies these literals using an
 empty source and individually selected builtin bodies. Both failed attempts
 retain their source manifests and native transcripts locally.
+
+The broad checkpoint initially stopped on a stale dispatch assertion expecting
+a removed PlainDateTime-builtin projection. On 2026-09-12 the assertion was
+updated to check both exhaustive direct-arithmetic mappings, and all Temporal
+structural targets were rerun before the workspace and fixture checks. The
+obsolete method comment and direction contract were updated; instruction-emitting
+production code did not change during that closeout.

@@ -4019,15 +4019,6 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Array Iterator.prototype[Symbol.iterator]`",
                 )
             })?;
-        let typed_array_buffer_getter_meta = self
-            .functions
-            .get(&StandardBuiltinId::TypedArrayPrototypeBufferGetter.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `get TypedArray.prototype.buffer`",
-                )
-            })?;
         let typed_array_to_string_tag_getter_meta = self
             .functions
             .get(&StandardBuiltinId::TypedArrayPrototypeToStringTagGetter.function_id())
@@ -5139,41 +5130,64 @@ impl<'a> FunctionBuilder<'a> {
             }
             self.release_temp_local(method_payload_local);
         }
-        let typed_array_buffer_key_local = self.reserve_temp_local();
-        let typed_array_buffer_getter_payload_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("buffer")));
-        function.instruction(&Instruction::LocalSet(typed_array_buffer_key_local));
-        self.emit_function_value_payload_in_realm(
-            &typed_array_buffer_getter_meta,
-            &realm_functions,
-            typed_array_buffer_getter_payload_local,
-            function,
-        )?;
-        self.store_i64_local_at_offset(
-            typed_array_buffer_getter_payload_local,
-            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-            typed_array_buffer_getter_payload_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            typed_array_buffer_getter_payload_local,
-            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-            type_error_prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_define_accessor(
-            typed_array_prototype_local,
-            typed_array_buffer_key_local,
-            AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
-                typed_array_buffer_getter_payload_local,
-                tag_local,
-            ))),
-            function,
-        )?;
-        self.release_temp_local(typed_array_buffer_getter_payload_local);
-        self.release_temp_local(typed_array_buffer_key_local);
+        for (name, builtin) in [
+            ("buffer", StandardBuiltinId::TypedArrayPrototypeBufferGetter),
+            (
+                "byteLength",
+                StandardBuiltinId::TypedArrayPrototypeByteLengthGetter,
+            ),
+            (
+                "byteOffset",
+                StandardBuiltinId::TypedArrayPrototypeByteOffsetGetter,
+            ),
+            ("length", StandardBuiltinId::TypedArrayPrototypeLengthGetter),
+        ] {
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            let key_local = self.reserve_temp_local();
+            let getter_payload_local = self.reserve_temp_local();
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(key_local));
+            self.emit_function_value_payload_in_realm(
+                &meta,
+                &realm_functions,
+                getter_payload_local,
+                function,
+            )?;
+            self.store_i64_local_at_offset(
+                getter_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                getter_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                getter_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_accessor(
+                typed_array_prototype_local,
+                key_local,
+                AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                    getter_payload_local,
+                    tag_local,
+                ))),
+                function,
+            )?;
+            self.release_temp_local(getter_payload_local);
+            self.release_temp_local(key_local);
+        }
 
         let typed_array_to_string_tag_key_local = self.reserve_temp_local();
         let typed_array_to_string_tag_getter_payload_local = self.reserve_temp_local();
@@ -6919,6 +6933,71 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.release_temp_local(array_buffer_is_view_payload_local);
 
+        for (name, builtin) in [
+            (
+                "byteLength",
+                StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter,
+            ),
+            (
+                "detached",
+                StandardBuiltinId::ArrayBufferPrototypeDetachedGetter,
+            ),
+            (
+                "maxByteLength",
+                StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter,
+            ),
+            (
+                "resizable",
+                StandardBuiltinId::ArrayBufferPrototypeResizableGetter,
+            ),
+        ] {
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            let key_local = self.reserve_temp_local();
+            let getter_payload_local = self.reserve_temp_local();
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(key_local));
+            self.emit_function_value_payload_in_realm(
+                &meta,
+                &realm_functions,
+                getter_payload_local,
+                function,
+            )?;
+            self.store_i64_local_at_offset(
+                getter_payload_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                getter_payload_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                getter_payload_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_accessor(
+                array_buffer_prototype_local,
+                key_local,
+                AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(TaggedLocals::new(
+                    getter_payload_local,
+                    tag_local,
+                ))),
+                function,
+            )?;
+            self.release_temp_local(getter_payload_local);
+            self.release_temp_local(key_local);
+        }
+
         self.emit_function_value_payload_in_realm(
             &shared_array_buffer_meta,
             &realm_functions,
@@ -8012,6 +8091,15 @@ impl<'a> FunctionBuilder<'a> {
                 false,
                 function,
             )?;
+            if builtin == StandardBuiltinId::Uint8ArrayConstructor {
+                self.emit_initialize_uint8_array_codec_methods(
+                    constructor_local,
+                    prototype_local,
+                    array_buffer_prototype_local,
+                    Some(&realm_functions),
+                    function,
+                )?;
+            }
             self.emit_object_define_number_data_from_f64_const_with_flags(
                 prototype_local,
                 "BYTES_PER_ELEMENT",

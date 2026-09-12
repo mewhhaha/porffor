@@ -2290,6 +2290,23 @@ impl<'a> ScriptLowerer<'a> {
         Self::typed_array_instance_shape_with_prototype(Self::typed_array_prototype_shape())
     }
 
+    pub(super) fn uint8_array_codec_result_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Box::new(Self::empty_object_shape())),
+            properties: ["read", "written"]
+                .into_iter()
+                .map(|name| {
+                    (
+                        name.to_string(),
+                        ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
+                    )
+                })
+                .collect(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
     pub(super) fn typed_array_instance_shape_for_constructor(
         builtin: StandardBuiltinId,
     ) -> Box<HeapShape> {
@@ -2459,6 +2476,17 @@ impl<'a> ScriptLowerer<'a> {
                 true,
             )),
         );
+        if builtin == StandardBuiltinId::Uint8ArrayConstructor {
+            for (name, method) in UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS {
+                properties.insert(
+                    name.to_string(),
+                    ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                        method.function_id(),
+                        false,
+                    )),
+                );
+            }
+        }
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Self::typed_array_prototype_shape()),
             properties,
@@ -3923,6 +3951,19 @@ impl<'a> ScriptLowerer<'a> {
                     object.prototype = Some(Self::standard_builtin_function_shape(
                         StandardBuiltinId::TypedArrayConstructor,
                     ));
+                    if builtin == StandardBuiltinId::Uint8ArrayConstructor {
+                        for (name, method) in UINT8_ARRAY_CODEC_STATIC_MEMBERS {
+                            object.properties.insert(
+                                name.to_string(),
+                                ObjectShapeProperty::Data(
+                                    Self::function_value_info_with_constructable(
+                                        method.function_id(),
+                                        false,
+                                    ),
+                                ),
+                            );
+                        }
+                    }
                     object.properties.insert(
                         "BYTES_PER_ELEMENT".to_string(),
                         ObjectShapeProperty::Data(ValueInfo::new(ValueKind::Number)),
@@ -5217,6 +5258,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::ArrayPrototypeToLocaleString
             | StandardBuiltinId::TypedArrayPrototypeToString
             | StandardBuiltinId::TypedArrayPrototypeJoin
+            | StandardBuiltinId::Uint8ArrayPrototypeToBase64
+            | StandardBuiltinId::Uint8ArrayPrototypeToHex
             | StandardBuiltinId::TypedArrayPrototypeToLocaleString => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
@@ -5949,6 +5992,21 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Box::new(Self::empty_object_shape())),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::Uint8ArrayFromBase64 | StandardBuiltinId::Uint8ArrayFromHex => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::typed_array_instance_shape_for_constructor(
+                    StandardBuiltinId::Uint8ArrayConstructor,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::Uint8ArrayPrototypeSetFromBase64
+            | StandardBuiltinId::Uint8ArrayPrototypeSetFromHex => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::uint8_array_codec_result_shape()),
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::DataViewConstructor => (
@@ -7405,5 +7463,94 @@ impl<'a> ScriptLowerer<'a> {
             this_observed: false,
             source_call_flow_effects: SourceCallFlowEffects::unobserved(),
         }
+    }
+}
+
+#[cfg(test)]
+mod uint8_array_codec_tests {
+    use super::*;
+
+    #[test]
+    fn uint8_array_codecs_are_owned_only_by_the_uint8_subtype() {
+        for constructor in [
+            StandardBuiltinId::Uint8ArrayConstructor,
+            StandardBuiltinId::Uint8ClampedArrayConstructor,
+            StandardBuiltinId::Int8ArrayConstructor,
+            StandardBuiltinId::TypedArrayConstructor,
+        ] {
+            let constructor_shape = ScriptLowerer::standard_builtin_function_shape(constructor);
+            let prototype_shape =
+                ScriptLowerer::typed_array_constructor_prototype_shape(constructor);
+            let expected = constructor == StandardBuiltinId::Uint8ArrayConstructor;
+            for (name, _) in UINT8_ARRAY_CODEC_STATIC_MEMBERS {
+                assert_eq!(
+                    read_heap_shape_property(&constructor_shape, name).is_some(),
+                    expected
+                );
+            }
+            for (name, _) in UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS {
+                assert_eq!(
+                    read_heap_shape_property(&prototype_shape, name).is_some(),
+                    expected
+                );
+                assert!(read_heap_shape_property(
+                    &ScriptLowerer::typed_array_prototype_shape(),
+                    name
+                )
+                .is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn uint8_array_codec_calls_retain_their_result_shapes() {
+        for source in ["Uint8Array.fromBase64('');", "Uint8Array.fromHex('');"] {
+            let result = codec_call_result(source);
+            assert_eq!(result.kind, ValueKind::Object);
+            let shape = result.heap_shape.expect("Uint8Array result shape");
+            for (name, builtin) in UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS {
+                let Some(ObjectShapeProperty::Data(method)) =
+                    read_heap_shape_property(&shape, name)
+                else {
+                    panic!("returned Uint8Array must expose {name}");
+                };
+                assert_eq!(
+                    method.function_targets.exact_single_target(),
+                    Some(&builtin.function_id())
+                );
+            }
+        }
+        for source in [
+            "new Uint8Array(0).setFromBase64('');",
+            "new Uint8Array(0).setFromHex('');",
+        ] {
+            let result = codec_call_result(source);
+            assert_eq!(result.kind, ValueKind::Object);
+            let shape = result.heap_shape.expect("read/written result shape");
+            for name in ["read", "written"] {
+                let Some(ObjectShapeProperty::Data(value)) = read_heap_shape_property(&shape, name)
+                else {
+                    panic!("codec result must expose {name}");
+                };
+                assert_eq!(value.kind, ValueKind::Number);
+            }
+        }
+        for source in [
+            "new Uint8Array(0).toBase64();",
+            "new Uint8Array(0).toHex();",
+        ] {
+            assert_eq!(codec_call_result(source).kind, ValueKind::String);
+        }
+    }
+
+    fn codec_call_result(source: &str) -> TypedExpr {
+        let program =
+            crate::lower(&lila_front::parse(source, lila_front::ParseOptions::script()).unwrap());
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.unwrap();
+        let Some(StatementIr::Expression(result)) = script.body.statements.last() else {
+            panic!("codec call must remain a value-producing expression");
+        };
+        result.clone()
     }
 }

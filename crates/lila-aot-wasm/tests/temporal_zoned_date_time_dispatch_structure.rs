@@ -26,6 +26,7 @@ fn assert_private_non_derived_declaration(name: &str) {
         .expect("declaration prefix")
         .1;
     assert!(!declaration_prefix.contains("#[derive("));
+    assert!(!METHODS_SOURCE.contains(&format!("pub enum {name}")));
     assert!(!METHODS_SOURCE.contains(&format!("pub(crate) enum {name}")));
     assert!(!METHODS_SOURCE.contains(&format!("pub(super) enum {name}")));
 }
@@ -56,17 +57,45 @@ fn zoned_date_time_direction_domains_are_private_non_derived_and_exhaustive() {
     let difference = bounded(
         METHODS_SOURCE,
         "enum ZonedDateTimeDifference {",
-        "impl ZonedDateTimeDifference {",
-    );
-    assert!(difference.starts_with("\n    Until,\n    Since,\n}\n\n"));
-    let difference_projection = bounded(
-        METHODS_SOURCE,
-        "impl ZonedDateTimeDifference {",
         "impl<'a> FunctionBuilder<'a> {",
     );
-    assert!(!difference_projection.contains("_ =>"));
-    assert_eq!(difference_projection.matches("Self::Until =>").count(), 1);
-    assert_eq!(difference_projection.matches("Self::Since =>").count(), 1);
+    assert!(difference.starts_with("\n    Until,\n    Since,\n}\n\n"));
+    let difference_emitter = METHODS_SOURCE
+        .split_once("fn emit_temporal_zoned_date_time_until_or_since(")
+        .expect("private difference emitter")
+        .1;
+    assert_eq!(difference_emitter.matches("match difference {").count(), 2);
+    for (binding, until, since) in [
+        (
+            "operation",
+            "TemporalPlainDifferenceOperation::Until",
+            "TemporalPlainDifferenceOperation::Since",
+        ),
+        (
+            "plan",
+            "TemporalDateTimeDifferenceSettingsPlan::ZonedUntil",
+            "TemporalDateTimeDifferenceSettingsPlan::ZonedSince",
+        ),
+    ] {
+        let projection = bounded(
+            difference_emitter,
+            &format!("let {binding} = match difference {{"),
+            "\n        };",
+        );
+        let arms = projection
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            arms,
+            [
+                format!("ZonedDateTimeDifference::Until => {until},"),
+                format!("ZonedDateTimeDifference::Since => {since},"),
+            ],
+            "{binding} must preserve both exhaustive direction mappings"
+        );
+    }
 }
 
 #[test]

@@ -564,9 +564,13 @@ use crate::{
     BUILTIN_TYPED_ARRAY_PROTOTYPE_VALUES_FUNCTION_ID,
     BUILTIN_TYPED_ARRAY_PROTOTYPE_WITH_FUNCTION_ID, BUILTIN_TYPED_ARRAY_SPECIES_GETTER_FUNCTION_ID,
     BUILTIN_TYPE_ERROR_FUNCTION_ID, BUILTIN_UINT16_ARRAY_FUNCTION_ID,
-    BUILTIN_UINT32_ARRAY_FUNCTION_ID, BUILTIN_UINT8_ARRAY_FUNCTION_ID,
-    BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID, BUILTIN_UNESCAPE_FUNCTION_ID,
-    BUILTIN_URI_ERROR_FUNCTION_ID, BUILTIN_WEAK_MAP_FUNCTION_ID,
+    BUILTIN_UINT32_ARRAY_FUNCTION_ID, BUILTIN_UINT8_ARRAY_FROM_BASE64_FUNCTION_ID,
+    BUILTIN_UINT8_ARRAY_FROM_HEX_FUNCTION_ID, BUILTIN_UINT8_ARRAY_FUNCTION_ID,
+    BUILTIN_UINT8_ARRAY_PROTOTYPE_SET_FROM_BASE64_FUNCTION_ID,
+    BUILTIN_UINT8_ARRAY_PROTOTYPE_SET_FROM_HEX_FUNCTION_ID,
+    BUILTIN_UINT8_ARRAY_PROTOTYPE_TO_BASE64_FUNCTION_ID,
+    BUILTIN_UINT8_ARRAY_PROTOTYPE_TO_HEX_FUNCTION_ID, BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID,
+    BUILTIN_UNESCAPE_FUNCTION_ID, BUILTIN_URI_ERROR_FUNCTION_ID, BUILTIN_WEAK_MAP_FUNCTION_ID,
     BUILTIN_WEAK_MAP_PROTOTYPE_DELETE_FUNCTION_ID, BUILTIN_WEAK_MAP_PROTOTYPE_GET_FUNCTION_ID,
     BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_COMPUTED_FUNCTION_ID,
     BUILTIN_WEAK_MAP_PROTOTYPE_GET_OR_INSERT_FUNCTION_ID,
@@ -1633,21 +1637,8 @@ mod tests {
         assert!(StandardBuiltinId::all_functions().contains(&builtin));
     }
 
-    /// The arithmetic/calendar surface added in batch 6.
-    ///
-    /// Before it, `Temporal.ZonedDateTime.prototype` carried 18 accessors and
-    /// exactly four data methods (`equals`, `toInstant`, `withTimeZone`,
-    /// `toPlainDateTime`), so `zdt.add(...)` read `undefined` off the prototype
-    /// and the call threw `TypeError: value is not callable`. That is the whole
-    /// mechanism behind the 28 measured
-    /// `intl402/Temporal/ZonedDateTime/prototype/{add,subtract,since,until}/era-boundary-*.js`
-    /// failures — nothing was mis-rooted, the members did not exist.
-    ///
-    /// `withCalendar` is in this list because it is not optional for the
-    /// gate: `since/era-boundary-gregory.js:65` and its `until` twin call
-    /// `one.withCalendar("iso8601")` to build the ISO oracle they compare the
-    /// `weeks`/`days` answers against, so four of the 28 cases need five
-    /// callables, not four.
+    /// The era-boundary difference tests use `withCalendar("iso8601")`
+    /// to construct their ISO comparison alongside the arithmetic methods.
     #[test]
     fn temporal_zoned_date_time_arithmetic_surface_is_registered_as_nonconstructable_methods() {
         for (builtin, native_name, debug_name) in [

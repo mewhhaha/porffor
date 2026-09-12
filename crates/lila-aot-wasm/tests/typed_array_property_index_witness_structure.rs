@@ -23,8 +23,8 @@ fn length_read_body() -> &'static str {
 fn indexed_read_body() -> &'static str {
     bounded(
         OBJECTS_SOURCE,
+        "    fn emit_typed_array_element_read_from_locals(",
         "    fn emit_typed_array_or_object_index_read_from_locals_inner(",
-        "    pub(crate) fn emit_object_index_read_from_locals(",
     )
 }
 
@@ -174,6 +174,40 @@ fn length_read_projects_the_non_throwing_accessor_witness() {
 
 #[test]
 fn indexed_read_validates_before_loading_the_backing_pointer() {
+    let dispatch = bounded(
+        OBJECTS_SOURCE,
+        "    fn emit_typed_array_or_object_index_read_from_locals_inner(",
+        "    pub(crate) fn emit_object_index_read_from_locals(",
+    );
+    let typed_array_branch = without_whitespace(
+        r#"
+        self.emit_is_typed_array_i32(target_local, target_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_typed_array_element_read_from_locals(
+            target_local,
+            index_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+"#,
+    );
+    assert_eq!(
+        without_whitespace(dispatch)
+            .matches(&typed_array_branch)
+            .count(),
+        1
+    );
+    assert_eq!(
+        dispatch
+            .matches("emit_typed_array_element_read_from_locals(")
+            .count(),
+        1
+    );
+    assert!(!dispatch.contains("emit_typed_array_witness("));
+    assert!(!dispatch.contains("emit_load_array_buffer_data("));
+
     let body = indexed_read_body();
     assert_one_view_and_witness(
         body,
@@ -188,22 +222,16 @@ fn indexed_read_validates_before_loading_the_backing_pointer() {
     );
     assert!(!body.contains("Instruction::I64GeU"));
 
-    let typed_array_branch = unique_position(
+    let undefined = unique_position(
         body,
-        "emit_is_typed_array_i32(target_local, target_tag_local, function)",
-        "TypedArray branch",
-    );
-    let undefined = typed_array_branch
-        + position(
-            &body[typed_array_branch..],
-            r#"
+        r#"
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
 "#,
-            "TypedArray undefined result initialization",
-        );
+        "TypedArray undefined result initialization",
+    );
     let private_state = unique_position(
         body,
         "emit_load_typed_array_private_state(",

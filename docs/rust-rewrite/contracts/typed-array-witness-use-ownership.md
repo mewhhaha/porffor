@@ -1,6 +1,8 @@
 # TypedArray witness-use ownership
 
 Status: normative for the AOT TypedArray buffer-witness use boundary.
+Current owner inventory refreshed on 2026-09-12. See the
+[codec checkpoint](../uint8array-codec-baseline-follow-up.md#verification) for current verification.
 
 ## Semantic boundary
 
@@ -24,7 +26,7 @@ requires an explicit validation policy and an explicit result algorithm; no
 catch-all can silently inherit the behavior of an existing consumer. View
 locals remain a separate immutable description because many algorithms
 legitimately take later live integer-index observations from the same view.
-`TypedArrayViewLocals` itself is non-`Clone` and non-`Copy`: each of its 46
+`TypedArrayViewLocals` itself is non-`Clone` and non-`Copy`: each of its 40
 producers constructs one owned five-local carrier, and every live observation
 borrows that carrier. Algorithms that require multiple observations therefore
 reuse one authority by shared borrow instead of forking independent copies of
@@ -40,22 +42,48 @@ boundary, and the borrowed-validation-before-owned-result order. A lexical
 probe prevents comments, nested comments, raw identifiers and literals from
 making the census vacuous.
 
-Batch AG extends the same guard to the view carrier. It pins 56 exact product
+The current inventory contains 51 view-carrier references, 40 constructors,
+two borrowed type boundaries, and 68 witness-use references. The 51 witness
+sites comprise one definition and 50 calls. The four route counts are
+`ValidatedMethodEntry 34`, `ArrayLikeLengthSnapshot 8`,
+`IntegerIndexedProperty 13`, and `Accessor 4`; these include both exhaustive
+matches inside the witness authority.
+
+The guard attributes every reference to its exact source owner: `objects.rs`,
+`builtins/{array,atomics,binary_data,iterators,mod,object,standard,uint8array_codecs}.rs`,
+and `builtins/array/find_via_predicate.rs`. The codec contributes one owned view,
+one validated method-entry witness, and the two corresponding imports. Its
+private-state load must precede validation, and validation must precede the
+backing-pointer load. This preserves the late buffer observation after codec
+option getters without changing the earlier immutable-receiver check.
+
+The witness body's current fingerprint is `(8495, 0x76179fc19b197dcd)`.
+Replacing only its named `TypedArrayLengthMode::Fixed.word()` projection with
+the old `I64Const(0)` exactly reconstructs the earlier fingerprint
+`(8433, 0xdba079dd67aaacdf)`. Both select wire zero. The current body and the
+older census drift already existed on `origin/main` at `6dff6eb0d`; the codec
+adds two view references, one constructor, two use references and one witness
+call to that baseline. The per-file inventory prevents an unrelated added or
+removed consumer from being hidden by a total-count adjustment.
+
+## Historical verification
+
+Batch AG extended the same guard to the view carrier. It pinned 56 exact product
 mentions, 46 constructors, two borrowed type boundaries, the attribute-free
 five-field declaration, and the absence of manual clone, copy, debug, default,
 comparison, ordering or hashing implementations. The unchanged declaration is
 `64a7e96e10f1d53150a94e915656bd69b2a050449e7fa73b2954093ddd1b5390`, its
 constructor implementation is
 `7ff4343576674f15b704921718176ace71d92df0927299bfed696ee008a10f80`, and
-the shared witness emitter remains
+the shared witness emitter was
 `61daf0915471d6f3f2ac4e62dd3792bb940a318c7a9199676fe327ea852ec226`.
 
-This is source-equivalent ownership hardening. It does not change buffer
+That was source-equivalent ownership hardening. It did not change buffer
 observation, detachment or resize behavior, add a new TypedArray consumer,
 retire a Test262 rewrite, or claim full T17 conformance. Focused compilation,
 the ownership guard and a neighboring witness structure target own the
-checkpoint; broad conformance and semantic-golden runs remain deferred. At the
-current checkpoint, the package-level ownership target passes `4/4`, the
+checkpoint; broad conformance and semantic-golden runs remained deferred. At the
+pre-AG checkpoint, the package-level ownership target passed `4/4`, the
 neighboring Atomics TypedArray-witness target passes `5/5`, and the exact
 TypedArray iterator CLI witness passes `1/1`. A standalone run of the older
 iterator structure target is `1/2`: its Realm-validation subtest passes, while

@@ -1294,6 +1294,12 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TypedArrayPrototypeLengthGetter
         | StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
         | StandardBuiltinId::TypedArrayPrototypeToString
+        | StandardBuiltinId::Uint8ArrayFromBase64
+        | StandardBuiltinId::Uint8ArrayFromHex
+        | StandardBuiltinId::Uint8ArrayPrototypeSetFromBase64
+        | StandardBuiltinId::Uint8ArrayPrototypeSetFromHex
+        | StandardBuiltinId::Uint8ArrayPrototypeToBase64
+        | StandardBuiltinId::Uint8ArrayPrototypeToHex
         | StandardBuiltinId::TypedArrayPrototypeAt
         | StandardBuiltinId::TypedArrayPrototypeIncludes
         | StandardBuiltinId::TypedArrayPrototypeIndexOf

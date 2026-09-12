@@ -27,6 +27,7 @@ jobs:
       - name: Check exact execution replay tooling
         run: |
           python3 -m unittest discover -s scripts/tests -p test_replay_test262_executions.py -v
+          python3 -m unittest discover -s scripts/tests -p test_audit_test262_replay.py -v
           python3 -m unittest discover -s scripts/tests -p test_collect_new_test262_failures.py -v
 
       - name: Check independent source grammar and environment ownership
@@ -98,6 +99,19 @@ jobs:
           --test aot_temporal_zoned_date_time_round
           --test aot_temporal_zoned_date_time_difference
           --test aot_temporal_plain_date_zoned
+          -- --test-threads=1
+
+      - name: Check Uint8Array codec lowering contracts
+        run: |
+          cargo test --locked -p lila-ir --lib uint8_array_codec
+          cargo test --locked -p lila-ir --lib catalog_contract_tests::
+
+      - name: Execute Uint8Array codec regressions through Wasmtime
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_uint8array_hex
+          --test aot_uint8array_base64_decode
+          --test aot_uint8array_base64_encode
           -- --test-threads=1
 
       - name: Check Temporal option and getter ownership
