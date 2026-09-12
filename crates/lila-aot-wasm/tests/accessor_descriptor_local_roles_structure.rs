@@ -59,7 +59,7 @@ fn three_definition_boundaries_consume_the_typed_descriptor() {
     let definitions = bounded(
         OBJECTS_SOURCE,
         "pub(crate) fn emit_object_define_accessor(",
-        "/// Positional adapter for the two `Object.defineProperty` call sites",
+        "pub(crate) fn emit_object_define_entry_validated(",
     );
     assert_eq!(
         definitions

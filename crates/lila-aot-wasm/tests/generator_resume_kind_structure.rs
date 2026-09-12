@@ -509,11 +509,14 @@ fn readers_validate_one_snapshot_and_preserve_fresh_delegation_normal() {
 }
 
 #[test]
-fn contract_records_scope_census_and_pending_verification() {
+fn contract_records_scope_census_and_verification() {
     let contract = normalized(CONTRACT);
     assert!(contract.contains("three-valuesynchronousgeneratorresume-kinddomain"));
     assert!(contract.contains("twosemanticwriters"));
     assert!(contract.contains("twostrictreaders"));
     assert!(contract.contains("freshdelegationpath"));
-    assert!(contract.contains("Cargoverificationpending"));
+    assert!(contract.contains("structureguardpasses`7/7`"));
+    assert!(contract.contains("neighboringgenerator-stateguardpasses`4/4`"));
+    assert!(contract.contains("all`12/12`sloppy/strictWasm-AOTvariants"));
+    assert!(contract.contains("everyfailureandnon-successbucketatzero"));
 }
