@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const SOURCE: &str = include_str!("../src/builtins/binary_data.rs");
+const UINT8_ARRAY_CODECS: &str = include_str!("../src/builtins/uint8array_codecs.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/typed-array-witness-use-ownership.md");
 const TASK: &str = include_str!("../../../tasks/17-typedarrays-binary-data-atomics.md");
@@ -281,19 +282,21 @@ fn view_locals_is_the_exact_non_copyable_borrowed_carrier() {
         "    pub(crate) fn emit_typed_array_witness(",
         "    /// Compiles one of the three TypedArray view accessors",
     );
+    // The named Fixed.word() projection replaces the frozen I64Const(0).
+    // The wire value and every other byte of the witness body are unchanged.
     assert_eq!(
         (witness.len(), fnv1a(witness)),
-        (8433, 0xdba0_79dd_67aa_acdf)
+        (8495, 0x7617_9fc1_9b19_7dcd)
     );
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayViewLocals"),
-        56
+        51
     );
     assert_eq!(
         count_normalized_in_rust_sources(&source_root, "TypedArrayViewLocals::new("),
-        46
+        40
     );
     assert_eq!(
         count_normalized_in_rust_sources(&source_root, "&TypedArrayViewLocals"),
@@ -356,7 +359,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayWitnessUse"),
-        78
+        68
     );
     for forbidden in [
         "impl Clone for TypedArrayWitnessUse",
@@ -373,9 +376,9 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
 fn every_witness_use_route_has_an_exact_closed_projection() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (variant, count) in [
-        ("ValidatedMethodEntry", 33),
-        ("ArrayLikeLengthSnapshot", 15),
-        ("IntegerIndexedProperty", 18),
+        ("ValidatedMethodEntry", 34),
+        ("ArrayLikeLengthSnapshot", 8),
+        ("IntegerIndexedProperty", 13),
         ("Accessor", 4),
     ] {
         assert_eq!(
@@ -389,8 +392,67 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
     }
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "emit_typed_array_witness"),
-        62,
-        "one definition and 61 calls must remain the complete witness boundary"
+        51,
+        "one definition and 50 calls must remain the complete witness boundary"
+    );
+
+    let identifiers = [
+        "TypedArrayViewLocals",
+        "TypedArrayViewLocals::new",
+        "TypedArrayWitnessUse",
+        "emit_typed_array_witness",
+        "TypedArrayWitnessUse::ValidatedMethodEntry",
+        "TypedArrayWitnessUse::ArrayLikeLengthSnapshot",
+        "TypedArrayWitnessUse::IntegerIndexedProperty",
+        "TypedArrayWitnessUse::Accessor",
+    ];
+    for (owner, expected) in [
+        ("objects.rs", [4, 4, 4, 4, 1, 0, 2, 1]),
+        ("builtins/array.rs", [16, 14, 24, 22, 11, 4, 8, 0]),
+        (
+            "builtins/array/find_via_predicate.rs",
+            [1, 1, 1, 1, 1, 0, 0, 0],
+        ),
+        ("builtins/atomics.rs", [5, 4, 5, 4, 4, 0, 0, 0]),
+        ("builtins/binary_data.rs", [5, 2, 12, 3, 2, 2, 3, 3]),
+        ("builtins/iterators.rs", [2, 1, 2, 1, 1, 0, 0, 0]),
+        ("builtins/mod.rs", [1, 0, 1, 0, 0, 0, 0, 0]),
+        ("builtins/object.rs", [2, 1, 2, 1, 0, 1, 0, 0]),
+        ("builtins/standard.rs", [13, 12, 15, 14, 13, 1, 0, 0]),
+        ("builtins/uint8array_codecs.rs", [2, 1, 2, 1, 1, 0, 0, 0]),
+    ] {
+        let source = fs::read_to_string(source_root.join(owner)).expect("witness owner source");
+        let code = rust_code(&source);
+        for (identifier, count) in identifiers.into_iter().zip(expected) {
+            assert_eq!(
+                exact_identifier_count(&code.identifiers, identifier),
+                count,
+                "unexpected `{identifier}` ownership in {owner}"
+            );
+        }
+    }
+
+    let codec_bytes = bounded(
+        UINT8_ARRAY_CODECS,
+        "    pub(super) fn emit_uint8_array_codec_bytes(",
+        "    fn emit_uint8_array_codec_prototype(",
+    );
+    for operation in [
+        "self.emit_load_typed_array_private_state(",
+        "TypedArrayViewLocals::new(",
+        "self.emit_typed_array_witness(",
+        "TypedArrayWitnessUse::ValidatedMethodEntry { length_local }",
+        "self.emit_load_array_buffer_data(",
+    ] {
+        assert_eq!(codec_bytes.matches(operation).count(), 1, "{operation}");
+    }
+    assert!(
+        codec_bytes.find("self.emit_load_typed_array_private_state(")
+            < codec_bytes.find("self.emit_typed_array_witness(")
+    );
+    assert!(
+        codec_bytes.find("self.emit_typed_array_witness(")
+            < codec_bytes.find("self.emit_load_array_buffer_data(")
     );
 }
 

@@ -1,7 +1,7 @@
 # Temporal ZonedDateTime direction dispatch
 
 Status: current Wasm-AOT direction contract as of 2026-09-12. The structural
-assertion refresh awaits the coordinated verification checkpoint.
+assertion refresh passed the [coordinated verification checkpoint](../../../test262/replays/zoned-date-time-follow-up-20260910.verification.json).
 
 ## Invariant
 

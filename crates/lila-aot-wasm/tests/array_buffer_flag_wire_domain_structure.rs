@@ -5,6 +5,7 @@ const HEAP: &str = include_str!("../src/heap.rs");
 const OBJECTS: &str = include_str!("../src/objects.rs");
 const BINARY_DATA: &str = include_str!("../src/builtins/binary_data.rs");
 const STANDARD: &str = include_str!("../src/builtins/standard.rs");
+const UINT8_ARRAY_CODECS: &str = include_str!("../src/builtins/uint8array_codecs.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -120,8 +121,8 @@ fn array_buffer_flag_is_one_capability_free_four_row_wire_authority() {
 #[test]
 fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag"), 31);
-    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag::"), 29);
+    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag"), 32);
+    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag::"), 30);
     for old_name in [
         "ARRAY_BUFFER_FLAG_RESIZABLE",
         "ARRAY_BUFFER_FLAG_SHARED",
@@ -138,9 +139,10 @@ fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
     assert_eq!(OBJECTS.matches("ArrayBufferFlag::").count(), 2);
     assert_eq!(BINARY_DATA.matches("ArrayBufferFlag::").count(), 6);
     assert_eq!(STANDARD.matches("ArrayBufferFlag::").count(), 17);
+    assert_eq!(UINT8_ARRAY_CODECS.matches("ArrayBufferFlag::").count(), 1);
     assert_eq!(HEAP.matches("ArrayBufferFlag::").count(), 4);
     assert_eq!(
-        [OBJECTS, BINARY_DATA, STANDARD]
+        [OBJECTS, BINARY_DATA, STANDARD, UINT8_ARRAY_CODECS]
             .into_iter()
             .map(|source| {
                 source
@@ -149,7 +151,7 @@ fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
                     .count()
             })
             .sum::<usize>(),
-        25
+        26
     );
 }
 
@@ -175,7 +177,7 @@ fn every_product_projection_stays_with_its_single_algorithm_owner() {
         ),
         (
             "    pub(crate) fn emit_detach_array_buffer(",
-            "    pub(crate) fn emit_throw_if_shared_array_buffer(",
+            "    pub(crate) fn emit_throw_if_array_buffer_immutable(",
             1,
         ),
         (
@@ -210,6 +212,22 @@ fn every_product_projection_stays_with_its_single_algorithm_owner() {
         .expect("standard builtin compiler")
         .1;
     assert_eq!(standard_compiler.matches("ArrayBufferFlag::").count(), 14);
+
+    let codec_receiver = bounded(
+        UINT8_ARRAY_CODECS,
+        "    pub(super) fn emit_uint8_array_codec_receiver(",
+        "    pub(super) fn emit_uint8_array_codec_string(",
+    );
+    let write_validation = codec_receiver
+        .split_once("Uint8ArrayCodecAccess::Write => {")
+        .expect("only writing codecs reject immutable buffers")
+        .1;
+    assert_eq!(codec_receiver.matches("ArrayBufferFlag::").count(), 1);
+    assert_eq!(
+        projection_sequence(write_validation, "ArrayBufferFlag::"),
+        ["Immutable"]
+    );
+    assert!(write_validation.contains("self.emit_throw_current_function_realm_type_error("));
 }
 
 #[test]

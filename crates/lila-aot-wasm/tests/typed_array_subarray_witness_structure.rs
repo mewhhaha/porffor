@@ -68,7 +68,9 @@ const RESULT_WITNESS_WIRING: &str = r#"
 
 const SPECIES_ARGUMENT_LISTS: &str = r#"
                 function.instruction(&Instruction::LocalGet(length_tracking_local));
-                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Const(
+                    TypedArrayLengthMode::Fixed.word() as i64
+                ));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::LocalGet(end_tag_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -569,7 +571,7 @@ fn typed_array_prototype_installs_the_witnessed_subarray_builtin() {
         .split_once("for (name, meta) in &typed_array_method_metas {")
         .expect("missing created-Realm TypedArray method materialization")
         .1
-        .split_once("let typed_array_buffer_key_local")
+        .split_once("for (name, builtin) in [")
         .expect("missing boundary after created-Realm TypedArray method materialization")
         .0;
     for realm_binding in [

@@ -23,7 +23,7 @@ fn filter_body() -> &'static str {
     bounded(
         ARRAY_SOURCE,
         "pub(crate) fn compile_typed_array_prototype_filter_builtin(",
-        "pub(crate) fn compile_typed_array_prototype_quantifier_builtin(",
+        "pub(crate) fn compile_typed_array_prototype_every_builtin(",
     )
 }
 

@@ -5,6 +5,7 @@ const HEAP: &str = include_str!("../src/heap.rs");
 const OBJECTS: &str = include_str!("../src/objects.rs");
 const BINARY_DATA: &str = include_str!("../src/builtins/binary_data.rs");
 const STANDARD: &str = include_str!("../src/builtins/standard.rs");
+const UINT8_ARRAY_CODECS: &str = include_str!("../src/builtins/uint8array_codecs.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -109,29 +110,33 @@ fn typed_array_length_mode_is_one_capability_free_two_row_wire_authority() {
 }
 
 #[test]
-fn six_named_projections_are_the_complete_typed_array_length_mode_census() {
+fn seven_named_projections_are_the_complete_typed_array_length_mode_census() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "TypedArrayLengthMode"),
-        8
+        9
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "TypedArrayLengthMode::"),
-        6
+        7
     );
     assert_eq!(HEAP.matches("TypedArrayLengthMode").count(), 2);
     assert_eq!(OBJECTS.matches("TypedArrayLengthMode::").count(), 1);
     assert_eq!(BINARY_DATA.matches("TypedArrayLengthMode::").count(), 3);
     assert_eq!(STANDARD.matches("TypedArrayLengthMode::").count(), 2);
     assert_eq!(
-        [OBJECTS, BINARY_DATA, STANDARD]
+        UINT8_ARRAY_CODECS.matches("TypedArrayLengthMode::").count(),
+        1
+    );
+    assert_eq!(
+        [OBJECTS, BINARY_DATA, STANDARD, UINT8_ARRAY_CODECS]
             .into_iter()
             .map(|source| source.matches("TypedArrayLengthMode::Fixed.word()").count())
             .sum::<usize>(),
-        5
+        6
     );
     assert_eq!(
-        [OBJECTS, BINARY_DATA, STANDARD]
+        [OBJECTS, BINARY_DATA, STANDARD, UINT8_ARRAY_CODECS]
             .into_iter()
             .map(|source| source
                 .matches("TypedArrayLengthMode::Tracking.word()")
@@ -142,7 +147,7 @@ fn six_named_projections_are_the_complete_typed_array_length_mode_census() {
 }
 
 #[test]
-fn three_readers_and_three_writers_own_every_length_mode_projection() {
+fn readers_and_publishers_own_every_length_mode_projection() {
     let object_reader = bounded(
         OBJECTS,
         "    pub(crate) fn emit_ordinary_prevent_extensions_i32(",
@@ -192,13 +197,31 @@ fn three_readers_and_three_writers_own_every_length_mode_projection() {
             .matches("HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET")
             .count(),
         1,
-        "the grouped constructor remains the sole length-mode publisher"
+        "the grouped constructor publishes its selected length mode once"
     );
+
+    let codec_allocation = bounded(
+        UINT8_ARRAY_CODECS,
+        "    pub(super) fn emit_uint8_array_codec_allocation(",
+        "    pub(super) fn emit_uint8_array_codec_result(",
+    );
+    assert_eq!(projection_sequence(codec_allocation), ["Fixed"]);
+    assert_eq!(
+        codec_allocation
+            .matches("HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET")
+            .count(),
+        1
+    );
+    assert!(without_whitespace(codec_allocation).contains(concat!(
+        "(HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET,TypedArrayLengthMode::Fixed.word(),)",
+    )));
+    assert!(codec_allocation
+        .contains("self.store_i64_const_at_offset(self.result_local, offset, value, function);"));
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET"),
-        7
+        8
     );
 }
 

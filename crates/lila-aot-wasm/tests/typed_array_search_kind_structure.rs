@@ -22,7 +22,7 @@ fn search_body() -> &'static str {
     bounded(
         ARRAY_SOURCE,
         "    fn compile_typed_array_search_builtin(",
-        "    pub(crate) fn compile_array_prototype_at_builtin(",
+        "    pub(super) fn compile_array_prototype_at_builtin(",
     )
 }
 
@@ -31,7 +31,7 @@ fn typed_array_search_kind_has_no_equality_projection() {
     let declaration = bounded(
         ARRAY_SOURCE,
         "enum TypedArraySearchKind {",
-        "pub(crate) enum ArrayAtReceiverPolicy",
+        "\nenum ArrayAtReceiverPolicy",
     );
     let variants = declaration
         .split_once('}')
@@ -46,7 +46,7 @@ fn typed_array_search_kind_has_no_equality_projection() {
     let authority_header = bounded(
         ARRAY_SOURCE,
         "enum TypedArrayQuantifierKind {",
-        "pub(crate) enum ArrayAtReceiverPolicy",
+        "\nenum ArrayAtReceiverPolicy",
     );
     assert!(!authority_header.contains("#[derive"));
     for capability in [

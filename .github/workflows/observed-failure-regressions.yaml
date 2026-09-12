@@ -101,6 +101,11 @@ jobs:
           --test aot_temporal_plain_date_zoned
           -- --test-threads=1
 
+      - name: Check Uint8Array codec lowering contracts
+        run: |
+          cargo test --locked -p lila-ir --lib uint8_array_codec
+          cargo test --locked -p lila-ir --lib catalog_contract_tests::
+
       - name: Execute Uint8Array codec regressions through Wasmtime
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine

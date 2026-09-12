@@ -1,6 +1,7 @@
 # TypedArray length-mode wire domain
 
-Status: implemented and focused-verified at the Batch AO checkpoint.
+Status: implemented; owner inventory refreshed on 2026-09-12. See the
+[codec checkpoint](../uint8array-codec-baseline-follow-up.md#verification) for current verification.
 
 ## Boundary
 
@@ -13,30 +14,33 @@ that runtime representation.
 
 The type intentionally has no clone, copy, debug, equality, hashing, ordering
 or default capability. A new mode cannot silently inherit a wire value, and the
-six current decisions cannot spell an unrelated integer. The grouped
-constructor still publishes one runtime local to the private slot, so emitted
-instruction and storage order are unchanged.
+seven current decisions cannot spell an unrelated integer. The grouped
+constructor publishes its selected runtime local to the private slot; the
+Uint8Array codec allocator publishes the named `Fixed` word directly.
 
 ## Ownership census
 
-There are exactly three writers:
+There are exactly four writer projections:
 
 - `emit_initialize_typed_array_from_array_buffer` first selects `Fixed`, then
   selects `Tracking` only for a resizable or growable buffer with no explicit
-  length; and
+  length;
 - the grouped eleven-constructor standard-builtin arm initializes every other
-  construction path as `Fixed` before its existing source classification.
+  constructor path as `Fixed` before its existing source classification; and
+- `emit_uint8_array_codec_allocation` publishes `Fixed` for the exact-length
+  Uint8Array returned by `fromBase64` and `fromHex`.
 
 There are exactly three readers. `emit_typed_array_witness`,
 `emit_ordinary_prevent_extensions_i32`, and the
 `TypedArray.prototype.subarray` arm compare the runtime word with the named
 `Fixed` word before preserving their existing fixed/tracking branch behavior.
-This yields six product projections with the exact `Fixed 5 / Tracking 1`
-split and `objects 1 / binary_data 3 / standard 2` distribution.
+This yields seven product projections with the exact `Fixed 6 / Tracking 1`
+split and `objects 1 / binary_data 3 / standard 2 / uint8array_codecs 1`
+distribution.
 
-The private-slot offset retains seven source mentions: declaration and layout,
+The private-slot offset has eight source mentions: declaration and layout,
 one source-inventory guard string, the three reader loads, and the grouped
-constructor's sole publication. This migration does not type the separate
+constructor and codec allocator publications. This authority does not type the separate
 DataView length-tracking slot and does not add runtime validation for corrupted
 heap words.
 
@@ -44,9 +48,11 @@ heap words.
 
 The four-test recursive
 `typed_array_length_mode_wire_domain_structure` target pins the exact two-row
-authority, absence of incidental capabilities, eight total type mentions, six
-named projections, all three readers and writers, the one slot publication and
-the unchanged seven-offset census. It also pins the frozen projection sequence
+authority, absence of incidental capabilities, nine total type mentions, seven
+named projections, all three readers and four writer projections, both slot
+publications and the eight-offset census. The codec assertion couples its
+private-slot offset to `Fixed.word()` and its constant store. The original three
+product files retain the frozen projection sequence
 `Fixed, Fixed, Fixed, Tracking, Fixed, Fixed`. Mapping those names back to the
 pre-migration constants retains raw fingerprint
 `(358, 0xc988361080d6b5cc)` and whitespace-normalized fingerprint
@@ -55,7 +61,9 @@ pre-migration constants retains raw fingerprint
 and
 `04193b36264ff26e0780c45446bc517e85aef7b306fcf1d2fe0ede71994d6d4f`.
 
-Focused behavioral controls are the exact CLI fixtures
+## Historical verification
+
+The Batch AO focused behavioral controls were the exact CLI fixtures
 `typed_array::run_wasm_backend_succeeds_for_typedarray_accessors_fixture` and
 `typed_array::run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness`.
 The pinned Test262 leaves are:

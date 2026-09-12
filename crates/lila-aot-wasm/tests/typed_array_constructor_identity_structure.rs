@@ -50,11 +50,7 @@ fn typed_array_intrinsic_has_one_hidden_constructable_builtin_identity() {
         1
     );
 
-    let catalog = bounded(
-        CATALOG_SOURCE,
-        "    TypedArrayConstructor {",
-        "\n}\n\nimpl StandardBuiltinId {",
-    );
+    let catalog = bounded(CATALOG_SOURCE, "    TypedArrayConstructor {", "\n    }\n");
     for field in [
         "=> BUILTIN_TYPED_ARRAY_CONSTRUCTOR_FUNCTION_ID,",
         "debug: \"%TypedArray%\",",
