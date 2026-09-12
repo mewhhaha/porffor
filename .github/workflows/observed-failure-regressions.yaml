@@ -100,6 +100,14 @@ jobs:
           --test aot_temporal_plain_date_zoned
           -- --test-threads=1
 
+      - name: Execute Uint8Array codec regressions through Wasmtime
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_uint8array_hex
+          --test aot_uint8array_base64_decode
+          --test aot_uint8array_base64_encode
+          -- --test-threads=1
+
       - name: Check Temporal option and getter ownership
         run: >-
           cargo test --locked -p lila-aot-wasm

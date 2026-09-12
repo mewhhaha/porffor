@@ -326,6 +326,22 @@ pub const INT8_ARRAY_NAME: &str = "Int8Array";
 pub const UINT32_ARRAY_NAME: &str = "Uint32Array";
 pub const UINT16_ARRAY_NAME: &str = "Uint16Array";
 pub const UINT8_ARRAY_NAME: &str = "Uint8Array";
+pub const UINT8_ARRAY_CODEC_STATIC_MEMBERS: [(&str, StandardBuiltinId); 2] = [
+    ("fromBase64", StandardBuiltinId::Uint8ArrayFromBase64),
+    ("fromHex", StandardBuiltinId::Uint8ArrayFromHex),
+];
+pub const UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS: [(&str, StandardBuiltinId); 4] = [
+    (
+        "setFromBase64",
+        StandardBuiltinId::Uint8ArrayPrototypeSetFromBase64,
+    ),
+    (
+        "setFromHex",
+        StandardBuiltinId::Uint8ArrayPrototypeSetFromHex,
+    ),
+    ("toBase64", StandardBuiltinId::Uint8ArrayPrototypeToBase64),
+    ("toHex", StandardBuiltinId::Uint8ArrayPrototypeToHex),
+];
 pub const UINT8_CLAMPED_ARRAY_NAME: &str = "Uint8ClampedArray";
 pub const BIGINT64_ARRAY_NAME: &str = "BigInt64Array";
 pub const BIGUINT64_ARRAY_NAME: &str = "BigUint64Array";
@@ -1310,6 +1326,16 @@ pub const BUILTIN_INT8_ARRAY_FUNCTION_ID: &str = "$builtin.Int8Array";
 pub const BUILTIN_UINT32_ARRAY_FUNCTION_ID: &str = "$builtin.Uint32Array";
 pub const BUILTIN_UINT16_ARRAY_FUNCTION_ID: &str = "$builtin.Uint16Array";
 pub const BUILTIN_UINT8_ARRAY_FUNCTION_ID: &str = "$builtin.Uint8Array";
+pub const BUILTIN_UINT8_ARRAY_FROM_BASE64_FUNCTION_ID: &str = "$builtin.Uint8Array.fromBase64";
+pub const BUILTIN_UINT8_ARRAY_FROM_HEX_FUNCTION_ID: &str = "$builtin.Uint8Array.fromHex";
+pub const BUILTIN_UINT8_ARRAY_PROTOTYPE_SET_FROM_BASE64_FUNCTION_ID: &str =
+    "$builtin.Uint8Array.prototype.setFromBase64";
+pub const BUILTIN_UINT8_ARRAY_PROTOTYPE_SET_FROM_HEX_FUNCTION_ID: &str =
+    "$builtin.Uint8Array.prototype.setFromHex";
+pub const BUILTIN_UINT8_ARRAY_PROTOTYPE_TO_BASE64_FUNCTION_ID: &str =
+    "$builtin.Uint8Array.prototype.toBase64";
+pub const BUILTIN_UINT8_ARRAY_PROTOTYPE_TO_HEX_FUNCTION_ID: &str =
+    "$builtin.Uint8Array.prototype.toHex";
 pub const BUILTIN_UINT8_CLAMPED_ARRAY_FUNCTION_ID: &str = "$builtin.Uint8ClampedArray";
 pub const BUILTIN_BIGINT64_ARRAY_FUNCTION_ID: &str = "$builtin.BigInt64Array";
 pub const BUILTIN_BIGUINT64_ARRAY_FUNCTION_ID: &str = "$builtin.BigUint64Array";

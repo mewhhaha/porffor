@@ -2928,6 +2928,37 @@ impl StringPool {
             pool.intern_string("String.prototype.normalize form must be NFC, NFD, NFKC, or NFKD");
             pool.append_normalization_tables();
         }
+        for &(name, _) in lila_ir::UINT8_ARRAY_CODEC_STATIC_MEMBERS
+            .iter()
+            .chain(lila_ir::UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS.iter())
+        {
+            pool.intern_string(name);
+        }
+        for value in [
+            "alphabet",
+            "base64",
+            "base64url",
+            "lastChunkHandling",
+            "loose",
+            "strict",
+            "stop-before-partial",
+            "omitPadding",
+            "read",
+            "written",
+            "Uint8Array codec requires a Uint8Array receiver",
+            "Uint8Array codec input must be a string",
+            "Uint8Array codec options must be an object or undefined",
+            "Uint8Array base64 alphabet must be base64 or base64url",
+            "Uint8Array codec backing buffer is immutable",
+            "Uint8Array base64 lastChunkHandling must be loose, strict, or stop-before-partial",
+            "Invalid base64 string",
+            "Hexadecimal string length must be even",
+            "Invalid hexadecimal digit",
+            "Hexadecimal output is too large",
+            "Base64 output is too large",
+        ] {
+            pool.intern_string(value);
+        }
         pool
     }
 

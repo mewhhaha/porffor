@@ -8012,6 +8012,15 @@ impl<'a> FunctionBuilder<'a> {
                 false,
                 function,
             )?;
+            if builtin == StandardBuiltinId::Uint8ArrayConstructor {
+                self.emit_initialize_uint8_array_codec_methods(
+                    constructor_local,
+                    prototype_local,
+                    array_buffer_prototype_local,
+                    Some(&realm_functions),
+                    function,
+                )?;
+            }
             self.emit_object_define_number_data_from_f64_const_with_flags(
                 prototype_local,
                 "BYTES_PER_ELEMENT",
