@@ -3,6 +3,7 @@
 use crate::*;
 
 use super::evaluation_mode::ModuleMaterializationModeIr;
+use super::record::DefaultExportFormIr;
 
 /// Exact definition spans in the linked Script, measured in Boa's UTF-16 offsets.
 #[derive(Debug, Default)]
