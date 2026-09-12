@@ -250,7 +250,7 @@ fn created_realm_installs_the_self_backed_typed_array_entry() {
         .split_once("        for (name, meta) in &typed_array_method_metas {")
         .expect("created-realm TypedArray method installer")
         .1
-        .split_once("        let typed_array_buffer_key_local")
+        .split_once("        for (name, builtin) in [\n            (\"buffer\", StandardBuiltinId::TypedArrayPrototypeBufferGetter),")
         .expect("created-realm TypedArray method installer end")
         .0;
     assert_eq!(
