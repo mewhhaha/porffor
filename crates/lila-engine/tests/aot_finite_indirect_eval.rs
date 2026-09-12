@@ -228,7 +228,7 @@ let text = `(class {
   static #field = 1;
   static #writes = 0;
   static get #accessor() { return this.#field; }
-  static set #accessor(value) { this.#field = value; this.#writes++; }
+  static set #accessor(value) { this.#field = value; this.#writes = this.#writes + 1; }
   static #method(increment) { return this.#field + increment; }
   static field(other) { return other.#field; }
   static putField(other, value) { other.#field = value; }

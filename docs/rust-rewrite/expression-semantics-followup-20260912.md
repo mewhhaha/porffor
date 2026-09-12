@@ -103,3 +103,10 @@ from this PR's repair cohort, not added to a skip list.
 The original full baseline continues against its earlier compiler. Its counters
 measure that compiler, while this PR's paired replay measures these changes.
 Neither is a completed, current full Test262 conformance result.
+
+A new adjacent static-member control also exposed the existing unsupported
+private-field `++`/`--` lowering. Direct inspection of its class reports
+`private field update target`; optional eval preparation consequently retains
+the explicit runtime capability rejection. That separate numeric-update gap
+remains open. The private-brand control uses explicit private reads and writes
+to verify its setter invocation count.
