@@ -15679,7 +15679,24 @@ eval(1);
         assert_prepared_script(&optional_test262, PreparedScriptKind::RealmScript);
         let optional_converted_test262 =
             lower_test262_script(&format!("{name}?.(String('source'));"));
-        assert_prepared_script(&optional_converted_test262, PreparedScriptKind::RealmScript);
+        assert!(
+            optional_converted_test262.is_wasm_supported(),
+            "{:?}",
+            optional_converted_test262.diagnostics
+        );
+        assert!(
+            optional_converted_test262
+                .script
+                .as_ref()
+                .expect("Script IR")
+                .prepared_scripts
+                .iter()
+                .any(|script| script.kind == PreparedScriptKind::RealmScript
+                    && script.source == "source"
+                    && script.admission == PreparedScriptAdmission::RuntimeCandidate
+                    && matches!(script.outcome, PreparedScriptOutcome::Executable(_))),
+            "converted source must retain runtime callable and source guards"
+        );
         let optional_runtime_test262 =
             lower_test262_script(&format!("{name}?.(String(unknownSource));"));
         assert!(optional_runtime_test262
