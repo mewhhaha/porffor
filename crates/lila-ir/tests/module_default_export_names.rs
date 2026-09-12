@@ -63,7 +63,7 @@ fn default_class_display_name_is_independent_of_its_merged_storage() {
             _ => None,
         })
     }
-    let script = module("export default class { static value = this.name; }");
+    let script = module("export default class { static value = this.name; }print('after');");
     assert_eq!(class_names(&script), ["default"]);
     let definition =
         class_binding(&script.body.statements).expect("default export class declaration");
@@ -139,7 +139,7 @@ fn explicit_and_nested_same_spelled_definitions_are_not_default_exports() {
 fn utf16_crlf_and_multi_unit_offsets_identify_the_actual_default_definition() {
     let script = graph(&[
         ("entry.js", "// 🦀é\r\nimport value from './value.js'; print(value.name);"),
-        ("value.js", "const text = '🦀é';\r\nvoid import.meta;\r\nexport default (class { static value = this.name; });"),
+        ("value.js", "const text = '🦀é';\r\nvoid import.meta;\r\nexport default class { static value = this.name; }print('after');"),
     ]);
     assert_eq!(class_names(&script), ["default"]);
 }
@@ -204,7 +204,9 @@ fn hoistable_default_protocols_initialize_the_storage_binding_before_evaluation(
         "async function () { return 23; }",
         "async function* () { yield 23; }",
     ] {
-        let script = module(&format!("print('body'); export default {definition}"));
+        let script = module(&format!(
+            "print('body'); export default {definition} print('after');"
+        ));
         let function = script
             .functions
             .iter()

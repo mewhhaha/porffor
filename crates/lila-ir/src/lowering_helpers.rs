@@ -1951,6 +1951,13 @@ pub(crate) fn class_static_block_key(block: &StaticBlockBody) -> String {
 }
 
 fn source_slice_from_utf16_span(source_text: &str, span: boa_ast::LinearSpan) -> String {
+    source_text[source_byte_range_from_utf16_span(source_text, span)].to_string()
+}
+
+pub(crate) fn source_byte_range_from_utf16_span(
+    source_text: &str,
+    span: boa_ast::LinearSpan,
+) -> std::ops::Range<usize> {
     let mut utf16_offset = 0;
     let mut start_byte = None;
     for (byte_offset, width) in source_text
@@ -1963,7 +1970,7 @@ fn source_slice_from_utf16_span(source_text: &str, span: boa_ast::LinearSpan) ->
         }
         if utf16_offset == span.end().pos() {
             let start_byte = start_byte.expect("parser source span starts at a UTF-16 boundary");
-            return source_text[start_byte..byte_offset].to_string();
+            return start_byte..byte_offset;
         }
         utf16_offset += width;
     }

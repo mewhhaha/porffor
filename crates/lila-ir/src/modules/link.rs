@@ -126,7 +126,7 @@ use super::namespace::{
     namespace_target_reference, shadows_prelude_global,
 };
 use super::record::{import_meta_binding, rewrite_import_meta, DefaultExportFormIr};
-use super::source::{strip_module_syntax, DefaultExportRewrite};
+use super::source::DefaultExportRewrite;
 
 /// Result of merging a linked graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -264,14 +264,14 @@ pub(crate) fn linked_script_source(
                 hoisted,
             },
         };
-        // `rewrite_import_meta` first and `strip_module_syntax` second: both
-        // preserve byte length because both are addressed by spans the record
-        // captured against the original text. `rewrite_dynamic_import_calls`
-        // runs last, because it is the only one that changes length.
+        // import.meta consumes original source spans first. The definition
+        // rewrite then preserves callable source while terminating anonymous
+        // declarations. Dynamic import rescans the resulting text, cross-checking
+        // its call counts and phases against the original record.
         let rewritten = rewrite_import_meta(&unit.source_text, &unit.record)
             .map_err(|error| error.reason)
             .and_then(|rewritten| {
-                strip_module_syntax(&rewritten, default_export).map_err(|error| error.reason)
+                super::DefaultExportDefinitions::rewrite_body(&rewritten, default_export)
             })
             .and_then(|stripped| graph.rewrite_dynamic_import_calls(unit_id, &stripped))
             // `import defer`: the body becomes a thunk the namespace calls.

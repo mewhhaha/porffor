@@ -16,6 +16,56 @@ enum DefaultExportEvaluation {
 }
 
 impl DefaultExportDefinitions {
+    pub(super) fn rewrite_body(
+        source: &str,
+        rewrite: super::source::DefaultExportRewrite<'_>,
+    ) -> Result<String, String> {
+        let declaration = if matches!(rewrite, super::source::DefaultExportRewrite::Bind { .. }) {
+            let parsed = lila_front::parse(source, lila_front::ParseOptions::module())
+                .map_err(|error| format!("default export module did not parse: {error}"))?;
+            let ParsedSource::Module(parsed) = parsed else {
+                unreachable!("Module parse options produce Module syntax")
+            };
+            parsed.with_compiler_session(|module, _| {
+                module.items().items().iter().find_map(|item| {
+                    let ModuleItem::ExportDeclaration(export) = item else {
+                        return None;
+                    };
+                    let span = match export.as_ref() {
+                        ExportDeclaration::DefaultFunctionDeclaration(function) => {
+                            function.linear_span()
+                        }
+                        ExportDeclaration::DefaultGeneratorDeclaration(function) => {
+                            function.linear_span()
+                        }
+                        ExportDeclaration::DefaultAsyncFunctionDeclaration(function) => {
+                            function.linear_span()
+                        }
+                        ExportDeclaration::DefaultAsyncGeneratorDeclaration(function) => {
+                            function.linear_span()
+                        }
+                        ExportDeclaration::DefaultClassDeclaration(class) => class.linear_span(),
+                        _ => return None,
+                    };
+                    Some(span)
+                })
+            })
+        } else {
+            None
+        };
+        let mut body =
+            super::source::strip_module_syntax(source, rewrite).map_err(|error| error.reason)?;
+        if let Some(declaration) = declaration {
+            // A declaration needs no trailing semicolon, but its rewritten
+            // variable initializer does. The scanner keeps byte offsets stable;
+            // insert only after it finishes, at the parsed definition boundary.
+            // The later dynamic-import pass rescans this resulting text.
+            let byte = source_byte_range_from_utf16_span(source, declaration).end;
+            body.insert(byte, ';');
+        }
+        Ok(body)
+    }
+
     pub(super) fn record_body(
         &mut self,
         body: &str,

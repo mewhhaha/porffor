@@ -5860,7 +5860,7 @@ impl<'a> AnalysisBuilder<'a> {
                     let name = function
                         .name()
                         .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
-                        .unwrap_or_else(|| "<anonymous>".to_string());
+                        .unwrap_or_default();
                     let self_binding_name = function.has_binding_identifier().then(|| name.clone());
                     let pending = PendingFunction {
                         id,

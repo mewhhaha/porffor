@@ -67,11 +67,11 @@ fn default_class_name_exists_before_static_fields_and_blocks() {
     assert_modules(
         &[
             ("entry.js", "import first from './first.js'; import second from './second.js'; print(first.name + ':' + second.name);"),
-            ("first.js", "export default class { static field = print('field:' + this.name); static { print('block:' + this.name); let d = Object.getOwnPropertyDescriptor(this, 'name'); print(d.value + ':' + d.writable + ':' + d.enumerable + ':' + d.configurable); } }"),
+            ("first.js", "export default class { static field = print('field:' + this.name); static { print('block:' + this.name); let d = Object.getOwnPropertyDescriptor(this, 'name'); print(d.value + ':' + d.writable + ':' + d.enumerable + ':' + d.configurable); } } print('after class');"),
             ("second.js", "export default (class { constructor() {} static { print('explicit:' + this.name); } });"),
         ],
         EntryGoal::Module,
-        &["field:default", "block:default", "default:false:false:true", "explicit:default", "default:default"],
+        &["field:default", "block:default", "default:false:false:true", "after class", "explicit:default", "default:default"],
     );
 }
 
@@ -116,10 +116,10 @@ fn utf16_offsets_and_nested_same_spelled_bindings_keep_distinct_names() {
     assert_modules(
         &[
             ("entry.js", "// 🦀é\r\nimport value from './value.js'; print(value.name);"),
-            ("value.js", "const prefix = '🦀é';\r\nvoid import.meta;\r\nexport default class { static { let $d1$ = class { static { print('nested:' + this.name); } }; print(prefix + ':' + this.name + ':' + $d1$.name); } };"),
+            ("value.js", "const prefix = '🦀é';\r\nvoid import.meta;\r\nexport default class { static { let $d1$ = class { static { print('nested:' + this.name); } }; print(prefix + ':' + this.name + ':' + $d1$.name); } }print('after unicode class');"),
         ],
         EntryGoal::Module,
-        &["nested:$d1$", "🦀é:default:$d1$", "default"],
+        &["nested:$d1$", "🦀é:default:$d1$", "after unicode class", "default"],
     );
 }
 
@@ -158,7 +158,7 @@ fn script_import_wrapper_and_length_changing_rewrites_preserve_names() {
     assert_modules(
         &[
             ("entry.js", "import('./value.js').then(ns => print('import:' + ns.default.name));"),
-            ("value.js", "void import('./other.js'); export default class { static { print('script:' + this.name); } }"),
+            ("value.js", "void import('./other.js'); export default class { static { print('script:' + this.name); } }void import('./other.js');"),
             ("other.js", "export const other = 1;"),
         ],
         EntryGoal::Script,
@@ -207,13 +207,16 @@ fn cyclic_dependency_calls_the_default_declaration_before_exporter_evaluation() 
 fn default_function_expressions_remain_uninitialized_until_evaluation() {
     assert_modules(
         &[
-            ("entry.js", "import './ordinary.js'; import './async-generator.js'; import './comma.js';"),
+            ("entry.js", "import './ordinary.js'; import './async-generator.js'; import './comma.js'; import './generator-comma.js'; import './async-comma.js'; import './async-generator-comma.js'; print((function (callable) { return 'argument:[' + callable.name + ']'; })(function () {}));"),
             ("ordinary.js", "import fOrdinary from './ordinary.js'; let caughtOrdinary = false; try { void fOrdinary; } catch (error) { caughtOrdinary = error instanceof ReferenceError; } print('ordinary TDZ:' + caughtOrdinary); export default (function () { return 27; }); print('ordinary:' + fOrdinary.name + ':' + fOrdinary());"),
             ("async-generator.js", "import fAsyncGenerator from './async-generator.js'; let caughtAsyncGenerator = false; try { void fAsyncGenerator; } catch (error) { caughtAsyncGenerator = error instanceof ReferenceError; } print('async generator TDZ:' + caughtAsyncGenerator); export default (async function* () { yield 28; }); fAsyncGenerator().next().then(result => print('async generator:' + fAsyncGenerator.name + ':' + result.value));"),
             ("comma.js", "import fComma from './comma.js'; let caughtComma = false; try { void fComma; } catch (error) { caughtComma = error instanceof ReferenceError; } print('comma TDZ:' + caughtComma); export default (0, function () { return 29; }); print('comma:[' + fComma.name + ']:' + fComma());"),
+            ("generator-comma.js", "import fGeneratorComma from './generator-comma.js'; export default (0, function* () { yield 30; }); print('generator comma:[' + fGeneratorComma.name + ']:' + (Function.prototype.toString.call(fGeneratorComma) === 'function* () { yield 30; }'));"),
+            ("async-comma.js", "import fAsyncComma from './async-comma.js'; export default (0, async function () { return 31; }); print('async comma:[' + fAsyncComma.name + ']:' + (Function.prototype.toString.call(fAsyncComma) === 'async function () { return 31; }'));"),
+            ("async-generator-comma.js", "import fAsyncGeneratorComma from './async-generator-comma.js'; export default (0, async function* () { yield 32; }); print('async generator comma:[' + fAsyncGeneratorComma.name + ']:' + (Function.prototype.toString.call(fAsyncGeneratorComma) === 'async function* () { yield 32; }'));"),
         ],
         EntryGoal::Module,
-        &["ordinary TDZ:true", "ordinary:default:27", "async generator TDZ:true", "comma TDZ:true", "comma:[]:29", "async generator:default:28"],
+        &["ordinary TDZ:true", "ordinary:default:27", "async generator TDZ:true", "comma TDZ:true", "comma:[]:29", "generator comma:[]:true", "async comma:[]:true", "async generator comma:[]:true", "argument:[]", "async generator:default:28"],
     );
 }
 
