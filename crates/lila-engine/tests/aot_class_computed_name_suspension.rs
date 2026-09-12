@@ -290,3 +290,40 @@ print(Object.prototype.hasOwnProperty.call(C.prototype, 'before'));
         &["pause", "true", "false"],
     );
 }
+
+#[test]
+fn bound_heritage_prototype_getters_invalidate_later_computed_key_facts() {
+    assert_trace(
+        r#"
+function create(inherited) {
+  function Base() {}
+  const parent = Base.bind(null);
+  const holder = inherited ? {} : parent;
+  Object.defineProperty(holder, 'prototype', { get() {
+    print('prototype');
+    key = 'after';
+    return Base.prototype;
+  } });
+  if (inherited) Object.setPrototypeOf(parent, holder);
+  let key = 'before';
+  class C extends parent { [key.toString()]() { return 13; } }
+  print(Object.prototype.hasOwnProperty.call(C.prototype, 'after'));
+  print(Object.prototype.hasOwnProperty.call(C.prototype, 'before'));
+  print(new C().after());
+}
+create(false);
+create(true);
+"#,
+        Goal::Script,
+        &[
+            "prototype",
+            "true",
+            "false",
+            "13",
+            "prototype",
+            "true",
+            "false",
+            "13",
+        ],
+    );
+}

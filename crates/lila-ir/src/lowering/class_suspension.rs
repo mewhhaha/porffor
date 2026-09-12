@@ -1,6 +1,36 @@
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
+    pub(super) fn class_heritage_prototype_get_may_call_user_code(
+        &self,
+        heritage: &TypedExpr,
+    ) -> bool {
+        if heritage.possible_kinds != KindSet::from_kind(ValueKind::Function) {
+            return true;
+        }
+        let Some(function_id) = self.resolve_single_function_target(heritage) else {
+            return true;
+        };
+        let function_id = self.original_exact_function_id(&function_id);
+        if !self
+            .function_signatures
+            .get(&function_id)
+            .is_some_and(|signature| signature.protocol.is_constructable())
+        {
+            return true;
+        }
+        // MakeConstructor gives source/class constructors an own,
+        // nonconfigurable data prototype; Array has the same guarantee.
+        // Its value can require runtime validation without its Get invoking
+        // user code. Generic constructable shapes do not prove this: bound
+        // functions and Proxy lack that own-property guarantee.
+        !self
+            .analysis
+            .planned_source_function_ids
+            .contains(&function_id)
+            && function_id != StandardBuiltinId::ArrayConstructor.function_id()
+    }
+
     pub(super) fn class_evaluation_state(&self) -> Option<u32> {
         self.current_generator_resume_state
             .or(self.current_async_resume_state)

@@ -36,7 +36,9 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 }
                 heritage_kind = ClassHeritageKind::Constructable;
-                self.invalidate_unknown_user_code_effects();
+                if self.class_heritage_prototype_get_may_call_user_code(heritage) {
+                    self.invalidate_unknown_user_code_effects();
+                }
             }
         }
 
