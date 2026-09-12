@@ -175,3 +175,145 @@ fn async_and_deferred_wrappers_relocate_default_definition_spans() {
         assert_eq!(constructors.first().expect("one constructor").1, "default");
     }
 }
+
+fn initialized_binding<'a>(
+    statements: &'a [StatementIr],
+    binding: &str,
+) -> Vec<&'a lila_ir::TypedExpr> {
+    statements
+        .iter()
+        .flat_map(|statement| match statement {
+            StatementIr::LexicalBlock(statements) => initialized_binding(statements, binding),
+            StatementIr::Block(block) => initialized_binding(&block.statements, binding),
+            StatementIr::Lexical { name, init, .. } if name == binding => vec![init],
+            StatementIr::Var(declarations) => declarations
+                .iter()
+                .filter(|declaration| declaration.name == binding)
+                .filter_map(|declaration| declaration.init.as_ref())
+                .collect(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+#[test]
+fn hoistable_default_protocols_initialize_the_storage_binding_before_evaluation() {
+    for definition in [
+        "function () { return 23; }",
+        "function* () { yield 23; }",
+        "async function () { return 23; }",
+        "async function* () { yield 23; }",
+    ] {
+        let script = module(&format!("print('body'); export default {definition}"));
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "default")
+            .expect("default callable");
+        assert!(!function.is_expression, "{definition}");
+        assert_eq!(function.to_string_representation.materialize(), definition);
+        assert_eq!(
+            script
+                .global_bindings
+                .get("$d0$")
+                .expect("merged binding")
+                .initializer,
+            lila_ir::GlobalPropertyInitializerIr::SourceFunction(function.id.clone())
+        );
+        assert!(
+            initialized_binding(&script.body.statements, "$d0$").is_empty(),
+            "the source export must not create a second function: {definition}"
+        );
+    }
+}
+
+#[test]
+fn expression_defaults_retain_lexical_initialization_at_the_export_statement() {
+    for definition in [
+        "function () {}",
+        "function* () {}",
+        "async function () {}",
+        "async function* () {}",
+    ] {
+        let script = module(&format!("print('body'); export default ({definition});"));
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == "default")
+            .expect("default callable");
+        assert!(function.is_expression, "{definition}");
+        assert!(script
+            .global_bindings
+            .lexical_bindings()
+            .contains_key("$d0$"));
+        assert!(script.global_bindings.get("$d0$").is_none());
+        let initializers = initialized_binding(&script.body.statements, "$d0$");
+        assert_eq!(initializers.len(), 1, "{definition}");
+        assert_eq!(
+            initializers[0].expr,
+            ExprIr::FunctionValue(function.id.clone())
+        );
+    }
+}
+
+#[test]
+fn wrapper_owned_default_declarations_use_the_wrappers_function_instantiation() {
+    for files in [
+        [
+            (
+                "entry.js",
+                "import value from './value.js'; print(value.name);",
+            ),
+            (
+                "value.js",
+                "await 0; export default function () { return 23; }",
+            ),
+        ],
+        [
+            (
+                "entry.js",
+                "import defer * as ns from './value.js'; print(ns.default.name);",
+            ),
+            ("value.js", "export default function () { return 23; }"),
+        ],
+    ] {
+        let script = graph(&files);
+        let default_ids = script
+            .functions
+            .iter()
+            .filter(|function| function.name == "default")
+            .map(|function| function.id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(default_ids.len(), 1);
+        let default_id = *default_ids.first().expect("default callable");
+        assert!(script
+            .global_bindings
+            .get("$d1$")
+            .is_none_or(|binding| !matches!(
+                binding.initializer,
+                lila_ir::GlobalPropertyInitializerIr::SourceFunction(_)
+            )));
+        let owners = script
+            .functions
+            .iter()
+            .filter_map(|function| {
+                let initializers = initialized_binding(&function.body.statements, "$d1$");
+                if initializers.is_empty() {
+                    return None;
+                }
+                assert_eq!(initializers.len(), 1, "wrapper initializes once");
+                assert_eq!(
+                    initializers[0].expr,
+                    ExprIr::FunctionValue(default_id.into())
+                );
+                Some(function.id.as_str())
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            owners.len(),
+            1,
+            "only the existing wrapper owns instantiation"
+        );
+        assert!(!owners.contains(default_id));
+    }
+}

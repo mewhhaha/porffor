@@ -1,4 +1,4 @@
-//! NamedEvaluation of anonymous default exports, independent of their merged binding names.
+//! Anonymous default export definitions retain their name and instantiation phase.
 
 use crate::*;
 
@@ -6,16 +6,34 @@ use super::evaluation_mode::ModuleMaterializationModeIr;
 
 /// Exact definition spans in the linked Script, measured in Boa's UTF-16 offsets.
 #[derive(Debug, Default)]
-pub(crate) struct DefaultExportNames(BTreeSet<(usize, usize)>);
+pub(crate) struct DefaultExportDefinitions(BTreeMap<(usize, usize), DefaultExportEvaluation>);
 
-impl DefaultExportNames {
+#[derive(Debug, Clone)]
+enum DefaultExportEvaluation {
+    Expression,
+    HoistedFunction { binding_name: String },
+}
+
+impl DefaultExportDefinitions {
     pub(super) fn record_body(
         &mut self,
         body: &str,
         module: ModuleUnitId,
         mode: ModuleMaterializationModeIr,
+        form: DefaultExportFormIr,
         preceding_source: &str,
     ) -> Result<(), String> {
+        let evaluation = match form {
+            DefaultExportFormIr::Absent | DefaultExportFormIr::Named => return Ok(()),
+            DefaultExportFormIr::Anonymous { hoisted: false } => {
+                DefaultExportEvaluation::Expression
+            }
+            DefaultExportFormIr::Anonymous { hoisted: true } => {
+                DefaultExportEvaluation::HoistedFunction {
+                    binding_name: MergedName::anonymous_default(module).as_str().to_string(),
+                }
+            }
+        };
         // Rewrites of import.meta/import() may change offsets. Inspect the final
         // body, and only its module scope (or the known deferred-module thunk).
         let parsed = lila_front::parse(body, lila_front::ParseOptions::module())
@@ -68,8 +86,12 @@ impl DefaultExportNames {
         })?;
         if let Some(span) = span {
             let offset = preceding_source.encode_utf16().count();
-            self.0
-                .insert((span.start().pos() + offset, span.end().pos() + offset));
+            self.0.insert(
+                (span.start().pos() + offset, span.end().pos() + offset),
+                evaluation,
+            );
+        } else if matches!(evaluation, DefaultExportEvaluation::HoistedFunction { .. }) {
+            return Err("hoistable default export must retain its anonymous definition".into());
         }
         Ok(())
     }
@@ -79,7 +101,7 @@ impl DefaultExportNames {
         self.0 = self
             .0
             .iter()
-            .map(|(start, end)| (start + offset, end + offset))
+            .map(|(&(start, end), evaluation)| ((start + offset, end + offset), evaluation.clone()))
             .collect();
     }
 
@@ -87,29 +109,39 @@ impl DefaultExportNames {
         if self.0.is_empty() {
             return;
         }
-        struct Naming<'a, 'b> {
-            remaining: BTreeSet<(usize, usize)>,
+        struct Definitions<'a, 'b> {
+            remaining: BTreeMap<(usize, usize), DefaultExportEvaluation>,
             analysis: &'b mut Analysis<'a>,
         }
-        impl<'a> Visitor<'a> for Naming<'a, '_> {
+        impl<'a> Visitor<'a> for Definitions<'a, '_> {
             type BreakTy = ();
 
             fn visit_expression(&mut self, expression: &'a Expression) -> ControlFlow<()> {
                 if let Some((_, span, key)) = definition(expression) {
-                    if self
+                    if let Some(evaluation) = self
                         .remaining
                         .remove(&(span.start().pos(), span.end().pos()))
                     {
                         match key {
                             DefinitionKey::Function(key) => {
-                                let id = &self.analysis.function_expr_ids[&key];
+                                let id = self.analysis.function_expr_ids[&key].clone();
                                 self.analysis
                                     .function_plans
-                                    .get_mut(id)
+                                    .get_mut(&id)
                                     .expect("default export function is analyzed")
                                     .name = "default".into();
+                                if let DefaultExportEvaluation::HoistedFunction { binding_name } =
+                                    evaluation
+                                {
+                                    self.analysis
+                                        .hoist_default_export_function(id, binding_name);
+                                }
                             }
                             DefinitionKey::Class(key) => {
+                                assert!(
+                                    matches!(evaluation, DefaultExportEvaluation::Expression),
+                                    "class default exports initialize during evaluation"
+                                );
                                 let id = self.analysis.class_execution_ids[&key].clone();
                                 self.analysis.default_export_class_ids.insert(id);
                             }
@@ -119,13 +151,13 @@ impl DefaultExportNames {
                 expression.visit_with(self)
             }
         }
-        let mut naming = Naming {
+        let mut definitions = Definitions {
             remaining: self.0.clone(),
             analysis,
         };
-        let _ = script.visit_with(&mut naming);
+        let _ = script.visit_with(&mut definitions);
         assert!(
-            naming.remaining.is_empty(),
+            definitions.remaining.is_empty(),
             "linked default export definition spans must survive Script parsing"
         );
     }
@@ -221,6 +253,79 @@ fn definition(
 }
 
 impl Analysis<'_> {
+    fn hoist_default_export_function(&mut self, id: FunctionId, binding_name: String) {
+        let plan = self
+            .function_plans
+            .get_mut(&id)
+            .expect("default export is analyzed");
+        assert!(
+            matches!(
+                plan.protocol,
+                FunctionProtocolIr::OrdinaryCallAndConstruct
+                    | FunctionProtocolIr::Generator
+                    | FunctionProtocolIr::Async
+                    | FunctionProtocolIr::AsyncGenerator
+            ),
+            "only hoistable declarations enter module instantiation"
+        );
+        // The rewritten var already owns the binding and capture storage. Move
+        // initialization into that owner's existing declaration-instantiation
+        // list without changing the anonymous callable's exact source text.
+        plan.is_expression = false;
+        let owner = plan.parent_owner_id.clone();
+        let function = PendingFunction {
+            id: id.clone(),
+            name: binding_name.clone(),
+            to_string_representation: plan.to_string_representation.clone(),
+            protocol: plan.protocol,
+            strict: plan.strict,
+            self_binding_name: plan.self_binding_name.clone(),
+            parameters: plan.parameters,
+            body: plan.body,
+            is_expression: false,
+            capture_aliases: BTreeMap::new(),
+        };
+        self.owner_plans
+            .get_mut(&owner)
+            .expect("default export owner is analyzed")
+            .function_bindings
+            .insert(binding_name, id.clone());
+        if owner == SCRIPT_OWNER_ID {
+            self.script_root_functions.push(function);
+        } else {
+            self.function_plans
+                .get_mut(&owner)
+                .expect("default export wrapper is analyzed")
+                .root_functions
+                .push(function);
+        }
+        self.hoisted_default_export_function_ids.insert(id);
+    }
+
+    pub(crate) fn is_hoisted_default_export_initializer(&self, item: &StatementListItem) -> bool {
+        if self.hoisted_default_export_function_ids.is_empty() {
+            return false;
+        }
+        let StatementListItem::Statement(statement) = item else {
+            return false;
+        };
+        let Statement::Var(declaration) = statement.as_ref() else {
+            return false;
+        };
+        let [variable] = declaration.0.as_ref() else {
+            return false;
+        };
+        let Some(expression) = variable.init() else {
+            return false;
+        };
+        let Some((_, _, DefinitionKey::Function(key))) = definition(expression.flatten()) else {
+            return false;
+        };
+        self.function_expr_ids
+            .get(&key)
+            .is_some_and(|id| self.hoisted_default_export_function_ids.contains(id))
+    }
+
     pub(crate) fn class_display_name<'a>(
         &self,
         constructor: &FunctionId,

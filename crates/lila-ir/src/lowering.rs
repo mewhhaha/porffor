@@ -892,7 +892,7 @@ pub fn lower_with_host_surface_policy(
             source.source_text.len(),
             vec![LoweringStage::ParsedSource],
             None,
-            &modules::DefaultExportNames::default(),
+            &modules::DefaultExportDefinitions::default(),
             host_surface_policy,
         ),
         ParsedSource::Module(source) => lower_module_graph_with_host_surface_policy(
@@ -1021,7 +1021,7 @@ fn lower_graph(
         }
     };
 
-    let default_export_names = linked.default_export_names;
+    let default_export_definitions = linked.default_export_definitions;
     let linked = match lila_front::parse(
         linked.source.source_text,
         lila_front::ParseOptions {
@@ -1050,7 +1050,7 @@ fn lower_graph(
         source_len,
         stages,
         Some(graph),
-        &default_export_names,
+        &default_export_definitions,
         host_surface_policy,
     )
 }
@@ -1077,7 +1077,7 @@ fn lower_script_program(
     source_len: usize,
     stages: Vec<LoweringStage>,
     modules: Option<ModuleGraphIr>,
-    default_export_names: &modules::DefaultExportNames,
+    default_export_definitions: &modules::DefaultExportDefinitions,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
     lower_script_program_with_allocations(
@@ -1086,7 +1086,7 @@ fn lower_script_program(
         source_len,
         stages,
         modules,
-        default_export_names,
+        default_export_definitions,
         host_surface_policy,
         &mut AnalysisAllocationState::default(),
         ScriptInstantiation::FreshEntry,
@@ -1099,7 +1099,7 @@ fn lower_script_program_with_allocations(
     source_len: usize,
     stages: Vec<LoweringStage>,
     modules: Option<ModuleGraphIr>,
-    default_export_names: &modules::DefaultExportNames,
+    default_export_definitions: &modules::DefaultExportDefinitions,
     host_surface_policy: HostSurfacePolicy,
     allocations: &mut AnalysisAllocationState,
     instantiation: ScriptInstantiation,
@@ -1120,7 +1120,7 @@ fn lower_script_program_with_allocations(
         let t0 = std::time::Instant::now();
         let mut analysis = AnalysisBuilder::with_allocations(*allocations, instantiation.clone())
             .finish(script, interner, script_source.source_text.as_str());
-        default_export_names.apply(script, &mut analysis);
+        default_export_definitions.apply(script, &mut analysis);
         analysis.prepare_runtime_script_slots(script, interner);
         *allocations = analysis.allocations;
         if trace_phases {
@@ -3591,6 +3591,7 @@ impl<'a> ScriptLowerer<'a> {
 
         for item in items {
             match item {
+                _ if self.analysis.is_hoisted_default_export_initializer(item) => {}
                 StatementListItem::Declaration(declaration)
                     if matches!(declaration.as_ref(), Declaration::FunctionDeclaration(_)) => {}
                 StatementListItem::Declaration(declaration)

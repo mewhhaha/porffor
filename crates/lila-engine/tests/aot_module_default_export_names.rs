@@ -165,3 +165,82 @@ fn script_import_wrapper_and_length_changing_rewrites_preserve_names() {
         &["script:default", "import:default"],
     );
 }
+
+#[test]
+fn anonymous_default_declarations_are_callable_before_their_source_statement() {
+    assert_modules(
+        &[
+            ("entry.js", "import './ordinary.js'; import './generator.js'; import './async.js'; import './async-generator.js'; print('complete');"),
+            ("ordinary.js", "import fOrdinary from './ordinary.js'; const beforeOrdinary = fOrdinary; beforeOrdinary.marker = 7; print('ordinary:' + fOrdinary() + ':' + fOrdinary.name); export default function /* original */ () { return 23; } print('ordinary identity:' + (beforeOrdinary === fOrdinary) + ':' + fOrdinary.marker + ':' + (Function.prototype.toString.call(fOrdinary) === 'function /* original */ () { return 23; }'));"),
+            ("generator.js", "import fGenerator from './generator.js'; const beforeGenerator = fGenerator; beforeGenerator.marker = 8; print('generator:' + fGenerator().next().value + ':' + fGenerator.name); export default function* /* original */ () { yield 24; } print('generator identity:' + (beforeGenerator === fGenerator) + ':' + fGenerator.marker + ':' + (Function.prototype.toString.call(fGenerator) === 'function* /* original */ () { yield 24; }'));"),
+            ("async.js", "import fAsync from './async.js'; const beforeAsync = fAsync; beforeAsync.marker = 9; fAsync().then(value => print('async:' + value)); export default async function /* original */ () { return 25; } print('async identity:' + (beforeAsync === fAsync) + ':' + fAsync.marker + ':' + fAsync.name + ':' + (Function.prototype.toString.call(fAsync) === 'async function /* original */ () { return 25; }'));"),
+            ("async-generator.js", "import fAsyncGenerator from './async-generator.js'; const beforeAsyncGenerator = fAsyncGenerator; beforeAsyncGenerator.marker = 10; fAsyncGenerator().next().then(result => print('async generator:' + result.value)); export default async function* /* original */ () { yield 26; } print('async generator identity:' + (beforeAsyncGenerator === fAsyncGenerator) + ':' + fAsyncGenerator.marker + ':' + fAsyncGenerator.name + ':' + (Function.prototype.toString.call(fAsyncGenerator) === 'async function* /* original */ () { yield 26; }'));"),
+        ],
+        EntryGoal::Module,
+        &[
+            "ordinary:23:default",
+            "ordinary identity:true:7:true",
+            "generator:24:default",
+            "generator identity:true:8:true",
+            "async identity:true:9:default:true",
+            "async generator identity:true:10:default:true",
+            "complete",
+            "async:25",
+            "async generator:26",
+        ],
+    );
+}
+
+#[test]
+fn cyclic_dependency_calls_the_default_declaration_before_exporter_evaluation() {
+    assert_modules(
+        &[
+            ("entry.js", "import { original } from './dependency.js'; import f from './entry.js'; print('entry:' + (original === f) + ':' + f.marker); export default function () { return 23; } print('after:' + (original === f) + ':' + f.marker);"),
+            ("dependency.js", "import f from './entry.js'; print('dependency:' + f()); f.marker = 7; export const original = f;"),
+        ],
+        EntryGoal::Module,
+        &["dependency:23", "entry:true:7", "after:true:7"],
+    );
+}
+
+#[test]
+fn default_function_expressions_remain_uninitialized_until_evaluation() {
+    assert_modules(
+        &[
+            ("entry.js", "import './ordinary.js'; import './async-generator.js'; import './comma.js';"),
+            ("ordinary.js", "import fOrdinary from './ordinary.js'; let caughtOrdinary = false; try { void fOrdinary; } catch (error) { caughtOrdinary = error instanceof ReferenceError; } print('ordinary TDZ:' + caughtOrdinary); export default (function () { return 27; }); print('ordinary:' + fOrdinary.name + ':' + fOrdinary());"),
+            ("async-generator.js", "import fAsyncGenerator from './async-generator.js'; let caughtAsyncGenerator = false; try { void fAsyncGenerator; } catch (error) { caughtAsyncGenerator = error instanceof ReferenceError; } print('async generator TDZ:' + caughtAsyncGenerator); export default (async function* () { yield 28; }); fAsyncGenerator().next().then(result => print('async generator:' + fAsyncGenerator.name + ':' + result.value));"),
+            ("comma.js", "import fComma from './comma.js'; let caughtComma = false; try { void fComma; } catch (error) { caughtComma = error instanceof ReferenceError; } print('comma TDZ:' + caughtComma); export default (0, function () { return 29; }); print('comma:[' + fComma.name + ']:' + fComma());"),
+        ],
+        EntryGoal::Module,
+        &["ordinary TDZ:true", "ordinary:default:27", "async generator TDZ:true", "comma TDZ:true", "comma:[]:29", "async generator:default:28"],
+    );
+}
+
+#[test]
+fn module_wrappers_initialize_default_declarations_in_their_owning_activation() {
+    assert_modules(
+        &[
+            ("entry.js", "import f from './value.js'; print('entry:' + f.name + ':' + f());"),
+            ("value.js", "// 🦀é\r\nimport f from './value.js'; var answer = 31; print('before await:' + f()); await 0; export default function () { return answer; }"),
+        ],
+        EntryGoal::Module,
+        &["before await:31", "entry:default:31"],
+    );
+    assert_modules(
+        &[
+            ("entry.js", "import defer * as ns from './value.js'; print('before defer'); print('entry:' + ns.default.name + ':' + ns.default());"),
+            ("value.js", "let answer = 32; print('deferred body'); export default function () { return answer; }"),
+        ],
+        EntryGoal::Module,
+        &["before defer", "deferred body", "entry:default:32"],
+    );
+    assert_modules(
+        &[
+            ("entry.js", "import('./value.js').then(ns => print('entry:' + ns.default.name + ':' + ns.default()));"),
+            ("value.js", "import f from './value.js'; var answer = 33; print('script:' + f()); export default function () { return answer; }"),
+        ],
+        EntryGoal::Script,
+        &["script:33", "entry:default:33"],
+    );
+}

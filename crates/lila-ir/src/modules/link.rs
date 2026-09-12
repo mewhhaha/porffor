@@ -161,7 +161,7 @@ pub fn evaluation_components(graph: &ModuleGraphIr) -> Vec<Vec<ModuleUnitId>> {
 #[derive(Debug)]
 pub(crate) struct LinkedScriptSource {
     pub(crate) source: SourceUnit,
-    pub(crate) default_export_names: super::DefaultExportNames,
+    pub(crate) default_export_definitions: super::DefaultExportDefinitions,
 }
 
 /// Script-goal source text for the whole linked graph, or the reasons it could
@@ -226,7 +226,7 @@ pub(crate) fn linked_script_source(
         text.push('\n');
     }
 
-    let mut default_export_names = super::DefaultExportNames::default();
+    let mut default_export_definitions = super::DefaultExportDefinitions::default();
     let mut position = 0usize;
     // The Script entry of a script graph, kept aside: it is emitted after the
     // wrapper that holds every module, not inside it.
@@ -292,15 +292,14 @@ pub(crate) fn linked_script_source(
                 if position > 0 {
                     text.push_str("\n;\n");
                 }
-                if matches!(
+                if let Err(reason) = default_export_definitions.record_body(
+                    &body,
+                    unit_id,
+                    mode,
                     unit.record.default_export_form(),
-                    DefaultExportFormIr::Anonymous { .. }
+                    &text,
                 ) {
-                    if let Err(reason) =
-                        default_export_names.record_body(&body, unit_id, mode, &text)
-                    {
-                        diagnostics.push(IrDiagnostic::lowering(reason));
-                    }
+                    diagnostics.push(IrDiagnostic::lowering(reason));
                 }
                 text.push_str(&body);
                 position += 1;
@@ -327,23 +326,24 @@ pub(crate) fn linked_script_source(
                  `await`",
             )]);
         }
-        wrap_script_graph_modules(graph, &text, &mut default_export_names) + &script_entry_body
+        wrap_script_graph_modules(graph, &text, &mut default_export_definitions)
+            + &script_entry_body
     } else {
         // 16.2.1.6.1: module code is always strict. The prologue stays outside
         // any wrapper so it is still the merged script's first Directive
         // Prologue item.
         let mut source_text = String::from("\"use strict\";\n");
         if asynchronous {
-            source_text.push_str(&wrap_async_body(&text, &mut default_export_names));
+            source_text.push_str(&wrap_async_body(&text, &mut default_export_definitions));
         } else {
             source_text.push_str(&text);
         }
-        default_export_names.prepend("\"use strict\";\n");
+        default_export_definitions.prepend("\"use strict\";\n");
         source_text
     };
 
     Ok(LinkedScriptSource {
-        default_export_names,
+        default_export_definitions,
         source: SourceUnit {
             goal: ParseGoal::Script,
             filename: sources
@@ -386,7 +386,7 @@ pub(crate) fn linked_script_source(
 fn wrap_script_graph_modules(
     graph: &ModuleGraphIr,
     modules: &str,
-    names: &mut super::DefaultExportNames,
+    names: &mut super::DefaultExportDefinitions,
 ) -> String {
     let exports = graph.script_entry_dispatcher_exports();
     if exports.is_empty() && modules.trim().is_empty() {
@@ -450,7 +450,7 @@ fn wrap_script_graph_modules(
 /// `lower_module_graph` has to report it for a synchronous one. `var`
 /// declarations likewise become function-scoped, which is the module
 /// environment's behaviour rather than the merged script's.
-fn wrap_async_body(body: &str, names: &mut super::DefaultExportNames) -> String {
+fn wrap_async_body(body: &str, names: &mut super::DefaultExportDefinitions) -> String {
     // `void` because the call's value is the module's `[[TopLevelCapability]]`
     // promise, and an `ExpressionStatement` yielding it would make that promise
     // the merged script's completion value. A module evaluates to no value.
