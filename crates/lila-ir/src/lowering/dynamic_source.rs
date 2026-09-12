@@ -279,6 +279,7 @@ impl ScriptLowerer<'_> {
         callee: &Expression,
         arguments: &[Expression],
     ) {
+        self.register_source_call_argument_candidates(callee, arguments);
         let property_name =
             |access: &boa_ast::expression::access::SimplePropertyAccess| match access.field() {
                 PropertyAccessField::Const(name) => {

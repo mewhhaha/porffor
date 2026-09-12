@@ -23,8 +23,9 @@ fn assert_trace(source: &str, policy: HostSurfacePolicy, expected: &[&str]) {
     assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(
         matches!(outcome.completion, ObservedCompletion::Normal(_)),
-        "{:?}",
-        outcome.completion
+        "{:?}: {:?}\n{source}",
+        outcome.completion,
+        outcome.output_events
     );
     let expected = expected
         .iter()
@@ -90,8 +91,8 @@ try { second.read.call(first); } catch (error) { print(error instanceof TypeErro
 fn foreign_eval_preserves_realm_and_private_environment_identity() {
     assert_trace(
         r#"
-let firstRealm = $262.createRealm();
-let secondRealm = $262.createRealm();
+let firstRealm = __lilaCreateRealm();
+let secondRealm = __lilaCreateRealm();
 let text = `(class { #value = 21; read(other) { return other.#value; } })`;
 let create = function(target) { return new (target(text)); };
 let first = create(firstRealm.global.eval);
@@ -173,7 +174,7 @@ print(eval.call(undefined, text));
 print(eval.apply(undefined, [text]));
 print(Reflect.apply(eval, undefined, [text]));
 print((0, eval)(...[], text, 'not source'));
-let realm = $262.createRealm();
+let realm = __lilaCreateRealm();
 print(realm.evalScript(text));
 "#,
         HostSurfacePolicy::Test262,
@@ -185,7 +186,7 @@ print(realm.evalScript(text));
 fn syntax_errors_are_deferred_to_the_selected_eval_realm() {
     assert_trace(
         r#"
-let realm = $262.createRealm();
+let realm = __lilaCreateRealm();
 let text = 'let = ;';
 function invoke(target) { return target(text); }
 print(invoke(function(source) { return source; }));

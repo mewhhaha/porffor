@@ -33,7 +33,7 @@ fn assert_prepared(program: &ProgramIr, text: &str, kind: PreparedScriptKind) {
 
 #[test]
 fn forwarded_eval_prepares_captured_class_source_without_a_direct_eval_context() {
-    for target in ["eval", "$262.createRealm().global.eval"] {
+    for target in ["eval", "__lilaCreateRealm().global.eval"] {
         let program = lower(&format!(
             "let text = `(class {{ #x = 1; read(o) {{ return o.#x; }} }})`;\n\
              let create = function(target) {{ return new (target(text)); }};\n\
@@ -64,7 +64,7 @@ fn property_and_forwarding_routes_prepare_finite_bound_text() {
             PreparedScriptKind::IndirectEval,
         ),
         (
-            "$262.createRealm().evalScript(text)",
+            "__lilaCreateRealm().evalScript(text)",
             PreparedScriptKind::RealmScript,
         ),
     ] {

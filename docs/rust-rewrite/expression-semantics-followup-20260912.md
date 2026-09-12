@@ -48,12 +48,15 @@ combined paired baseline contains 373 executions: 324 Success, 27 Bug and
   BigInt text as unequal. Object coercion still occurs in its specified order,
   and the BigInt constructor retains its own SyntaxError behavior.
 - Indirect and cross-realm eval can use finite source text held in captured
-  bindings. The compiler prepares those sources ahead of time; runtime callable
+  bindings, reassigned identifiers, and positional parameters and defaults of
+  known functions. Existing array callback source hints remain available.
+  The compiler prepares those sources ahead of time; runtime callable
   identity, source equality, realm ownership and fresh private environments
   still determine execution. Unmatched source remains an explicit AOT
   capability failure. Indirect eval with widened argument types checks the
-  actual value at runtime, preserving non-string object identity without
-  attempting source conversion.
+  actual value at runtime, returning non-string values unchanged without
+  attempting source conversion. Source discovery remains bounded; this batch
+  does not add arbitrary helper forwarding through `.call` or `.apply`.
 - The Test262 runner admits the expression and declaration fixtures for
   `SharedArrayBuffer` subclassing. Direct merged-main Wasm execution already
   supports their construction/prototype behavior and growable storage.

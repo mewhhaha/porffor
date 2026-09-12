@@ -106,7 +106,7 @@ print(trace.join(','));
 fn foreign_eval_and_substituted_callables_keep_the_actual_invocation() {
     assert_trace(
         r#"
-var realm = $262.createRealm(), foreignEval = realm.global.eval;
+var realm = __lilaCreateRealm(), foreignEval = realm.global.eval;
 var value = new String('globalThis.changed = true');
 print(foreignEval(value) === value);
 print(realm.global.changed === undefined);

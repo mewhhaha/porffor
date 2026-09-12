@@ -12,7 +12,6 @@ impl<'a> ScriptLowerer<'a> {
 
     pub(super) fn lower_call(&mut self, callee: &Expression, args: &[Expression]) -> TypedExpr {
         self.register_array_callback_source_candidates(callee, args);
-        self.register_source_call_argument_candidates(callee, args);
         self.register_dynamic_source_candidates(callee, args);
         // A call nested in a computed property key can mutate the already
         // captured base even when its result is a primitive key. The epoch is
