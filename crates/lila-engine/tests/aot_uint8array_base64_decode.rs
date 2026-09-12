@@ -281,6 +281,20 @@ const immutable = new Uint8Array(new ArrayBuffer(3).transferToImmutable());
 let caught;
 try { immutable.setFromBase64('AQID'); } catch (error) { caught = error; }
 if (!(caught instanceof TypeError) || immutable[0] !== 0) throw new Error('immutable write');
+for (const length of [0, 3]) {
+  const immutable = new Uint8Array(new ArrayBuffer(length).transferToImmutable());
+  const marker = {};
+  let optionReads = 0;
+  for (const options of [
+    {get alphabet() { optionReads++; throw marker; }},
+    {get lastChunkHandling() { optionReads++; throw marker; }}
+  ]) {
+    let received;
+    try { immutable.setFromBase64('', options); } catch (error) { received = error; }
+    if (!(received instanceof TypeError) || optionReads !== 0)
+      throw new Error('immutable validation must precede option Gets');
+  }
+}
 true;
 "#,
         HostSurfacePolicy::Product,
@@ -305,6 +319,7 @@ foreign.SyntaxError = function replacement() { throw new Error('replacement Synt
 foreign.TypeError = function replacement() { throw new Error('replacement TypeError'); };
 const decoded = decode.call(null, 'AQID');
 if (Object.getPrototypeOf(decoded) !== prototype || Object.getPrototypeOf(decoded.buffer) !== bufferPrototype || decoded[2] !== 3) throw new Error('foreign allocation');
+if (decoded.length !== 3 || decoded.byteLength !== 3 || decoded.byteOffset !== 0 || decoded.buffer.byteLength !== 3 || decoded.buffer.maxByteLength !== 3 || decoded.buffer.resizable || decoded.buffer.detached) throw new Error('foreign allocation metadata');
 const target = new Uint8Array(4);
 const progress = set.call(target, 'AQID');
 if (Object.getPrototypeOf(progress) !== objectPrototype || progress.read !== 4 || target[2] !== 3) throw new Error('foreign result');
@@ -314,6 +329,16 @@ if (Object.getPrototypeOf(caught) !== syntaxPrototype) throw new Error('foreign 
 caught = undefined;
 try { decode('AAAA', {lastChunkHandling: 'invalid'}); } catch (error) { caught = error; }
 if (Object.getPrototypeOf(caught) !== typePrototype) throw new Error('foreign option error');
+for (const length of [0, 3]) {
+  const immutable = new Uint8Array(new ArrayBuffer(length).transferToImmutable());
+  const marker = {};
+  let optionReads = 0;
+  caught = undefined;
+  try { set.call(immutable, '', {get alphabet() { optionReads++; throw marker; }}); }
+  catch (error) { caught = error; }
+  if (Object.getPrototypeOf(caught) !== typePrototype || optionReads !== 0)
+    throw new Error('foreign immutable validation order');
+}
 target.fill(255);
 caught = undefined;
 try { set.call(target, 'AQID#'); } catch (error) { caught = error; }

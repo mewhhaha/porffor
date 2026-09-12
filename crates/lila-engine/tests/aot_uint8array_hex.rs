@@ -273,6 +273,38 @@ other.ArrayBuffer = function() { throw new Error('mutable buffer binding'); };
 const foreign = from.call(Uint8Array, 'aabb');
 if (Object.getPrototypeOf(foreign) !== foreignConstructor.prototype || Object.getPrototypeOf(foreign.buffer) !== foreignBuffer.prototype) throw new Error('foreign allocation prototypes');
 if (foreign[0] !== 170 || foreign[1] !== 187 || foreign.buffer.byteLength !== 2) throw new Error('foreign allocation bytes');
+if (foreign.length !== 2 || foreign.byteLength !== 2 || foreign.byteOffset !== 0 || foreign[Symbol.toStringTag] !== 'Uint8Array') throw new Error('foreign view metadata');
+if (foreign.buffer.detached !== false || foreign.buffer.maxByteLength !== 2 || foreign.buffer.resizable !== false) throw new Error('foreign buffer metadata');
+const localResizableBuffer = new ArrayBuffer(3, {maxByteLength:8});
+for (const [key, foreignValue, localValue] of [
+  ['byteLength',2,3], ['detached',false,false], ['maxByteLength',2,8], ['resizable',false,true]
+]) {
+  const property = Object.getOwnPropertyDescriptor(foreignBuffer.prototype, key);
+  if (property === undefined || property.set !== undefined || property.enumerable || !property.configurable) throw new Error('foreign buffer accessor descriptor');
+  const getter = property.get;
+  if (Object.getPrototypeOf(getter) !== other.Function.prototype || getter.length !== 0) throw new Error('foreign buffer getter function');
+  if (getter.call(foreign.buffer) !== foreignValue || getter.call(localResizableBuffer) !== localValue) throw new Error('borrowed foreign buffer metadata');
+  let received;
+  try { getter.call({}); } catch (error) { received = error; }
+  if (received === undefined || Object.getPrototypeOf(received) !== other.TypeError.prototype) throw new Error('foreign buffer getter error realm');
+}
+const foreignTypedArrayPrototype = Object.getPrototypeOf(foreignConstructor.prototype);
+const localOffsetView = new Uint8Array(new ArrayBuffer(6), 2, 2);
+for (const [key, foreignValue, localValue] of [
+  ['buffer',foreign.buffer,localOffsetView.buffer], ['byteLength',2,2], ['byteOffset',0,2], ['length',2,2]
+]) {
+  const property = Object.getOwnPropertyDescriptor(foreignTypedArrayPrototype, key);
+  if (property === undefined || property.set !== undefined || property.enumerable || !property.configurable) throw new Error('foreign view accessor descriptor');
+  const getter = property.get;
+  if (Object.getPrototypeOf(getter) !== other.Function.prototype || getter.length !== 0) throw new Error('foreign view getter function');
+  if (getter.call(foreign) !== foreignValue || getter.call(localOffsetView) !== localValue) throw new Error('borrowed foreign view metadata');
+  let received;
+  try { getter.call({}); } catch (error) { received = error; }
+  if (received === undefined || Object.getPrototypeOf(received) !== other.TypeError.prototype) throw new Error('foreign view getter error realm');
+}
+const tagProperty = Object.getOwnPropertyDescriptor(foreignTypedArrayPrototype, Symbol.toStringTag);
+if (tagProperty === undefined || tagProperty.set !== undefined || tagProperty.enumerable || !tagProperty.configurable) throw new Error('foreign view tag descriptor');
+if (Object.getPrototypeOf(tagProperty.get) !== other.Function.prototype || tagProperty.get.call(foreign) !== 'Uint8Array' || tagProperty.get.call(localOffsetView) !== 'Uint8Array' || tagProperty.get.call({}) !== undefined) throw new Error('foreign view tag getter');
 const local = Uint8Array.fromHex.call(foreignConstructor, 'ccdd');
 if (Object.getPrototypeOf(local) !== Uint8Array.prototype || Object.getPrototypeOf(local.buffer) !== ArrayBuffer.prototype) throw new Error('local allocation prototypes');
 const result = set.call(local, '0102');

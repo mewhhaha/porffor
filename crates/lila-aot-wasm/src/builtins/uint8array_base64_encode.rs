@@ -27,7 +27,11 @@ impl<'a> FunctionBuilder<'a> {
         let packed_local = self.reserve_temp_local();
         let digit_local = self.reserve_temp_local();
 
-        self.emit_uint8_array_codec_receiver(receiver_local, function)?;
+        self.emit_uint8_array_codec_receiver(
+            receiver_local,
+            Uint8ArrayCodecAccess::Read,
+            function,
+        )?;
         self.emit_builtin_arg_to_locals(0, options_payload_local, options_tag_local, function);
         let options = self.emit_uint8_array_codec_options(
             options_payload_local,
@@ -50,7 +54,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(omit_padding_local));
         self.emit_uint8_array_codec_bytes(
             receiver_local,
-            Uint8ArrayCodecAccess::Read,
             source_pointer_local,
             source_length_local,
             function,

@@ -54,6 +54,7 @@ impl<'a> FunctionBuilder<'a> {
     pub(super) fn emit_uint8_array_codec_receiver(
         &mut self,
         receiver_local: u32,
+        access: Uint8ArrayCodecAccess,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let receiver_payload = self.this_payload_local.ok_or_else(|| {
@@ -88,6 +89,38 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        match access {
+            Uint8ArrayCodecAccess::Read => {}
+            Uint8ArrayCodecAccess::Write => {
+                let buffer_local = self.reserve_temp_local();
+                let flags_local = self.reserve_temp_local();
+                self.load_i64_to_local_from_offset(
+                    receiver_local,
+                    HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
+                    buffer_local,
+                    function,
+                );
+                self.emit_load_array_buffer_flags(buffer_local, flags_local, function);
+                function.instruction(&Instruction::LocalGet(flags_local));
+                function.instruction(&Instruction::I64Const(
+                    ArrayBufferFlag::Immutable.word() as i64
+                ));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Uint8Array codec backing buffer is immutable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+                self.release_temp_local(flags_local);
+                self.release_temp_local(buffer_local);
+            }
+        }
         Ok(())
     }
 
@@ -253,7 +286,6 @@ impl<'a> FunctionBuilder<'a> {
     pub(super) fn emit_uint8_array_codec_bytes(
         &mut self,
         receiver_local: u32,
-        access: Uint8ArrayCodecAccess,
         pointer_local: u32,
         length_local: u32,
         function: &mut Function,
@@ -262,7 +294,6 @@ impl<'a> FunctionBuilder<'a> {
         let offset_local = self.reserve_temp_local();
         let stored_length_local = self.reserve_temp_local();
         let element_size_local = self.reserve_temp_local();
-        let flags_local = self.reserve_temp_local();
         self.emit_load_typed_array_private_state(
             receiver_local,
             buffer_local,
@@ -283,34 +314,11 @@ impl<'a> FunctionBuilder<'a> {
             TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
             function,
         )?;
-        match access {
-            Uint8ArrayCodecAccess::Read => {}
-            Uint8ArrayCodecAccess::Write => {
-                self.emit_load_array_buffer_flags(buffer_local, flags_local, function);
-                function.instruction(&Instruction::LocalGet(flags_local));
-                function.instruction(&Instruction::I64Const(
-                    ArrayBufferFlag::Immutable.word() as i64
-                ));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    "Uint8Array codec backing buffer is immutable",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-            }
-        }
         self.emit_load_array_buffer_data(buffer_local, pointer_local, function);
         function.instruction(&Instruction::LocalGet(pointer_local));
         function.instruction(&Instruction::LocalGet(offset_local));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(pointer_local));
-        self.release_temp_local(flags_local);
         self.release_temp_local(element_size_local);
         self.release_temp_local(stored_length_local);
         self.release_temp_local(offset_local);

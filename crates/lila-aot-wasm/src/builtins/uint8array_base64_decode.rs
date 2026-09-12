@@ -119,7 +119,11 @@ impl<'a> FunctionBuilder<'a> {
         let read_local = self.reserve_temp_local();
         let written_local = self.reserve_temp_local();
 
-        self.emit_uint8_array_codec_receiver(receiver_local, function)?;
+        self.emit_uint8_array_codec_receiver(
+            receiver_local,
+            Uint8ArrayCodecAccess::Write,
+            function,
+        )?;
         self.emit_builtin_arg_to_locals(0, source_payload_local, source_tag_local, function);
         self.emit_uint8_array_codec_string(
             source_payload_local,
@@ -138,7 +142,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_uint8_array_base64_last_chunk(&options, last_chunk_local, function)?;
         self.emit_uint8_array_codec_bytes(
             receiver_local,
-            Uint8ArrayCodecAccess::Write,
             destination_local,
             capacity_local,
             function,

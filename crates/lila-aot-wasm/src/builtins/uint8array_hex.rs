@@ -229,7 +229,11 @@ impl FunctionBuilder<'_> {
         let capacity_local = self.reserve_temp_local();
         let read_local = self.reserve_temp_local();
         let written_local = self.reserve_temp_local();
-        self.emit_uint8_array_codec_receiver(receiver_local, function)?;
+        self.emit_uint8_array_codec_receiver(
+            receiver_local,
+            Uint8ArrayCodecAccess::Write,
+            function,
+        )?;
         self.emit_builtin_arg_to_locals(0, payload_local, tag_local, function);
         self.emit_uint8_array_codec_string(
             payload_local,
@@ -240,7 +244,6 @@ impl FunctionBuilder<'_> {
         )?;
         self.emit_uint8_array_codec_bytes(
             receiver_local,
-            Uint8ArrayCodecAccess::Write,
             destination_pointer_local,
             capacity_local,
             function,
@@ -285,10 +288,13 @@ impl FunctionBuilder<'_> {
         let index_local = self.reserve_temp_local();
         let byte_local = self.reserve_temp_local();
         let nibble_local = self.reserve_temp_local();
-        self.emit_uint8_array_codec_receiver(receiver_local, function)?;
-        self.emit_uint8_array_codec_bytes(
+        self.emit_uint8_array_codec_receiver(
             receiver_local,
             Uint8ArrayCodecAccess::Read,
+            function,
+        )?;
+        self.emit_uint8_array_codec_bytes(
+            receiver_local,
             source_pointer_local,
             length_local,
             function,
