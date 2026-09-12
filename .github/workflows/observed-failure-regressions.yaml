@@ -27,6 +27,7 @@ jobs:
       - name: Check exact execution replay tooling
         run: |
           python3 -m unittest discover -s scripts/tests -p test_replay_test262_executions.py -v
+          python3 -m unittest discover -s scripts/tests -p test_audit_test262_replay.py -v
           python3 -m unittest discover -s scripts/tests -p test_collect_new_test262_failures.py -v
 
       - name: Check independent source grammar and environment ownership
