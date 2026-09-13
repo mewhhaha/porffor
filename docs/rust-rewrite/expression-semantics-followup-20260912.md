@@ -125,6 +125,47 @@ metadata with the actual binary SHA-256 and the paired origin report. The
 auditor checks source identities, pinned suite contents, native transcripts,
 snapshots, outcome counts and exact execution membership.
 
+### CI follow-up
+
+The first PR checks caught two bookkeeping assumptions. The shortcut audit
+fingerprint still described the old SharedArrayBuffer admission selector; the
+reviewed ledger and generated inventory/status now include the two subclass
+paths. Classification and ownership stay unchanged: 112 observations comprise
+31 legitimate harness adaptations, 39 diagnostic observations and 42 semantic
+shortcuts.
+
+The borrowed eval loop guards also selected the first prepared Script unit.
+Finite source discovery now registers the indirect candidate before the direct
+candidate, so the guards select the intended kind explicitly and require a
+unique match. Both borrowed tests retain every binding-publication assertion;
+the owned-storage control checks strict direct eval and sloppy indirect eval
+separately. Loop lowering and environment ownership code are unchanged.
+
+These corrections are recorded at
+`68e235c63811338097e5620db93393418abda3c6`. Relative to the initial PR head
+`b796482b5fca9ed3260f29bdb9ccb29b103082b1`, only this integration test and three
+audit artifacts changed.
+The compiler and the completed 373-execution replay evidence remain unchanged.
+The failed [workspace contract check](https://github.com/mewhhaha/porffor/actions/runs/34744828609)
+and [eval guard check](https://github.com/mewhhaha/porffor/actions/runs/34744828587)
+remain available as the preceding CI checkpoints.
+
+The full repository contract check passes, including the 15 scanner regressions;
+the nine shortcut-status generator regressions and both generated-report checks
+also pass. The four additional IR targets below pass 12/12 tests, and the exact
+native borrowed-loop regression passes 1/1 with 26 tests filtered. These are
+separate follow-up checks, not a rerun of the original replay or broad suites.
+Formatting and diff checks pass.
+
+```sh
+cargo test --release --locked -j2 --no-fail-fast -p lila-ir \
+  --test borrowed_eval_loop_heads --test declaration_completion \
+  --test direct_eval_environment --test object_constructor_boxing -- --test-threads=2
+LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine \
+  --test aot_declaration_completion \
+  borrowed_eval_loop_heads_write_the_selected_caller_bindings -- --exact --test-threads=1
+```
+
 ## Remaining baseline work
 
 The other 227 newly inventoried executions exercise dynamic import, owned by
