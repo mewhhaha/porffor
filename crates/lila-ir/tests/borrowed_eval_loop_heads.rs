@@ -40,8 +40,11 @@ fn borrowed_eval_loop_heads_publish_each_value_before_the_body() {
         let program = lower(&parse(source, ParseOptions::script()).unwrap());
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.unwrap();
-        let unit = script.prepared_script_units().next().unwrap();
-        assert!(matches!(unit.kind, PreparedScriptKind::DirectEval(_)));
+        let mut units = script
+            .prepared_script_units()
+            .filter(|unit| matches!(unit.kind, PreparedScriptKind::DirectEval(_)));
+        let unit = units.next().expect("prepared direct eval unit");
+        assert!(units.next().is_none(), "one direct eval context");
         assert_eq!(unit.declarations.var_names, ["value"]);
         let (mode, name, body) = loop_head(&unit.body.statements[0]);
         assert_eq!(mode, BindingMode::Let);
@@ -78,7 +81,11 @@ fn borrowed_for_in_initializer_also_uses_the_caller_environment() {
     );
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
     let script = program.script.unwrap();
-    let unit = script.prepared_script_units().next().unwrap();
+    let mut units = script
+        .prepared_script_units()
+        .filter(|unit| matches!(unit.kind, PreparedScriptKind::DirectEval(_)));
+    let unit = units.next().expect("prepared direct eval unit");
+    assert!(units.next().is_none(), "one direct eval context");
     let StatementIr::Block(sequence) = &unit.body.statements[0] else {
         panic!("Annex B initializer must precede enumeration");
     };
@@ -90,14 +97,31 @@ fn borrowed_for_in_initializer_also_uses_the_caller_environment() {
 
 #[test]
 fn owned_eval_loop_heads_keep_their_declared_storage() {
-    for source in [
-        "eval('\"use strict\"; for (var value of [7, 9]) { value; }');",
-        "(0, eval)('for (var value of [7, 9]) { value; }');",
+    for (source, direct) in [
+        (
+            "eval('\"use strict\"; for (var value of [7, 9]) { value; }');",
+            true,
+        ),
+        ("(0, eval)('for (var value of [7, 9]) { value; }');", false),
     ] {
         let program = lower(&parse(source, ParseOptions::script()).unwrap());
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.unwrap();
-        let unit = script.prepared_script_units().next().unwrap();
+        let mut units = script
+            .prepared_script_units()
+            .filter(|unit| match unit.kind {
+                PreparedScriptKind::DirectEval(_) => direct,
+                PreparedScriptKind::IndirectEval => !direct,
+                PreparedScriptKind::RealmScript => false,
+            });
+        let unit = units
+            .next()
+            .expect("prepared eval unit of the intended kind");
+        assert!(
+            units.next().is_none(),
+            "one eval context of the intended kind"
+        );
+        assert_eq!(unit.strict, direct);
         let statement = unit
             .body
             .statements
