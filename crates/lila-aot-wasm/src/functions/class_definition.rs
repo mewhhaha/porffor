@@ -255,6 +255,21 @@ impl FunctionBuilder<'_> {
                     class_private_scope as u64,
                     function,
                 );
+                // A Private Name owns its rows across every execution realm.
+                for ordinal in 0..class
+                    .private_environment
+                    .expect("class private scope exists")
+                    .slot_count()
+                {
+                    self.store_i64_const_at_offset(
+                        private_environment_local,
+                        HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET
+                            + u64::from(ordinal) * HEAP_PRIVATE_ENV_SLOT_SIZE
+                            + HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
+                        0,
+                        function,
+                    );
+                }
             } else {
                 function.instruction(&Instruction::LocalGet(key_local));
                 function.instruction(&Instruction::LocalSet(private_environment_local));

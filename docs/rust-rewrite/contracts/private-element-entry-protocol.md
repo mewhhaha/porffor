@@ -27,6 +27,18 @@ last three are definition rows keyed only by the private-name token. They hold
 the callable values shared by every receiver bearing that brand. A paired
 accessor therefore has one receiver brand and two definition rows.
 
+Each unique Private Name token addresses an eight-byte slot in its declaring
+private environment. That slot owns the entry-list head, initialized once when
+class evaluation allocates the environment. Definition and receiver rows share
+this list regardless of the realm executing an operation. Resumed class
+evaluation restores the existing environment rather than clearing its names.
+
+The former Realm list split a foreign-eval class's accessor definitions from
+instance brands added after eval restored the caller realm. A valid getter
+access could find its brand but fail to find its definition. Token ownership
+removes that ambient-realm dependency without changing callable realms or
+private-name identity.
+
 This is a backend storage protocol, not a second specification-level private
 element taxonomy. In particular, `Brand`, `GetterDefinition`, and
 `SetterDefinition` are implementation rows rather than new ECMAScript private
@@ -109,10 +121,20 @@ remain unchanged.
 6. Adding a legal row requires updating exhaustive kind/receiver/value
    projections; omission is a compile error.
 7. The five product producers converge on one owned writer, which performs one
-   Realm-list publication only after the complete row has been stored and then
-   releases its three row locals in reverse order.
+   Private Name list publication only after the complete row has been stored
+   and then releases its two row locals in reverse order.
 
 ## Verification boundary
+
+The 2026-09-12 storage correction updates the row-writer guard, token-slot
+initialization and pointer-layout guards, and Realm layout witnesses. Foreign
+private-member native controls pass in the 12-test finite-eval target. The
+three private/Realm structural targets pass 14/14, and the paired Test262
+replay passes 373/373; see the [batch verification](../expression-semantics-followup-20260912.md).
+The following results describe the earlier retyping
+checkpoint, whose Realm-list publication has now been replaced.
+
+### Historical row retyping checkpoint
 
 A focused Rust unit fixes the five test rows, wire words, and receiver/value
 projections. A Rust-lexical structure guard fixes the capability and mention
@@ -131,8 +153,8 @@ Test262 verification remains deferred.
 
 ## Nonclaims
 
-This seam does not add auto-accessors, decorators, a new private-name model,
-cross-realm proof, or a new object representation. It does not change the
-private-element algorithms or broaden the supported class surface. It makes
-the backend's existing five-row representation explicit and rejects corrupt
-states; T09 remains in progress.
+The correction preserves the five-row protocol and private-name identities.
+It does not add decorators, a new object representation, or an executable
+collector. The private-name head is pointer-classified in passive layout
+metadata; this does not prove future collector liveness for stamped receivers
+that can outlive their class. T09 remains in progress.

@@ -8650,329 +8650,80 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let target_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let key_tag_local = self.reserve_temp_local();
         let result_local = self.reserve_temp_local();
         self.compile_expr_to_locals(target, target_local, target_tag_local, function)?;
-
-        match target.kind {
-            ValueKind::Object | ValueKind::Function => {
-                let (key_local, converted_key_tag_local) =
-                    if let PropertyKeyIr::StringExpr(key_expr) = key {
-                        let key_local = self.reserve_temp_local();
-                        let converted_tag_local = self.reserve_temp_local();
-                        self.compile_expr_to_locals(
-                            key_expr,
-                            key_local,
-                            converted_tag_local,
-                            function,
-                        )?;
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            key_local,
-                            converted_tag_local,
-                            function,
-                        )?;
-                        self.emit_value_to_property_key_locals(
-                            key_local,
-                            converted_tag_local,
-                            function,
-                        )?;
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            key_local,
-                            converted_tag_local,
-                            function,
-                        )?;
-                        (key_local, Some(converted_tag_local))
-                    } else {
-                        (self.compile_object_key_to_local(key, function)?, None)
-                    };
-                let array_index_local = if matches!(key, PropertyKeyIr::ArrayIndex(_)) {
-                    Some(self.compile_array_index_to_local(key, function)?)
-                } else {
-                    None
-                };
-                if let Some(array_index_local) = array_index_local {
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_array_delete(target_local, array_index_local, result_local, function);
-                    function.instruction(&Instruction::Else);
-                    self.emit_object_delete(
-                        target_local,
-                        target_tag_local,
-                        key_local,
-                        result_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                    self.release_temp_local(array_index_local);
-                } else {
-                    if let Some(converted_key_tag_local) = converted_key_tag_local {
-                        let canonical_numeric_index_local = self.reserve_temp_local();
-                        let typed_array_key_handled_local = self.reserve_temp_local();
-                        let typed_array_index_local = self.reserve_temp_local();
-                        self.emit_typed_array_canonical_numeric_index_i32(
-                            target_local,
-                            target_tag_local,
-                            key_local,
-                            converted_key_tag_local,
-                            canonical_numeric_index_local,
-                            typed_array_key_handled_local,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalGet(typed_array_key_handled_local));
-                        function.instruction(&Instruction::I64Const(0));
-                        function.instruction(&Instruction::I64Ne);
-                        function.instruction(&Instruction::If(BlockType::Empty));
-                        self.emit_typed_array_valid_integer_index_i32(
-                            target_local,
-                            canonical_numeric_index_local,
-                            typed_array_index_local,
-                            result_local,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::LocalGet(result_local));
-                        function.instruction(&Instruction::I64Eqz);
-                        function.instruction(&Instruction::I64ExtendI32U);
-                        function.instruction(&Instruction::LocalSet(result_local));
-                        function.instruction(&Instruction::Else);
-                        self.emit_object_delete(
-                            target_local,
-                            target_tag_local,
-                            key_local,
-                            result_local,
-                            function,
-                        )?;
-                        function.instruction(&Instruction::End);
-                        self.release_temp_local(typed_array_index_local);
-                        self.release_temp_local(typed_array_key_handled_local);
-                        self.release_temp_local(canonical_numeric_index_local);
-                    } else {
-                        self.emit_object_delete(
-                            target_local,
-                            target_tag_local,
-                            key_local,
-                            result_local,
-                            function,
-                        )?;
-                    }
-                }
-                if let Some(converted_key_tag_local) = converted_key_tag_local {
-                    self.release_temp_local(converted_key_tag_local);
-                }
-                self.release_temp_local(key_local);
+        self.emit_propagate_throw_from_locals_if_needed(target_local, target_tag_local, function)?;
+        // MemberExpression evaluates its raw referenced name before delete's
+        // ToObject. Coercion belongs after that operation, so a nullish base
+        // still evaluates the key expression but cannot invoke its coercion.
+        match key {
+            PropertyKeyIr::StaticString(name) => {
+                function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(key_tag_local));
             }
-            ValueKind::Array => match key {
-                PropertyKeyIr::ArrayIndex(_) => {
-                    let index_local = self.compile_array_index_to_local(key, function)?;
-                    self.emit_array_delete(target_local, index_local, result_local, function);
-                    self.release_temp_local(index_local);
-                }
-                PropertyKeyIr::ArrayLength => {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(result_local));
-                }
-                PropertyKeyIr::StaticString(name) if name == "length" => {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(result_local));
-                }
-                PropertyKeyIr::StaticString(name) => {
-                    if let Some(index) = static_array_index_name(name) {
-                        let index_local = self.reserve_temp_local();
-                        function.instruction(&Instruction::I64Const(index as i64));
-                        function.instruction(&Instruction::LocalSet(index_local));
-                        self.emit_array_delete(target_local, index_local, result_local, function);
-                        self.release_temp_local(index_local);
-                    } else {
-                        let key_local = self.compile_object_key_to_local(key, function)?;
-                        self.emit_array_named_prop_delete(
-                            target_local,
-                            key_local,
-                            result_local,
-                            function,
-                        );
-                        self.release_temp_local(key_local);
-                    }
-                }
-                PropertyKeyIr::StringExpr(_) => {
-                    let key_local = self.compile_object_key_to_local(key, function)?;
-                    self.emit_array_delete_property_key(
-                        target_local,
-                        key_local,
-                        result_local,
-                        function,
-                    );
-                    self.release_temp_local(key_local);
-                }
-            },
-            ValueKind::Arguments => match key {
-                PropertyKeyIr::ArrayIndex(_) => {
-                    let index_local = self.compile_array_index_to_local(key, function)?;
-                    self.emit_array_delete(target_local, index_local, result_local, function);
-                    self.release_temp_local(index_local);
-                }
-                PropertyKeyIr::StaticString(name) if static_array_index_name(name).is_some() => {
-                    let index_local = self.reserve_temp_local();
-                    function.instruction(&Instruction::I64Const(
-                        static_array_index_name(name).expect("arguments index") as i64,
-                    ));
-                    function.instruction(&Instruction::LocalSet(index_local));
-                    self.emit_array_delete(target_local, index_local, result_local, function);
-                    self.release_temp_local(index_local);
-                }
-                PropertyKeyIr::ArrayLength => {
-                    self.emit_arguments_length_delete(target_local, result_local, function);
-                }
-                PropertyKeyIr::StaticString(name) if name == "length" => {
-                    self.emit_arguments_length_delete(target_local, result_local, function);
-                }
-                PropertyKeyIr::StaticString(name) if name == "callee" => {
-                    self.emit_arguments_callee_delete(target_local, result_local, function);
-                }
-                PropertyKeyIr::StringExpr(_) => {
-                    let key_local = self.compile_object_key_to_local(key, function)?;
-                    self.emit_arguments_delete_property_key(
-                        target_local,
-                        key_local,
-                        result_local,
-                        function,
-                    );
-                    self.release_temp_local(key_local);
-                }
-                _ => {
-                    let key_local = self.compile_object_key_to_local(key, function)?;
-                    self.emit_object_delete(
-                        target_local,
-                        target_tag_local,
-                        key_local,
-                        result_local,
-                        function,
-                    )?;
-                    self.release_temp_local(key_local);
-                }
-            },
-            ValueKind::Dynamic => {
-                let key_local = self.compile_object_key_to_local(key, function)?;
-                let array_index_local = if matches!(key, PropertyKeyIr::ArrayIndex(_)) {
-                    Some(self.compile_array_index_to_local(key, function)?)
-                } else {
-                    None
-                };
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(result_local));
-                if let Some(array_index_local) = array_index_local {
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_array_delete(target_local, array_index_local, result_local, function);
-                    function.instruction(&Instruction::Else);
-                } else {
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_array_delete_property_key(
-                        target_local,
-                        key_local,
-                        result_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::Else);
-                }
-                function.instruction(&Instruction::LocalGet(target_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                if let Some(array_index_local) = array_index_local {
-                    self.emit_array_delete(target_local, array_index_local, result_local, function);
-                } else {
-                    self.emit_arguments_delete_property_key(
-                        target_local,
-                        key_local,
-                        result_local,
-                        function,
-                    );
-                }
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(target_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(target_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32Or);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_object_delete(
-                    target_local,
-                    target_tag_local,
-                    key_local,
-                    result_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::End);
-                if let Some(array_index_local) = array_index_local {
-                    function.instruction(&Instruction::End);
-                    self.release_temp_local(array_index_local);
-                } else {
-                    function.instruction(&Instruction::End);
-                }
-                self.release_temp_local(key_local);
+            PropertyKeyIr::ArrayLength => {
+                function.instruction(&Instruction::I64Const(self.strings.payload("length")));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                function.instruction(&Instruction::LocalSet(key_tag_local));
             }
-            // 13.5.1.2 step 5 performs `ToObject(baseValue)` on the reference
-            // base, so `delete undefined.p` / `delete null[k]` is a runtime
-            // TypeError rather than an unsupported construct.
-            ValueKind::Undefined | ValueKind::Null => {
-                // The property key expression belongs to the MemberExpression
-                // and is evaluated (GetValue only, no ToPropertyKey) before
-                // `delete` coerces the base, so its side effects still run.
-                match key {
-                    PropertyKeyIr::StringExpr(key_expr) | PropertyKeyIr::ArrayIndex(key_expr) => {
-                        let key_payload_local = self.reserve_temp_local();
-                        let key_tag_local = self.reserve_temp_local();
-                        self.compile_expr_to_locals(
-                            key_expr,
-                            key_payload_local,
-                            key_tag_local,
-                            function,
-                        )?;
-                        self.emit_propagate_throw_from_locals_if_needed(
-                            key_payload_local,
-                            key_tag_local,
-                            function,
-                        )?;
-                        self.release_temp_local(key_tag_local);
-                        self.release_temp_local(key_payload_local);
-                    }
-                    PropertyKeyIr::StaticString(_) | PropertyKeyIr::ArrayLength => {}
-                }
-                // The throw below always fires; seed the result so the strict
-                // `Cannot delete property` check that follows stays inert on
-                // the statically dead fall-through path.
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(result_local));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Cannot convert undefined or null to object",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+            PropertyKeyIr::StringExpr(value) | PropertyKeyIr::ArrayIndex(value) => {
+                self.compile_expr_to_locals(value, key_local, key_tag_local, function)?;
                 self.emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
+                    key_local,
+                    key_tag_local,
                     function,
                 )?;
-            }
-            _ => {
-                self.release_temp_local(result_local);
-                self.release_temp_local(target_tag_local);
-                self.release_temp_local(target_local);
-                return Err(EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: delete on non-object target",
-                ));
             }
         }
+        let object_kinds = KindSet::from_kind(ValueKind::Object)
+            .union(KindSet::from_kind(ValueKind::Function))
+            .union(KindSet::from_kind(ValueKind::Array))
+            .union(KindSet::from_kind(ValueKind::Arguments));
+        if !target.possible_kinds.is_subset_of(object_kinds) {
+            self.compile_nullish_tagged_i32(target_tag_local, function)?;
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error_to_active_handler(
+                TYPE_ERROR_NAME,
+                "Cannot convert undefined or null to object",
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+            // The nullish throw above belongs to the active source handler.
+            // ToObject now only preserves objects or boxes a primitive.
+            self.emit_value_to_object_locals(
+                target_local,
+                target_tag_local,
+                target_local,
+                target_tag_local,
+                function,
+            )?;
+        }
+        self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?;
+        self.emit_propagate_throw_from_locals_if_needed(key_local, key_tag_local, function)?;
+        function.instruction(&Instruction::LocalGet(key_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalSet(key_local));
+        function.instruction(&Instruction::End);
+        self.emit_object_delete(
+            target_local,
+            target_tag_local,
+            key_local,
+            result_local,
+            function,
+        )?;
+        self.emit_propagate_current_completion_if_throw(function);
 
         if strictness.throws_on_failed_set() {
             function.instruction(&Instruction::LocalGet(result_local));
@@ -8991,6 +8742,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(result_local));
         function.instruction(&Instruction::I32WrapI64);
         self.release_temp_local(result_local);
+        self.release_temp_local(key_tag_local);
+        self.release_temp_local(key_local);
         self.release_temp_local(target_tag_local);
         self.release_temp_local(target_local);
         Ok(())
@@ -19128,9 +18881,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(BOXED_PRIMITIVE_KIND_STRING as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(key_payload_local));
+        self.emit_property_key_payload_equality_i32(key_local, key_payload_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(result_local));

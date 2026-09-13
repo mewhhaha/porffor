@@ -10,6 +10,12 @@ impl<'a> ScriptLowerer<'a> {
         if let AssignTarget::WebCompatCall(call) = lhs {
             return self.lower_web_compat_call_assignment_target(call);
         }
+        if op == AssignOp::Assign {
+            if let AssignTarget::Identifier(identifier) = lhs {
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                self.register_finite_source_binding_assignment(&name, rhs);
+            }
+        }
         if self.uses_runtime_identifier_environment() {
             if let AssignTarget::Identifier(identifier) = lhs {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();

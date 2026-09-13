@@ -118,7 +118,7 @@ fn shared_private_lifecycle_keeps_putvalue_inside_the_taken_branch() {
 #[test]
 fn noncopy_with_and_global_plans_consume_one_selected_reference() {
     assert!(REFERENCE_SOURCE.contains(
-        "#[derive(Debug)]\n#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, logical assignment, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
+        "#[derive(Debug)]\n#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
     ));
     let with_impl = bounded(
         REFERENCE_SOURCE,

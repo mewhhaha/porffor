@@ -60,7 +60,8 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.static_string_bindings = self.static_string_bindings.clone();
         lowerer.function_source_binding_candidates =
             self.function_source_binding_candidates.clone();
-        lowerer.array_callback_source_candidates = self.array_callback_source_candidates.clone();
+        lowerer.function_source_parameter_candidates =
+            self.function_source_parameter_candidates.clone();
         lowerer.static_to_string_regexp_object_bindings =
             self.static_to_string_regexp_object_bindings.clone();
         lowerer.var_bindings = self.var_bindings.clone();
@@ -498,6 +499,10 @@ impl<'a> ScriptLowerer<'a> {
                 });
             let param_info =
                 lowerer.specialize_exact_context_function_info(param_info, exact_helper_context_id);
+            let default_source_candidates = parameter
+                .init()
+                .map(|expression| lowerer.function_source_value_candidates(expression))
+                .unwrap_or_default();
             let default_init = parameter
                 .init()
                 .map(|expression| lowerer.lower_expression(expression));
@@ -530,6 +535,14 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
             lowerer.current_param_names.push(name.clone());
+            if !parameter.is_rest_param() {
+                lowerer.install_function_parameter_source_candidates(
+                    &function.id,
+                    index,
+                    binding,
+                    default_source_candidates,
+                );
+            }
             params.push(FunctionParamIr {
                 name: name.clone(),
                 kind: param_info.kind,
@@ -545,7 +558,6 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        lowerer.install_array_callback_source_candidates(&function.id, function.parameters);
         let body_environment = lowerer.begin_function_body_environment();
         lowerer.hoist_root_statement_items(function.body.statements());
 

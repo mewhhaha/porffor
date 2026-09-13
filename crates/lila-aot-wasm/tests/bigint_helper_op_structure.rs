@@ -431,14 +431,14 @@ fn bigint_helper_op_has_one_private_capability_free_owner() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "BigIntHelperOp"),
-        36,
-        "the owner, reexports, four typed carriers, nine producer routes and wire-code sites own every code identifier"
+        38,
+        "the owner, reexports, four typed carriers, ten producer owners and wire-code sites own every code identifier"
     );
     for (route, expected) in [
         ("BigIntHelperOp::from_arithmetic", 2),
         ("BigIntHelperOp::from_bitwise", 1),
-        ("BigIntHelperOp::Add", 4),
-        ("BigIntHelperOp::Sub", 1),
+        ("BigIntHelperOp::Add", 5),
+        ("BigIntHelperOp::Sub", 2),
         ("BigIntHelperOp::Mul", 1),
         ("BigIntHelperOp::Div", 1),
         ("BigIntHelperOp::Rem", 0),
@@ -489,7 +489,32 @@ fn bigint_helper_op_owns_all_three_exhaustive_tables() {
 }
 
 #[test]
-fn bigint_helper_op_has_exactly_nine_semantic_producers() {
+fn bigint_helper_op_has_exactly_ten_semantic_producer_owners() {
+    let numeric_update = bounded(
+        OPERATIONS_SOURCE,
+        "    pub(crate) fn emit_numeric_update_to_locals(",
+        "    pub(crate) fn compile_truthy_i32(",
+    );
+    assert_exact_call(
+        numeric_update,
+        concat!(
+            "letunit_payload_local=self.reserve_temp_local();",
+            "letunit_tag_local=self.reserve_temp_local();",
+            "self.open_frame(ControlFrameKind::If,function);",
+            "function.instruction(&Instruction::I64Const(1));",
+            "function.instruction(&Instruction::LocalSet(unit_payload_local));",
+            "function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag()asi64));",
+            "function.instruction(&Instruction::LocalSet(unit_tag_local));",
+            "letoperation=matchop{",
+            "NumericUpdateOp::Increment=>BigIntHelperOp::Add,",
+            "NumericUpdateOp::Decrement=>BigIntHelperOp::Sub,};",
+            "self.emit_bigint_binary_op_to_locals(operation,",
+            "old_payload_local,old_tag_local,unit_payload_local,unit_tag_local,",
+            "new_payload_local,new_tag_local,function,)?;"
+        ),
+        "numeric updates must exhaustively select add/subtract and preserve the old value, synthetic one and new result pairs",
+    );
+
     let coercive_add = bounded(
         OPERATIONS_SOURCE,
         "    pub(crate) fn compile_coercive_add_to_locals(",

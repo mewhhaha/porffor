@@ -14430,18 +14430,17 @@ invoke();
     }
 
     #[test]
-    fn spread_eval_candidate_keeps_the_runtime_source_gap() {
+    fn spread_eval_candidate_keeps_the_prepared_source_and_runtime_selection() {
         let source = "let candidate = unknown ? eval : undefined; candidate(...['source']);";
         let program = lower_script(source);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.expect("spread call remains executable IR");
         assert!(
-            program.diagnostics.iter().any(|diagnostic| {
-                diagnostic.unsupported_feature()
-                    == Some(UnsupportedFeature::DynamicSource(
-                        DynamicSourceGap::runtime_source(DynamicSourceKind::IndirectEval),
-                    ))
+            script.prepared_scripts.iter().any(|prepared| {
+                prepared.kind == PreparedScriptKind::IndirectEval && prepared.source == "source"
             }),
             "{source}: {:?}",
-            program.diagnostics
+            script.prepared_scripts
         );
     }
 
@@ -15678,8 +15677,28 @@ eval(1);
 
         let optional_test262 = lower_test262_script(&format!("{name}?.('source');"));
         assert_prepared_script(&optional_test262, PreparedScriptKind::RealmScript);
-        let optional_runtime_test262 =
+        let optional_converted_test262 =
             lower_test262_script(&format!("{name}?.(String('source'));"));
+        assert!(
+            optional_converted_test262.is_wasm_supported(),
+            "{:?}",
+            optional_converted_test262.diagnostics
+        );
+        assert!(
+            optional_converted_test262
+                .script
+                .as_ref()
+                .expect("Script IR")
+                .prepared_scripts
+                .iter()
+                .any(|script| script.kind == PreparedScriptKind::RealmScript
+                    && script.source == "source"
+                    && script.admission == PreparedScriptAdmission::RuntimeCandidate
+                    && matches!(script.outcome, PreparedScriptOutcome::Executable(_))),
+            "converted source must retain runtime callable and source guards"
+        );
+        let optional_runtime_test262 =
+            lower_test262_script(&format!("{name}?.(String(unknownSource));"));
         assert!(optional_runtime_test262
             .diagnostics
             .iter()

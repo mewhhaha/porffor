@@ -3919,12 +3919,6 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.store_i64_const_at_offset(realm_local, HEAP_REALM_HOST_HOOKS_OFFSET, 0, function);
         self.store_i64_const_at_offset(realm_local, HEAP_REALM_MODULE_REGISTRY_OFFSET, 0, function);
-        self.store_i64_const_at_offset(
-            realm_local,
-            HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
-            0,
-            function,
-        );
         self.emit_alloc_realm_global_environment(realm_local, function)?;
         self.release_temp_local(intrinsics_local);
         Ok(RealmRecordLocal(realm_local))

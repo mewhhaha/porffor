@@ -170,7 +170,9 @@ fn agent_script_error(source: &str) -> EngineError {
 }
 
 const RUNTIME_DIRECT_EVAL: &str = "eval('1/*' + Math.random() + '*/');";
-const COMPILE_UNSUPPORTED_INDIRECT_EVAL: &str = "eval.call(undefined, String('1'));";
+const COMPILE_UNSUPPORTED_REALM_SCRIPT: &str = "__lilaRealmEvalScript(globalThis.unknownSource);";
+const RUNTIME_INDIRECT_EVAL: &str = "globalThis.unknownSource = '1/*' + Math.random() + '*/'; \
+     eval.call(undefined, globalThis.unknownSource);";
 
 const EVAL_WORKER: &str = "var holder = { invoke: eval }; \
     var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1/*' + Math.random() + '*/');";
@@ -189,6 +191,28 @@ fn direct_eval_worker_reports_runtime_source_rejection_after_compilation() {
     );
     assert!(error.parse_diagnostic().is_none(), "{error}");
     assert!(error.ir_diagnostic().is_none(), "{error}");
+}
+
+#[test]
+fn indirect_eval_worker_reports_runtime_source_rejection_after_compilation() {
+    let error = agent_script_error(&format!("__lilaAgentStart({RUNTIME_INDIRECT_EVAL:?});"));
+    assert_eq!(
+        error.runtime_dynamic_source_operations(),
+        vec![DynamicSourceRuntimeOperation::Eval],
+        "{error}"
+    );
+    assert_eq!(
+        error.wasm_execution_failure_kind(),
+        Some(WasmExecutionFailureKind::DynamicSource),
+        "{error}"
+    );
+    assert!(error.parse_diagnostic().is_none(), "{error}");
+    assert!(error.ir_diagnostic().is_none(), "{error}");
+    assert_eq!(
+        error.wasm_javascript_exception_constructor_name(),
+        None,
+        "{error}"
+    );
 }
 
 #[test]
@@ -215,7 +239,7 @@ fn multiple_workers_retain_distinct_runtime_capability_reasons() {
 #[test]
 fn worker_compile_and_runtime_capabilities_remain_unsupported_together() {
     let error = agent_script_error(&format!(
-        "__lilaAgentStart({EVAL_WORKER:?}); __lilaAgentStart({COMPILE_UNSUPPORTED_INDIRECT_EVAL:?});"
+        "__lilaAgentStart({EVAL_WORKER:?}); __lilaAgentStart({COMPILE_UNSUPPORTED_REALM_SCRIPT:?});"
     ));
     assert_eq!(
         error.wasm_execution_failure_kind(),
@@ -235,7 +259,7 @@ fn worker_compile_and_runtime_capabilities_remain_unsupported_together() {
         "{error}"
     );
     let compile_gap = lila_ir::IrDiagnostic::unsupported_dynamic_source(
-        lila_ir::DynamicSourceGap::runtime_source(lila_ir::DynamicSourceKind::IndirectEval),
+        lila_ir::DynamicSourceGap::runtime_source(lila_ir::DynamicSourceKind::RealmEvalScript),
     );
     assert!(error.message().contains(&compile_gap.message), "{error}");
     assert!(
@@ -284,7 +308,7 @@ fn mixed_worker_exceptions_and_capabilities_are_not_root_js_exceptions() {
 fn agent_start_retains_compile_diagnostics_before_any_worker_execution() {
     for (worker, has_parse_diagnostic, has_ir_diagnostic) in [
         ("function {", true, false),
-        (COMPILE_UNSUPPORTED_INDIRECT_EVAL, false, true),
+        (COMPILE_UNSUPPORTED_REALM_SCRIPT, false, true),
     ] {
         let error = agent_script_error(&format!("__lilaAgentStart({worker:?});"));
         assert_eq!(

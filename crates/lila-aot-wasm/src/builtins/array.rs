@@ -5938,9 +5938,9 @@ impl<'a> FunctionBuilder<'a> {
     ) {
         let index_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::LocalGet(key_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalSet(index_local));
+        self.emit_property_key_payload_equality_i32(key_local, index_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(result_local));

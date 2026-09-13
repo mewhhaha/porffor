@@ -108,13 +108,33 @@ impl ScriptLowerer<'_> {
         match expression {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                if let Some(candidates) = self.finite_binding_source_candidates(&name) {
-                    return bounded_candidates(
-                        candidates.iter().cloned().chain(
-                            self.static_string_receiver_value(expression)
-                                .map(FiniteSourceValue::Text),
-                        ),
+                let mut candidates = self
+                    .finite_binding_source_candidates(&name)
+                    .unwrap_or_default()
+                    .to_vec();
+                if let Some(binding) = self.lookup_binding(&name) {
+                    candidates.extend(
+                        binding
+                            .function_targets
+                            .known_targets()
+                            .iter()
+                            .cloned()
+                            .map(FiniteSourceValue::Function),
                     );
+                } else if let Some(function_id) = self.visible_function_names.get(&name) {
+                    candidates.push(FiniteSourceValue::Function(function_id.clone()));
+                }
+                if name == "eval" {
+                    candidates.push(FiniteSourceValue::Function(
+                        StandardBuiltinId::EvalFunction.function_id(),
+                    ));
+                }
+                candidates.extend(
+                    self.static_string_receiver_value(expression)
+                        .map(FiniteSourceValue::Text),
+                );
+                if !candidates.is_empty() {
+                    return bounded_candidates(candidates);
                 }
             }
             Expression::ArrayLiteral(array) => {
@@ -181,7 +201,7 @@ impl ScriptLowerer<'_> {
                         self.finite_source_computed_key_candidate(expression)
                     }
                 };
-                let candidates = bounded_candidates(
+                let mut candidates = bounded_candidates(
                     self.function_source_value_candidates(access.target())
                         .into_iter()
                         .flat_map(|candidate| match candidate {
@@ -200,8 +220,18 @@ impl ScriptLowerer<'_> {
                             | FiniteSourceValue::Array(_) => Vec::new(),
                         }),
                 );
+                let evaluator = match name.as_deref() {
+                    Some("eval") => Some(StandardBuiltinId::EvalFunction.function_id()),
+                    Some("evalScript") => Some(
+                        DynamicSourceIntrinsic::RealmEvalScript
+                            .function_id()
+                            .to_string(),
+                    ),
+                    _ => None,
+                };
+                candidates.extend(evaluator.map(FiniteSourceValue::Function));
                 if !candidates.is_empty() {
-                    return candidates;
+                    return bounded_candidates(candidates);
                 }
             }
             Expression::Binary(binary) if binary.op() == BinaryOp::Comma => {
@@ -271,6 +301,73 @@ impl ScriptLowerer<'_> {
         tuples
     }
 
+    pub(super) fn register_finite_source_binding_assignment(
+        &mut self,
+        name: &str,
+        value: &Expression,
+    ) {
+        let storage_name = match self.lookup_binding(name) {
+            Some(binding) => binding.storage_name,
+            None if self.is_script_global_var_name(name) => name.to_string(),
+            None => return,
+        };
+        let candidates = self.function_source_value_candidates(value);
+        let previous = self
+            .function_source_binding_candidates
+            .remove(&storage_name)
+            .unwrap_or_default();
+        self.function_source_binding_candidates.insert(
+            storage_name,
+            bounded_candidates(previous.into_iter().chain(candidates)),
+        );
+    }
+
+    pub(super) fn merge_function_source_parameter_candidates(
+        &mut self,
+        observations: BTreeMap<(FunctionId, usize), Vec<FiniteSourceValue>>,
+    ) {
+        for (key, candidates) in observations {
+            let previous = self
+                .function_source_parameter_candidates
+                .remove(&key)
+                .unwrap_or_default();
+            self.function_source_parameter_candidates.insert(
+                key,
+                bounded_candidates(previous.into_iter().chain(candidates)),
+            );
+        }
+    }
+
+    pub(super) fn register_source_call_argument_candidates(
+        &mut self,
+        callee: &Expression,
+        arguments: &[Expression],
+    ) {
+        let mut observations = BTreeMap::new();
+        for candidate in self.function_source_value_candidates(callee) {
+            let FiniteSourceValue::Function(function_id) = candidate else {
+                continue;
+            };
+            let Some(plan) = self.analysis.function_plans.get(&function_id) else {
+                continue;
+            };
+            for (index, (parameter, argument)) in
+                plan.parameters.as_ref().iter().zip(arguments).enumerate()
+            {
+                // A spread destroys the positional correspondence. Hints never
+                // supply values or replace the call's runtime argument iterator.
+                if parameter.is_rest_param() || matches!(argument, Expression::Spread(_)) {
+                    break;
+                }
+                let candidates = self.function_source_value_candidates(argument);
+                if !candidates.is_empty() {
+                    observations.insert((function_id.clone(), index), candidates);
+                }
+            }
+        }
+        self.merge_function_source_parameter_candidates(observations);
+    }
+
     pub(super) fn register_array_callback_source_candidates(
         &mut self,
         callee: &Expression,
@@ -316,41 +413,37 @@ impl ScriptLowerer<'_> {
         if candidates.is_empty() {
             return;
         }
-        let previous = self
-            .array_callback_source_candidates
-            .remove(&function_id)
-            .unwrap_or_default();
-        self.array_callback_source_candidates.insert(
-            function_id,
-            bounded_candidates(previous.into_iter().chain(candidates)),
-        );
+        self.merge_function_source_parameter_candidates(BTreeMap::from([(
+            (function_id, 0),
+            candidates,
+        )]));
     }
 
-    pub(super) fn install_array_callback_source_candidates(
+    pub(super) fn install_function_parameter_source_candidates(
         &mut self,
         function_id: &str,
-        parameters: &FormalParameterList,
+        index: usize,
+        parameter: &Binding,
+        default_candidates: Vec<FiniteSourceValue>,
     ) {
-        let Some(parameter) = parameters.as_ref().first() else {
+        let Binding::Identifier(identifier) = parameter else {
             return;
         };
-        let Binding::Identifier(identifier) = parameter.variable().binding() else {
-            return;
-        };
-        if parameter.is_rest_param() {
+        let candidates = bounded_candidates(
+            self.function_source_parameter_candidates
+                .get(&(function_id.to_string(), index))
+                .into_iter()
+                .flatten()
+                .cloned()
+                .chain(default_candidates),
+        );
+        if candidates.is_empty() {
             return;
         }
-        let Some(candidates) = self
-            .array_callback_source_candidates
-            .get(function_id)
-            .cloned()
-        else {
-            return;
-        };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
         let binding = self
             .lookup_binding(&name)
-            .expect("callback parameter is already lowered");
+            .expect("source parameter is already lowered");
         self.function_source_binding_candidates
             .insert(binding.storage_name, candidates);
     }

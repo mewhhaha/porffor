@@ -235,11 +235,12 @@ fn parsing_and_early_errors_are_deferred_without_replacing_outer_statements() {
 }
 
 #[test]
-fn literal_template_and_pure_concatenation_share_the_syntax_boundary() {
+fn finite_source_expressions_share_the_syntax_boundary() {
     for source in [
         "eval.call(undefined, '1 + 2');",
         "eval.call(undefined, `1 + 2`);",
         "eval.call(undefined, ('1' + ' + ' + '2'));",
+        "eval.call(undefined, String('1 + 2'));",
     ] {
         let program = lower(source);
         assert!(
@@ -255,8 +256,8 @@ fn literal_template_and_pure_concatenation_share_the_syntax_boundary() {
             PreparedScriptKind::IndirectEval
         );
     }
-    let program = lower("eval.call(undefined, String('1 + 2'));");
-    assert!(!program.is_wasm_supported());
+    let program = lower("eval.call(undefined, globalThis.unknownSource);");
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
     assert!(program
         .script
         .expect("outer Script IR")

@@ -7,7 +7,6 @@ use super::heap::{
     HeapLayoutSlot, HEAP_REALM_AGENT_ID_OFFSET, HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
     HEAP_REALM_GLOBAL_OBJECT_OFFSET, HEAP_REALM_GLOBAL_THIS_OFFSET, HEAP_REALM_HOST_HOOKS_OFFSET,
     HEAP_REALM_ID_OFFSET, HEAP_REALM_INTRINSICS_OFFSET, HEAP_REALM_MODULE_REGISTRY_OFFSET,
-    HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
 };
 
 pub(crate) enum RealmRecordHeapSlot {
@@ -19,7 +18,6 @@ pub(crate) enum RealmRecordHeapSlot {
     Intrinsics,
     HostHooks,
     ModuleRegistry,
-    PrivateElements,
 }
 
 struct RealmRecordHeapSlotMetadata {
@@ -89,13 +87,6 @@ impl RealmRecordHeapSlot {
                 width: 8,
                 pointer: true,
             },
-            Self::PrivateElements => RealmRecordHeapSlotMetadata {
-                record: "realm-record",
-                name: "private_elements",
-                offset: HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
-                width: 8,
-                pointer: true,
-            },
         }
     }
 
@@ -120,5 +111,4 @@ pub(crate) const HEAP_REALM_RECORD_LAYOUT: &[RealmRecordHeapSlot] = &[
     RealmRecordHeapSlot::Intrinsics,
     RealmRecordHeapSlot::HostHooks,
     RealmRecordHeapSlot::ModuleRegistry,
-    RealmRecordHeapSlot::PrivateElements,
 ];

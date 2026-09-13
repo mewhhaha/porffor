@@ -11594,7 +11594,9 @@ fn supported_wasm_aot_atomics_shared_array_buffer_case(path: &str) -> bool {
 fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
     matches!(
         path,
-        "built-ins/SharedArrayBuffer/allocation-limit.js"
+        "language/expressions/class/subclass-builtins/subclass-SharedArrayBuffer.js"
+            | "language/statements/class/subclass-builtins/subclass-SharedArrayBuffer.js"
+            | "built-ins/SharedArrayBuffer/allocation-limit.js"
             | "built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js"
             | "built-ins/SharedArrayBuffer/init-zero.js"
             | "built-ins/SharedArrayBuffer/is-a-constructor.js"
@@ -36089,6 +36091,17 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .features
             .insert("SharedArrayBuffer".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&sab_newtarget_case), None);
+
+        for path in [
+            "language/expressions/class/subclass-builtins/subclass-SharedArrayBuffer.js",
+            "language/statements/class/subclass-builtins/subclass-SharedArrayBuffer.js",
+        ] {
+            let mut subclass_case = synthetic_case(path);
+            subclass_case
+                .features
+                .insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&subclass_case), None);
+        }
 
         for path in [
             "built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-offset-sab.js",

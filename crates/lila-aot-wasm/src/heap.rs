@@ -74,7 +74,9 @@ use super::heap_private_element_entry_layout::{
     PrivateElementEntryHeapSlot, HEAP_PRIVATE_ELEMENT_ENTRY_LAYOUT,
 };
 #[cfg(test)]
-use super::heap_private_environment_layout::{PrivateEnvironmentHeapSlot, HEAP_PRIVATE_ENV_LAYOUT};
+use super::heap_private_environment_layout::{
+    PrivateEnvironmentHeapSlot, HEAP_PRIVATE_ENV_LAYOUT, HEAP_PRIVATE_NAME_LAYOUT,
+};
 #[cfg(test)]
 use super::heap_promise_capability_layout::{
     PromiseCapabilityHeapSlot, HEAP_PROMISE_CAPABILITY_LAYOUT,
@@ -276,7 +278,7 @@ impl HeapLayoutSlot {
 pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 312;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 72;
+pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 472;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
@@ -578,6 +580,8 @@ pub(crate) const HEAP_PRIVATE_ENV_PARENT_OFFSET: u64 = 0;
 pub(crate) const HEAP_PRIVATE_ENV_CLASS_SCOPE_OFFSET: u64 = 8;
 pub(crate) const HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET: u64 = 16;
 pub(crate) const HEAP_PRIVATE_ENV_SLOT_SIZE: u64 = 8;
+// The address of this slot is the stable Private Name token.
+pub(crate) const HEAP_PRIVATE_NAME_ENTRIES_OFFSET: u64 = 0;
 pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_NEXT_OFFSET: u64 = 0;
 pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_RECEIVER_OFFSET: u64 = 8;
 pub(crate) const HEAP_PRIVATE_ELEMENT_ENTRY_TOKEN_OFFSET: u64 = 16;
@@ -654,7 +658,6 @@ pub(crate) const HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET: u64 = 32;
 pub(crate) const HEAP_REALM_INTRINSICS_OFFSET: u64 = 40;
 pub(crate) const HEAP_REALM_HOST_HOOKS_OFFSET: u64 = 48;
 pub(crate) const HEAP_REALM_MODULE_REGISTRY_OFFSET: u64 = 56;
-pub(crate) const HEAP_REALM_PRIVATE_ELEMENTS_OFFSET: u64 = 64;
 pub(crate) const HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET: u64 = 0;
 pub(crate) const HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET: u64 = 8;
 pub(crate) const HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET: u64 = 16;
@@ -5594,7 +5597,7 @@ mod tests {
         assert_eq!(HEAP_STRING_RECORD_SIZE, 32);
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
-        assert_eq!(HEAP_REALM_RECORD_SIZE, 72);
+        assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
         assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 472);
         assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
         assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
@@ -5858,6 +5861,7 @@ mod tests {
             &private_environment_layout,
             HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET,
         );
+        assert_layout(HEAP_PRIVATE_NAME_LAYOUT, HEAP_PRIVATE_ENV_SLOT_SIZE);
         assert_layout(&bound_function_layout, HEAP_BOUND_FUNCTION_RECORD_SIZE);
         assert_layout(
             &private_element_entry_layout,
@@ -6124,6 +6128,10 @@ mod tests {
             + HEAP_PRIVATE_ENV_LAYOUT
                 .iter()
                 .filter(|slot| slot.layout().pointer)
+                .count()
+            + HEAP_PRIVATE_NAME_LAYOUT
+                .iter()
+                .filter(|slot| slot.pointer)
                 .count()
             + HEAP_WEAK_REF_RECORD_LAYOUT
                 .iter()
@@ -7082,7 +7090,7 @@ mod tests {
             .iter()
             .map(RealmRecordHeapSlot::layout)
             .collect::<Vec<_>>();
-        assert_eq!(layouts.len(), 9);
+        assert_eq!(layouts.len(), 8);
 
         for (slot, name, offset, pointer) in [
             (&layouts[0], "realm_id", HEAP_REALM_ID_OFFSET, false),
@@ -7121,12 +7129,6 @@ mod tests {
                 &layouts[7],
                 "module_registry",
                 HEAP_REALM_MODULE_REGISTRY_OFFSET,
-                true,
-            ),
-            (
-                &layouts[8],
-                "private_elements",
-                HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
                 true,
             ),
         ] {
@@ -8290,6 +8292,14 @@ mod tests {
         assert!(!class_scope.pointer);
 
         assert_layout(&layouts, HEAP_PRIVATE_ENV_SLOT_BASE_OFFSET);
+        assert_eq!(HEAP_PRIVATE_NAME_LAYOUT.len(), 1);
+        let entries = &HEAP_PRIVATE_NAME_LAYOUT[0];
+        assert_eq!(entries.record, "private-name");
+        assert_eq!(entries.name, "entries");
+        assert_eq!(entries.offset, HEAP_PRIVATE_NAME_ENTRIES_OFFSET);
+        assert_eq!(entries.width, HEAP_PRIVATE_ENV_SLOT_SIZE);
+        assert!(entries.pointer);
+        assert_layout(HEAP_PRIVATE_NAME_LAYOUT, HEAP_PRIVATE_ENV_SLOT_SIZE);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower, DynamicFunctionKind, DynamicSourceGap, DynamicSourceKind, PreparedScriptKind, ProgramIr,
+    lower, DynamicFunctionKind, DynamicSourceGap, PreparedScriptKind, ProgramIr,
     UnsupportedFeature, ValueKind,
 };
 
@@ -40,14 +40,12 @@ fn intrinsic_call_forwards_aot_known_eval_source_as_indirect_eval() {
 
 #[test]
 fn intrinsic_call_forwards_runtime_eval_source_as_indirect_eval() {
-    let program = lower_script("eval.call(undefined, String('source'));");
+    let program = lower_script("eval.call(undefined, globalThis.unknownSource);");
 
-    assert_eq!(
-        dynamic_source_gaps(&program),
-        vec![DynamicSourceGap::runtime_source(
-            DynamicSourceKind::IndirectEval,
-        )]
-    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.expect("forwarded runtime invocation");
+    assert!(script.prepared_scripts.is_empty());
+    assert_eq!(script.result_kind(), ValueKind::Dynamic);
 }
 
 #[test]

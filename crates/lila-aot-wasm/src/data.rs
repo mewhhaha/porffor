@@ -3866,6 +3866,9 @@ impl StringPool {
                 operation,
                 operands,
             } => {
+                if matches!(operation, SpecOperationIr::IsLooselyEqual) {
+                    self.uses_heap = true;
+                }
                 if matches!(operation, SpecOperationIr::ToIndex) {
                     self.intern_string("ToIndex out of range");
                 }
@@ -3953,6 +3956,9 @@ impl StringPool {
             | ExprIr::LooseEquality { lhs, rhs, .. }
             | ExprIr::LogicalShortCircuit { lhs, rhs, .. }
             | ExprIr::Comma { lhs, rhs } => {
+                if matches!(&expr.expr, ExprIr::LooseEquality { .. }) {
+                    self.uses_heap = true;
+                }
                 for value in [
                     "",
                     ",",

@@ -528,7 +528,7 @@ fn private_element_entry_producers_fix_all_five_product_rows() {
 }
 
 #[test]
-fn private_element_entry_consumer_projects_once_before_sole_realm_publication() {
+fn private_element_entry_consumer_projects_once_before_sole_private_name_publication() {
     let consumer = normalize_rust(bounded_inclusive(
         PRIVATE_ELEMENTS_SOURCE,
         "    fn emit_private_element_entry_add(",
@@ -541,7 +541,6 @@ fn private_element_entry_consumer_projects_once_before_sole_realm_publication() 
             entry: PrivateElementEntryLocals,
             function: &mut Function,
         ) -> Result<(), EmitError> {
-            let realm_local = self.reserve_temp_local();
             let previous_local = self.reserve_temp_local();
             let entry_local = self.reserve_temp_local();
             let kind = entry.kind();
@@ -594,11 +593,9 @@ fn private_element_entry_consumer_projects_once_before_sole_realm_publication() 
                 self.release_temp_local(existing_entry_local);
             }
 
-            function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-            function.instruction(&Instruction::LocalSet(realm_local));
             self.load_i64_to_local_from_offset(
-                realm_local,
-                HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+                token_local,
+                HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
                 previous_local,
                 function,
             );
@@ -665,23 +662,22 @@ fn private_element_entry_consumer_projects_once_before_sole_realm_publication() 
                 );
             }
             self.store_i64_local_at_offset(
-                realm_local,
-                HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,
+                token_local,
+                HEAP_PRIVATE_NAME_ENTRIES_OFFSET,
                 entry_local,
                 function,
             );
 
             self.release_temp_local(entry_local);
             self.release_temp_local(previous_local);
-            self.release_temp_local(realm_local);
             Ok(())
         }
     "#;
     assert_eq!(consumer.code, normalize_rust(expected_consumer).code);
 
     let publication = concat!(
-        "self.store_i64_local_at_offset(realm_local,",
-        "HEAP_REALM_PRIVATE_ELEMENTS_OFFSET,entry_local,function,);"
+        "self.store_i64_local_at_offset(token_local,",
+        "HEAP_PRIVATE_NAME_ENTRIES_OFFSET,entry_local,function,);"
     );
     assert_eq!(consumer.code.matches(publication).count(), 1);
     assert_eq!(
@@ -695,13 +691,18 @@ fn private_element_entry_consumer_projects_once_before_sole_realm_publication() 
 
 #[test]
 fn private_element_entry_contract_and_t09_checkpoint_name_the_closed_row_owner() {
+    assert!(CONTRACT.contains("Private Name list publication"));
+    assert!(
+        TASK.contains("Realm-list publication"),
+        "historical T09 checkpoint"
+    );
+    assert!(!PRIVATE_ELEMENTS_SOURCE.contains("CURRENT_REALM_GLOBAL_INDEX"));
     for marker in [
         "PrivateElementEntryLocals",
         "one owned row",
         "borrowed exhaustive projections",
         "13 lexical mentions",
         "five product producers",
-        "Realm-list publication",
     ] {
         assert!(
             CONTRACT.contains(marker),

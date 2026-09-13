@@ -159,7 +159,8 @@ records these error domains and historical ownership checks; the prepared-unit
 contracts linked above describe the implemented execution paths.
 
 Shared candidate analysis consumes the closed `ResolvedDynamicSourceCall`:
-`EvalPassThrough`, `FunctionInvocation`, `CompiledScript` or `Unsupported`.
+`EvalPassThrough`, `IndirectEvalInvocation`, `FunctionInvocation`,
+`CompiledScript` or `Unsupported`.
 Known Script sources register an executable or deferred-error unit instead of
 being rejected solely because they contain text. Resolved Function-family
 invocations retain their runtime argument conversions and guarded source
@@ -170,8 +171,10 @@ conversions followed by an unmatched tuple reach the typed capability gap.
 `ProvenEvalPassThrough` admits no-argument calls and non-spread calls whose first
 argument has a nonempty `KindSet` excluding primitive String. It retains the
 ordinary indirect-call IR, so callee identity and every argument effect remain
-observable. String-capable arguments require prepared-source dispatch or a
-reported gap. A spread cannot obtain that compile-time pass-through proof;
+observable. Indirect eval with String-capable arguments can instead use
+`AdmittedIndirectEvalInvocation`: the live intrinsic returns actual non-String
+values unchanged and rejects an unprepared String with a typed runtime
+capability failure. A spread cannot obtain the compile-time pass-through proof;
 this restriction is not a blanket claim that every spread or forwarding form
 fails at runtime.
 

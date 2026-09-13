@@ -8,10 +8,20 @@ order. The other five operators share evaluation, ToNumeric, mixed-type
 validation and runtime Number/BigInt dispatch.
 
 The Number branch exhaustively identifies every operation. Subtraction,
-multiplication and division use their binary64 instructions. Remainder retains
-the quotient/truncate/multiply/subtract sequence, and exponentiation retains
-the shared Number-power emitter. Addition has already returned through its
-own conversion path. A new IR operation requires an explicit backend decision.
+multiplication and division use their binary64 instructions. Remainder uses
+`emit_number_remainder_payload`, shared with typed binary expressions and local
+and property compound assignments. It reduces integer binary significands,
+then reconstructs the result with the numerator's sign. This preserves exact
+remainders when a floating-point quotient would overflow or round away needed
+bits, including subnormal results and negative zero. NaN, zero divisors and
+infinite operands take explicit branches. Exponentiation retains the shared
+Number-power emitter. Addition has already returned through its own conversion
+path. A new IR operation requires an explicit backend decision.
+
+The remainder emitter owns five temporary locals. Its callers retain both
+operands across child evaluation, so nested right-hand expressions cannot
+overwrite the numerator. The planner accounts for the retained operands and
+the shared emitter's temporary-local budget.
 
 The BigInt side uses the existing exhaustive
 `BigIntHelperOp::from_arithmetic` projection. Payload-only expression emission
@@ -23,6 +33,8 @@ tag even when neither raw operand's kind advertises BigInt.
 ```sh
 cargo test --release --locked -j2 -p lila-aot-wasm --test coercive_number_arithmetic_operation_structure --test bigint_helper_op_structure
 cargo test --release --locked -j2 -p lila-aot-wasm --lib planning::tests::
+cargo test --release --locked -j2 -p lila-ir --test number_remainder
+cargo test --release --locked -j2 -p lila-engine --test aot_number_remainder
 ```
 
 Current verification is recorded in the

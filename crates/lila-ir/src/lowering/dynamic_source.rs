@@ -13,18 +13,32 @@ enum DynamicSourceProof {
 ///
 /// Call lowering must consume this value before it can emit executable IR. The
 /// pass-through variant proves that `%eval%` never reaches source evaluation.
-/// The function variant retains runtime coercion and guarded source dispatch.
+/// Invocation variants retain runtime argument checks and guarded source dispatch.
 #[must_use = "resolved dynamic-source calls must consume their admitted proof or record their typed gap"]
 pub(super) enum ResolvedDynamicSourceCall {
     EvalPassThrough(ProvenEvalPassThrough),
+    IndirectEvalInvocation(AdmittedIndirectEvalInvocation),
     FunctionInvocation(AdmittedFunctionInvocation),
     CompiledScript(ProvenCompiledScript),
     Unsupported(UnsupportedDynamicSourceCall),
 }
 
+// A prepared source is available; the live callable and source must still match
+// at runtime, including after arbitrary mutation outside the finite candidates.
 pub(super) struct ProvenCompiledScript(());
 
 impl ProvenCompiledScript {
+    pub(super) fn into_result_info(self) -> ValueInfo {
+        ValueInfo::new(ValueKind::Dynamic)
+    }
+}
+
+/// The intrinsic checks the live first argument before selecting source text.
+/// Non-Strings pass through unchanged; an unprepared String is a runtime AOT
+/// capability rejection. This does not prove a pass-through value or a source unit.
+pub(super) struct AdmittedIndirectEvalInvocation(());
+
+impl AdmittedIndirectEvalInvocation {
     pub(super) fn into_result_info(self) -> ValueInfo {
         ValueInfo::new(ValueKind::Dynamic)
     }
@@ -215,11 +229,57 @@ impl ScriptLowerer<'_> {
         }
     }
 
+    fn register_script_source_candidates(
+        &mut self,
+        kind: PreparedScriptKind,
+        arguments: &[&Expression],
+        admission: PreparedScriptAdmission,
+    ) -> bool {
+        let mut sources = BTreeSet::new();
+        for argument in arguments {
+            let (candidates, spread) = match Self::unwrap_parenthesized_expr(argument) {
+                Expression::Spread(spread) => {
+                    (self.finite_spread_source_candidates(spread.target()), true)
+                }
+                argument => (self.function_source_value_candidates(argument), false),
+            };
+            sources.extend(
+                candidates
+                    .into_iter()
+                    .filter_map(|candidate| match candidate {
+                        FiniteSourceValue::Text(source) => Some(source),
+                        FiniteSourceValue::Function(_)
+                        | FiniteSourceValue::FunctionConstructor(_)
+                        | FiniteSourceValue::Record(_)
+                        | FiniteSourceValue::Array(_) => None,
+                    }),
+            );
+            if sources.len() > super::finite_function_source::MAX_SOURCE_CANDIDATES {
+                return false;
+            }
+            // An earlier spread can be empty; execution still obtains the live
+            // first argument before matching any prepared source.
+            if !spread {
+                break;
+            }
+        }
+        let found = !sources.is_empty();
+        for source in sources {
+            self.register_dynamic_script_source(DynamicScriptSource {
+                admission,
+                kind: kind.clone(),
+                source,
+            });
+        }
+        found
+    }
+
     pub(super) fn register_dynamic_source_candidates(
         &mut self,
         callee: &Expression,
         arguments: &[Expression],
     ) {
+        self.register_source_call_argument_candidates(callee, arguments);
         let property_name =
             |access: &boa_ast::expression::access::SimplePropertyAccess| match access.field() {
                 PropertyAccessField::Const(name) => {
@@ -296,17 +356,30 @@ impl ScriptLowerer<'_> {
             candidate_callee = Self::unwrap_parenthesized_expr(binary.rhs());
             forwarded = true;
         }
-        let mut known_constructor_kinds = self
-            .function_source_value_candidates(candidate_callee)
-            .into_iter()
-            .filter_map(|candidate| match candidate {
-                FiniteSourceValue::FunctionConstructor(kind) => Some(kind),
+        let mut known_constructor_kinds = Vec::new();
+        let mut known_script_kinds = Vec::new();
+        for candidate in self.function_source_value_candidates(candidate_callee) {
+            match candidate {
+                FiniteSourceValue::FunctionConstructor(kind) => known_constructor_kinds.push(kind),
+                FiniteSourceValue::Function(function_id) => {
+                    match dynamic_source_kind_for_function_id(&function_id) {
+                        Some(DynamicSourceKind::Function(kind)) => {
+                            known_constructor_kinds.push(kind)
+                        }
+                        Some(DynamicSourceKind::IndirectEval) => {
+                            known_script_kinds.push(PreparedScriptKind::IndirectEval)
+                        }
+                        Some(DynamicSourceKind::RealmEvalScript) => {
+                            known_script_kinds.push(PreparedScriptKind::RealmScript)
+                        }
+                        Some(DynamicSourceKind::DirectEval) | None => {}
+                    }
+                }
                 FiniteSourceValue::Text(_)
-                | FiniteSourceValue::Function(_)
                 | FiniteSourceValue::Record(_)
-                | FiniteSourceValue::Array(_) => None,
-            })
-            .collect::<Vec<_>>();
+                | FiniteSourceValue::Array(_) => {}
+            }
+        }
         let name = match candidate_callee {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
@@ -319,12 +392,19 @@ impl ScriptLowerer<'_> {
                     });
                 if let Some(targets) = targets {
                     for function_id in targets.known_targets() {
-                        if let Some(DynamicSourceIntrinsic::Function(kind)) =
-                            DynamicSourceIntrinsic::from_function_id(function_id)
-                        {
-                            if !known_constructor_kinds.contains(&kind) {
-                                known_constructor_kinds.push(kind);
+                        match dynamic_source_kind_for_function_id(function_id) {
+                            Some(DynamicSourceKind::Function(kind)) => {
+                                if !known_constructor_kinds.contains(&kind) {
+                                    known_constructor_kinds.push(kind);
+                                }
                             }
+                            Some(DynamicSourceKind::IndirectEval) => {
+                                known_script_kinds.push(PreparedScriptKind::IndirectEval);
+                            }
+                            Some(DynamicSourceKind::RealmEvalScript) => {
+                                known_script_kinds.push(PreparedScriptKind::RealmScript);
+                            }
+                            Some(DynamicSourceKind::DirectEval) | None => {}
                         }
                     }
                 }
@@ -332,6 +412,7 @@ impl ScriptLowerer<'_> {
                     && !(forwarded && name == "eval")
                     && !reflected_constructor
                     && known_constructor_kinds.is_empty()
+                    && known_script_kinds.is_empty()
                 {
                     return;
                 }
@@ -346,22 +427,19 @@ impl ScriptLowerer<'_> {
             _ if reflected_constructor => String::new(),
             _ => return,
         };
-        let script_kind = match name.as_str() {
-            "evalScript" => Some(PreparedScriptKind::RealmScript),
-            "eval" => Some(PreparedScriptKind::IndirectEval),
-            _ => None,
-        };
-        if let Some(kind) = script_kind {
-            if let Some(source) = candidate_arguments
-                .first()
-                .and_then(|argument| self.aot_source_text(argument))
-            {
-                self.register_dynamic_script_source(DynamicScriptSource {
-                    admission: PreparedScriptAdmission::RuntimeCandidate,
-                    kind,
-                    source,
-                });
-            }
+        match name.as_str() {
+            "evalScript" => known_script_kinds.push(PreparedScriptKind::RealmScript),
+            "eval" => known_script_kinds.push(PreparedScriptKind::IndirectEval),
+            _ => {}
+        }
+        for kind in known_script_kinds {
+            self.register_script_source_candidates(
+                kind,
+                &candidate_arguments,
+                PreparedScriptAdmission::RuntimeCandidate,
+            );
+        }
+        if matches!(name.as_str(), "evalScript" | "eval") {
             return;
         }
         let kinds = if name == "Function" {
@@ -586,21 +664,33 @@ impl ScriptLowerer<'_> {
             DynamicSourceKind::DirectEval | DynamicSourceKind::Function(_) => None,
         };
         if let Some(kind) = script_kind {
-            if let Some(source) = source_args
-                .and_then(|args| args.first())
-                .and_then(|expression| self.aot_source_text(expression))
-            {
-                let source = DynamicScriptSource {
-                    admission: PreparedScriptAdmission::ResolvedIntrinsic,
-                    kind,
-                    source,
+            if let Some(arguments) = source_args {
+                let admission = if arguments
+                    .first()
+                    .is_some_and(|argument| self.aot_source_text(argument).is_some())
+                {
+                    PreparedScriptAdmission::ResolvedIntrinsic
+                } else {
+                    PreparedScriptAdmission::RuntimeCandidate
                 };
-                self.register_dynamic_script_source(source);
-                self.invalidate_unknown_user_code_effects();
-                return Some(ResolvedDynamicSourceCall::CompiledScript(
-                    ProvenCompiledScript(()),
-                ));
+                if self.register_script_source_candidates(
+                    kind,
+                    &arguments.iter().collect::<Vec<_>>(),
+                    admission,
+                ) {
+                    self.invalidate_unknown_user_code_effects();
+                    return Some(ResolvedDynamicSourceCall::CompiledScript(
+                        ProvenCompiledScript(()),
+                    ));
+                }
             }
+        }
+
+        if kind == DynamicSourceKind::IndirectEval {
+            self.invalidate_unknown_user_code_effects();
+            return Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(
+                AdmittedIndirectEvalInvocation(()),
+            ));
         }
 
         let proof = source_args
@@ -642,7 +732,8 @@ impl ScriptLowerer<'_> {
             .resolve_dynamic_source_call(function_id, Some(source_args), &lowered_args)
             .expect("dynamic-source construct lowering requires a dynamic-source identity");
         match resolved {
-            ResolvedDynamicSourceCall::EvalPassThrough(_) => {
+            ResolvedDynamicSourceCall::EvalPassThrough(_)
+            | ResolvedDynamicSourceCall::IndirectEvalInvocation(_) => {
                 unreachable!("the intrinsic eval function is not constructable")
             }
             ResolvedDynamicSourceCall::FunctionInvocation(proof) => {

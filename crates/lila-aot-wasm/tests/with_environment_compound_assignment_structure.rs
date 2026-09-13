@@ -1,5 +1,5 @@
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const ASSIGNMENT_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const COMPOUND_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/with_environment_compound.rs");
 const FIXTURE: &str =
@@ -105,11 +105,11 @@ fn assert_before(source: &str, earlier: &str, later: &str) {
 #[test]
 fn one_nonempty_noncopy_plan_owns_the_complete_compound_assignment() {
     assert!(REFERENCE_SOURCE.contains(
-        "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, logical assignment, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
+        "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment\"]\npub(crate) struct WithEnvironmentReferencePlan {"
     ));
     let plan_type = bounded(
         REFERENCE_SOURCE,
-        "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, logical assignment, numeric update, or compound assignment\"]",
+        "#[must_use = \"a with-environment Reference must be consumed by GetValue, PutValue, DeleteBinding, logical assignment, numeric update, or compound assignment\"]",
         "/// One identifier Reference selected by the Global Environment Record's",
     );
     assert!(!plan_type.contains("Clone"));
@@ -199,7 +199,7 @@ fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
     assert!(!op.contains("Logical"));
 
     let arithmetic = bounded(
-        LOWERING_SOURCE,
+        ASSIGNMENT_SOURCE,
         "            AssignOp::Add\n            | AssignOp::Sub",
         "            AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {",
     );
@@ -233,17 +233,23 @@ fn lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out() {
     assert!(!selected_arithmetic.contains("_ =>"));
 
     let logical = bounded(
-        LOWERING_SOURCE,
+        ASSIGNMENT_SOURCE,
         "            AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {",
         "            AssignOp::And\n            | AssignOp::Or",
     );
     assert!(!logical.contains("EagerCompoundAssignmentOp"));
     assert!(!logical.contains("lower_with_scoped_identifier_eager_compound_assignment"));
 
+    let assignment_end = "\n        }\n    }";
+    assert_eq!(
+        ASSIGNMENT_SOURCE.matches(assignment_end).count(),
+        1,
+        "assignment owner must have one outer match/function terminator"
+    );
     let bitwise = bounded(
-        LOWERING_SOURCE,
+        ASSIGNMENT_SOURCE,
         "            AssignOp::And\n            | AssignOp::Or",
-        "    fn lower_web_compat_call_assignment_target(&mut self, call: &Call) -> TypedExpr {",
+        assignment_end,
     );
     for mapping in [
         "AssignOp::And => BitwiseOp::And",
