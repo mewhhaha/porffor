@@ -1,4 +1,4 @@
-# Expression semantics baseline follow-up — 2026-09-12
+# Expression semantics baseline follow-up — 2026-09-13
 
 This batch starts from `ac017904aa72c07caf44b70db7ba3a3eb58a911a`, the merge
 of PR #50, on a new branch from freshly fetched `origin/main`.
@@ -66,11 +66,46 @@ combined paired baseline contains 373 executions: 324 Success, 27 Bug and
   `SharedArrayBuffer` subclassing. Direct merged-main Wasm execution already
   supports their construction/prototype behavior and growable storage.
 
+The structural follow-up also restores exact checks for the existing BigInt
+numeric-update routes and the twelve eager compound-assignment operators.
+
 ## Verification
 
-Verification is in progress. The final replay inventory and audited results
-will be recorded here before publication. Generated full-suite status counts
-are unchanged by this scoped replay.
+The completed pinned replay passes **373/373**, repairing all **49** failures
+reproduced on main and preserving **324** passing controls. There are no Bug,
+Crash, NotImplemented or timeout outcomes in the candidate cohort. The
+[execution inventory](../../test262/replays/expression-semantics-20260912.executions)
+and [verification artifact](../../test262/replays/expression-semantics-20260912.verification.json)
+retain exact mode/path identities, paired outcomes and source/result hashes.
+Generated full-suite status counts are unchanged by this scoped replay.
+
+The frozen compiler was built from
+`e696f13eefb3805e8ee45fe722b578b0b6a35662` with binary SHA-256
+`96607b96cb778ef6340c25467822d1e33b0c64e376e92048d28b05b297043b7c`.
+The source manifest covers 2,916 inputs, with SHA-256
+`2a8e39e976c13b073666400495a7422e0255a6ddaf98e57a9e69734b7af9ddbe`.
+Both main and candidate use Test262 tree
+`aa55200d1310384c5cf69ea95b2a2ecba457007b` and Rust 1.94.0.
+
+The workspace check, 61 focused IR regressions, 35 focused Wasmtime regressions,
+431 backend library tests and 44 structural tests pass. The structural
+checkpoint is at `db72df3e2c034f0b3fc1d35b509ebd93ae83ce5c`; only two
+integration guards differ from the compiler checkpoint. They repair pre-existing
+staleness on main: omitted BigInt numeric-update routes and a compound-assignment
+guard that still read the parent module after lowering moved to a child.
+All production code, IR/library tests, native fixtures and dependencies are
+byte-identical across this test-only follow-up.
+
+The 66 adjacent Wasmtime tests and the SharedArrayBuffer feature-admission
+check also pass. The full fake fixture suite passes 191/191 executions from
+190 files, separately from the real pinned replay.
+
+The full IR library checkpoint is retained honestly as **1,125 passes and one
+failed assertion**. The corrected realm-eval assertion then passed in a separate
+exact-test run, with 1,125 tests filtered. A byte-exact source and dependency proof
+retains the unchanged 1,125 passes; this is not a newly green full 1,126-test run.
+The evidence also preserves earlier failed native/replay attempts and the stale
+structural guards, without counting their failures as passes.
 
 Refresh the paired execution cohort with a freshly built compiler:
 
@@ -102,11 +137,15 @@ from this PR's repair cohort, not added to a skip list.
 
 The original full baseline continues against its earlier compiler. Its counters
 measure that compiler, while this PR's paired replay measures these changes.
-Neither is a completed, current full Test262 conformance result.
+Neither is a completed, current full Test262 conformance result. At the final
+counters-only observation, **2026-09-13 07:10 UTC**, the original run remained
+active at **79,928/102,043 executions** and **586/744 nodes**: 67,731 Success,
+8,663 Bug, 782 Crash and 2,752 NotImplemented. These later counters do not extend
+the 70,258-execution identity freeze or this PR's repair cohort.
 
 A new adjacent static-member control also exposed the existing unsupported
 private-field `++`/`--` lowering. Direct inspection of its class reports
 `private field update target`; optional eval preparation consequently retains
 the explicit runtime capability rejection. That separate numeric-update gap
-remains open. The private-brand control uses explicit private reads and writes
-to verify its setter invocation count.
+remains open under T09. The private-brand control uses explicit private reads
+and writes to verify its setter invocation count.

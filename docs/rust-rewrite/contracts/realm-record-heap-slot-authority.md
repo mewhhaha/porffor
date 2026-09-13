@@ -30,12 +30,14 @@ and semantic authorities.
 
 ## Private-element ownership correction
 
-The 2026-09-12 correction removes the unused Realm private-element head and its
+The 2026-09-12 correction removes the obsolete Realm private-element head and its
 initialization. Each Private Name now owns its rows through a pointer-bearing
 slot in its declaring private environment. This prevents foreign-eval class
 definitions from being separated from later instance brands by the caller's
-execution realm. All eight remaining Realm offsets are unchanged. Updated
-layout and runtime verification is pending in the coordinated checkpoint.
+execution realm. All eight remaining Realm offsets are unchanged. The
+structure target passes 4/4, the backend library passes 431/431 and the
+finite-eval Wasmtime target passes 12/12; see the
+[batch verification](../expression-semantics-followup-20260912.md).
 
 ## Historical passive boundary
 

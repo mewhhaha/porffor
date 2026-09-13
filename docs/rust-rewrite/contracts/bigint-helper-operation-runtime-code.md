@@ -53,7 +53,9 @@ remain unchanged. The September 13, 2026 structural checkpoint exposed the old
 36-identifier assertion: it omitted the numeric-update `Add`/`Sub` selection
 already present in `origin/main` at `ac017904aa72c07caf44b70db7ba3a3eb58a911a`,
 introduced by `1723bfe33f`. This correction changes only the guard and contract;
-verification of the corrected target is pending the coordinated checkpoint.
+the corrected target passes 4/4 in the coordinated checkpoint. See the
+[batch verification](../expression-semantics-followup-20260912.md) for the
+separate compiler, native and pinned-suite evidence.
 
 ## Historical verification
 

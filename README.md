@@ -96,6 +96,15 @@ failures reproduced on merged main and preserving 95 passing controls; 13 IR
 and 19 Wasmtime regressions also pass. The notes retain exact source provenance
 and replay refresh commands. These counts are separate from the full-suite status.
 
+The [expression-semantics follow-up](docs/rust-rewrite/expression-semantics-followup-20260912.md)
+fixes exact Number remainder, deletion references, BigInt/string equality,
+finite indirect eval and cross-realm private-member ownership, and admits
+supported SharedArrayBuffer subclasses. The `2026-09-13` audited replay passes
+373/373 pinned executions, repairing 49 failures on merged main and retaining
+324 passing controls; 35 focused Wasmtime regressions also pass. The notes
+include refresh commands, source provenance and the remaining module-loading
+and private numeric-update gaps. These counts are separate from full-suite status.
+
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace

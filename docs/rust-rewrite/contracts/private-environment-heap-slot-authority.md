@@ -38,7 +38,9 @@ or establish complete receiver liveness for a future collector. The runtime
 currently uses a non-moving, non-collecting allocation path.
 
 The 2026-09-12 semantic correction adds the token-head layout and initialization
-witnesses. Their coordinated native and compiler verification is pending.
+witnesses. The structure target passes 5/5, the backend library passes 431/431,
+and the finite-eval Wasmtime target passes 12/12; see the
+[batch verification](../expression-semantics-followup-20260912.md).
 
 ## Historical passive boundary
 
@@ -54,8 +56,8 @@ rustfmt --check --config skip_children=true crates/lila-aot-wasm/src/heap_privat
 git diff --check
 ```
 
-At that earlier checkpoint, the structure target passed `4/4`, the exact identity owner witness passes
-`1/1`, and the adjusted collision/pointer registry witnesses pass `2/2`. Only
+At that earlier checkpoint, the structure target passed `4/4`, the exact identity owner witness passed
+`1/1`, and the adjusted collision/pointer registry witnesses passed `2/2`. Only
 the workspace's existing warnings are emitted. Targeted formatting with child
 module traversal disabled and diff checks pass, and the shared `cargo xc`
 checkpoint is green. Golden and conformance execution do not apply to this

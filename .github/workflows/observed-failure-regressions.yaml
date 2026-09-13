@@ -75,7 +75,7 @@ jobs:
       - name: Check remainder, deletion, equality and finite eval lowering
         run: |
           cargo test --locked --no-fail-fast -p lila-ir --test number_remainder --test delete_reference --test bigint_loose_equality --test finite_indirect_eval --test indirect_eval_admission
-          cargo test --locked -p lila-aot-wasm --test coercive_number_arithmetic_operation_structure --test private_element_entry_protocol_structure --test private_environment_heap_slot_structure --test realm_record_heap_slot_structure
+          cargo test --locked -p lila-aot-wasm --test coercive_number_arithmetic_operation_structure --test bigint_helper_op_structure --test with_environment_compound_assignment_structure --test private_element_entry_protocol_structure --test private_environment_heap_slot_structure --test realm_record_heap_slot_structure
           cargo test --locked -p lila-test262 --lib wasm_aot_allows_dataview_sab_and_immutable_setter_slice
 
       - name: Execute expression semantics repairs through Wasmtime
