@@ -1,81 +1,96 @@
-# Intl.Locale core language options
+# Intl.Locale constructor options and provider integration
 
-This change addresses the constructor's previously ignored `language`, `script`
-and `region` options on the direct JavaScript-to-Wasm path. It does not close
-T23, implement all Intl.Locale options, or establish a new Test262 checkpoint.
+The Wasm-AOT constructor reads `language`, `script`, `region`, `variants`,
+`calendar`, `collation`, `firstDayOfWeek`, `hourCycle`, `caseFirst`, `numeric`
+and `numberingSystem` in specification order. Each Get, conversion and
+validation completes before the next property read. Getter and conversion
+exceptions propagate unchanged. Invalid option values use the called
+constructor's Realm.
 
 ## Observable contract
 
-The constructor retains its existing reserved/initialized result lifecycle.
-It resolves the result prototype before observing the tag, converts the tag to
-its string/Locale-slot value, then coerces options before validating tag syntax.
-Thus a null options argument throws TypeError even when the converted tag is
-malformed; an invalid tag prevents every options property read.
+The existing reserved/initialized result lifecycle resolves the result
+prototype before observing the tag. A branded Locale input supplies its
+internal tag without calling user `toString`; other accepted inputs use the
+ordinary conversion path. Options are coerced before tag validation, so null
+options throw even for an invalid tag, while invalid tags prevent option reads.
+Undefined options act as an empty null-prototype object without consulting
+Object.prototype. Defined primitives are boxed once.
 
-For a defined options argument, the shared current-function-Realm ToObject
-operation preserves object identity or boxes a primitive once. Undefined has
-the semantics of a fresh, empty, null-prototype options object; it does not read
-Object.prototype. The core properties are read in language/script/region order
-through the shared object-read operation, with the options object as receiver.
-Each property's Get, ToString and validation finishes before the next Get.
-Getter exceptions, conversion exceptions and invalid subtags stop immediately.
+The pinned provider canonicalizes the original tag before core overrides and
+canonicalizes the final tag after extension overrides. Every provider result
+refreshes tag, baseName, language, script and region together. Variants replace
+the old variant sequence while retaining extensions and private use. They use
+the structural grammar and case-insensitive duplicate detection. Unicode
+options replace only their own keyword, preserving unrelated attributes,
+keywords, extensions and private use. Numeric uses ToBoolean; the remaining
+options use ToString. First-day numeric strings 0 through 7 map to weekdays.
 
-Language accepts two or three, or five through eight, ASCII letters. Script
-accepts exactly four ASCII letters. Region accepts two ASCII letters or three
-ASCII digits. These are syntax checks, not registry membership checks. In
-particular, unknown but well-formed subtags are accepted and mixed digit/letter
-regions are rejected. A private validated-component type is required at the
-field-replacement point.
+Eight new getters expose calendar, collation, firstDayOfWeek, hourCycle,
+caseFirst, numeric, numberingSystem and variants. They read the immutable
+canonical tag through fixed branded entrypoints, so no additional object
+representation or duplicate mutable option state is needed. Absent string
+fields return undefined, present empty extension values return the empty
+string, and numeric returns a Boolean. Main and created realms install the
+same catalog identities in their own function realms.
 
-The original language/script/region prefix boundary is saved before replacing
-any field. Its suffix retains variants, extensions and private use. Allocation
-uses the exact replacement prefix plus suffix length, not a fixed 255-byte
-host-provider buffer. The existing structural canonicalizer then rebuilds the
-complete tag, baseName, language, script and region slots together. Omitted
-options leave existing components intact; no defined core options means no
-extra reconstruction.
+## Provider domain and host-call contract
 
-## Regression target
+Locale identifiers have no 255-byte syntactic limit. A pure zero-capacity
+provider call returns `RequiredCapacity(u32)`, encoded as `-2 - capacity`,
+before an exact-size allocation and a second writing call. No JavaScript
+operation occurs between these calls. `Written(u32)` and `Rejected` remain
+closed alternatives; invalid host responses are ABI faults. The engine checks
+request memory bounds before allocation and reports allocation failure.
+Time-zone identifiers keep their independent 255-byte wire limit.
 
-`crates/lila-engine/tests/aot_intl_locale_options.rs` contains 18 direct Wasm-AOT
-regressions for replacements, insertion, casing, suffix retention, absent slots,
-getter/coercion order, abrupt completion, inherited/Proxy receivers, primitive
-boxing, undefined/null options, malformed inputs, unknown valid subtags, Symbol
-conversion, branded Locale inputs, and constructor prototype ordering.
+Artifact identity now includes `host-call-abi=2`. Hosts reject artifacts with
+incompatible serialized identities before instantiation; the pinned data
+schema, digest and ICU versions are unchanged.
 
-Run the focused target and existing construction-lifecycle invariant:
+ICU's language field accepts only two or three letters. A private parsed
+reserved-language domain accepts the additional five-to-eight-letter
+ECMAScript domain without treating an ICU parse rejection as invalid input.
+Its alias operation consumes the same pinned alias tables. Provider setup
+checks that unconstrained language rules are absent and that wildcard variant
+rules preserve the language. Narrow language-key schemas cannot match a
+reserved language; failed likely-subtag lookup therefore selects the first
+complex territory replacement. `abcde-Armn-SU` becomes `abcde-Armn-RU`, while
+`und-Armn-SU` becomes `und-Armn-AM`. The parser's temporary `und` spelling never
+enters a semantic canonicalizer or likely-subtag lookup for a reserved field.
+Base and transform-extension languages each receive their own alias pass.
+
+## Verification boundary
+
+The staged batch adds 12 direct Wasm-AOT regressions, two IR regressions and
+five provider-domain tests, and updates protocol and structural census tests.
+The provider tests inspect the pinned alias/likely-subtag schemas and every
+complex territory entry, including distinct base and transform languages.
+Existing core-options and neighboring authority tests remain required.
 
 ```sh
-cargo test -p lila-engine --test aot_intl_locale_options -- --test-threads=1
-cargo test -p lila-aot-wasm intl_locale_construction_order_tests -- --test-threads=1
+cargo test -p lila-intl -- --test-threads=1
+cargo test -p lila-ir --test intl_locale_getters -- --test-threads=1
+cargo test -p lila-aot-wasm --test intl_canonical_locale_tag_invocation_structure --test intl_namespace_plan_structure -- --test-threads=1
+cargo test -p lila-engine --test aot_intl_locale_options --test aot_intl_locale_constructor -- --test-threads=1
 ```
 
-Then use the repository's batch verification ladder, including the normal
-engine/CLI suites and the pinned raw-source Intl.Locale Test262 cohort. Do not
-rewrite test sources, reduce assertion helpers, add skips, or alter published
-counts to make this change appear green.
+Compilation, runtime regressions and exact Test262 replays are pending at
+staging handoff. The evidence directory records 204 exact constructor/getter
+executions and 76 shared-provider executions with pinned source hashes. These
+are verification inputs, not passing counts. Published conformance counts are
+unchanged. Follow the repository batch verification ladder after integration.
 
-## Evidence boundary
+## Remaining provider and service work
 
-At patch preparation, all 18 exact JavaScript snippets returned true on Node
-v22.16.0 in isolated contexts. This checks expected reference behavior only.
-The authoring environment had no local Rust toolchain or runnable repository
-checkout. The GitHub connector was subsequently used to publish the branch. Neither Cargo compilation, the Lila
-regressions, nor the pinned Test262 cohort was run. These remain mandatory
-before treating this implementation as verified. The generated README status
-block and all conformance denominators are unchanged.
+The pinned ICU canonicalizer lacks BCP47 keyword-value alias tables. In
+particular, `islamicc` and `ethiopic-amete-alem` still require canonical calendar
+aliases; the exact `constructor-options-canonicalized.js` case remains open
+pending real provider data integration. This batch does not guess alias
+outputs or weaken that test. Locale maximize/minimize, locale information
+services, complete matching and broader Intl services remain open.
 
-## Remaining work
-
-The constructor still uses structural canonicalization rather than the
-provider-backed alias resolution used by Intl.getCanonicalLocales. In
-particular, alias resolution before applying overrides is not added here.
-The `variants` option and Unicode-extension options (calendar, collation,
-firstDayOfWeek, hourCycle, caseFirst, numeric and numberingSystem) remain outside
-this patch, as do their additional slots/getters and broader locale services.
-This bounded core-options implementation must not be presented as complete
-UpdateLanguageId, Intl.Locale or ECMA-402 support.
-
-The algorithm reference is the ECMA-402 Intl.Locale constructor and its
-UpdateLanguageId operation. Step numbers evolve; ordering and the subtag
-grammar, rather than an old numbered step, are the contract.
+References: [ECMA-402 Locale construction](https://tc39.es/ecma402/#sec-intl.locale),
+[UTS35 canonicalization](https://unicode.org/reports/tr35/#Annex_C_LocaleId_Canonicalization),
+[UTS35 likely subtags](https://unicode.org/reports/tr35/#Likely_Subtags), and the
+[pinned ICU alias schema](https://raw.githubusercontent.com/unicode-org/icu4x/icu@2.0.0/components/locale/src/provider.rs).

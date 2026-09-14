@@ -3618,6 +3618,7 @@ impl<'a> FunctionBuilder<'a> {
         for builtin in [
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,
@@ -3642,6 +3643,7 @@ impl<'a> FunctionBuilder<'a> {
         for builtin in [
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,

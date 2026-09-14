@@ -2295,21 +2295,15 @@ impl<'a> FunctionBuilder<'a> {
         element_kind_local: u32,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(11));
-        function.instruction(&Instruction::I64LeU);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Const(0));
+        for kind in TypedArrayElementKind::ALL {
+            if kind.is_atomics_integer() {
+                function.instruction(&Instruction::LocalGet(element_kind_local));
+                function.instruction(&Instruction::I64Const(kind.abi_word() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32Or);
+            }
+        }
     }
 
     fn emit_atomics_normalize_integer_element_i64(
@@ -2387,13 +2381,7 @@ impl<'a> FunctionBuilder<'a> {
         element_kind_local: u32,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(11));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        self.emit_typed_array_bigint_element_kind_i32(element_kind_local, function);
     }
 
     fn emit_validated_atomics_bigint_element_kind_i32(

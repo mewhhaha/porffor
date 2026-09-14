@@ -54,6 +54,7 @@ fn legacy_utf16_pair_has_one_private_child_owner() {
 
     for definition in [
         "    pub(super) fn from_scalar(",
+        "    pub(super) fn code_units(",
         "    pub(super) fn lead_instruction(",
         "    pub(super) fn trail_instruction(",
     ] {
@@ -67,13 +68,13 @@ fn legacy_utf16_pair_has_one_private_child_owner() {
             "parent must not retain `{definition}`"
         );
     }
-    assert_eq!(LEGACY_PAIR_SOURCE.matches("fn ").count(), 3);
+    assert_eq!(LEGACY_PAIR_SOURCE.matches("fn ").count(), 4);
     assert_eq!(
         LEGACY_PAIR_SOURCE
             .lines()
             .filter(|line| line.starts_with("    pub(super) fn "))
             .count(),
-        3
+        4
     );
     assert!(!LEGACY_PAIR_SOURCE.contains("pub(crate) "));
     assert!(!LEGACY_PAIR_SOURCE.contains("\npub fn "));
@@ -96,6 +97,19 @@ fn legacy_utf16_pair_constructor_and_projections_have_closed_callers() {
             .count(),
         1
     );
+    let class_parser = bounded(
+        REGEXP_SOURCE,
+        "fn parse_class(\n",
+        "/// Normalizes, case-closes",
+    );
+    assert_eq!(
+        class_parser
+            .matches(".and_then(LegacyUtf16Pair::from_scalar)")
+            .count(),
+        2
+    );
+    assert_eq!(class_parser.matches("pair.code_units()").count(), 2);
+    assert_eq!(REGEXP_SOURCE.matches("pair.code_units()").count(), 2);
     assert_eq!(REGEXP_SOURCE.matches("pair.lead_instruction()").count(), 2);
     assert_eq!(REGEXP_SOURCE.matches("pair.trail_instruction()").count(), 2);
 

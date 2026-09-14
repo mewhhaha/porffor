@@ -31,7 +31,7 @@ fn lookaround_polarity_is_a_private_non_capability_domain() {
     assert_eq!(compact(declaration), "Positive,Negative,}");
     let prefix = bounded(
         REGEXP_SOURCE,
-        "enum ParsedTermAtom {",
+        "impl WordBoundaryPolarity {",
         "enum LookaroundPolarity {",
     );
     assert!(!prefix.contains("#[derive"));
@@ -57,12 +57,12 @@ fn syntax_and_wire_projection_each_have_one_exhaustive_owner() {
         "constfnoperand_bit(&self)->u64{matchself{Self::Positive=>0,Self::Negative=>1,}}"
     ));
     assert_eq!(REGEXP_SOURCE.matches("from_syntax_marker").count(), 3);
-    assert_eq!(REGEXP_SOURCE.matches("polarity.operand_bit()").count(), 2);
+    assert_eq!(REGEXP_SOURCE.matches("polarity.operand_bit()").count(), 3);
 
     let constructors = bounded(
         REGEXP_SOURCE,
         "const fn lookaround_end(",
-        "pub const fn positive_ascii_class_contains(",
+        "const fn word_boundary(",
     );
     assert_eq!(
         constructors

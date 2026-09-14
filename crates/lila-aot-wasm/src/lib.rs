@@ -23,12 +23,12 @@ use lila_ir::{
     StatementIr, Strictness, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
     SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint, TypedExpr, UnaryBitwiseOp,
     UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm, AGGREGATE_ERROR_NAME,
-    ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME,
-    BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME,
-    FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
-    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
-    INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
-    LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
+    ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
+    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT16_ARRAY_NAME, FLOAT32_ARRAY_NAME,
+    FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID,
+    INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS,
+    IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME,
+    LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
     LILA_GENERATOR_THROW_SLOT, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
     PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME,
     SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
@@ -2690,7 +2690,13 @@ mod tests {
             .0;
         assert!(helper_call.contains("self.emit_conversion_error_realm_argument(error_realm"));
         assert!(helper_call.contains("for _ in 0..3"));
-        assert!(helper_call.contains("LocalGet(self.current_env_local)"));
+        assert_eq!(
+            helper_call
+                .matches("self.emit_outlined_object_read_realm_argument(function)")
+                .count(),
+            1,
+            "outlined ToPrimitive must forward the typed property-read Realm argument"
+        );
         assert!(
             operations.contains("ConversionErrorRealmSource::RuntimeHelperArgument"),
             "the outlined helper body must decode the forwarded closed realm word"

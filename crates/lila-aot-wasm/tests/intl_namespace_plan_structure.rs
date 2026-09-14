@@ -114,7 +114,7 @@ fn intl_namespace_plan_has_one_private_child_owner() {
 fn intl_namespace_roots_and_policy_remain_parent_owned() {
     assert_eq!(
         PLANNING_SOURCE
-            .matches("const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 15] = [")
+            .matches("const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 23] = [")
             .count(),
         1
     );
@@ -129,7 +129,7 @@ fn intl_namespace_roots_and_policy_remain_parent_owned() {
 
     let roots_and_proof = bounded(
         PLANNING_SOURCE,
-        "const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 15] = [",
+        "const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 23] = [",
         "pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};",
     );
     for proof in [

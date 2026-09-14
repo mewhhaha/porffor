@@ -15,6 +15,10 @@ impl LegacyUtf16Pair {
         })
     }
 
+    pub(super) fn code_units(self) -> [u32; 2] {
+        [self.lead, self.trail]
+    }
+
     pub(super) fn lead_instruction(self) -> RegExpInstruction {
         RegExpInstruction::literal_code_point(self.lead)
     }

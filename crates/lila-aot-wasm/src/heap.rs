@@ -276,10 +276,10 @@ impl HeapLayoutSlot {
 }
 
 pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
-pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 312;
+pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 320;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 472;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 480;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -538,6 +538,7 @@ pub(crate) const HEAP_FUNCTION_REALM_DATA_VIEW_PROTOTYPE_OFFSET: u64 = 88;
 pub(crate) const HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET: u64 = 96;
 pub(crate) const HEAP_FUNCTION_REALM_FLOAT64_ARRAY_PROTOTYPE_OFFSET: u64 = 104;
 pub(crate) const HEAP_FUNCTION_REALM_FLOAT32_ARRAY_PROTOTYPE_OFFSET: u64 = 112;
+pub(crate) const HEAP_FUNCTION_REALM_FLOAT16_ARRAY_PROTOTYPE_OFFSET: u64 = 312;
 pub(crate) const HEAP_FUNCTION_REALM_INT32_ARRAY_PROTOTYPE_OFFSET: u64 = 120;
 pub(crate) const HEAP_FUNCTION_REALM_INT16_ARRAY_PROTOTYPE_OFFSET: u64 = 128;
 pub(crate) const HEAP_FUNCTION_REALM_INT8_ARRAY_PROTOTYPE_OFFSET: u64 = 136;
@@ -667,6 +668,7 @@ pub(crate) const HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET: u64 = 40;
 pub(crate) const HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET: u64 = 48;
 pub(crate) const HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET: u64 = 56;
 pub(crate) const HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET: u64 = 64;
+pub(crate) const HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET: u64 = 472;
 pub(crate) const HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET: u64 = 72;
 pub(crate) const HEAP_REALM_INTRINSICS_INT16_ARRAY_PROTOTYPE_OFFSET: u64 = 80;
 pub(crate) const HEAP_REALM_INTRINSICS_INT8_ARRAY_PROTOTYPE_OFFSET: u64 = 88;
@@ -3169,6 +3171,13 @@ pub(crate) const HEAP_FUNCTION_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "function-object",
+        name: "realm_float16_array_prototype",
+        offset: HEAP_FUNCTION_REALM_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -3583,6 +3592,13 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         record: "realm-intrinsics",
         name: "%RegExpStringIteratorPrototype%",
         offset: HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Float16Array.prototype%",
+        offset: HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -5585,6 +5601,34 @@ mod tests {
     }
 
     #[test]
+    fn float16_prototypes_are_owned_pointer_slots_in_both_realm_records() {
+        for (layout, offset, size) in [
+            (
+                HEAP_FUNCTION_OBJECT_LAYOUT,
+                HEAP_FUNCTION_REALM_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
+                HEAP_FUNCTION_OBJECT_SIZE,
+            ),
+            (
+                HEAP_REALM_INTRINSICS_LAYOUT,
+                HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
+                HEAP_REALM_INTRINSICS_RECORD_SIZE,
+            ),
+        ] {
+            let slot = layout.iter().find(|slot| slot.offset == offset).unwrap();
+            assert!(
+                slot.pointer,
+                "Float16 prototype must remain a traced pointer"
+            );
+            assert_eq!(slot.width, 8);
+            assert_eq!(slot.end(), size);
+            assert!(layout
+                .iter()
+                .filter(|other| other.offset != offset)
+                .all(|other| other.end() <= offset));
+        }
+    }
+
+    #[test]
     fn heap_limits_are_stable() {
         assert_eq!(WASM_PAGE_SIZE, 65_536);
         assert_eq!(STATIC_DATA_OFFSET, 4096);
@@ -5599,7 +5643,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 472);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 480);
         assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
         assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);

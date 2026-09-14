@@ -75,11 +75,13 @@ impl IntlHostWriteSpan {
 /// Closed result domain for the shared `(op, request_span, result_span) -> i64`
 /// host ABI.
 ///
-/// Expected provider rejection is the sole negative value. All non-negative
-/// `u32` values are successful byte counts; every other `i64` is an ABI fault.
+/// Non-negative `u32` values are successful byte counts. `-1` rejects the
+/// request; `-2 - required_capacity` requests a larger output span without
+/// writing any bytes. Every other `i64` is an ABI fault.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntlHostCallOutcome {
     Written(u32),
+    RequiredCapacity(u32),
     Rejected,
 }
 
@@ -90,6 +92,7 @@ impl IntlHostCallOutcome {
     pub const fn wire(self) -> i64 {
         match self {
             Self::Written(length) => length as i64,
+            Self::RequiredCapacity(capacity) => -2 - capacity as i64,
             Self::Rejected => Self::REJECTED_WIRE,
         }
     }
@@ -98,6 +101,8 @@ impl IntlHostCallOutcome {
     pub const fn from_wire(wire: i64) -> Option<Self> {
         if wire == Self::REJECTED_WIRE {
             Some(Self::Rejected)
+        } else if wire <= -2 && wire >= -2 - u32::MAX as i64 {
+            Some(Self::RequiredCapacity((-2 - wire) as u32))
         } else if wire >= 0 && wire <= u32::MAX as i64 {
             Some(Self::Written(wire as u32))
         } else {
@@ -727,13 +732,15 @@ mod tests {
             IntlHostCallOutcome::Rejected,
             IntlHostCallOutcome::Written(0),
             IntlHostCallOutcome::Written(u32::MAX),
+            IntlHostCallOutcome::RequiredCapacity(0),
+            IntlHostCallOutcome::RequiredCapacity(u32::MAX),
         ] {
             assert_eq!(
                 IntlHostCallOutcome::from_wire(outcome.wire()),
                 Some(outcome)
             );
         }
-        assert_eq!(IntlHostCallOutcome::from_wire(-2), None);
+        assert_eq!(IntlHostCallOutcome::from_wire(-3 - u32::MAX as i64), None);
         assert_eq!(IntlHostCallOutcome::from_wire(u32::MAX as i64 + 1), None);
     }
 }

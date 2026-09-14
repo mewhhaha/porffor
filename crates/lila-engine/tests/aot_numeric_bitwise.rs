@@ -140,3 +140,37 @@ try { value << (value = 1n); } catch (error) { caught = error; }
 "#,
     );
 }
+
+#[test]
+fn unary_number_projection_preserves_nested_values_and_dynamic_bigints() {
+    assert_numeric_bitwise(
+        r#"
+if (!Object.is(-0, -0) || !Object.is(-(-0), 0) || -(-Infinity) !== Infinity ||
+    !Number.isNaN(-NaN) || ~2147483649 !== 2147483646 ||
+    (-2147483649 << -1) !== -2147483648 ||
+    ((2147483649 << 1) | ~7) !== -6 || ((-1 >>> 1) ^ 3) !== 2147483644) throw 'Number projection';
+var log = [], token = {}, caught;
+var object = {[Symbol.toPrimitive](hint) { log.push(hint); return 18446744073709551616n; }};
+if (-object !== -18446744073709551616n || ~object !== -18446744073709551617n || log.join() !== 'number,number') throw 'BigInt projection';
+var value = 1;
+function change() { value = 2n; }
+change();
+if (-value !== -2n || ~value !== -3n) throw 'mutable Number fact';
+object[Symbol.toPrimitive] = function() { throw token; };
+try { -(log.push('evaluate'), object); } catch(error) { caught = error; }
+if (caught !== token || log.join() !== 'number,number,evaluate') throw 'object abrupt';
+function fail() { throw token; }
+for (var operation of [() => -(fail(), 1), () => ~(fail(), 1)]) {
+    caught = undefined;
+    try { operation(); } catch(error) { caught = error; }
+    if (caught !== token) throw 'static Number evaluation abrupt';
+}
+for (var operation of [() => -(1n >>> 0n), () => ~(1n >>> 0n)]) {
+    caught = undefined;
+    try { operation(); } catch(error) { caught = error; }
+    if (!(caught instanceof TypeError)) throw 'inner unsigned BigInt shift';
+}
+true;
+"#,
+    );
+}

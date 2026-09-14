@@ -9668,12 +9668,8 @@ impl<'a> FunctionBuilder<'a> {
             target_element_kind_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(source_element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(target_element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64GeU);
+        self.emit_typed_array_bigint_element_kind_i32(source_element_kind_local, function);
+        self.emit_typed_array_bigint_element_kind_i32(target_element_kind_local, function);
         function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -10146,12 +10142,8 @@ impl<'a> FunctionBuilder<'a> {
             target_element_kind_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(target_element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64GeU);
+        self.emit_typed_array_bigint_element_kind_i32(element_kind_local, function);
+        self.emit_typed_array_bigint_element_kind_i32(target_element_kind_local, function);
         function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -10611,12 +10603,8 @@ impl<'a> FunctionBuilder<'a> {
             target_element_kind_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::LocalGet(target_element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64GeU);
+        self.emit_typed_array_bigint_element_kind_i32(element_kind_local, function);
+        self.emit_typed_array_bigint_element_kind_i32(target_element_kind_local, function);
         function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(

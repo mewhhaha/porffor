@@ -418,7 +418,8 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
         ("builtins/iterators.rs", [2, 1, 2, 1, 1, 0, 0, 0]),
         ("builtins/mod.rs", [1, 0, 1, 0, 0, 0, 0, 0]),
         ("builtins/object.rs", [2, 1, 2, 1, 0, 1, 0, 0]),
-        ("builtins/standard.rs", [13, 12, 15, 14, 13, 1, 0, 0]),
+        ("builtins/standard.rs", [11, 10, 12, 11, 10, 1, 0, 0]),
+        ("builtins/typed_array_set.rs", [3, 2, 4, 3, 3, 0, 0, 0]),
         ("builtins/typed_array_fill.rs", [2, 1, 3, 2, 2, 0, 0, 0]),
         ("builtins/uint8array_codecs.rs", [2, 1, 2, 1, 1, 0, 0, 0]),
     ] {

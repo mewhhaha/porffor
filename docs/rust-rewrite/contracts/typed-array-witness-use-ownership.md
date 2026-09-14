@@ -50,7 +50,7 @@ sites comprise one definition and 52 calls. The four route counts are
 matches inside the witness authority.
 
 The guard attributes every reference to its exact source owner: `objects.rs`,
-`builtins/{array,atomics,binary_data,iterators,mod,object,standard,typed_array_fill,uint8array_codecs}.rs`,
+`builtins/{array,atomics,binary_data,iterators,mod,object,standard,typed_array_fill,typed_array_set,uint8array_codecs}.rs`,
 and `builtins/array/find_via_predicate.rs`. The codec contributes one owned view,
 one validated method-entry witness, and the two corresponding imports. Its
 private-state load must precede validation, and validation must precede the

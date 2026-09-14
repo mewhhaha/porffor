@@ -169,6 +169,7 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     DatePrototype,
     Float64ArrayPrototype,
     Float32ArrayPrototype,
+    Float16ArrayPrototype,
     Int32ArrayPrototype,
     Int16ArrayPrototype,
     Int8ArrayPrototype,
@@ -394,6 +395,7 @@ impl NonArrayRealmIntrinsicSlot {
             Self::DatePrototype => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
             Self::Float64ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
             Self::Float32ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
+            Self::Float16ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
             Self::Int32ArrayPrototype => HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET,
             Self::Int16ArrayPrototype => HEAP_REALM_INTRINSICS_INT16_ARRAY_PROTOTYPE_OFFSET,
             Self::Int8ArrayPrototype => HEAP_REALM_INTRINSICS_INT8_ARRAY_PROTOTYPE_OFFSET,
@@ -412,6 +414,7 @@ impl NonArrayRealmIntrinsicSlot {
         Some(match builtin {
             StandardBuiltinId::Float64ArrayConstructor => Self::Float64ArrayPrototype,
             StandardBuiltinId::Float32ArrayConstructor => Self::Float32ArrayPrototype,
+            StandardBuiltinId::Float16ArrayConstructor => Self::Float16ArrayPrototype,
             StandardBuiltinId::Int32ArrayConstructor => Self::Int32ArrayPrototype,
             StandardBuiltinId::Int16ArrayConstructor => Self::Int16ArrayPrototype,
             StandardBuiltinId::Int8ArrayConstructor => Self::Int8ArrayPrototype,
@@ -1663,6 +1666,10 @@ pub(crate) fn emit_function_object_alloc_helper_function(
             HEAP_FUNCTION_REALM_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
         ),
         (
+            FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
             INT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
             HEAP_FUNCTION_REALM_INT32_ARRAY_PROTOTYPE_OFFSET,
         ),
@@ -2364,6 +2371,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::FunctionConstructor,
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,

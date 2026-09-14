@@ -13,7 +13,7 @@ mod provider;
 
 pub use identifiers::{
     CanonicalLocaleId, CanonicalTimeZoneId, InvalidCanonicalLocaleId, InvalidCanonicalTimeZoneId,
-    InvalidLocaleId, InvalidTimeZoneId, LocaleId, TimeZoneId, MAX_INTL_IDENTIFIER_BYTES,
+    InvalidLocaleId, InvalidTimeZoneId, LocaleId, TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
 };
 pub use protocol::{
     CanonicalizeLocale, CanonicalizeLocaleError, CanonicalizeLocaleRequest,
@@ -64,6 +64,11 @@ macro_rules! closed_string_domain {
 }
 
 pub const INTL_DATA_SCHEMA_VERSION: IntlDataSchemaVersion = IntlDataSchemaVersion(1);
+
+/// Host-call ABI2 adds required-capacity responses for locale canonicalization.
+/// Artifact identity includes this value so an incompatible host is rejected
+/// before instantiation, independently of the pinned ICU/CLDR data identity.
+pub const INTL_HOST_CALL_ABI_VERSION: u16 = 2;
 
 /// Canonical Wasm custom section carrying the Intl provider identity expected
 /// by a compiled artifact.
@@ -571,6 +576,7 @@ impl IntlDataIdentity {
         let bytes = format!(
             concat!(
                 "schema={}\n",
+                "host-call-abi={}\n",
                 "profile={}\n",
                 "services={}\n",
                 "capabilities={}\n",
@@ -585,6 +591,7 @@ impl IntlDataIdentity {
                 "tzdb={}\n",
             ),
             self.schema.get(),
+            INTL_HOST_CALL_ABI_VERSION,
             profile,
             services.join(","),
             capabilities.join(","),
@@ -672,6 +679,7 @@ mod tests {
                 .expect("identity is canonical UTF-8"),
             concat!(
                 "schema=1\n",
+                "host-call-abi=2\n",
                 "profile=minimal\n",
                 "services=Locale\n",
                 "capabilities=likely-subtags,locale-aliases,parent-locales\n",

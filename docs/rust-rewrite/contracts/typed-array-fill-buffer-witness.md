@@ -48,7 +48,7 @@ focused native and builtin registry/publication/witness-owner checks. These
 are cohort sizes, not passing counts.
 
 The implementation inherits the shared backing-store and element-kind
-capabilities. Float16Array is not exposed by the current constructor catalog.
+capabilities. Float16Array participates through the shared typed-array constructor catalog and direct f64-to-binary16 conversion.
 Immutable-buffer enforcement in other TypedArray writes and SharedArrayBuffer
 concurrency require separate verification; this patch does not establish
 either capability or change the shared witness's memory-ordering policy.

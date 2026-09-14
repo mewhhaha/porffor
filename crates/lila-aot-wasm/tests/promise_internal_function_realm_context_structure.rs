@@ -27,7 +27,7 @@ fn promise_internal_context_source() -> &'static str {
 #[test]
 fn function_layout_has_a_gc_visible_builtin_closure_context() {
     for marker in [
-        "pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 312;",
+        "pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 320;",
         "pub(crate) const HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET: u64 = 304;",
         "name: \"builtin_closure_context\"",
         "offset: HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET",

@@ -149,6 +149,10 @@ fn scoped_folding_does_not_bypass_named_or_decimal_reference_early_errors() {
         (r"(?i:\k<missing>)", "u"),
         (r"(?<a>a)(?i:\k<missing>)", ""),
         (r"(?i:\2)(a)", "u"),
+        (r"(?m:\2)(a)", "u"),
+        (r"(?s:\2)(a)", "v"),
+        (r"(?-ims:\2)(a)", "u"),
+        (r"(?i:(?m:(a)))\2", "v"),
         (r"(?i:\k<a)(?<a>a)", "v"),
     ] {
         assert_eq!(
@@ -160,4 +164,6 @@ fn scoped_folding_does_not_bypass_named_or_decimal_reference_early_errors() {
     assert!(references(r"(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(?i:\10)", "u")
         .iter()
         .any(|instruction| instruction.operand0 == 10 && instruction.operand1 == 3));
+    assert!(references(r"(?i:\2)(a)", "").is_empty());
+    assert_eq!(references(r"(?i:\1)(a)", "u")[0].operand0, 1);
 }

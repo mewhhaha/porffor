@@ -107,6 +107,20 @@ be reported as current compiler failures or passes.
 
 ## Verification in progress
 
+The fifth source checkpoint is
+`0175307c05523f77e3ad7927197f3532d093d6a6`. Its workspace all-targets release
+check and immutable compiler/test build pass. Its compiler SHA-256 is
+`908f4c82189add2ff3cc874aff4c9f4d6ea75a68a757a450cb4775820dcd00b9`.
+Focused verification passes all 13 function-coercion tests, six for-of
+completion tests, eleven TypedArray.fill tests, and the word-boundary and
+whitespace suites. Two backreference regressions exposed a capture pre-scan bug
+and an incorrect unanchored-match expectation; both are corrected in the next
+source batch. Candidate replay remains in progress. This checkpoint adds word boundaries, shared whitespace cursor advancement,
+case-insensitive forward/reverse backreferences, bounded Number-only bitwise
+emission and dedicated TypedArray.fill semantics. See the
+[backreference contract](../../crates/lila-aot-wasm/docs/regexp-backreference-folding.md) and
+[fill contract](contracts/typed-array-fill-buffer-witness.md).
+
 The fourth frozen checkpoint is
 `3e5d3cd4bebdccb8109a4715a5a499b632b2177e`, with compiler SHA-256
 `166bd3c42b2196f8ba6f3da37ec8dcc748f47249ed87ac774d9d19d3272662b0`.
@@ -123,30 +137,44 @@ failing realm, diagnostic-pool and deferred-completion paths.
 The function-coercion suite passes seven and
 fails three: array-element abrupt identity, Number conversion of an object that
 produces BigInt, and two paths in the foreign-realm fixture. Focused diagnostics
-confirm those causes; fixes and regression checks remain in progress. Four of
-five for-of completion tests pass; the fifth used an incorrect conditional
-continue expectation. IfStatement applies UpdateEmpty with undefined, whereas
-a bare continue retains the preceding expression value. The next fixture tests
-both cases. Every frozen failed verdict is retained.
+confirm those causes; checkpoint five repairs the production paths and passes all 13 native controls. Four of five for-of completion tests pass; the fifth used
+an incorrect conditional continue expectation. IfStatement applies UpdateEmpty with undefined, whereas
+a bare continue retains the preceding expression value. The fifth-checkpoint
+fixture tests both cases. Every frozen failed verdict is retained.
 
 The third lookaround replay completes with 144/162 Success and zero timeouts.
-Its 160 audited main comparisons contain 40 repairs, 102 retained passes and 18
-remaining failures; two passing executions await the other reference audit.
+Its complete 162 audited main comparisons contain 42 repairs, 102 retained
+passes and 18 remaining failures. The fourth checkpoint passes 150/162:
+48 main failures repaired, 102 passes retained and 12 failures remaining,
+with no regressions or timeouts.
 The third full IR suite completes with 1,124 passed and four failed. Two stale
 loop expectations are corrected in checkpoint four; two module tests require
-updated deferred-namespace identity and explicit graph reachability. The next
-module fixtures retain the source linker's explicit unsupported collision
-boundary for distinct namespace cells; they do not classify valid module scopes
-as syntax or link errors.
+updated deferred-namespace identity and explicit graph reachability. Checkpoint
+five corrects both fixtures and retains the source linker's explicit unsupported
+collision boundary for distinct namespace cells; valid module scopes are not
+classified as syntax or link errors.
 The third checkpoint's full backend suite passes all 439 tests.
 
-The next implementation batch covers word boundaries, whitespace in both matcher
-directions, Number-only bitwise code size and dedicated TypedArray fill semantics.
-Each new family includes native tests and a complete pinned source cohort where
-available. The reviewed fill path includes immutable backing-buffer rejection
-before coercion. Compilation and candidate replay for this batch remain pending.
+Each fifth-checkpoint family includes native tests and a complete pinned source
+cohort where available. The reviewed fill path includes immutable backing-buffer
+rejection before coercion. Candidate replay remains pending. The following
+staged work covers Float16Array, legacy pooled-class UTF-16 membership and
+Intl.Locale construction/getters. The integrated provider changes preserve valid long tags and five-to-eight-letter
+language subtags. The shared TypedArray constructor now checks Number/BigInt
+content domains even for empty sources. Same-kind constructor/set copies preserve
+raw NaN bits, set checks capacity before content type, and constructor-owned
+buffers use the executing Realm. The set/copy algorithm has a dedicated family
+module, preserving the standard dispatcher size boundary. These changes await
+compilation and runtime validation. Created-Realm Intl publication and keyword
+value aliases remain open and are being implemented separately.
 
-The next repair batch replaces Function-specific string/number conversion
+The fourth full IR suite passes 1,125 tests and fails three stale shape
+expectations: two module expectations corrected in checkpoint five and one
+for-of property-write completion expectation corrected in the next batch. Its
+full Test262 harness suite passes 361 tests and records one agent timeout; an
+isolated recheck is still required. Frozen failures remain in the evidence.
+
+The fourth checkpoint replaces Function-specific string/number conversion
 bypasses with the existing ToPrimitive operation, preserving observable hooks,
 conversion order, abrupt values and the executing realm. Reverse RegExp
 backreferences use the shared matcher, and character-set compilation separates
@@ -170,8 +198,8 @@ the remaining test needs the Test262 host policy to create its foreign realm.
 The new With binding suite passes nine of ten, exposing the Proxy get error
 realm defect, and Zoned field replacement passes six of nine, with all three
 failures caused by missing pooled diagnostics. These causes are repaired in
-source and await the next native checkpoint. Its full frontend suite passes
-164 tests; its Test262 unit suite reports 361 passed and one stale dynamic-source
+source and pass the fourth-checkpoint native suites above. Its full frontend
+suite passes 164 tests; its Test262 unit suite reports 361 passed and one stale dynamic-source
 fixture failure. The fixture now uses runtime-generated source, matching the
 existing unsupported dynamic-source tests.
 
@@ -210,4 +238,8 @@ Evidence is under `target/failure-review/completed-baseline-20260914`.
 `batch1-candidate-initial-main-audit.json` records the verified 50-case result;
 `batch1-test-verdicts.json` retains every first-batch test failure and completed
 stage. The original baseline, frozen compiler inputs and failed launch logs
-are retained. No generated full-suite status numbers have been changed.
+are retained. The module-boundary guard is reconciled with the current private
+owners, including absence checks for removed Test262-specific for-in recognizers;
+it passes on the fifth-checkpoint source. Two stale CI Realm-routing assertions
+are staged for the next batch. No generated full-suite status numbers have been
+changed.

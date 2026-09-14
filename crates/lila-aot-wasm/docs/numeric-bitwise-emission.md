@@ -12,6 +12,15 @@ result tag. The shared `expr_has_static_number_payload` predicate also governs
 the existing direct Number-conversion paths. Inferred Number facts on mutable
 bindings, property reads, or calls do not authorize this selection.
 
+The proof also follows unary minus, complement and nested bitwise operands
+whose inputs meet that same rule. Their emitters project Number directly;
+negative literals no longer restore generic dispatch around a proven Number.
+Frozen checkpoint five still failed the shift stress cohort. A component
+measurement found 143 bytes per positive shift and 2,452 bytes per negative
+shift, so positive-literal growth alone was an incomplete verification boundary.
+The expanded size regression covers negative and nested expressions. Full stress
+replay remains required after this follow-up.
+
 Both operands are still evaluated once, left to right, before the decision's
 emitted arithmetic. The generic path retains ordered `ToNumeric`, mixed-type
 errors, arbitrary-precision BigInt operations, and the BigInt `>>>` rejection.

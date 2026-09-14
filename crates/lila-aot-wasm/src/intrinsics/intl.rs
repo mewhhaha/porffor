@@ -38,6 +38,38 @@ impl<'a> FunctionBuilder<'a> {
                 "baseName",
                 StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
             ),
+            (
+                "calendar",
+                StandardBuiltinId::IntlLocalePrototypeCalendarGetter,
+            ),
+            (
+                "collation",
+                StandardBuiltinId::IntlLocalePrototypeCollationGetter,
+            ),
+            (
+                "firstDayOfWeek",
+                StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter,
+            ),
+            (
+                "hourCycle",
+                StandardBuiltinId::IntlLocalePrototypeHourCycleGetter,
+            ),
+            (
+                "caseFirst",
+                StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter,
+            ),
+            (
+                "numeric",
+                StandardBuiltinId::IntlLocalePrototypeNumericGetter,
+            ),
+            (
+                "numberingSystem",
+                StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter,
+            ),
+            (
+                "variants",
+                StandardBuiltinId::IntlLocalePrototypeVariantsGetter,
+            ),
         ] {
             let getter_meta = self.functions.get(&getter.function_id()).ok_or_else(|| {
                 EmitError::unsupported(format!(

@@ -4274,22 +4274,24 @@ impl<'a> FunctionBuilder<'a> {
         let operand_tag_local = self.reserve_temp_local();
 
         self.compile_expr_to_locals(operand, operand_payload_local, operand_tag_local, function)?;
-        self.emit_value_to_numeric_locals(operand_payload_local, operand_tag_local, function)?;
-
-        self.emit_is_bigint_tag_i32(operand_tag_local, function);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_bigint_binary_op_to_locals(
-            BigIntHelperOp::Negate,
-            operand_payload_local,
-            operand_tag_local,
-            operand_payload_local,
-            operand_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Else);
+        let number_operand = expr_has_static_number_payload(operand);
+        if !number_operand {
+            self.emit_value_to_numeric_locals(operand_payload_local, operand_tag_local, function)?;
+            self.emit_is_bigint_tag_i32(operand_tag_local, function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_bigint_binary_op_to_locals(
+                BigIntHelperOp::Negate,
+                operand_payload_local,
+                operand_tag_local,
+                operand_payload_local,
+                operand_tag_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::Else);
+        }
         function.instruction(&Instruction::LocalGet(operand_payload_local));
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Neg);
@@ -4297,7 +4299,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
+        if !number_operand {
+            function.instruction(&Instruction::End);
+        }
 
         self.release_temp_local(operand_tag_local);
         self.release_temp_local(operand_payload_local);
@@ -4318,21 +4322,23 @@ impl<'a> FunctionBuilder<'a> {
         let operand_tag_local = self.reserve_temp_local();
 
         self.compile_expr_to_locals(operand, operand_payload_local, operand_tag_local, function)?;
-        self.emit_value_to_numeric_locals(operand_payload_local, operand_tag_local, function)?;
-
-        self.emit_is_bigint_tag_i32(operand_tag_local, function);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_unary_numeric_kind_to_locals(
-            UnaryNumericKind::BigInt,
-            op,
-            operand_payload_local,
-            operand_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Else);
+        let number_operand = expr_has_static_number_payload(operand);
+        if !number_operand {
+            self.emit_value_to_numeric_locals(operand_payload_local, operand_tag_local, function)?;
+            self.emit_is_bigint_tag_i32(operand_tag_local, function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_unary_numeric_kind_to_locals(
+                UnaryNumericKind::BigInt,
+                op,
+                operand_payload_local,
+                operand_tag_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::Else);
+        }
         self.emit_unary_numeric_kind_to_locals(
             UnaryNumericKind::Number,
             op,
@@ -4342,7 +4348,9 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        function.instruction(&Instruction::End);
+        if !number_operand {
+            function.instruction(&Instruction::End);
+        }
 
         self.release_temp_local(operand_tag_local);
         self.release_temp_local(operand_payload_local);

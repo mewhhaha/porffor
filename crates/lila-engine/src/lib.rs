@@ -4,7 +4,6 @@ use lila_intl::{
     CanonicalizeLocale, CanonicalizeLocaleError, CanonicalizeLocaleRequest, EmbeddedLocaleProvider,
     IntlDataIdentity, IntlHostCallOutcome, IntlHostOp, IntlHostReadSpan, IntlHostWriteSpan,
     IntlKernel, IntlProvider, LocaleId, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
-    MAX_INTL_IDENTIFIER_BYTES,
 };
 use lila_ir::{
     lower_module_graph_with_host_surface_policy, lower_script_graph_with_host_surface_policy,
@@ -1620,25 +1619,27 @@ fn wasm_intl_call(
             let result_span = IntlHostWriteSpan::from_wire(result_span_wire);
             let request_length = usize::try_from(request_span.length())
                 .expect("u32 Intl request length fits the host address space");
-            if request_length > MAX_INTL_IDENTIFIER_BYTES {
-                return Err(wasmtime::Error::msg(format!(
-                    "Intl locale request exceeds the {MAX_INTL_IDENTIFIER_BYTES}-byte identifier limit"
-                )));
-            }
             let request_offset = usize::try_from(request_span.offset())
                 .expect("u32 Intl request offset fits the host address space");
-            let mut request_bytes = vec![0; request_length];
-            memory
-                .read(&caller, request_offset, &mut request_bytes)
+            let request_end = request_offset.checked_add(request_length).ok_or_else(|| {
+                wasmtime::Error::msg("Intl request memory range overflows the host address space")
+            })?;
+            let request_memory = memory.data(&caller).get(request_offset..request_end).ok_or_else(|| {
+                wasmtime::Error::msg(format!(
+                    "Intl request memory at {request_offset} for {request_length} bytes is out of bounds"
+                ))
+            })?;
+            let mut request_bytes = Vec::new();
+            request_bytes
+                .try_reserve_exact(request_length)
                 .map_err(|error| {
-                    wasmtime::Error::msg(format!(
-                        "failed to read Intl request memory at {request_offset} for {request_length} bytes: {error}"
-                    ))
+                    wasmtime::Error::msg(format!("could not allocate Intl request buffer: {error}"))
                 })?;
-            let request_text = std::str::from_utf8(&request_bytes).map_err(|error| {
+            request_bytes.extend_from_slice(request_memory);
+            let request_text = String::from_utf8(request_bytes).map_err(|error| {
                 wasmtime::Error::msg(format!("Intl locale request is not UTF-8: {error}"))
             })?;
-            let locale = LocaleId::parse(request_text.to_owned().into_boxed_str()).map_err(
+            let locale = LocaleId::parse(request_text.into_boxed_str()).map_err(
                 |error| {
                     wasmtime::Error::msg(format!(
                         "Intl locale request crossed the host ABI without structural validation: {error}"
@@ -1664,10 +1665,7 @@ fn wasm_intl_call(
                 wasmtime::Error::msg("Intl canonical locale result does not fit the wire length")
             })?;
             if result_length > result_span.capacity() {
-                return Err(wasmtime::Error::msg(format!(
-                    "Intl canonical locale output length {result_length} exceeds result capacity {}",
-                    result_span.capacity()
-                )));
+                return Ok(IntlHostCallOutcome::RequiredCapacity(result_length).wire());
             }
             let result_offset = usize::try_from(result_span.offset())
                 .expect("u32 Intl result offset fits the host address space");

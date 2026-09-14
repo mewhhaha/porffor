@@ -1784,14 +1784,17 @@ fn regexp_capture_syntax(bytes: &[u8]) -> (u32, bool) {
             offset += 1;
             continue;
         }
-        match bytes.get(offset + 1..offset + 3) {
-            Some(b"?<") if matches!(bytes.get(offset + 3), Some(b'=') | Some(b'!')) => {}
-            Some(b"?<") if !matches!(bytes.get(offset + 3), Some(b'=') | Some(b'!')) => {
+        if bytes.get(offset + 1) == Some(&b'?') {
+            // Every `(?` group is noncapturing except a named capture. The
+            // parser validates its prefix; scoped modifiers do not add IDs.
+            if bytes.get(offset + 2) == Some(&b'<')
+                && !matches!(bytes.get(offset + 3), Some(b'=') | Some(b'!'))
+            {
                 capture_count += 1;
                 has_named_capture = true;
             }
-            Some(b"?:" | b"?=" | b"?!") => {}
-            _ => capture_count += 1,
+        } else {
+            capture_count += 1;
         }
         offset += 1;
     }
@@ -2937,24 +2940,46 @@ fn parse_class(
     cursor += usize::from(negated);
 
     let mut ranges = Vec::new();
+    let mut pending_trail = None;
     loop {
-        let Some(&member) = bytes.get(cursor) else {
-            return Err(RegExpCompileError::invalid_syntax(
-                SyntaxRule::UnclosedCharacterClass,
-                class_offset,
-                "regular-expression character class is unclosed",
-            ));
+        let (range_offset, start) = if let Some((trail, source_offset)) = pending_trail.take() {
+            (source_offset, ClassAtom::CodePoint(trail))
+        } else {
+            let Some(&member) = bytes.get(cursor) else {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnclosedCharacterClass,
+                    class_offset,
+                    "regular-expression character class is unclosed",
+                ));
+            };
+            if member == b']' {
+                break;
+            }
+            let range_offset = cursor;
+            let start = parse_class_atom(
+                bytes,
+                &mut cursor,
+                mode.unicode_mode(),
+                CaseFolding::from_flags(modifiers.ignore_case, mode.unicode_mode()),
+            )?;
+            (range_offset, start)
         };
-        if member == b']' {
-            break;
-        }
-        let range_offset = cursor;
-        let start = parse_class_atom(
-            bytes,
-            &mut cursor,
-            mode.unicode_mode(),
-            CaseFolding::from_flags(modifiers.ignore_case, mode.unicode_mode()),
-        )?;
+        // In legacy grammar a raw astral character is two ClassAtoms. The
+        // leading unit precedes any range starting at the trailing unit.
+        let start = match start {
+            ClassAtom::CodePoint(code_point) if !unicode => {
+                if let Some(pair) =
+                    char::from_u32(code_point).and_then(LegacyUtf16Pair::from_scalar)
+                {
+                    let [lead, trail] = pair.code_units();
+                    ranges.push((lead, lead));
+                    ClassAtom::CodePoint(trail)
+                } else {
+                    ClassAtom::CodePoint(code_point)
+                }
+            }
+            atom => atom,
+        };
         if bytes.get(cursor) == Some(&b'-') && bytes.get(cursor + 1) != Some(&b']') {
             cursor += 1;
             if bytes.get(cursor).is_none() {
@@ -2964,12 +2989,29 @@ fn parse_class(
                     "regular-expression character class is unclosed",
                 ));
             }
+            let end_offset = cursor;
             let end = parse_class_atom(
                 bytes,
                 &mut cursor,
                 mode.unicode_mode(),
                 CaseFolding::from_flags(modifiers.ignore_case, mode.unicode_mode()),
             )?;
+            let end = match end {
+                ClassAtom::CodePoint(code_point) if !unicode => {
+                    if let Some(pair) =
+                        char::from_u32(code_point).and_then(LegacyUtf16Pair::from_scalar)
+                    {
+                        let [lead, trail] = pair.code_units();
+                        // Only the leading unit ends this range; the trailing
+                        // unit is the next grammar atom, even before `]`.
+                        pending_trail = Some((trail, end_offset));
+                        ClassAtom::CodePoint(lead)
+                    } else {
+                        ClassAtom::CodePoint(code_point)
+                    }
+                }
+                atom => atom,
+            };
             match (start, end) {
                 (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) if end < start => {
                     return Err(RegExpCompileError::invalid_syntax(

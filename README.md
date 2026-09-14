@@ -4,12 +4,14 @@ Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, lib
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
-The direct Wasm `Intl.Locale` constructor now has an ordered core-options
-lowering for `language`, `script` and `region`, preserving the remaining tag
-and rebuilding its represented slots together. Rust/Wasm verification of
-this change remains pending; see [the core-options follow-up](docs/rust-rewrite/aot-intl-locale-options.md)
-for the regression target and remaining Intl work. Published conformance
-counts are unchanged.
+The direct Wasm `Intl.Locale` constructor applies core and Unicode-extension
+options in order, resolves pinned provider aliases before and after overrides,
+and exposes eight additional getters. Locale canonicalization preserves valid
+five-to-eight-letter languages and tags longer than 255 bytes through a typed
+provider domain and exact-capacity host calls. Verification is pending; see the
+[constructor contract](docs/rust-rewrite/aot-intl-locale-options.md). Missing
+provider keyword-value alias data and broader Intl services remain open.
+Published conformance counts are unchanged.
 
 The public project and all current Rust packages, commands, environment
 variables, cache paths, diagnostics and host ABI names use the Lila identity.
@@ -124,9 +126,15 @@ completion, and retained deferred-module failures.
 The next batch adds [word boundaries and reverse whitespace](crates/lila-aot-wasm/docs/regexp-word-boundary.md),
 [case-insensitive backreference comparison](crates/lila-aot-wasm/docs/regexp-backreference-folding.md),
 correct forward non-whitespace movement across UTF-16 surrogate pairs,
+[legacy pooled-class membership and advancement](crates/lila-aot-wasm/docs/regexp-legacy-pooled-class.md),
 [bounded numeric bitwise emission](crates/lila-aot-wasm/docs/numeric-bitwise-emission.md),
 and a dedicated [TypedArray fill operation](docs/rust-rewrite/contracts/typed-array-fill-buffer-witness.md)
 with single value conversion, ordered buffer validation and immutable-buffer rejection.
+Float16Array uses the shared TypedArray view and method implementation with
+[direct binary64-to-binary16 rounding](docs/rust-rewrite/contracts/float16-array-storage.md).
+[Same-kind byte copies](docs/rust-rewrite/contracts/typed-array-byte-copies.md)
+preserve NaN payload bits, and constructor-owned buffers use the executing Realm.
+These additions are awaiting the next runtime checkpoint.
 Verification and the wider replay remain in progress; these counts do not
 update the generated full-suite conformance status.
 

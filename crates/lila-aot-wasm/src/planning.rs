@@ -1842,13 +1842,21 @@ mod tests {
 /// `require_standard_builtin` does not recurse through its own match, so a
 /// caller that needs the formatter must seed every id itself rather than
 /// relying on one id dragging in the rest.
-const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 15] = [
+const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 23] = [
     StandardBuiltinId::IntlGetCanonicalLocales,
     StandardBuiltinId::IntlLocaleConstructor,
     StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
     StandardBuiltinId::IntlLocalePrototypeScriptGetter,
     StandardBuiltinId::IntlLocalePrototypeRegionGetter,
     StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
+    StandardBuiltinId::IntlLocalePrototypeCalendarGetter,
+    StandardBuiltinId::IntlLocalePrototypeCollationGetter,
+    StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter,
+    StandardBuiltinId::IntlLocalePrototypeHourCycleGetter,
+    StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter,
+    StandardBuiltinId::IntlLocalePrototypeNumericGetter,
+    StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter,
+    StandardBuiltinId::IntlLocalePrototypeVariantsGetter,
     StandardBuiltinId::IntlLocalePrototypeToString,
     StandardBuiltinId::IntlDateTimeFormatConstructor,
     StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
@@ -2574,6 +2582,14 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlLocalePrototypeScriptGetter
             | StandardBuiltinId::IntlLocalePrototypeRegionGetter
             | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+            | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+            | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+            | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+            | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+            | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumericGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
             | StandardBuiltinId::IntlLocalePrototypeToString
             | StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
@@ -7100,6 +7116,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::DataViewPrototypeSetBigUint64 => 2,
         StandardBuiltinId::Float64ArrayConstructor
         | StandardBuiltinId::Float32ArrayConstructor
+        | StandardBuiltinId::Float16ArrayConstructor
         | StandardBuiltinId::Int32ArrayConstructor
         | StandardBuiltinId::Int16ArrayConstructor
         | StandardBuiltinId::Int8ArrayConstructor
@@ -7351,6 +7368,14 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
         | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+        | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+        | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+        | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+        | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+        | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+        | StandardBuiltinId::IntlLocalePrototypeNumericGetter
+        | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+        | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
         | StandardBuiltinId::IntlLocalePrototypeToString => 0,
         StandardBuiltinId::ErrorIsError => 1,
         StandardBuiltinId::SuppressedErrorConstructor => 3,
@@ -7563,11 +7588,14 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         // Every BigInt-capable bitwise operator may obtain a heap-backed
         // result through observable object coercion even when neither raw
         // operand advertises BigInt in its pre-ToPrimitive kind set.
-        ExprIr::BitwiseNumeric { op, .. } => op.bigint_op().is_some(),
-        ExprIr::CoerciveAdd { .. }
-        | ExprIr::CoerciveBinaryNumber { .. }
-        | ExprIr::UnaryMinusNumeric { .. }
-        | ExprIr::UnaryBitwiseNumeric { .. } => true,
+        ExprIr::BitwiseNumeric { op, lhs, rhs } => {
+            op.bigint_op().is_some()
+                && !(expr_has_static_number_payload(lhs) && expr_has_static_number_payload(rhs))
+        }
+        ExprIr::UnaryMinusNumeric { expr } | ExprIr::UnaryBitwiseNumeric { expr, .. } => {
+            !expr_has_static_number_payload(expr)
+        }
+        ExprIr::CoerciveAdd { .. } | ExprIr::CoerciveBinaryNumber { .. } => true,
         ExprIr::UpdateIdentifier {
             value_kind: NumericUpdateValueKind::BigInt | NumericUpdateValueKind::Dynamic,
             ..

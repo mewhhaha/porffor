@@ -67,7 +67,7 @@ fn numeric_fill_converts_once_and_preserves_the_payload_for_every_element() {
     assert_typed_array_fill(
         r#"
 for (var Constructor of [Int8Array, Uint8Array, Int16Array, Uint16Array,
-    Int32Array, Uint32Array, Uint8ClampedArray, Float32Array, Float64Array]) {
+    Int32Array, Uint32Array, Uint8ClampedArray, Float16Array, Float32Array, Float64Array]) {
   var calls = 0, values = new Constructor(3);
   values.fill({ valueOf() { calls++; return 7; } });
   if (calls !== 1 || values[0] !== 7 || values[1] !== 7 || values[2] !== 7) {

@@ -78,7 +78,8 @@ unicodeSets.index === 4 && unicodeSets.groups.letter === '𐐀' &&
 /(?<=(?i:\1)(a))x/.test('Aax') && /(?<=(?i:\k<a>)(?<a>a))x/.test('Aax') &&
 !/(?<=(?-i:\1)(a))x/i.test('aAx') && !/(?<=(?-i:\k<a>)(?<a>a))x/i.test('aAx') &&
 !/(?<=\1(.))x/i.test('Kkx') && /(?<=\1(.))x/ui.test('Kkx') &&
-!/(?<=\1(.))x/ui.test('Iıx') && !/(?<=\1(.))x/vi.test('ßSSx');
+!/(?<=\1(.))x/ui.test('Iıx') &&
+/(?<=\1(.))x/vi.exec('ßSSx').index === 3 && !/(?<=^\1(.))x/vi.test('ßSSx');
 "#,
     );
 }

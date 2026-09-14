@@ -1462,6 +1462,7 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
+            | StandardBuiltinId::Float16ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor
             | StandardBuiltinId::Int16ArrayConstructor
             | StandardBuiltinId::Int8ArrayConstructor
@@ -1946,8 +1947,18 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlLocalePrototypeToString => {
                 Some(ValueInfo::new(ValueKind::String))
             }
+            StandardBuiltinId::IntlLocalePrototypeNumericGetter => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
-            | StandardBuiltinId::IntlLocalePrototypeRegionGetter => None,
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+            | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+            | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+            | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+            | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+            | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter => None,
             StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => Some(ValueInfo {
                 kind: ValueKind::Object,

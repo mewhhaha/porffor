@@ -18740,7 +18740,7 @@ eval(1);
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::PropertyWrite { .. },
                         ..
                     }))

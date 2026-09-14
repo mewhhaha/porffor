@@ -21,7 +21,6 @@ impl FunctionBuilder<'_> {
         let value_payload = self.reserve_temp_local();
         let value_tag = self.reserve_temp_local();
         let element_payload = self.reserve_temp_local();
-        let stored_element_payload = self.reserve_temp_local();
         let argument_payload = self.reserve_temp_local();
         let argument_tag = self.reserve_temp_local();
         let start = self.reserve_temp_local();
@@ -160,15 +159,10 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(element_address));
-        // Integer stores consume their numeric payload local. Preserve the
-        // converted value for the next element.
-        function.instruction(&Instruction::LocalGet(element_payload));
-        function.instruction(&Instruction::LocalSet(stored_element_payload));
         self.emit_store_number_payload_to_typed_array_address_by_kind(
-            bytes_per_element,
             element_kind,
             element_address,
-            stored_element_payload,
+            element_payload,
             self.buffer_memory_index(),
             function,
         );
@@ -192,7 +186,6 @@ impl FunctionBuilder<'_> {
             start,
             argument_tag,
             argument_payload,
-            stored_element_payload,
             element_payload,
             value_tag,
             value_payload,

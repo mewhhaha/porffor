@@ -3508,6 +3508,62 @@ standard_builtin_catalog! {
         installer: None,
         native: "get baseName",
     }
+    IntlLocalePrototypeCalendarGetter {
+        function: FunctionOrdinal(815) => BUILTIN_INTL_LOCALE_PROTOTYPE_CALENDAR_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.calendar",
+        flags: [],
+        installer: None,
+        native: "get calendar",
+    }
+    IntlLocalePrototypeCollationGetter {
+        function: FunctionOrdinal(816) => BUILTIN_INTL_LOCALE_PROTOTYPE_COLLATION_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.collation",
+        flags: [],
+        installer: None,
+        native: "get collation",
+    }
+    IntlLocalePrototypeFirstDayOfWeekGetter {
+        function: FunctionOrdinal(817) => BUILTIN_INTL_LOCALE_PROTOTYPE_FIRST_DAY_OF_WEEK_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.firstDayOfWeek",
+        flags: [],
+        installer: None,
+        native: "get firstDayOfWeek",
+    }
+    IntlLocalePrototypeHourCycleGetter {
+        function: FunctionOrdinal(818) => BUILTIN_INTL_LOCALE_PROTOTYPE_HOUR_CYCLE_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.hourCycle",
+        flags: [],
+        installer: None,
+        native: "get hourCycle",
+    }
+    IntlLocalePrototypeCaseFirstGetter {
+        function: FunctionOrdinal(819) => BUILTIN_INTL_LOCALE_PROTOTYPE_CASE_FIRST_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.caseFirst",
+        flags: [],
+        installer: None,
+        native: "get caseFirst",
+    }
+    IntlLocalePrototypeNumericGetter {
+        function: FunctionOrdinal(820) => BUILTIN_INTL_LOCALE_PROTOTYPE_NUMERIC_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.numeric",
+        flags: [],
+        installer: None,
+        native: "get numeric",
+    }
+    IntlLocalePrototypeNumberingSystemGetter {
+        function: FunctionOrdinal(821) => BUILTIN_INTL_LOCALE_PROTOTYPE_NUMBERING_SYSTEM_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.numberingSystem",
+        flags: [],
+        installer: None,
+        native: "get numberingSystem",
+    }
+    IntlLocalePrototypeVariantsGetter {
+        function: FunctionOrdinal(822) => BUILTIN_INTL_LOCALE_PROTOTYPE_VARIANTS_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.variants",
+        flags: [],
+        installer: None,
+        native: "get variants",
+    }
     IntlLocalePrototypeToString {
         function: FunctionOrdinal(491) => BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID,
         debug: "Intl.Locale.prototype.toString",
@@ -5927,6 +5983,15 @@ standard_builtin_catalog! {
         flags: [INDEXED_RECEIVER_MUTATION, SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "fill",
+    }
+    Float16ArrayConstructor {
+        function: FunctionOrdinal(823) => BUILTIN_FLOAT16_ARRAY_FUNCTION_ID,
+        global: GlobalOrdinal(53),
+        global_name: FLOAT16_ARRAY_NAME,
+        debug: FLOAT16_ARRAY_NAME,
+        flags: [CONSTRUCTABLE],
+        installer: None,
+        native: FLOAT16_ARRAY_NAME,
     }
 }
 

@@ -1069,6 +1069,38 @@ impl<'a> ScriptLowerer<'a> {
                 "baseName",
                 StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
             ),
+            (
+                "calendar",
+                StandardBuiltinId::IntlLocalePrototypeCalendarGetter,
+            ),
+            (
+                "collation",
+                StandardBuiltinId::IntlLocalePrototypeCollationGetter,
+            ),
+            (
+                "firstDayOfWeek",
+                StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter,
+            ),
+            (
+                "hourCycle",
+                StandardBuiltinId::IntlLocalePrototypeHourCycleGetter,
+            ),
+            (
+                "caseFirst",
+                StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter,
+            ),
+            (
+                "numeric",
+                StandardBuiltinId::IntlLocalePrototypeNumericGetter,
+            ),
+            (
+                "numberingSystem",
+                StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter,
+            ),
+            (
+                "variants",
+                StandardBuiltinId::IntlLocalePrototypeVariantsGetter,
+            ),
         ] {
             properties.insert(
                 name.to_string(),
@@ -2563,6 +2595,7 @@ impl<'a> ScriptLowerer<'a> {
             builtin,
             StandardBuiltinId::Float64ArrayConstructor
                 | StandardBuiltinId::Float32ArrayConstructor
+                | StandardBuiltinId::Float16ArrayConstructor
                 | StandardBuiltinId::Int32ArrayConstructor
                 | StandardBuiltinId::Int16ArrayConstructor
                 | StandardBuiltinId::Int8ArrayConstructor
@@ -3940,6 +3973,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 StandardBuiltinId::Float64ArrayConstructor
                 | StandardBuiltinId::Float32ArrayConstructor
+                | StandardBuiltinId::Float16ArrayConstructor
                 | StandardBuiltinId::Int32ArrayConstructor
                 | StandardBuiltinId::Int16ArrayConstructor
                 | StandardBuiltinId::Int8ArrayConstructor
@@ -6116,8 +6150,21 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::IntlLocalePrototypeNumericGetter => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
-            | StandardBuiltinId::IntlLocalePrototypeRegionGetter => (
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+            | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+            | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+            | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+            | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+            | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter => (
                 ValueKind::Dynamic,
                 KindSet::from_kind(ValueKind::String)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
@@ -6851,6 +6898,7 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
+            | StandardBuiltinId::Float16ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor
             | StandardBuiltinId::Int16ArrayConstructor
             | StandardBuiltinId::Int8ArrayConstructor

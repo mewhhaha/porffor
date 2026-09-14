@@ -6933,193 +6933,164 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(address_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::F64,
-            Instruction::F64Load(Self::memarg64(0)),
-            Instruction::F64Load(Self::shared_memarg64(0)),
-            function,
-        );
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::F32,
-            Instruction::F32Load(Self::memarg32(0)),
-            Instruction::F32Load(Self::shared_memarg32(0)),
-            function,
-        );
-        function.instruction(&Instruction::F64PromoteF32);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::I32,
-            Instruction::I32Load8S(Self::memarg8(0)),
-            Instruction::I32Load8S(Self::shared_memarg8(0)),
-            function,
-        );
-        function.instruction(&Instruction::I64ExtendI32S);
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::I32,
-            Instruction::I32Load16S(Self::memarg16(0)),
-            Instruction::I32Load16S(Self::shared_memarg16(0)),
-            function,
-        );
-        function.instruction(&Instruction::I64ExtendI32S);
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::I32,
-            Instruction::I32Load8U(Self::memarg8(0)),
-            Instruction::I32Load8U(Self::shared_memarg8(0)),
-            function,
-        );
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::I32,
-            Instruction::I32Load16U(Self::memarg16(0)),
-            Instruction::I32Load16U(Self::shared_memarg16(0)),
-            function,
-        );
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(9));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::I32,
-            Instruction::I32Load(Self::memarg32(0)),
-            Instruction::I32Load(Self::shared_memarg32(0)),
-            function,
-        );
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(11));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::I64,
-            Instruction::I64Load(Self::memarg64(0)),
-            Instruction::I64Load(Self::shared_memarg64(0)),
-            function,
-        );
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(11));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_alloc_one_limb_bigint(1, payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        self.emit_array_buffer_memory_load(
-            buffer_flags_local,
-            ValType::I32,
-            Instruction::I32Load(Self::memarg32(0)),
-            Instruction::I32Load(Self::shared_memarg32(0)),
-            function,
-        );
-        function.instruction(&Instruction::I64ExtendI32S);
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        for kind in TypedArrayElementKind::ALL {
+            function.instruction(&Instruction::LocalGet(element_kind_local));
+            function.instruction(&Instruction::I64Const(kind.abi_word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(address_local));
+            function.instruction(&Instruction::I32WrapI64);
+            match kind {
+                TypedArrayElementKind::Float16 => {
+                    let half_local = self.reserve_temp_local();
+                    let sign_local = self.reserve_temp_local();
+                    let exponent_local = self.reserve_temp_local();
+                    let fraction_local = self.reserve_temp_local();
+                    let float_bits_local = self.reserve_temp_local();
+                    let normalized_exponent_local = self.reserve_temp_local();
+                    self.emit_array_buffer_memory_load(
+                        buffer_flags_local,
+                        ValType::I32,
+                        Instruction::I32Load16U(Self::memarg16(0)),
+                        Instruction::I32Load16U(Self::shared_memarg16(0)),
+                        function,
+                    );
+                    function.instruction(&Instruction::I64ExtendI32U);
+                    function.instruction(&Instruction::LocalSet(half_local));
+                    self.emit_half_bits_to_f64_payload(
+                        half_local,
+                        sign_local,
+                        exponent_local,
+                        fraction_local,
+                        float_bits_local,
+                        normalized_exponent_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    self.release_temp_local(normalized_exponent_local);
+                    self.release_temp_local(float_bits_local);
+                    self.release_temp_local(fraction_local);
+                    self.release_temp_local(exponent_local);
+                    self.release_temp_local(sign_local);
+                    self.release_temp_local(half_local);
+                }
+                TypedArrayElementKind::Float32 | TypedArrayElementKind::Float64 => {
+                    if kind == TypedArrayElementKind::Float32 {
+                        self.emit_array_buffer_memory_load(
+                            buffer_flags_local,
+                            ValType::F32,
+                            Instruction::F32Load(Self::memarg32(0)),
+                            Instruction::F32Load(Self::shared_memarg32(0)),
+                            function,
+                        );
+                        function.instruction(&Instruction::F64PromoteF32);
+                    } else {
+                        self.emit_array_buffer_memory_load(
+                            buffer_flags_local,
+                            ValType::F64,
+                            Instruction::F64Load(Self::memarg64(0)),
+                            Instruction::F64Load(Self::shared_memarg64(0)),
+                            function,
+                        );
+                    }
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                }
+                TypedArrayElementKind::Int8
+                | TypedArrayElementKind::Int16
+                | TypedArrayElementKind::Int32
+                | TypedArrayElementKind::Uint8
+                | TypedArrayElementKind::Uint8Clamped
+                | TypedArrayElementKind::Uint16
+                | TypedArrayElementKind::Uint32 => {
+                    let (private_load, shared_load, signed) = match kind {
+                        TypedArrayElementKind::Int8 => (
+                            Instruction::I32Load8S(Self::memarg8(0)),
+                            Instruction::I32Load8S(Self::shared_memarg8(0)),
+                            true,
+                        ),
+                        TypedArrayElementKind::Int16 => (
+                            Instruction::I32Load16S(Self::memarg16(0)),
+                            Instruction::I32Load16S(Self::shared_memarg16(0)),
+                            true,
+                        ),
+                        TypedArrayElementKind::Int32 => (
+                            Instruction::I32Load(Self::memarg32(0)),
+                            Instruction::I32Load(Self::shared_memarg32(0)),
+                            true,
+                        ),
+                        TypedArrayElementKind::Uint8 | TypedArrayElementKind::Uint8Clamped => (
+                            Instruction::I32Load8U(Self::memarg8(0)),
+                            Instruction::I32Load8U(Self::shared_memarg8(0)),
+                            false,
+                        ),
+                        TypedArrayElementKind::Uint16 => (
+                            Instruction::I32Load16U(Self::memarg16(0)),
+                            Instruction::I32Load16U(Self::shared_memarg16(0)),
+                            false,
+                        ),
+                        TypedArrayElementKind::Uint32 => (
+                            Instruction::I32Load(Self::memarg32(0)),
+                            Instruction::I32Load(Self::shared_memarg32(0)),
+                            false,
+                        ),
+                        TypedArrayElementKind::Float16
+                        | TypedArrayElementKind::Float32
+                        | TypedArrayElementKind::Float64
+                        | TypedArrayElementKind::BigInt64
+                        | TypedArrayElementKind::BigUint64 => unreachable!("integer element arm"),
+                    };
+                    self.emit_array_buffer_memory_load(
+                        buffer_flags_local,
+                        ValType::I32,
+                        private_load,
+                        shared_load,
+                        function,
+                    );
+                    function.instruction(&if signed {
+                        Instruction::I64ExtendI32S
+                    } else {
+                        Instruction::I64ExtendI32U
+                    });
+                    function.instruction(&if signed {
+                        Instruction::F64ConvertI64S
+                    } else {
+                        Instruction::F64ConvertI64U
+                    });
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                }
+                TypedArrayElementKind::BigInt64 | TypedArrayElementKind::BigUint64 => {
+                    self.emit_array_buffer_memory_load(
+                        buffer_flags_local,
+                        ValType::I64,
+                        Instruction::I64Load(Self::memarg64(0)),
+                        Instruction::I64Load(Self::shared_memarg64(0)),
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalSet(payload_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(tag_local));
+                    if kind == TypedArrayElementKind::BigUint64 {
+                        function.instruction(&Instruction::LocalGet(payload_local));
+                        function.instruction(&Instruction::I64Const(0));
+                        function.instruction(&Instruction::I64LtS);
+                        function.instruction(&Instruction::If(BlockType::Empty));
+                        self.emit_alloc_one_limb_bigint(1, payload_local, function)?;
+                        function.instruction(&Instruction::LocalSet(payload_local));
+                        function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
+                        function.instruction(&Instruction::LocalSet(tag_local));
+                        function.instruction(&Instruction::End);
+                    }
+                }
+            }
+            function.instruction(&Instruction::Else);
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in TypedArrayElementKind::ALL {
+            function.instruction(&Instruction::End);
+        }
         function.instruction(&Instruction::End);
 
         self.release_temp_local(index_valid_local);
@@ -8135,133 +8106,149 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn emit_store_number_payload_to_typed_array_address_by_kind(
         &mut self,
-        bytes_per_element_local: u32,
         element_kind_local: u32,
         address_local: u32,
         number_payload_local: u32,
         memory_index: u32,
         function: &mut Function,
     ) {
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(11));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::I64Store(Self::memarg64_in(memory_index, 0)));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Store(Self::memarg64_in(memory_index, 0)));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F32DemoteF64);
-        function.instruction(&Instruction::F32Store(Self::memarg32_in(memory_index, 0)));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Ne);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Le);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(255.0)));
-        function.instruction(&Instruction::F64Ge);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        function.instruction(&Instruction::I32Const(255));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Nearest);
-        function.instruction(&Instruction::I32TruncSatF64U);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I32Store8(Self::memarg8_in(memory_index, 0)));
-        function.instruction(&Instruction::Else);
-        self.emit_integer_typed_array_value_i64(number_payload_local, function);
-        function.instruction(&Instruction::LocalSet(number_payload_local));
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store8(Self::memarg8_in(memory_index, 0)));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Const(2));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store16(Self::memarg16_in(memory_index, 0)));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(address_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::LocalGet(number_payload_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Store(Self::memarg32_in(memory_index, 0)));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        for kind in TypedArrayElementKind::ALL {
+            function.instruction(&Instruction::LocalGet(element_kind_local));
+            function.instruction(&Instruction::I64Const(kind.abi_word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            match kind {
+                TypedArrayElementKind::Float16 => {
+                    let half_local = self.reserve_temp_local();
+                    let sign_local = self.reserve_temp_local();
+                    let exponent_local = self.reserve_temp_local();
+                    let fraction_local = self.reserve_temp_local();
+                    let rounded_local = self.reserve_temp_local();
+                    let remainder_local = self.reserve_temp_local();
+                    let significand_local = self.reserve_temp_local();
+                    self.emit_f64_payload_to_half_bits_local(
+                        number_payload_local,
+                        half_local,
+                        sign_local,
+                        exponent_local,
+                        fraction_local,
+                        rounded_local,
+                        remainder_local,
+                        significand_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(half_local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function
+                        .instruction(&Instruction::I32Store16(Self::memarg16_in(memory_index, 0)));
+                    self.release_temp_local(significand_local);
+                    self.release_temp_local(remainder_local);
+                    self.release_temp_local(rounded_local);
+                    self.release_temp_local(fraction_local);
+                    self.release_temp_local(exponent_local);
+                    self.release_temp_local(sign_local);
+                    self.release_temp_local(half_local);
+                }
+                TypedArrayElementKind::Float32 | TypedArrayElementKind::Float64 => {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(number_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    if kind == TypedArrayElementKind::Float32 {
+                        function.instruction(&Instruction::F32DemoteF64);
+                        function.instruction(&Instruction::F32Store(Self::memarg32_in(
+                            memory_index,
+                            0,
+                        )));
+                    } else {
+                        function.instruction(&Instruction::F64Store(Self::memarg64_in(
+                            memory_index,
+                            0,
+                        )));
+                    }
+                }
+                TypedArrayElementKind::Uint8Clamped => {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(number_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::LocalGet(number_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Ne);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+                    function.instruction(&Instruction::I32Const(0));
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::LocalGet(number_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+                    function.instruction(&Instruction::F64Le);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+                    function.instruction(&Instruction::I32Const(0));
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::LocalGet(number_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Const(Ieee64::from(255.0)));
+                    function.instruction(&Instruction::F64Ge);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+                    function.instruction(&Instruction::I32Const(255));
+                    function.instruction(&Instruction::Else);
+                    function.instruction(&Instruction::LocalGet(number_payload_local));
+                    function.instruction(&Instruction::F64ReinterpretI64);
+                    function.instruction(&Instruction::F64Nearest);
+                    function.instruction(&Instruction::I32TruncSatF64U);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::End);
+                    function
+                        .instruction(&Instruction::I32Store8(Self::memarg8_in(memory_index, 0)));
+                }
+                TypedArrayElementKind::Int8
+                | TypedArrayElementKind::Int16
+                | TypedArrayElementKind::Int32
+                | TypedArrayElementKind::Uint8
+                | TypedArrayElementKind::Uint16
+                | TypedArrayElementKind::Uint32 => {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    self.emit_integer_typed_array_value_i64(number_payload_local, function);
+                    function.instruction(&Instruction::I32WrapI64);
+                    let store = match kind {
+                        TypedArrayElementKind::Int8 | TypedArrayElementKind::Uint8 => {
+                            Instruction::I32Store8(Self::memarg8_in(memory_index, 0))
+                        }
+                        TypedArrayElementKind::Int16 | TypedArrayElementKind::Uint16 => {
+                            Instruction::I32Store16(Self::memarg16_in(memory_index, 0))
+                        }
+                        TypedArrayElementKind::Int32 | TypedArrayElementKind::Uint32 => {
+                            Instruction::I32Store(Self::memarg32_in(memory_index, 0))
+                        }
+                        TypedArrayElementKind::Float16
+                        | TypedArrayElementKind::Float32
+                        | TypedArrayElementKind::Float64
+                        | TypedArrayElementKind::Uint8Clamped
+                        | TypedArrayElementKind::BigInt64
+                        | TypedArrayElementKind::BigUint64 => {
+                            unreachable!("integer element arm")
+                        }
+                    };
+                    function.instruction(&store);
+                }
+                TypedArrayElementKind::BigInt64 | TypedArrayElementKind::BigUint64 => {
+                    function.instruction(&Instruction::LocalGet(address_local));
+                    function.instruction(&Instruction::I32WrapI64);
+                    function.instruction(&Instruction::LocalGet(number_payload_local));
+                    function
+                        .instruction(&Instruction::I64Store(Self::memarg64_in(memory_index, 0)));
+                }
+            }
+            function.instruction(&Instruction::Else);
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in TypedArrayElementKind::ALL {
+            function.instruction(&Instruction::End);
+        }
     }
 
     pub(crate) fn emit_to_bigint_u64_word_from_value_locals(
@@ -8351,6 +8338,22 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_typed_array_bigint_element_kind_i32(
+        &mut self,
+        element_kind_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I32Const(0));
+        for kind in TypedArrayElementKind::ALL {
+            if kind.content_type() == TypedArrayContentType::BigInt {
+                function.instruction(&Instruction::LocalGet(element_kind_local));
+                function.instruction(&Instruction::I64Const(kind.abi_word() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32Or);
+            }
+        }
+    }
+
     pub(crate) fn emit_value_to_typed_array_element_payload(
         &mut self,
         element_kind_local: u32,
@@ -8359,13 +8362,7 @@ impl<'a> FunctionBuilder<'a> {
         element_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(element_kind_local));
-        function.instruction(&Instruction::I64Const(11));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        self.emit_typed_array_bigint_element_kind_i32(element_kind_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_to_bigint_u64_word_from_value_locals(
             value_tag_local,
@@ -8450,7 +8447,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(address_local));
 
         self.emit_store_number_payload_to_typed_array_address_by_kind(
-            bytes_per_element_local,
             element_kind_local,
             address_local,
             number_payload_local,
@@ -17716,6 +17712,7 @@ impl<'a> FunctionBuilder<'a> {
             TYPED_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
             FLOAT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
             FLOAT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
             INT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
             INT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
             INT8_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,

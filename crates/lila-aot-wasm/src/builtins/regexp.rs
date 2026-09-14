@@ -152,6 +152,7 @@ impl<'a> FunctionBuilder<'a> {
         let range_high = self.reserve_temp_local();
         let range_middle = self.reserve_temp_local();
         let range_count = self.reserve_temp_local();
+        let class_character = self.reserve_temp_local();
         let effective_multiline = self.reserve_temp_local();
         let effective_dot_all = self.reserve_temp_local();
         let capture_cursor = RegExpInputCursor {
@@ -2855,9 +2856,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        // Dot, an explicit UTF-16/code-point literal, and a negative ASCII
-        // class or non-whitespace may consume the low half of an astral scalar when matching
-        // begins at that code-unit position.
+        // Literals, dot, negative ASCII classes, pooled classes and non-whitespace
+        // may consume the low half of a paired scalar in legacy mode.
         function.instruction(&Instruction::LocalGet(match_on_low_surrogate));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
@@ -2879,6 +2879,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_NOT_WHITESPACE as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(opcode));
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_UNICODE_PROPERTY as i64,
+        ));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         self.emit_regexp_backtrack_or_fail(
@@ -2974,11 +2980,43 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(codepoint));
+        function.instruction(&Instruction::LocalSet(class_character));
+        function.instruction(&Instruction::LocalGet(unicode));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::LocalGet(codepoint));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // Membership uses the selected unit, but advancement still needs the
+        // decoded scalar to retain or leave the paired-surrogate byte cursor.
+        function.instruction(&Instruction::LocalGet(match_on_low_surrogate));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::LocalGet(codepoint));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(0x3ff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0xdc00));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(codepoint));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(0xd800));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(class_character));
+        function.instruction(&Instruction::End);
         self.emit_regexp_unicode_property_mismatch(
             range_base,
             operand0,
             operand1,
-            codepoint,
+            class_character,
             range_count,
             range_low,
             range_high,
@@ -2999,17 +3037,16 @@ impl<'a> FunctionBuilder<'a> {
             capture_address,
             &mut function,
         );
-        self.emit_increment_by_local(match_byte, byte_advance, &mut function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(match_on_low_surrogate));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(utf16_advance));
-        self.emit_increment_by_local(match_utf16, utf16_advance, &mut function);
+        self.emit_regexp_advance_matched_character(
+            match_byte,
+            match_utf16,
+            match_on_low_surrogate,
+            unicode,
+            codepoint,
+            byte_advance,
+            utf16_advance,
+            &mut function,
+        );
         function.instruction(&Instruction::LocalGet(pc));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);

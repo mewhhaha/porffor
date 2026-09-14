@@ -178,7 +178,9 @@ fn ir_encoder_and_wasm_decoder_share_the_typed_operand_codes() {
         assert!(!encoder.contains(forbidden));
     }
 
-    assert!(WASM.contains("RegExpModifierOverride, REGEXP_INSTRUCTION_WIDTH"));
+    let imports = bounded(WASM, "use lila_ir::{", "};");
+    assert!(imports.contains("RegExpModifierOverride,"));
+    assert!(imports.contains("REGEXP_INSTRUCTION_WIDTH,"));
     let decoder = bounded(
         WASM,
         "// `.`, `^` and `$` carry a RegExp-modifier override in `operand0`:",
