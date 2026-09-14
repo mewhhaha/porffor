@@ -8,6 +8,7 @@ mod global_declaration_instantiation;
 pub(crate) mod global_environment;
 mod named_binding_mutation;
 pub(crate) mod named_environment;
+mod with_has_binding;
 use global_environment::GlobalBindingFailure;
 
 impl<'a> FunctionBuilder<'a> {

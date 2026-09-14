@@ -247,6 +247,27 @@ impl FunctionBuilder<'_> {
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                 }
+                ObjectInternalMethodBranch::Namespace => {
+                    self.emit_is_module_namespace_i32(current_local, current_tag_local, function);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_namespace_property(
+                        current_local,
+                        key_local,
+                        NamespaceBindingRead::Presence,
+                        result_local,
+                        index_local,
+                        TaggedLocals::new(named_payload_local, named_tag_local),
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        named_payload_local,
+                        named_tag_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(dispatch_state_local));
+                    function.instruction(&Instruction::End);
+                }
                 ObjectInternalMethodBranch::IntegerIndexed => {
                     self.emit_typed_array_integer_index_validity_i32(
                         current_local,

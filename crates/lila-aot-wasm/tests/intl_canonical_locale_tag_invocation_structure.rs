@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 
 const INTL_SOURCE: &str = include_str!("../src/builtins/intl.rs");
+const OPTIONS_SOURCE: &str = include_str!("../src/builtins/intl/language_options.rs");
+const PROVIDER_SOURCE: &str = include_str!("../src/builtins/intl/provider.rs");
 const DTF_SOURCE: &str = include_str!("../src/builtins/intl_datetimeformat.rs");
 const CLI_SOURCE: &str = include_str!("../../lila-cli/tests/cli/intl.rs");
 const FIXTURE: &str =
@@ -275,32 +277,33 @@ fn role_and_authority_census_is_closed_over_product_sources() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "CanonicalLocaleTagInvocationLocals"),
-        10
+        15
     );
     for role in ROLES {
         assert_eq!(
             count_identifier_in_rust_sources(&source_root, &format!("CanonicalLocale{role}Local")),
-            11,
+            15,
             "CanonicalLocale{role}Local census"
         );
     }
 }
 
 #[test]
-fn five_producers_construct_all_roles_and_the_consumer_projects_once() {
-    let product_source = format!("{INTL_SOURCE}\n{DTF_SOURCE}");
+fn every_producer_constructs_all_roles_and_each_consumer_projects_once() {
+    let product_source =
+        format!("{INTL_SOURCE}\n{DTF_SOURCE}\n{OPTIONS_SOURCE}\n{PROVIDER_SOURCE}");
     assert_eq!(
         product_source
             .matches("CanonicalLocaleTagInvocationLocals::new(")
             .count(),
-        5
+        9
     );
     for role in ROLES {
         assert_eq!(
             product_source
                 .matches(&format!("CanonicalLocale{role}Local::new("))
                 .count(),
-            5,
+            9,
             "CanonicalLocale{role}Local producer census"
         );
     }
@@ -331,6 +334,10 @@ fn five_producers_construct_all_roles_and_the_consumer_projects_once() {
         );
     }
     assert_eq!(INTL_SOURCE.matches("invocation.into_parts()").count(), 1);
+    assert_eq!(
+        PROVIDER_SOURCE.matches("invocation.into_parts()").count(),
+        1
+    );
 }
 
 #[test]

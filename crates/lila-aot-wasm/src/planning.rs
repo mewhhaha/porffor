@@ -1,4 +1,7 @@
 use super::*;
+use crate::control_flow::{
+    FOR_IN_ENUMERATOR_TEMP_LOCALS, FOR_IN_INTERNAL_METHOD_TEMP_LOCALS, FOR_IN_INTRINSICS,
+};
 use crate::operations::NUMBER_REMAINDER_TEMP_LOCALS;
 use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr};
 use lila_ir::{
@@ -152,6 +155,127 @@ mod tests {
     }
 
     #[test]
+    fn nested_object_properties_retain_values_across_function_name_materialization() {
+        run_deep_planning_test(|| {
+            let mut expression = TypedExpr::undefined();
+            const DEPTH: usize = 300;
+            for _ in 0..DEPTH {
+                expression = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Object),
+                    ExprIr::ObjectLiteral(vec![ObjectPropertyIr::Data {
+                        key: "nested".into(),
+                        value: expression,
+                        is_shorthand: false,
+                    }]),
+                );
+            }
+            assert_eq!(count_expr_temp_locals(&expression), 64 + (DEPTH - 1) * 8);
+            assert!(count_expr_temp_locals(&expression) > 2048);
+        });
+    }
+
+    #[test]
+    fn nested_relational_comparisons_retain_operands_across_coercion_and_parsing() {
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 360;
+            let dynamic = || {
+                TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Dynamic),
+                    ExprIr::Identifier("value".to_string()),
+                )
+            };
+            let mut value = dynamic();
+            for _ in 0..DEPTH {
+                value = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::CompareValue {
+                        op: RelationalBinaryOp::LessThan,
+                        lhs: Box::new(dynamic()),
+                        rhs: Box::new(value),
+                    },
+                );
+            }
+            assert_eq!(
+                count_expr_temp_locals(&value),
+                (DEPTH - 1) * 6 + 4 + RELATIONAL_COMPARISON_TEMP_LOCALS,
+            );
+            assert!(count_expr_temp_locals(&value) > 2048);
+        });
+    }
+
+    #[test]
+    fn nested_primitive_relational_conversions_retain_the_operand_pair() {
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 1030;
+            let mut value = TypedExpr::undefined();
+            for _ in 0..DEPTH {
+                value = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::CompareValue {
+                        op: RelationalBinaryOp::GreaterThanOrEqual,
+                        lhs: Box::new(TypedExpr::undefined()),
+                        rhs: Box::new(value),
+                    },
+                );
+            }
+            assert_eq!(count_expr_temp_locals(&value), DEPTH * 2);
+            assert!(count_expr_temp_locals(&value) > 2048);
+        });
+    }
+
+    #[test]
+    fn nested_private_references_retain_the_base_across_children_and_brand_errors() {
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 1030;
+            let script = lower_script("class Counter { #value; read() { return this.#value; } }");
+            let private_name_id = script
+                .functions
+                .iter()
+                .flat_map(|function| &function.body.statements)
+                .find_map(|statement| match statement {
+                    StatementIr::Return(TypedExpr {
+                        expr:
+                            ExprIr::PrivateRead {
+                                private_name_id, ..
+                            },
+                        ..
+                    }) => Some(*private_name_id),
+                    _ => None,
+                })
+                .expect("class lowering declares one private name");
+            let mut read = TypedExpr::undefined();
+            let mut write = TypedExpr::undefined();
+            for _ in 0..DEPTH {
+                read = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Dynamic),
+                    ExprIr::PrivateRead {
+                        target: Box::new(read),
+                        private_name_id,
+                    },
+                );
+                write = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Dynamic),
+                    ExprIr::PrivateWrite {
+                        target: Box::new(TypedExpr::undefined()),
+                        private_name_id,
+                        value: Box::new(write),
+                    },
+                );
+            }
+            assert_eq!(
+                count_expr_temp_locals(&read),
+                DEPTH * 2 + PRIVATE_READ_DISPATCH_TEMP_LOCALS
+            );
+            assert_eq!(
+                count_expr_temp_locals(&write),
+                DEPTH * 2 + PRIVATE_WRITE_DISPATCH_TEMP_LOCALS
+            );
+            assert!(count_expr_temp_locals(&read) > 2048);
+            assert!(count_expr_temp_locals(&write) > 2048);
+        });
+    }
+
+    #[test]
     fn heap_bigint_literals_require_the_emitted_result_tag() {
         let literal = ExprIr::BigInt(BigIntLiteralIr::from_u64_payload(1_u64 << 63));
 
@@ -293,6 +417,63 @@ mod tests {
                 );
                 assert_eq!(count_expr_temp_locals(&expression), expected);
             }
+        });
+    }
+
+    #[test]
+    fn to_object_budgets_the_input_pair_across_nested_conversions() {
+        run_deep_planning_test(|| {
+            let object = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier("scope".to_string()),
+            );
+            const DEPTH: usize = 1025;
+            let nested = (0..DEPTH).fold(object, |value, _| TypedExpr::spec_to_object(value));
+            let expected = DEPTH * 2 + 9;
+            assert!(expected > 2048);
+            assert_eq!(count_expr_temp_locals(&nested), expected);
+        });
+    }
+
+    #[test]
+    fn with_has_binding_budgets_retained_operands_across_nested_queries() {
+        run_deep_planning_test(|| {
+            let object = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier("scope".to_string()),
+            );
+            let name = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("selected".to_string()),
+            );
+            let mut query = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Boolean),
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::WithEnvironmentHasBinding,
+                    operands: vec![object.clone(), name.clone()],
+                },
+            );
+            const DEPTH: usize = 520;
+            for _ in 0..DEPTH {
+                let target = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Object),
+                    ExprIr::Conditional {
+                        condition: Box::new(query),
+                        then_expr: Box::new(object.clone()),
+                        else_expr: Box::new(object.clone()),
+                    },
+                );
+                query = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::SpecOperation {
+                        operation: SpecOperationIr::WithEnvironmentHasBinding,
+                        operands: vec![target, name.clone()],
+                    },
+                );
+            }
+            let expected = 6 + DEPTH * 4;
+            assert!(expected > 2048);
+            assert_eq!(count_expr_temp_locals(&query), expected);
         });
     }
 
@@ -517,7 +698,20 @@ mod tests {
         const DEPTH: usize = 186;
 
         let script = lower_script("\"use strict\"; let target = {}; target.p ||= 0;");
-        let single = count_block_temp_locals(&script.body);
+        let assignment = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expr)
+                    if matches!(expr.expr, ExprIr::OrdinaryPropertyLogicalAssignment(_)) =>
+                {
+                    Some(expr)
+                }
+                _ => None,
+            })
+            .expect("strict logical property assignment");
+        let single = count_expr_temp_locals(assignment);
         assert_eq!(
             single,
             ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
@@ -656,12 +850,47 @@ mod tests {
                 body: Box::new(body),
                 lexical_environment: None,
             });
-        let expected = DEPTH * 12 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
+        let expected = DEPTH * FOR_IN_ENUMERATOR_TEMP_LOCALS
+            + FOR_IN_INTERNAL_METHOD_TEMP_LOCALS.max(2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS);
         assert!(
             expected > 2048,
             "regression must cross the local-count floor",
         );
         assert_eq!(count_statement_temp_locals(&statement), expected);
+    }
+
+    #[test]
+    fn for_in_roots_internal_methods_and_primitive_prototype_installers() {
+        for (source, constructor) in [
+            (
+                "for (var key in 7) {}",
+                StandardBuiltinId::NumberConstructor,
+            ),
+            (
+                "for (var key in false) {}",
+                StandardBuiltinId::BooleanConstructor,
+            ),
+            (
+                "for (var key in 7n) {}",
+                StandardBuiltinId::BigIntConstructor,
+            ),
+            (
+                "for (var key in 'text') {}",
+                StandardBuiltinId::StringConstructor,
+            ),
+            (
+                "for (var key in Symbol()) {}",
+                StandardBuiltinId::SymbolConstructor,
+            ),
+        ] {
+            let script = lower_script(source);
+            for builtin in FOR_IN_INTRINSICS.into_iter().chain([constructor]) {
+                assert!(
+                    script_references_standard_builtin(&script, builtin),
+                    "missing {builtin:?} dependency for {source}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -831,6 +1060,8 @@ mod tests {
             StandardBuiltinId::TemporalPlainDateTimeConstructor,
             StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
             StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
             StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
             StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
@@ -912,6 +1143,8 @@ mod tests {
                 StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
                 StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
                 StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
                 StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
                 StandardBuiltinId::TemporalZonedDateTimeFrom,
             ] {
@@ -1376,8 +1609,9 @@ mod tests {
     }
 
     #[test]
-    fn object_entries_and_values_root_reflective_property_operations() {
+    fn enumerable_own_properties_root_reflective_property_operations() {
         for enumerable_own_properties_builtin in [
+            StandardBuiltinId::ObjectKeys,
             StandardBuiltinId::ObjectEntries,
             StandardBuiltinId::ObjectValues,
         ] {
@@ -1608,13 +1842,21 @@ mod tests {
 /// `require_standard_builtin` does not recurse through its own match, so a
 /// caller that needs the formatter must seed every id itself rather than
 /// relying on one id dragging in the rest.
-const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 15] = [
+const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 23] = [
     StandardBuiltinId::IntlGetCanonicalLocales,
     StandardBuiltinId::IntlLocaleConstructor,
     StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
     StandardBuiltinId::IntlLocalePrototypeScriptGetter,
     StandardBuiltinId::IntlLocalePrototypeRegionGetter,
     StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
+    StandardBuiltinId::IntlLocalePrototypeCalendarGetter,
+    StandardBuiltinId::IntlLocalePrototypeCollationGetter,
+    StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter,
+    StandardBuiltinId::IntlLocalePrototypeHourCycleGetter,
+    StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter,
+    StandardBuiltinId::IntlLocalePrototypeNumericGetter,
+    StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter,
+    StandardBuiltinId::IntlLocalePrototypeVariantsGetter,
     StandardBuiltinId::IntlLocalePrototypeToString,
     StandardBuiltinId::IntlDateTimeFormatConstructor,
     StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
@@ -2154,6 +2396,7 @@ impl RuntimeBootstrapPlan {
         if matches!(
             builtin,
             StandardBuiltinId::ObjectAssign
+                | StandardBuiltinId::ObjectKeys
                 | StandardBuiltinId::ObjectEntries
                 | StandardBuiltinId::ObjectGetOwnPropertyDescriptors
                 | StandardBuiltinId::ObjectValues
@@ -2339,6 +2582,14 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlLocalePrototypeScriptGetter
             | StandardBuiltinId::IntlLocalePrototypeRegionGetter
             | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+            | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+            | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+            | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+            | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+            | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumericGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
             | StandardBuiltinId::IntlLocalePrototypeToString
             | StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
@@ -2814,6 +3065,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
             | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
@@ -2838,6 +3090,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
@@ -2910,7 +3163,7 @@ impl RuntimeBootstrapPlan {
                 // ZonedDateTime member — `zdt.hour` included — now emits
                 // `withCalendar`, `add`, `subtract`, `until` and `since` as
                 // well. `add`/`subtract` and `until`/`since` each inline the
-                // whole `emit_temporal_zoned_date_time_to_plain_date_time` body
+                // whole `emit_temporal_zoned_date_time_to_plain` body
                 // on top of two or three `emit_direct_js_call` sequences, so
                 // this is five function bodies, two of them large. No budget
                 // test reddens on it (`LILA_EMIT_SIZE_REPORT[_PATH]` is
@@ -2934,6 +3187,7 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToString,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeRound,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter,
@@ -2958,6 +3212,7 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
@@ -3402,6 +3657,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
             | StandardBuiltinId::TypedArrayPrototypeToString
             | StandardBuiltinId::TypedArrayPrototypeToLocaleString
+            | StandardBuiltinId::TypedArrayPrototypeFill
             | StandardBuiltinId::TypedArrayPrototypeSubarray
             | StandardBuiltinId::TypedArrayPrototypeSlice
             | StandardBuiltinId::TypedArrayPrototypeSet
@@ -3742,7 +3998,7 @@ fn object_property_exposes_global_object(property: &ObjectPropertyIr) -> bool {
         ObjectPropertyIr::Method { .. }
         | ObjectPropertyIr::Getter { .. }
         | ObjectPropertyIr::Setter { .. } => false,
-        ObjectPropertyIr::ComputedData { key, value } => {
+        ObjectPropertyIr::ComputedData { key, value, .. } => {
             expr_exposes_global_object(key) || expr_exposes_global_object(value)
         }
         ObjectPropertyIr::ComputedMethod { key, .. }
@@ -3794,7 +4050,8 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         ExprIr::EnvironmentIdentifier(_) => true,
         // Module top-level `this` is `undefined`, and neither a namespace
         // object nor `import.meta` can reach the global object.
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
+        ExprIr::ImportMeta { .. } => false,
+        ExprIr::ModuleNamespace { exports, .. } => expr_exposes_global_object(exports),
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {
@@ -4296,7 +4553,7 @@ fn collect_object_property_global_property_names(
         ObjectPropertyIr::Method { .. }
         | ObjectPropertyIr::Getter { .. }
         | ObjectPropertyIr::Setter { .. } => {}
-        ObjectPropertyIr::ComputedData { key, value } => {
+        ObjectPropertyIr::ComputedData { key, value, .. } => {
             collect_expr_global_property_names(key, names);
             collect_expr_global_property_names(value, names);
         }
@@ -4316,7 +4573,10 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 collect_expr_global_property_names(operand, names);
             }
         }
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+        ExprIr::ImportMeta { .. } => {}
+        ExprIr::ModuleNamespace { exports, .. } => {
+            collect_expr_global_property_names(exports, names)
+        }
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {
@@ -5086,6 +5346,20 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
         } => {
             expr_references_function(iterable, target)
                 || statement_references_function(body, target)
+                || FOR_IN_INTRINSICS
+                    .iter()
+                    .any(|builtin| builtin.function_id() == *target)
+                || [
+                    (ValueKind::Number, StandardBuiltinId::NumberConstructor),
+                    (ValueKind::String, StandardBuiltinId::StringConstructor),
+                    (ValueKind::Boolean, StandardBuiltinId::BooleanConstructor),
+                    (ValueKind::Symbol, StandardBuiltinId::SymbolConstructor),
+                    (ValueKind::BigInt, StandardBuiltinId::BigIntConstructor),
+                ]
+                .iter()
+                .any(|(kind, builtin)| {
+                    iterable.possible_kinds.contains(*kind) && builtin.function_id() == *target
+                })
         }
         StatementIr::Switch {
             discriminant,
@@ -5300,7 +5574,7 @@ pub(crate) fn object_property_references_function(
                 || *target == StandardBuiltinId::ReflectOwnKeys.function_id()
                 || *target == StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id()
         }
-        ObjectPropertyIr::ComputedData { key, value } => {
+        ObjectPropertyIr::ComputedData { key, value, .. } => {
             expr_references_function(key, target) || expr_references_function(value, target)
         }
         ObjectPropertyIr::ComputedMethod { key, function }
@@ -5342,7 +5616,8 @@ pub(crate) fn optimized_call_method_references_function(
         return StandardBuiltinId::ArrayPrototypeSplice.function_id() == *target;
     }
     if name == "fill" {
-        return StandardBuiltinId::ArrayPrototypeFill.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeFill.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeFill.function_id() == *target;
     }
     if name == "sort" {
         return StandardBuiltinId::ArrayPrototypeSort.function_id() == *target;
@@ -5580,7 +5855,8 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     .operands()
                     .any(|operand| expr_references_function(operand, target))
         }
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
+        ExprIr::ImportMeta { .. } => false,
+        ExprIr::ModuleNamespace { exports, .. } => expr_references_function(exports, target),
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {
@@ -5646,6 +5922,21 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             operands
                 .iter()
                 .any(|operand| expr_references_function(operand, target))
+                || matches!(operation, SpecOperationIr::ToObject)
+                    && operands.first().is_some_and(|operand| {
+                        [
+                            (ValueKind::Number, StandardBuiltinId::NumberConstructor),
+                            (ValueKind::String, StandardBuiltinId::StringConstructor),
+                            (ValueKind::Boolean, StandardBuiltinId::BooleanConstructor),
+                            (ValueKind::Symbol, StandardBuiltinId::SymbolConstructor),
+                            (ValueKind::BigInt, StandardBuiltinId::BigIntConstructor),
+                        ]
+                        .iter()
+                        .any(|(kind, builtin)| {
+                            operand.possible_kinds.contains(*kind)
+                                && builtin.function_id() == *target
+                        })
+                    })
                 || matches!(operation, SpecOperationIr::CopyDataProperties)
                     && (*target == StandardBuiltinId::ReflectOwnKeys.function_id()
                         || *target
@@ -6619,7 +6910,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::TypedArrayPrototypeToSorted => 1,
         StandardBuiltinId::TypedArrayPrototypeWith => 2,
         StandardBuiltinId::ArrayPrototypeSplice => 2,
-        StandardBuiltinId::ArrayPrototypeFill => 1,
+        StandardBuiltinId::ArrayPrototypeFill | StandardBuiltinId::TypedArrayPrototypeFill => 1,
         StandardBuiltinId::ArrayPrototypeSort => 1,
         StandardBuiltinId::ArrayPrototypePop => 0,
         StandardBuiltinId::ArrayPrototypePush => 1,
@@ -6825,6 +7116,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::DataViewPrototypeSetBigUint64 => 2,
         StandardBuiltinId::Float64ArrayConstructor
         | StandardBuiltinId::Float32ArrayConstructor
+        | StandardBuiltinId::Float16ArrayConstructor
         | StandardBuiltinId::Int32ArrayConstructor
         | StandardBuiltinId::Int16ArrayConstructor
         | StandardBuiltinId::Int8ArrayConstructor
@@ -6975,6 +7267,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
         | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
         | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
         | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
         | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
         | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
@@ -7075,6 +7368,14 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
         | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+        | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+        | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+        | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+        | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+        | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+        | StandardBuiltinId::IntlLocalePrototypeNumericGetter
+        | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+        | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
         | StandardBuiltinId::IntlLocalePrototypeToString => 0,
         StandardBuiltinId::ErrorIsError => 1,
         StandardBuiltinId::SuppressedErrorConstructor => 3,
@@ -7201,6 +7502,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
         | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => 0,
         StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape
@@ -7263,6 +7565,15 @@ pub(crate) fn function_param_types() -> Vec<ValType> {
     std::iter::repeat_n(ValType::I64, JS_FUNCTION_PARAM_COUNT).collect()
 }
 
+/// A singleton Number fact only owns the payload when emission cannot obtain
+/// a different runtime tag from mutable storage, a call, or object coercion.
+pub(crate) fn expr_has_static_number_payload(expr: &TypedExpr) -> bool {
+    expr.kind == ValueKind::Number
+        && expr.possible_kinds.is_singleton()
+        && expr.possible_kinds.contains(ValueKind::Number)
+        && !expr_result_tag_is_runtime_dynamic(&expr.expr)
+}
+
 /// Returns true when payload-only emission cannot reconstruct the tag from the inferred value kind.
 pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
     match expr {
@@ -7277,11 +7588,14 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         // Every BigInt-capable bitwise operator may obtain a heap-backed
         // result through observable object coercion even when neither raw
         // operand advertises BigInt in its pre-ToPrimitive kind set.
-        ExprIr::BitwiseNumeric { op, .. } => op.bigint_op().is_some(),
-        ExprIr::CoerciveAdd { .. }
-        | ExprIr::CoerciveBinaryNumber { .. }
-        | ExprIr::UnaryMinusNumeric { .. }
-        | ExprIr::UnaryBitwiseNumeric { .. } => true,
+        ExprIr::BitwiseNumeric { op, lhs, rhs } => {
+            op.bigint_op().is_some()
+                && !(expr_has_static_number_payload(lhs) && expr_has_static_number_payload(rhs))
+        }
+        ExprIr::UnaryMinusNumeric { expr } | ExprIr::UnaryBitwiseNumeric { expr, .. } => {
+            !expr_has_static_number_payload(expr)
+        }
+        ExprIr::CoerciveAdd { .. } | ExprIr::CoerciveBinaryNumber { .. } => true,
         ExprIr::UpdateIdentifier {
             value_kind: NumericUpdateValueKind::BigInt | NumericUpdateValueKind::Dynamic,
             ..
@@ -7944,15 +8258,13 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             }
         },
         StatementIr::ForInArray { target, body, .. }
-        | StatementIr::ForInObject { target, body, .. } => {
-            12 + count_expr_temp_locals(target)
-                .max(count_statement_temp_locals(body))
-                .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
-        }
-        StatementIr::ForInString { target, body, .. } => {
-            10 + count_expr_temp_locals(target)
-                .max(count_statement_temp_locals(body))
-                .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+        | StatementIr::ForInObject { target, body, .. }
+        | StatementIr::ForInString { target, body, .. } => {
+            FOR_IN_ENUMERATOR_TEMP_LOCALS
+                + (2 + count_expr_temp_locals(target))
+                    .max(count_statement_temp_locals(body))
+                    .max(FOR_IN_INTERNAL_METHOD_TEMP_LOCALS)
+                    .max(2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
         }
         StatementIr::Switch {
             discriminant,
@@ -8214,6 +8526,15 @@ const DELETE_REFERENCE_DISPATCH_TEMP_LOCALS: usize = 14 + 3 + 4 + 3 + 12 + 6;
 // operand locals and the parsed payload/tag pair.
 const STRING_TO_BIGINT_TEMP_LOCALS: usize = 23 + 7 + 5 + 4;
 const LOOSE_EQUALITY_COMPARISON_TEMP_LOCALS: usize = 1 + 3 + 2 + STRING_TO_BIGINT_TEMP_LOCALS;
+// Relational dispatch keeps two Number scratch locals, the selected string,
+// and the parsed payload/tag pair across StringToBigInt. Its string comparison
+// and outlined ToNumber phases need fewer locals.
+const RELATIONAL_COMPARISON_TEMP_LOCALS: usize = 2 + 1 + 2 + STRING_TO_BIGINT_TEMP_LOCALS;
+// Private access retains seven read or nine write locals. Private-name
+// resolution adds its class-scope cursor while constructing a missing-name
+// TypeError; brand/member lookup and outlined accessor calls are smaller.
+const PRIVATE_READ_DISPATCH_TEMP_LOCALS: usize = 7 + 1 + COERCIVE_NUMERIC_ERROR_TEMP_LOCALS;
+const PRIVATE_WRITE_DISPATCH_TEMP_LOCALS: usize = 9 + 1 + COERCIVE_NUMERIC_ERROR_TEMP_LOCALS;
 
 fn count_loose_equality_temp_locals(lhs: &TypedExpr, rhs: &TypedExpr) -> usize {
     let primitive = lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
@@ -8283,7 +8604,8 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 } => (4 + operands).max(64),
             }
         }
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => 2,
+        ExprIr::ImportMeta { .. } => 2,
+        ExprIr::ModuleNamespace { exports, .. } => count_expr_temp_locals(exports) + 64,
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {
@@ -8328,7 +8650,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                         count_expr_temp_locals(value)
                     }
                     ObjectPropertyIr::Spread { source } => count_expr_temp_locals(source).max(40),
-                    ObjectPropertyIr::ComputedData { key, value } => {
+                    ObjectPropertyIr::ComputedData { key, value, .. } => {
                         count_expr_temp_locals(key).max(count_expr_temp_locals(value))
                     }
                     ObjectPropertyIr::ComputedMethod { key, .. }
@@ -8340,10 +8662,10 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 })
                 .max()
                 .unwrap_or(0);
-            // A named getter followed by its paired setter retains both
-            // accessor values while the second HomeObject-bearing function
-            // context is materialized.
-            child.max(13)
+            // Object, key and value locals survive child evaluation. A
+            // computed anonymous class also retains its normalized name key;
+            // methods need SetFunctionName's string and descriptor locals.
+            child.saturating_add(8).max(64)
         }
         ExprIr::ArrayLiteral(elements) => {
             let child = elements
@@ -8636,12 +8958,16 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::SpecOperation {
             operation: SpecOperationIr::ToObject,
             operands,
-        } => operands
-            .iter()
-            .map(count_expr_temp_locals)
-            .max()
-            .unwrap_or(0)
-            .max(8),
+        } => {
+            2 + operands
+                .iter()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0)
+                // Realm/prototype, boxed String fields or error fields, and
+                // the three flags passed to the property-definition helper.
+                .max(2 + 4 + 3)
+        }
         ExprIr::SpecOperation {
             operation: SpecOperationIr::ToPropertyKey,
             operands,
@@ -8764,6 +9090,17 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .unwrap_or(0)
             .max(32),
         ExprIr::SpecOperation {
+            operation: SpecOperationIr::WithEnvironmentHasBinding,
+            operands,
+        } => {
+            4 + operands
+                .iter()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0)
+                .max(2)
+        }
+        ExprIr::SpecOperation {
             operation: SpecOperationIr::HasProperty,
             operands,
         } => operands
@@ -8850,8 +9187,42 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 child
             }
         }
+        ExprIr::CompareValue { lhs, rhs, .. } => {
+            let nonthrowing_number_primitives = KindSet::PRIMITIVE_ONLY
+                .without(ValueKind::String)
+                .without(ValueKind::BigInt)
+                .without(ValueKind::Symbol);
+            if lhs
+                .possible_kinds
+                .is_subset_of(nonthrowing_number_primitives)
+                && rhs
+                    .possible_kinds
+                    .is_subset_of(nonthrowing_number_primitives)
+            {
+                [lhs, rhs]
+                    .into_iter()
+                    .map(|operand| {
+                        let direct_number = operand.kind == ValueKind::Number
+                            && operand.possible_kinds.is_singleton()
+                            && operand.possible_kinds.contains(ValueKind::Number)
+                            && !expr_result_tag_is_runtime_dynamic(&operand.expr);
+                        usize::from(!direct_number) * 2 + count_expr_temp_locals(operand)
+                    })
+                    .max()
+                    .unwrap_or(0)
+            } else {
+                let lhs_raw =
+                    usize::from(!lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)) * 2;
+                let rhs_raw =
+                    usize::from(!rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)) * 2;
+                // Four primitive operand locals survive both children. Raw
+                // operands are released after the outlined ToPrimitive phase.
+                (4 + lhs_raw + count_expr_temp_locals(lhs))
+                    .max(4 + lhs_raw + rhs_raw + count_expr_temp_locals(rhs))
+                    .max(4 + RELATIONAL_COMPARISON_TEMP_LOCALS)
+            }
+        }
         ExprIr::CompareNumber { lhs, rhs, .. }
-        | ExprIr::CompareValue { lhs, rhs, .. }
         | ExprIr::LogicalShortCircuit { lhs, rhs, .. }
         | ExprIr::In { lhs, rhs } => count_expr_temp_locals(lhs).max(count_expr_temp_locals(rhs)),
         ExprIr::BitwiseNumeric { lhs, rhs, .. } => {
@@ -9078,7 +9449,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                         .map(count_expr_temp_locals)
                         .unwrap_or(0),
                 )
-                .max(10)
+                .max(64)
         }
         ExprIr::SuperConstruct { args } => args
             .iter()
@@ -9138,10 +9509,14 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     .max(SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)
                     .max(REFERENCE_STRICTNESS_FLAG_LOCALS)
         }
-        ExprIr::PrivateRead { target, .. } => count_expr_temp_locals(target).max(8),
-        ExprIr::PrivateWrite { target, value, .. } => count_expr_temp_locals(target)
-            .max(count_expr_temp_locals(value))
-            .max(10),
+        ExprIr::PrivateRead { target, .. } => {
+            2 + count_expr_temp_locals(target).max(PRIVATE_READ_DISPATCH_TEMP_LOCALS)
+        }
+        ExprIr::PrivateWrite { target, value, .. } => {
+            2 + count_expr_temp_locals(target)
+                .max(count_expr_temp_locals(value))
+                .max(PRIVATE_WRITE_DISPATCH_TEMP_LOCALS)
+        }
         ExprIr::PrivateIn { rhs, .. } => count_expr_temp_locals(rhs).max(8),
         ExprIr::Arguments => 0,
         ExprIr::Undefined

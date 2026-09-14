@@ -29,8 +29,11 @@ pieces:
   validation/casing, `Intl.getCanonicalLocales`, and part of `Intl.Locale`.
   `getCanonicalLocales` now performs the required array-like `HasProperty` /
   conditional `Get` / coercion sequence directly against the original source
-  before applying the pinned provider's CLDR alias data. `Intl.Locale` does not
-  yet share that result and still ignores its options.
+  before applying the pinned provider's CLDR alias data. `Intl.Locale` now
+  shares provider results before and after ordered core/Unicode option
+  replacement and refreshes all cached components. Its eight additional
+  getters derive their immutable values from the canonical tag; see the
+  [constructor contract](aot-intl-locale-options.md) for validation boundaries.
 - `crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs` implements much of
   DateTimeFormat's observable option ordering and its formatter/parts/range
   shapes, but its data surface is `en-US`, `gregory`/`iso8601`, `latn`, and
@@ -62,30 +65,39 @@ Proxy internal-method machinery remains outside this slice. The concrete
 `lila_host.intl_call` ABI is
 `(op: i64, request_span: i64, result_span: i64) -> i64`: spans are distinct
 typed offset/length and offset/capacity words, while the result is the closed
-domain `Written(u32) | Rejected`. Unknown operation wires and every other
-negative result are faults rather than catch-all cases.
+domain `Written(u32) | RequiredCapacity(u32) | Rejected`. A zero-capacity pure
+query supplies the exact allocation size; no JavaScript operation occurs before
+the subsequent writing call. Locale spans have no fixed 255-byte syntax limit;
+time-zone identifiers retain a separate limit. Unknown operation wires and
+out-of-domain responses are ABI faults.
 
-The defining-Realm ToObject and result-Array routes are structurally wired but
-do not yet have a cross-Realm runtime witness: created realms currently omit
-the `Intl` namespace, so there is no foreign `Intl.getCanonicalLocales` product
-entrypoint to call. Installing Intl during created-realm bootstrap remains a
-T06/T23 dependency; runtime identity evidence for foreign Number wrappers,
-null TypeErrors and `%Array.prototype%` is deferred until that entrypoint
-exists.
+Created realms now install the Intl namespace through the shared demand roots.
+The constructor/getter batch adds foreign getter identity and error-provenance
+regressions; its runtime verification remains pending at staging handoff.
 
 This is not two-operation support. `CanonicalizeTimeZone` stays in the closed
-catalogue but is explicitly unbound, and `Intl.Locale` is not connected because
-only replacing its tag would disagree with its separately stored language,
-script, region and base-name slots. There is also no generated artifact data
+catalogue but is explicitly unbound. Locale construction refreshes its tag,
+language, script, region and base-name slots together after provider calls.
+The reserved five-to-eight-letter language domain uses pinned alias tables
+through an explicit adapter, including independent transform-language aliases;
+it never substitutes an unknown language into likely-subtag inference. BCP47
+keyword-value aliases are generated from all 15 hash-pinned CLDR47 XML files,
+including both Unicode and transform values. Aliases match complete values;
+lossless keyword records preserve embedded `true` despite ICU parser folding. There is
+also no generated artifact data
 image or artifact-embedded ICU payload yet. The current provider is compiled
 into the Rust host and truthfully declares `External` placement relative to
-emitted Wasm; its digest identifies the exact `icu_locale_data-2.0.0.crate`
-archive, not data embedded in the artifact.
+emitted Wasm. Its composite digest identifies the exact
+`icu_locale_data-2.0.0.crate` archive, CLDR BCP47 source manifest and canonical
+alias rows, not data embedded in the artifact. The offline generator and CI
+check reproduce every alias from all 15 upstream XML files; no dependency
+upgrade or host-locale lookup is involved.
 
 The provider identity is now carried and enforced independently of that future
 data image. A module that imports `lila_host.intl_call` carries exactly one
 `lila.intl-data-identity.v1` custom section containing `lila-intl`'s canonical
-serialization of the complete `IntlDataIdentity`. A module without the import
+serialization of the complete `IntlDataIdentity`, including `host-call-abi=2`
+for capacity negotiation. A module without the import
 carries no such section. Before Wasmtime compilation or instantiation, the
 engine checks that import/section relation and compares the section bytes to
 the identity of its shared `EmbeddedLocaleProvider`; missing, duplicate,

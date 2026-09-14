@@ -1,4 +1,9 @@
-const MATCHER: &str = include_str!("../src/builtins/regexp.rs");
+const MATCHER: &str = concat!(
+    include_str!("../src/builtins/regexp.rs"),
+    include_str!("../src/builtins/regexp/backreference.rs"),
+    include_str!("../src/builtins/regexp/range_search.rs"),
+    include_str!("../src/builtins/regexp/word_boundary.rs"),
+);
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/regexp-matcher-result-domain.md");
 const TASK: &str = include_str!("../../../tasks/19-regexp.md");
@@ -165,15 +170,15 @@ fn matcher_result_is_the_exact_private_no_capability_domain() {
     assert!(!matcher.contains("pubenumRegExpMatcherResult"));
     assert!(!matcher.contains("pub(crate)enumRegExpMatcherResult"));
     assert!(!matcher.contains("pub(super)enumRegExpMatcherResult"));
-    assert_eq!(matcher.matches("RegExpMatcherResult").count(), 55);
+    assert_eq!(matcher.matches("RegExpMatcherResult").count(), 61);
 }
 
 #[test]
-fn all_fifty_exits_name_one_legal_result_state() {
+fn all_result_producers_name_one_legal_result_state() {
     let matcher = lexically_normalized(MATCHER);
     assert_eq!(
         matcher.matches("self.emit_regexp_match_result(").count(),
-        50
+        56
     );
     assert_eq!(matcher.matches("RegExpMatcherResult::Match,").count(), 1);
     assert_eq!(matcher.matches("RegExpMatcherResult::NoMatch,").count(), 3);
@@ -181,7 +186,7 @@ fn all_fifty_exits_name_one_legal_result_state() {
         matcher
             .matches("RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),")
             .count(),
-        44
+        50
     );
     assert_eq!(
         matcher
@@ -240,15 +245,15 @@ fn sole_writer_consumes_and_exhaustively_projects_the_result() {
 fn contract_and_task_record_the_exact_abi_boundary_and_nonclaims() {
     for marker in [
         "`RegExpMatcherResult::{Match, NoMatch, Failed(RegExpMatcherFailure)}`",
-        "exactly 50 result producers",
-        "This is source-equivalent ABI hardening.",
-        "passes `4/4`",
+        "exactly 56 result producers",
+        "The original change was source-equivalent ABI hardening.",
+        "passed `4/4`",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
     }
     for marker in [
         "`RegExpMatcherResult::{Match, NoMatch, Failed(reason)}`",
-        "one match, three normal misses, 44 corrupt-program",
+        "one match, three normal misses, 50 corrupt-program",
         "source-equivalent ABI hardening",
         "regexp-matcher-result-domain.md",
     ] {

@@ -1,10 +1,8 @@
 use core::fmt;
 
-/// Maximum byte length accepted by the current Intl identifier wire domain.
-///
-/// Locale identifiers are ASCII, so this is both the UTF-8 byte limit and the
-/// maximum result capacity an emitter must reserve for canonicalization.
-pub const MAX_INTL_IDENTIFIER_BYTES: usize = 255;
+/// Byte limit for the current time-zone identifier wire domain.
+/// Locale identifiers have no corresponding syntactic length limit.
+pub const MAX_TIME_ZONE_IDENTIFIER_BYTES: usize = 255;
 
 /// A structurally checked locale identifier observed by the Wasm shell.
 ///
@@ -109,7 +107,7 @@ impl CanonicalTimeZoneId {
 
 fn valid_locale_syntax(raw: &str) -> bool {
     let bytes = raw.as_bytes();
-    if bytes.is_empty() || bytes.len() > MAX_INTL_IDENTIFIER_BYTES || !raw.is_ascii() {
+    if bytes.is_empty() || !raw.is_ascii() {
         return false;
     }
 
@@ -205,7 +203,7 @@ fn is_ascii_lowercase_or_digit(value: &str) -> bool {
 
 fn valid_time_zone_syntax(raw: &str) -> bool {
     let bytes = raw.as_bytes();
-    if bytes.is_empty() || bytes.len() > MAX_INTL_IDENTIFIER_BYTES || !raw.is_ascii() {
+    if bytes.is_empty() || bytes.len() > MAX_TIME_ZONE_IDENTIFIER_BYTES || !raw.is_ascii() {
         return false;
     }
     if matches!(bytes[0], b'+' | b'-') {
@@ -273,6 +271,16 @@ mod tests {
         assert!(CanonicalLocaleId::from_data("en-US-u-ca-gregory").is_ok());
         assert!(CanonicalLocaleId::from_data("EN-us").is_err());
         assert!(LocaleId::parse("en--US").is_err());
+    }
+
+    #[test]
+    fn locale_syntax_accepts_long_private_use_sequences() {
+        let tag = format!("en-x{}", "-abcdefgh".repeat(100));
+        assert!(tag.len() > 255);
+        assert!(LocaleId::parse(tag.clone()).is_ok());
+        assert!(CanonicalLocaleId::from_data(tag).is_ok());
+        assert!(LocaleId::parse("abcde-Latn-US").is_ok());
+        assert!(CanonicalLocaleId::from_data("abcdefgh-Latn-US").is_ok());
     }
 
     #[test]

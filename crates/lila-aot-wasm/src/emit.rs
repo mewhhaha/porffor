@@ -318,6 +318,7 @@ impl NumericErrorRealmSource {
             | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -354,7 +355,14 @@ impl ProxyExecutionRealmSource {
             RuntimeHelperId::ObjectRead
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::IndexedElementRead
-            | RuntimeHelperId::ObjectHasProperty => Self::ObjectReadHelperArgument,
+            | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding
+            | RuntimeHelperId::ValueToString
+            | RuntimeHelperId::ValueToNumber
+            | RuntimeHelperId::ValueToNumeric
+            | RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -369,9 +377,6 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::StringEquality
             | RuntimeHelperId::NumberToString
             | RuntimeHelperId::StringToNumber
-            | RuntimeHelperId::ValueToString
-            | RuntimeHelperId::ValueToNumber
-            | RuntimeHelperId::ValueToNumeric
             | RuntimeHelperId::ObjectGetPrototypeOf
             | RuntimeHelperId::ObjectIsExtensible
             | RuntimeHelperId::ObjectPreventExtensions
@@ -388,9 +393,6 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::IndexedElementWrite
-            | RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::JsonStringifyValue => Self::MainRealmFallback,
         }
@@ -479,6 +481,7 @@ impl ObjectMutationErrorRealmSource {
             | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -499,7 +502,14 @@ impl ObjectReadErrorRealmSource {
             RuntimeHelperId::ObjectRead
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::IndexedElementRead
-            | RuntimeHelperId::ObjectHasProperty => Self::ObjectReadHelperArgument,
+            | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding
+            | RuntimeHelperId::ValueToString
+            | RuntimeHelperId::ValueToNumber
+            | RuntimeHelperId::ValueToNumeric
+            | RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -514,9 +524,6 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::StringEquality
             | RuntimeHelperId::NumberToString
             | RuntimeHelperId::StringToNumber
-            | RuntimeHelperId::ValueToString
-            | RuntimeHelperId::ValueToNumber
-            | RuntimeHelperId::ValueToNumeric
             | RuntimeHelperId::ObjectGetPrototypeOf
             | RuntimeHelperId::ObjectIsExtensible
             | RuntimeHelperId::ObjectPreventExtensions
@@ -533,9 +540,6 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::IndexedElementWrite
-            | RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
@@ -1410,8 +1414,9 @@ fn emit_script_with_forced_builtins(
     let uses_wall_clock_millis = compiled_standard_builtins
         .iter()
         .any(|builtin| builtin.requires_wall_clock());
-    let uses_intl_host =
-        compiled_standard_builtins.contains(&StandardBuiltinId::IntlGetCanonicalLocales);
+    let uses_intl_host = compiled_standard_builtins
+        .iter()
+        .any(|builtin| builtin.requires_intl_host());
     let uses_random_f64 = compiled_standard_builtins
         .iter()
         .any(|builtin| builtin.requires_random());
@@ -2230,6 +2235,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_object_has_property_helper()
         })
         .transpose()?;
+    let with_environment_has_binding_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_with_environment_has_binding_helper()
+        })
+        .transpose()?;
     let indexed_element_read_helper_function = uses_heap
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -2525,6 +2547,11 @@ fn emit_script_with_forced_builtins(
             RuntimeHelperId::ObjectHasProperty,
             object_has_property_helper_function
                 .expect("object has-property helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::WithEnvironmentHasBinding,
+            with_environment_has_binding_helper_function
+                .expect("with HasBinding helper must exist when heap is enabled"),
         );
         helper_bodies.insert(
             RuntimeHelperId::IndexedElementRead,
@@ -4449,8 +4476,8 @@ impl<'a> FunctionBuilder<'a> {
     /// a new [`RuntimeHelperId`] does not build until it states whether it owns
     /// a seam.
     ///
-    /// Twenty-three of the forty helpers own a seam. The other seventeen
-    /// own none: their call sites have no inline body to fall back *to* (the six
+    /// Helpers without a seam have no inline body at their call sites to fall
+    /// back *to* (the six
     /// allocation helpers are plain free functions, not `FunctionBuilder`
     /// bodies at all), and [`RuntimeHelperId::JsonStringifyValue`] deliberately
     /// keeps its seam live: nested-value serialization *is* a runtime self-call
@@ -4526,6 +4553,7 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding
             // Deliberately recursive: see above.
             | RuntimeHelperId::JsonStringifyValue => {}
         }
@@ -5001,16 +5029,19 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Compiles the shared dynamic ToString helper (per-kind dispatch,
-    /// ToPrimitive on objects, array join, function source text — tens of KB
-    /// per inline copy, and dynamic string concatenation hits it constantly).
+    /// ToPrimitive followed by primitive string conversion). Function receivers
+    /// run their observable hooks; only Function.prototype.toString reads source.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag. Params 2-6 are unused. Results are the standard four-i64
+    /// 1=value tag, 6=trusted execution-Realm context or zero. Params 2-5 are
+    /// unused. Results are the standard four-i64
     /// tuple: on normal completion the string payload is in the first slot; a
     /// ToPrimitive/Symbol throw is surfaced through the completion slots.
     fn compile_value_to_string_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ValueToString);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_string_payload(0, 1, &mut function)?;
@@ -5139,7 +5170,7 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
     /// 1=value tag, 2=the closed conversion-error Realm ABI word, and
-    /// 6=calling function's realm environment. Params 3-5 are unused. Results
+    /// 6=trusted execution-Realm context or zero. Params 3-5 are unused. Results
     /// are the standard four-i64
     /// tuple: on normal completion the primitive `(payload, tag)` is in the
     /// first two slots; a `@@toPrimitive`/`valueOf`/`toString` throw is
@@ -5147,10 +5178,8 @@ impl<'a> FunctionBuilder<'a> {
     /// two, which is exactly what the inline composite leaves in its output
     /// locals, so the seam's callers cannot tell the difference.
     ///
-    /// Param 6 is loaded into `current_env_local` for the reason recorded on
-    /// `emit_value_to_primitive_via_helper_if_outlined`: inline, this composite
-    /// ran with the caller's environment, and `compile_value_to_numeric_helper`
-    /// already forwards param 6 into a path that now reaches this helper.
+    /// Parameter 6 preserves the Realm of hook reads/calls and generated
+    /// conversion errors without interpreting lexical environments as metadata.
     fn compile_value_to_primitive_helper(
         &mut self,
         hint: ToPrimitiveHint,

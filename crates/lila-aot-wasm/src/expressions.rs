@@ -1250,8 +1250,8 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::ImportMeta { module } => {
                 self.emit_import_meta(*module, function)?;
             }
-            ExprIr::ModuleNamespace { module } => {
-                self.emit_module_namespace(*module, function)?;
+            ExprIr::ModuleNamespace { mode, exports } => {
+                self.emit_module_namespace(*mode, exports, function)?;
             }
             ExprIr::Undefined | ExprIr::ArrayHole | ExprIr::Null => {
                 self.emit_undefined_payload(function);
@@ -2104,15 +2104,19 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64ExtendI32U);
             }
             ExprIr::CompareValue { op, lhs, rhs } => {
-                if lhs.possible_kinds.is_subset_of(
-                    KindSet::PRIMITIVE_ONLY
-                        .without(ValueKind::String)
-                        .without(ValueKind::BigInt),
-                ) && rhs.possible_kinds.is_subset_of(
-                    KindSet::PRIMITIVE_ONLY
-                        .without(ValueKind::String)
-                        .without(ValueKind::BigInt),
-                ) {
+                // Only non-throwing primitive conversions may precede rhs
+                // evaluation. ToNumber(Symbol) must wait for both operands.
+                let nonthrowing_number_primitives = KindSet::PRIMITIVE_ONLY
+                    .without(ValueKind::String)
+                    .without(ValueKind::BigInt)
+                    .without(ValueKind::Symbol);
+                if lhs
+                    .possible_kinds
+                    .is_subset_of(nonthrowing_number_primitives)
+                    && rhs
+                        .possible_kinds
+                        .is_subset_of(nonthrowing_number_primitives)
+                {
                     self.compile_expr_to_number_payload_nonstring(lhs, function)?;
                     function.instruction(&Instruction::F64ReinterpretI64);
                     self.compile_expr_to_number_payload_nonstring(rhs, function)?;

@@ -3469,14 +3469,14 @@ standard_builtin_catalog! {
     IntlGetCanonicalLocales {
         function: FunctionOrdinal(485) => BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID,
         debug: "Intl.getCanonicalLocales",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "getCanonicalLocales",
     }
     IntlLocaleConstructor {
         function: FunctionOrdinal(486) => BUILTIN_INTL_LOCALE_FUNCTION_ID,
         debug: "Intl.Locale",
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, INTL_HOST],
         installer: IntlLocale,
         native: INTL_LOCALE_NAME,
     }
@@ -3507,6 +3507,62 @@ standard_builtin_catalog! {
         flags: [],
         installer: None,
         native: "get baseName",
+    }
+    IntlLocalePrototypeCalendarGetter {
+        function: FunctionOrdinal(815) => BUILTIN_INTL_LOCALE_PROTOTYPE_CALENDAR_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.calendar",
+        flags: [],
+        installer: None,
+        native: "get calendar",
+    }
+    IntlLocalePrototypeCollationGetter {
+        function: FunctionOrdinal(816) => BUILTIN_INTL_LOCALE_PROTOTYPE_COLLATION_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.collation",
+        flags: [],
+        installer: None,
+        native: "get collation",
+    }
+    IntlLocalePrototypeFirstDayOfWeekGetter {
+        function: FunctionOrdinal(817) => BUILTIN_INTL_LOCALE_PROTOTYPE_FIRST_DAY_OF_WEEK_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.firstDayOfWeek",
+        flags: [],
+        installer: None,
+        native: "get firstDayOfWeek",
+    }
+    IntlLocalePrototypeHourCycleGetter {
+        function: FunctionOrdinal(818) => BUILTIN_INTL_LOCALE_PROTOTYPE_HOUR_CYCLE_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.hourCycle",
+        flags: [],
+        installer: None,
+        native: "get hourCycle",
+    }
+    IntlLocalePrototypeCaseFirstGetter {
+        function: FunctionOrdinal(819) => BUILTIN_INTL_LOCALE_PROTOTYPE_CASE_FIRST_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.caseFirst",
+        flags: [],
+        installer: None,
+        native: "get caseFirst",
+    }
+    IntlLocalePrototypeNumericGetter {
+        function: FunctionOrdinal(820) => BUILTIN_INTL_LOCALE_PROTOTYPE_NUMERIC_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.numeric",
+        flags: [],
+        installer: None,
+        native: "get numeric",
+    }
+    IntlLocalePrototypeNumberingSystemGetter {
+        function: FunctionOrdinal(821) => BUILTIN_INTL_LOCALE_PROTOTYPE_NUMBERING_SYSTEM_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.numberingSystem",
+        flags: [],
+        installer: None,
+        native: "get numberingSystem",
+    }
+    IntlLocalePrototypeVariantsGetter {
+        function: FunctionOrdinal(822) => BUILTIN_INTL_LOCALE_PROTOTYPE_VARIANTS_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.variants",
+        flags: [],
+        installer: None,
+        native: "get variants",
     }
     IntlLocalePrototypeToString {
         function: FunctionOrdinal(491) => BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID,
@@ -5907,9 +5963,45 @@ standard_builtin_catalog! {
         installer: None,
         native: "toHex",
     }
+    TemporalZonedDateTimePrototypeWith {
+        function: FunctionOrdinal(812) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.with",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "with",
+    }
+    TemporalZonedDateTimePrototypeToPlainDate {
+        function: FunctionOrdinal(813) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.toPlainDate",
+        flags: [],
+        installer: None,
+        native: "toPlainDate",
+    }
+    TypedArrayPrototypeFill {
+        function: FunctionOrdinal(814) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FILL_FUNCTION_ID,
+        debug: "TypedArray.prototype.fill",
+        flags: [INDEXED_RECEIVER_MUTATION, SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "fill",
+    }
+    Float16ArrayConstructor {
+        function: FunctionOrdinal(823) => BUILTIN_FLOAT16_ARRAY_FUNCTION_ID,
+        global: GlobalOrdinal(53),
+        global_name: FLOAT16_ARRAY_NAME,
+        debug: FLOAT16_ARRAY_NAME,
+        flags: [CONSTRUCTABLE],
+        installer: None,
+        native: FLOAT16_ARRAY_NAME,
+    }
 }
 
 impl StandardBuiltinId {
+    /// Whether this builtin body calls the pinned Intl provider. Import planning
+    /// uses compiled bodies, including dependencies discovered during emission.
+    pub const fn requires_intl_host(self) -> bool {
+        self.flags().contains(BuiltinFlags::INTL_HOST)
+    }
+
     /// Whether this builtin reads the realm's host randomness provider. This
     /// catalog bit is the sole authority for importing `lila_host.random_f64`.
     pub const fn requires_random(self) -> bool {
@@ -5920,6 +6012,22 @@ impl StandardBuiltinId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intl_provider_callers_declare_the_host_import() {
+        let callers = StandardBuiltinId::all_functions()
+            .iter()
+            .copied()
+            .filter(|builtin| builtin.requires_intl_host())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            callers,
+            [
+                StandardBuiltinId::IntlGetCanonicalLocales,
+                StandardBuiltinId::IntlLocaleConstructor,
+            ]
+        );
+    }
 
     #[test]
     fn uint8_array_codecs_preserve_ordinals_and_observable_effects() {

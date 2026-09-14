@@ -523,7 +523,7 @@ impl<'a> ScriptLowerer<'a> {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(value));
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(key));
                             info = self
@@ -606,6 +606,9 @@ impl<'a> ScriptLowerer<'a> {
                 for operand in operands {
                     info =
                         self.merge_optional_value_info(info, self.infer_expr_throw_info(operand));
+                }
+                if *operation == SpecOperationIr::WithEnvironmentHasBinding {
+                    info = self.merge_optional_value_info(info, Some(unknown_runtime_value_info()));
                 }
                 if *operation == SpecOperationIr::HasProperty {
                     if let Some(target) = operands.first() {
@@ -867,11 +870,11 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            ExprIr::PrivateRead { target, .. } => self.infer_expr_throw_info(target),
-            ExprIr::PrivateWrite { target, value, .. } => self.merge_optional_value_info(
-                self.infer_expr_throw_info(target),
-                self.infer_expr_throw_info(value),
-            ),
+            // PrivateGet/PrivateSet perform brand checks and may invoke an
+            // accessor that throws any value, independently of their operands.
+            ExprIr::PrivateRead { .. } | ExprIr::PrivateWrite { .. } => {
+                Some(unknown_runtime_value_info())
+            }
             ExprIr::PrivateIn { rhs, .. } => {
                 let mut info = self.infer_expr_throw_info(rhs);
                 if !matches!(rhs.expr, ExprIr::RuntimeThrow { .. })

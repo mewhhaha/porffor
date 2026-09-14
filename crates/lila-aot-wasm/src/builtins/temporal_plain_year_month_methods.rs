@@ -9,7 +9,7 @@ use super::temporal_options::{
     ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow, TemporalRoundingMode,
     TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
 };
-use super::temporal_plain_date::{TemporalEraLocals, TemporalResolvedYear};
+use super::temporal_plain_date::{TemporalEraLocals, TemporalResolvedIsoYear};
 use super::temporal_plain_date_time_methods::{
     TemporalPlainArithmeticOperation, TemporalPlainDifferenceOperation,
 };
@@ -200,7 +200,7 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_year_month_resolve_fields(
         &mut self,
-        resolved_year: &TemporalResolvedYear,
+        resolved_year: &TemporalResolvedIsoYear,
         month_local: u32,
         month_present_local: u32,
         month_code_payload_local: u32,
@@ -467,7 +467,7 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             year_local,
@@ -1317,7 +1317,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             new_year_local,

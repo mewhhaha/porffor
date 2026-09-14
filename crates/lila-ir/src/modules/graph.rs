@@ -248,7 +248,13 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
             let binding = match &entry.import_name {
                 ImportNameIr::Namespace => ResolvedBindingIr::Resolved {
                     module: target,
-                    binding: ModuleBindingNameIr::Namespace,
+                    binding: ModuleBindingNameIr::Namespace(
+                        entry
+                            .request
+                            .phase()
+                            .namespace_mode()
+                            .expect("source imports resolve separately"),
+                    ),
                 },
                 ImportNameIr::Name(name) => graph.resolve_export(target, name),
             };

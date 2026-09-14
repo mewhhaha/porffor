@@ -13,6 +13,14 @@ pub enum ImportPhaseIr {
 }
 
 impl ImportPhaseIr {
+    pub(crate) const fn namespace_mode(self) -> Option<crate::ModuleNamespaceModeIr> {
+        match self {
+            Self::Evaluation => Some(crate::ModuleNamespaceModeIr::Eager),
+            Self::Defer => Some(crate::ModuleNamespaceModeIr::Deferred),
+            Self::Source => None,
+        }
+    }
+
     /// Name used in diagnostics.
     #[must_use]
     pub const fn as_str(self) -> &'static str {

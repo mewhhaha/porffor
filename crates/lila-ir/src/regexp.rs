@@ -7,7 +7,8 @@ use icu_properties::props::{GeneralCategory, GeneralCategoryGroup, IdContinue, I
 use icu_properties::script::ScriptWithExtensions;
 use icu_properties::{CodePointMapData, CodePointSetData, PropertyParser};
 use regress::{
-    unicode_string_property_from_str, unicode_string_property_sequences, UnicodeStringProperty,
+    unicode_simple_case_fold, unicode_string_property_from_str, unicode_string_property_sequences,
+    UnicodeStringProperty,
 };
 
 /// The encoded width of every [`RegExpInstruction`] in bytes.
@@ -45,22 +46,23 @@ pub const REGEXP_OPCODE_NAMED_BACKREFERENCE: u64 = 12;
 pub const REGEXP_OPCODE_NEGATIVE_ASCII_CLASS: u64 = 13;
 /// Match the numbered capture stored in `operand0`.
 pub const REGEXP_OPCODE_NUMBERED_BACKREFERENCE: u64 = 14;
-/// Assert that the next ASCII code unit equals `operand0` without consuming it.
-pub const REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD: u64 = 15;
-/// Assert that the next ASCII code unit differs from `operand0` without consuming it.
-pub const REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD: u64 = 16;
+/// Numbered-backreference operand1 bit proving the capture cannot be empty.
+/// Named backreferences reserve this bit.
+pub const REGEXP_BACKREFERENCE_NONEMPTY: u64 = 1;
+/// Backreference operand1 bit for the resolved ignoreCase modifier at the reference.
+pub const REGEXP_BACKREFERENCE_IGNORE_CASE: u64 = 2;
 /// Assert that the current position is the start of the input or a line.
 pub const REGEXP_OPCODE_ASSERT_START: u64 = 17;
 /// Assert that the current position is the end of the input or a line.
 pub const REGEXP_OPCODE_ASSERT_END: u64 = 18;
 /// Match one code point that is not ECMAScript WhiteSpace or a LineTerminator.
 pub const REGEXP_OPCODE_NOT_WHITESPACE: u64 = 19;
-/// Enter a reverse-matching lookbehind body.
-pub const REGEXP_OPCODE_LOOKBEHIND_START: u64 = 20;
-/// Complete a lookbehind body. `operand0` identifies its failure sentinel.
-pub const REGEXP_OPCODE_LOOKBEHIND_END: u64 = 21;
-/// Handle exhaustion of every path through a lookbehind body.
-pub const REGEXP_OPCODE_LOOKBEHIND_FAILURE: u64 = 22;
+/// Enter a lookaround body in the direction encoded by `operand0`.
+pub const REGEXP_OPCODE_LOOKAROUND_START: u64 = 20;
+/// Complete a lookaround body. `operand0` identifies its failure sentinel.
+pub const REGEXP_OPCODE_LOOKAROUND_END: u64 = 21;
+/// Handle exhaustion of every path through a lookaround body.
+pub const REGEXP_OPCODE_LOOKAROUND_FAILURE: u64 = 22;
 /// Enter one optional iteration whose atom may leave the input index unchanged.
 /// `operand0` is the attempt target. `operand1` packs the fallback target in
 /// bits 1 and above and [`QuantifierPreference::Lazy`] in bit 0.
@@ -68,6 +70,10 @@ pub const REGEXP_OPCODE_PROGRESS_SPLIT: u64 = 23;
 /// Complete one nullable optional iteration. `operand0` names its paired
 /// progress split and `operand1` is the continuation for a changed input index.
 pub const REGEXP_OPCODE_PROGRESS_CHECK: u64 = 24;
+/// Assert whether the adjacent input characters have different word membership.
+/// `operand0` selects the WordCharacters range slice; `operand1` packs its count
+/// in bits 1 and above and the assertion polarity in bit 0.
+pub const REGEXP_OPCODE_WORD_BOUNDARY: u64 = 25;
 
 /// The encoded width of one code-point range-pool entry in bytes.
 pub const REGEXP_RANGE_ENTRY_WIDTH: usize = 8;
@@ -228,43 +234,27 @@ impl RegExpInstruction {
         }
     }
 
-    pub const fn named_backreference(name_id: u32) -> Self {
+    pub const fn named_backreference(name_id: u32, folding: CaseFolding) -> Self {
         Self {
             opcode: REGEXP_OPCODE_NAMED_BACKREFERENCE,
             operand0: name_id as u64,
-            operand1: 0,
+            operand1: folding.backreference_operand(),
         }
     }
 
-    pub const fn numbered_backreference(capture_id: u32) -> Self {
+    pub const fn numbered_backreference(capture_id: u32, folding: CaseFolding) -> Self {
         Self {
             opcode: REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
             operand0: capture_id as u64,
-            operand1: 0,
+            operand1: folding.backreference_operand(),
         }
     }
 
-    pub const fn nonempty_numbered_backreference(capture_id: u32) -> Self {
+    pub const fn nonempty_numbered_backreference(capture_id: u32, folding: CaseFolding) -> Self {
         Self {
             opcode: REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
             operand0: capture_id as u64,
-            operand1: 1,
-        }
-    }
-
-    pub const fn positive_ascii_lookahead(code_unit: u8) -> Self {
-        Self {
-            opcode: REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD,
-            operand0: code_unit as u64,
-            operand1: 0,
-        }
-    }
-
-    pub const fn negative_ascii_lookahead(code_unit: u8) -> Self {
-        Self {
-            opcode: REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD,
-            operand0: code_unit as u64,
-            operand1: 0,
+            operand1: REGEXP_BACKREFERENCE_NONEMPTY | folding.backreference_operand(),
         }
     }
 
@@ -284,31 +274,50 @@ impl RegExpInstruction {
         }
     }
 
-    pub const fn lookbehind_start() -> Self {
+    const fn lookaround_start(direction: RegExpMatchDirection) -> Self {
         Self {
-            opcode: REGEXP_OPCODE_LOOKBEHIND_START,
-            operand0: 0,
+            opcode: REGEXP_OPCODE_LOOKAROUND_START,
+            operand0: direction.operand_bit(),
             operand1: 0,
         }
     }
 
-    const fn lookbehind_end(
+    const fn lookaround_end(
         failure_pc: usize,
         after_pc: usize,
-        polarity: &LookbehindPolarity,
+        polarity: &LookaroundPolarity,
+        parent_direction: RegExpMatchDirection,
     ) -> Self {
         Self {
-            opcode: REGEXP_OPCODE_LOOKBEHIND_END,
+            opcode: REGEXP_OPCODE_LOOKAROUND_END,
             operand0: failure_pc as u64,
-            operand1: (after_pc as u64) | (polarity.operand_bit() << 63),
+            operand1: (after_pc as u64)
+                | (parent_direction.operand_bit() << 62)
+                | (polarity.operand_bit() << 63),
         }
     }
 
-    const fn lookbehind_failure(after_pc: usize, polarity: &LookbehindPolarity) -> Self {
+    const fn lookaround_failure(
+        after_pc: usize,
+        polarity: &LookaroundPolarity,
+        parent_direction: RegExpMatchDirection,
+    ) -> Self {
         Self {
-            opcode: REGEXP_OPCODE_LOOKBEHIND_FAILURE,
+            opcode: REGEXP_OPCODE_LOOKAROUND_FAILURE,
             operand0: after_pc as u64,
-            operand1: polarity.operand_bit(),
+            operand1: polarity.operand_bit() | (parent_direction.operand_bit() << 1),
+        }
+    }
+
+    const fn word_boundary(
+        first_entry: u32,
+        entry_count: u32,
+        polarity: WordBoundaryPolarity,
+    ) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_WORD_BOUNDARY,
+            operand0: first_entry as u64,
+            operand1: ((entry_count as u64) << 1) | polarity.operand_bit(),
         }
     }
 
@@ -971,13 +980,28 @@ enum ParsedTermAtom {
     LegacyUtf16Pair(LegacyUtf16Pair),
 }
 
-/// Whether a lookbehind succeeds when its body matches or fails.
-enum LookbehindPolarity {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WordBoundaryPolarity {
+    Boundary,
+    NonBoundary,
+}
+
+impl WordBoundaryPolarity {
+    const fn operand_bit(self) -> u64 {
+        match self {
+            Self::Boundary => 0,
+            Self::NonBoundary => 1,
+        }
+    }
+}
+
+/// Whether a lookaround succeeds when its body matches or fails.
+enum LookaroundPolarity {
     Positive,
     Negative,
 }
 
-impl LookbehindPolarity {
+impl LookaroundPolarity {
     fn from_syntax_marker(marker: u8) -> Option<Self> {
         match marker {
             b'=' => Some(Self::Positive),
@@ -1010,14 +1034,19 @@ enum ParsedAtom {
     NamedBackreference {
         name: String,
         offset: usize,
+        folding: CaseFolding,
     },
     NumberedBackreference {
         capture_id: u32,
         nullable: bool,
+        folding: CaseFolding,
     },
-    Lookbehind {
-        polarity: LookbehindPolarity,
+    Lookaround {
+        polarity: LookaroundPolarity,
+        direction: RegExpMatchDirection,
         body: Vec<Vec<ParsedTerm>>,
+        subtree_start: u32,
+        subtree_end: u32,
     },
     RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
 }
@@ -1173,20 +1202,7 @@ impl PatternParser<'_> {
 
     fn term(&mut self) -> Result<ParsedTerm, RegExpCompileError> {
         let atom_offset = self.offset;
-        let atom = if matches!(
-            self.bytes.get(self.offset..self.offset + 4),
-            Some([b'(', b'?', b'=' | b'!', byte @ 0..=127])
-                if *byte != b')' && self.bytes.get(self.offset + 4) == Some(&b')')
-        ) {
-            let negative = self.bytes[self.offset + 2] == b'!';
-            let code_unit = self.bytes[self.offset + 3];
-            self.offset += 5;
-            ParsedTermAtom::Ordinary(ParsedAtom::Instruction(if negative {
-                RegExpInstruction::negative_ascii_lookahead(code_unit)
-            } else {
-                RegExpInstruction::positive_ascii_lookahead(code_unit)
-            }))
-        } else if self.bytes[self.offset] == b'(' {
+        let atom = if self.bytes[self.offset] == b'(' {
             if self.bytes.get(self.offset + 1) == Some(&b'?') {
                 match self.bytes.get(self.offset + 2).copied() {
                     Some(b':') => {
@@ -1204,9 +1220,10 @@ impl PatternParser<'_> {
                             .bytes
                             .get(self.offset + 3)
                             .copied()
-                            .and_then(LookbehindPolarity::from_syntax_marker);
+                            .and_then(LookaroundPolarity::from_syntax_marker);
                         if let Some(polarity) = polarity {
                             self.offset += 4;
+                            let subtree_start = self.capture_count + 1;
                             let body = self.alternatives(Some(atom_offset))?;
                             if first_required_unicode_set_semantics(&body).is_none()
                                 && !lookbehind_body_supported(&body)
@@ -1216,7 +1233,13 @@ impl PatternParser<'_> {
                                     "lookbehind body uses an unsupported matcher atom",
                                 ));
                             }
-                            ParsedTermAtom::Ordinary(ParsedAtom::Lookbehind { polarity, body })
+                            ParsedTermAtom::Ordinary(ParsedAtom::Lookaround {
+                                polarity,
+                                direction: RegExpMatchDirection::Reverse,
+                                body,
+                                subtree_start,
+                                subtree_end: self.capture_count + 1,
+                            })
                         } else {
                             let name = self.parse_group_name()?;
                             self.capture_count =
@@ -1258,11 +1281,19 @@ impl PatternParser<'_> {
                             subtree_end: self.capture_count + 1,
                         })
                     }
-                    Some(b'=' | b'!') => {
-                        return Err(RegExpCompileError::unsupported_feature(
-                            self.offset,
-                            "unsupported regular-expression lookahead body",
-                        ));
+                    Some(marker @ (b'=' | b'!')) => {
+                        let polarity = LookaroundPolarity::from_syntax_marker(marker)
+                            .expect("lookahead syntax admits only polarity markers");
+                        self.offset += 3;
+                        let subtree_start = self.capture_count + 1;
+                        let body = self.alternatives(Some(atom_offset))?;
+                        ParsedTermAtom::Ordinary(ParsedAtom::Lookaround {
+                            polarity,
+                            direction: RegExpMatchDirection::Forward,
+                            body,
+                            subtree_start,
+                            subtree_end: self.capture_count + 1,
+                        })
                     }
                     _ => {
                         return Err(RegExpCompileError::invalid_syntax(
@@ -1307,8 +1338,10 @@ impl PatternParser<'_> {
                 ParsedTermAtom::Ordinary(ParsedAtom::NumberedBackreference {
                     capture_id,
                     nullable: _,
+                    folding,
                 }) => ParsedTermAtom::Ordinary(ParsedAtom::NumberedBackreference {
                     capture_id,
+                    folding,
                     nullable: self
                         .capture_nullability
                         .get(&capture_id)
@@ -1316,7 +1349,13 @@ impl PatternParser<'_> {
                         .unwrap_or(true),
                 }),
                 ParsedTermAtom::Ordinary(ParsedAtom::Instruction(mut instruction)) => {
-                    apply_modifiers(&mut instruction, &self.modifiers);
+                    apply_modifiers(
+                        &mut instruction,
+                        &self.modifiers,
+                        self.unicode_mode,
+                        &mut self.ranges,
+                        atom_offset,
+                    )?;
                     ParsedTermAtom::Ordinary(ParsedAtom::Instruction(instruction))
                 }
                 atom => atom,
@@ -1324,29 +1363,51 @@ impl PatternParser<'_> {
         };
         let quantifier_offset = self.offset;
         let mut quantifier = parse_postfix_quantifier(self.bytes, &mut self.offset)?;
-        if matches!(
-            atom,
-            ParsedTermAtom::Ordinary(ParsedAtom::Instruction(RegExpInstruction {
-                opcode: REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD
-                    | REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD
-                    | REGEXP_OPCODE_ASSERT_START
-                    | REGEXP_OPCODE_ASSERT_END,
-                ..
-            }))
-        ) {
-            quantifier = if quantifier.is_optional() {
-                Quantifier {
-                    required_iterations: 0,
+        if let ParsedTermAtom::Ordinary(ParsedAtom::Lookaround {
+            polarity,
+            direction,
+            subtree_start,
+            subtree_end,
+            ..
+        }) = &atom
+        {
+            if self.offset != quantifier_offset {
+                if self.unicode_mode.is_unicode_mode()
+                    || matches!(direction, RegExpMatchDirection::Reverse)
+                {
+                    return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::QuantifierWithoutAtom,
+                        quantifier_offset,
+                        "only legacy lookahead assertions may be quantified",
+                    ));
+                }
+                quantifier = Quantifier {
+                    required_iterations: usize::from(!quantifier.is_optional()),
                     optional_iterations: QuantifierOptionalIterations::Finite(0),
                     preference: quantifier.preference,
+                };
+            }
+            if matches!(polarity, LookaroundPolarity::Negative) || quantifier.is_optional() {
+                for capture in *subtree_start..*subtree_end {
+                    self.capture_nullability.insert(capture, true);
                 }
-            } else {
-                Quantifier {
-                    required_iterations: 1,
-                    optional_iterations: QuantifierOptionalIterations::Finite(0),
-                    preference: quantifier.preference,
-                }
-            };
+            }
+        } else if self.offset != quantifier_offset
+            && matches!(
+                atom,
+                ParsedTermAtom::Ordinary(ParsedAtom::Instruction(RegExpInstruction {
+                    opcode: REGEXP_OPCODE_ASSERT_START
+                        | REGEXP_OPCODE_ASSERT_END
+                        | REGEXP_OPCODE_WORD_BOUNDARY,
+                    ..
+                }))
+            )
+        {
+            return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::QuantifierWithoutAtom,
+                quantifier_offset,
+                "a boundary assertion cannot be quantified",
+            ));
         }
         Ok(match atom {
             ParsedTermAtom::Ordinary(atom) => ParsedTerm::Quantified {
@@ -1519,17 +1580,41 @@ fn parse_instruction_atom(
         return Ok(ParsedTermAtom::Ordinary(ParsedAtom::NamedBackreference {
             name,
             offset: atom_offset,
+            folding: CaseFolding::from_flags(modifiers.ignore_case, unicode_mode),
         }));
     }
     if byte == b'\\' {
-        if let Some(digit @ b'1'..=b'9') = bytes.get(atom_offset + 1).copied() {
-            let capture_id = u32::from(digit - b'0');
-            if capture_id <= total_capture_count {
-                *offset += 2;
+        if let Some(marker @ (b'b' | b'B')) = bytes.get(atom_offset + 1) {
+            let polarity = match marker {
+                b'b' => WordBoundaryPolarity::Boundary,
+                b'B' => WordBoundaryPolarity::NonBoundary,
+                _ => unreachable!("word-boundary syntax has two polarity markers"),
+            };
+            let ranges = case_close_ranges(
+                REGEXP_WORD_RANGES,
+                CaseFolding::from_flags(modifiers.ignore_case, unicode_mode),
+            );
+            let (first_entry, entry_count) = pool.intern(&ranges, atom_offset)?;
+            *offset += 2;
+            return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
+                RegExpInstruction::word_boundary(first_entry, entry_count, polarity),
+            )));
+        }
+        if matches!(bytes.get(atom_offset + 1), Some(b'1'..=b'9')) {
+            let mut end = atom_offset + 1;
+            let mut capture_id = Some(0_u32);
+            while let Some(digit @ b'0'..=b'9') = bytes.get(end) {
+                capture_id = capture_id
+                    .and_then(|value| value.checked_mul(10)?.checked_add(u32::from(digit - b'0')));
+                end += 1;
+            }
+            if let Some(capture_id) = capture_id.filter(|id| *id <= total_capture_count) {
+                *offset = end;
                 return Ok(ParsedTermAtom::Ordinary(
                     ParsedAtom::NumberedBackreference {
                         capture_id,
                         nullable: true,
+                        folding: CaseFolding::from_flags(modifiers.ignore_case, unicode_mode),
                     },
                 ));
             }
@@ -1699,14 +1784,17 @@ fn regexp_capture_syntax(bytes: &[u8]) -> (u32, bool) {
             offset += 1;
             continue;
         }
-        match bytes.get(offset + 1..offset + 3) {
-            Some(b"?<") if matches!(bytes.get(offset + 3), Some(b'=') | Some(b'!')) => {}
-            Some(b"?<") if !matches!(bytes.get(offset + 3), Some(b'=') | Some(b'!')) => {
+        if bytes.get(offset + 1) == Some(&b'?') {
+            // Every `(?` group is noncapturing except a named capture. The
+            // parser validates its prefix; scoped modifiers do not add IDs.
+            if bytes.get(offset + 2) == Some(&b'<')
+                && !matches!(bytes.get(offset + 3), Some(b'=') | Some(b'!'))
+            {
                 capture_count += 1;
                 has_named_capture = true;
             }
-            Some(b"?:" | b"?=" | b"?!") => {}
-            _ => capture_count += 1,
+        } else {
+            capture_count += 1;
         }
         offset += 1;
     }
@@ -1717,17 +1805,14 @@ fn atom_nullable(atom: &ParsedAtom) -> bool {
     match atom {
         ParsedAtom::Instruction(instruction) => matches!(
             instruction.opcode,
-            REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD
-                | REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD
-                | REGEXP_OPCODE_ASSERT_START
-                | REGEXP_OPCODE_ASSERT_END
+            REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END | REGEXP_OPCODE_WORD_BOUNDARY
         ),
         ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => body
             .iter()
             .any(|sequence| sequence.iter().all(|term| term_nullable(term))),
         ParsedAtom::NamedBackreference { .. } => true,
         ParsedAtom::NumberedBackreference { nullable, .. } => *nullable,
-        ParsedAtom::Lookbehind { .. } => true,
+        ParsedAtom::Lookaround { .. } => true,
         ParsedAtom::FiniteClassSet(atom) => atom.contains_empty,
         // Parsing must continue through the whole Pattern. Its actual
         // nullability is a matcher-semantic question and the typed capability
@@ -1742,19 +1827,27 @@ fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
             ParsedAtom::Instruction(instruction) => matches!(
                 instruction.opcode,
                 REGEXP_OPCODE_LITERAL_ASCII
+                    | REGEXP_OPCODE_LITERAL_CODE_POINT
+                    | REGEXP_OPCODE_UNICODE_PROPERTY
                     | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
                     | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
+                    | REGEXP_OPCODE_WHITESPACE
+                    | REGEXP_OPCODE_NOT_WHITESPACE
                     | REGEXP_OPCODE_DOT
+                    | REGEXP_OPCODE_ASSERT_START
+                    | REGEXP_OPCODE_ASSERT_END
+                    | REGEXP_OPCODE_WORD_BOUNDARY
             ),
             ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => {
                 lookbehind_body_supported(body)
             }
             ParsedAtom::FiniteClassSet(_) | ParsedAtom::RequiresUnicodeSetSemantics(_) => true,
-            ParsedAtom::NamedBackreference { .. }
-            | ParsedAtom::NumberedBackreference { .. }
-            | ParsedAtom::Lookbehind { .. } => false,
+            ParsedAtom::Lookaround { .. } => true,
+            ParsedAtom::NamedBackreference { .. } | ParsedAtom::NumberedBackreference { .. } => {
+                true
+            }
         },
-        ParsedTerm::LegacyUtf16Pair { .. } => false,
+        ParsedTerm::LegacyUtf16Pair { .. } => true,
     })
 }
 fn term_nullable(term: &ParsedTerm) -> bool {
@@ -1791,7 +1884,7 @@ fn first_required_unicode_set_semantics_in_atom(
     match atom {
         ParsedAtom::Capture { body, .. }
         | ParsedAtom::NonCapture { body, .. }
-        | ParsedAtom::Lookbehind { body, .. } => first_required_unicode_set_semantics(body),
+        | ParsedAtom::Lookaround { body, .. } => first_required_unicode_set_semantics(body),
         ParsedAtom::RequiresUnicodeSetSemantics(required) => Some(*required),
         ParsedAtom::Instruction(_)
         | ParsedAtom::FiniteClassSet(_)
@@ -1814,10 +1907,10 @@ fn validate_named_backreferences(
         match atom {
             ParsedAtom::Capture { body, .. }
             | ParsedAtom::NonCapture { body, .. }
-            | ParsedAtom::Lookbehind { body, .. } => {
+            | ParsedAtom::Lookaround { body, .. } => {
                 validate_named_backreferences(body, named_groups)?;
             }
-            ParsedAtom::NamedBackreference { name, offset } => {
+            ParsedAtom::NamedBackreference { name, offset, .. } => {
                 if !named_groups.iter().any(|group| group.name == *name) {
                     return Err(RegExpCompileError::invalid_syntax(
                         SyntaxRule::UnknownGroupName,
@@ -2224,67 +2317,73 @@ fn parse_flags(flags: &str) -> Result<RegExpFlags, RegExpCompileError> {
     Ok(parsed)
 }
 
-/// Rewrites one freshly parsed instruction for the enclosing modifier state.
-///
-/// Case-insensitivity is folded into ASCII literals and classes here so that
-/// RegExp modifier groups (`(?i:…)`, `(?-i:…)`) scope correctly. Multiline and
-/// dotAll cannot be folded into an instruction, so they are recorded in
-/// `operand0`: `0` defers to the runtime flag, `1` forces the mode on and `2`
-/// forces it off.
-fn apply_modifiers(instruction: &mut RegExpInstruction, modifiers: &Modifiers) {
+/// Applies scoped modifiers before an atom enters the matcher program.
+fn apply_modifiers(
+    instruction: &mut RegExpInstruction,
+    modifiers: &Modifiers,
+    unicode_mode: RegExpUnicodeMode,
+    pool: &mut RegExpRangePool,
+    offset: usize,
+) -> Result<(), RegExpCompileError> {
     match instruction.opcode {
         REGEXP_OPCODE_DOT => {
             instruction.operand0 = modifiers.dot_all.operand_code();
-            return;
+            return Ok(());
         }
         REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END => {
             instruction.operand0 = modifiers.multiline.operand_code();
-            return;
+            return Ok(());
         }
         _ => {}
     }
-    if !modifiers.ignore_case {
-        return;
+    let folding = CaseFolding::from_flags(modifiers.ignore_case, unicode_mode);
+    if folding == CaseFolding::Sensitive {
+        return Ok(());
     }
-    apply_ascii_ignore_case(std::slice::from_mut(instruction));
-}
-
-fn apply_ascii_ignore_case(instructions: &mut [RegExpInstruction]) {
-    for instruction in instructions {
-        if instruction.opcode == REGEXP_OPCODE_LITERAL_ASCII {
-            let member = instruction.operand0 as u8;
-            if member.is_ascii_alphabetic() {
-                let mut bitmap_low = 0;
-                let mut bitmap_high = 0;
-                add_ascii_member(
-                    &mut bitmap_low,
-                    &mut bitmap_high,
-                    member.to_ascii_lowercase(),
-                );
-                add_ascii_member(
-                    &mut bitmap_low,
-                    &mut bitmap_high,
-                    member.to_ascii_uppercase(),
-                );
-                *instruction = RegExpInstruction::positive_ascii_class(bitmap_low, bitmap_high);
-            }
-            continue;
+    let (ranges, negated) = match instruction.opcode {
+        REGEXP_OPCODE_LITERAL_ASCII | REGEXP_OPCODE_LITERAL_CODE_POINT => {
+            let code_point = instruction.operand0 as u32;
+            (vec![(code_point, code_point)], false)
         }
-        if !matches!(
-            instruction.opcode,
-            REGEXP_OPCODE_POSITIVE_ASCII_CLASS | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
-        ) {
-            continue;
+        REGEXP_OPCODE_POSITIVE_ASCII_CLASS | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS => {
+            let ranges = (0..128)
+                .filter(|member| {
+                    let word = if *member < 64 {
+                        instruction.operand0
+                    } else {
+                        instruction.operand1
+                    };
+                    word & (1 << (member % 64)) != 0
+                })
+                .map(|member| (member, member))
+                .collect();
+            (
+                ranges,
+                instruction.opcode == REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
+            )
         }
-        for member in b'A'..=b'Z' {
-            let lowercase = member.to_ascii_lowercase();
-            let contains_uppercase = instruction.operand1 & (1_u64 << (member - 64)) != 0;
-            let contains_lowercase = instruction.operand1 & (1_u64 << (lowercase - 64)) != 0;
-            if contains_uppercase || contains_lowercase {
-                instruction.operand1 |= (1_u64 << (member - 64)) | (1_u64 << (lowercase - 64));
-            }
-        }
+        _ => return Ok(()),
+    };
+    let ranges = normalize_ranges(ranges);
+    let closed = case_close_ranges(&ranges, folding);
+    if closed == ranges {
+        return Ok(());
     }
+    if closed.iter().all(|(_, end)| *end < 128) {
+        let mut low = 0;
+        let mut high = 0;
+        for (start, end) in closed {
+            add_ascii_range(&mut low, &mut high, start as u8, end as u8);
+        }
+        *instruction = if negated {
+            RegExpInstruction::negative_ascii_class(low, high)
+        } else {
+            RegExpInstruction::positive_ascii_class(low, high)
+        };
+    } else {
+        *instruction = finish_range_set(closed, negated, CaseFolding::Sensitive, pool, offset)?;
+    }
+    Ok(())
 }
 
 fn parse_escaped_atom(
@@ -2310,7 +2409,7 @@ fn parse_escaped_atom(
         ));
     }
     if unicode && matches!(escaped, b'p' | b'P') {
-        return parse_unicode_property_escape(bytes, offset, modifiers, pool);
+        return parse_unicode_property_escape(bytes, offset, unicode_mode, modifiers, pool);
     }
     if escaped == b'u' {
         // DEFECT 3, found while picking a witness for `SyntaxRule::CodePointEscape`
@@ -2476,12 +2575,14 @@ fn parse_escaped_atom(
 
 /// Parses `\p{…}` / `\P{…}` and yields the matching code-point ranges.
 ///
-/// `\P` is complemented here rather than through the instruction's negation
-/// bit, because case closure applies after every set operation in
-/// 22.2.2.7.1 CharacterSetMatcher.
+/// UnicodeSets closes the property before complementing it. Unicode mode
+/// instead complements the property first and lets CharacterSetMatcher close
+/// that result, so `\P` deliberately has different ignore-case behavior.
 fn parse_unicode_property_ranges(
     bytes: &[u8],
     offset: &mut usize,
+    mode: RegExpUnicodeMode,
+    folding: CaseFolding,
 ) -> Result<Vec<(u32, u32)>, RegExpCompileError> {
     let escape_offset = *offset;
     let complement = bytes[escape_offset + 1] == b'P';
@@ -2520,6 +2621,11 @@ fn parse_unicode_property_ranges(
     };
     *offset = value_end + 1;
     let ranges = normalize_ranges(ranges);
+    let ranges = if mode == RegExpUnicodeMode::UnicodeSets {
+        case_close_ranges(&ranges, folding)
+    } else {
+        ranges
+    };
     Ok(if complement {
         complement_ranges(&ranges)
     } else {
@@ -2530,12 +2636,14 @@ fn parse_unicode_property_ranges(
 fn parse_unicode_property_escape(
     bytes: &[u8],
     offset: &mut usize,
+    mode: RegExpUnicodeMode,
     modifiers: &Modifiers,
     pool: &mut RegExpRangePool,
 ) -> Result<RegExpInstruction, RegExpCompileError> {
     let escape_offset = *offset;
-    let ranges = parse_unicode_property_ranges(bytes, offset)?;
-    finish_range_set(ranges, false, modifiers.ignore_case, pool, escape_offset)
+    let folding = CaseFolding::from_flags(modifiers.ignore_case, mode);
+    let ranges = parse_unicode_property_ranges(bytes, offset, mode, folding)?;
+    finish_range_set(ranges, false, folding, pool, escape_offset)
 }
 
 /// Resolves an ECMA-262 `UnicodePropertyValueExpression` to code-point ranges.
@@ -2599,53 +2707,107 @@ fn script_ranges(value: &str, extensions: bool) -> Option<Vec<(u32, u32)>> {
     }
 }
 
-/// Groups every code point by its simple case-folding key, keeping only the
-/// classes that contain more than one member.
-fn case_fold_classes() -> &'static [Vec<u32>] {
-    static CLASSES: OnceLock<Vec<Vec<u32>>> = OnceLock::new();
-    CLASSES.get_or_init(|| {
-        fn simple_lowercase(character: char) -> char {
-            let mut mapped = character.to_lowercase();
-            let first = mapped.next().expect("lowercase mapping is never empty");
-            if mapped.next().is_some() {
-                character
-            } else {
-                first
-            }
-        }
-        fn simple_uppercase(character: char) -> char {
-            let mut mapped = character.to_uppercase();
-            let first = mapped.next().expect("uppercase mapping is never empty");
-            if mapped.next().is_some() {
-                character
-            } else {
-                first
-            }
-        }
+/// ECMAScript Canonicalize domain shared by character sets and backreferences.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CaseFolding {
+    Sensitive,
+    Legacy,
+    Unicode,
+}
 
-        let mut groups: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        for character in (0..=char::MAX as u32).filter_map(char::from_u32) {
-            let key = simple_lowercase(simple_uppercase(character));
-            if key == character
-                && simple_lowercase(character) == character
-                && simple_uppercase(character) == character
-            {
-                continue;
-            }
-            groups.entry(key as u32).or_default().push(character as u32);
+impl CaseFolding {
+    const fn backreference_operand(self) -> u64 {
+        match self {
+            Self::Sensitive => 0,
+            Self::Legacy | Self::Unicode => REGEXP_BACKREFERENCE_IGNORE_CASE,
         }
-        groups
-            .into_values()
-            .filter(|members| members.len() > 1)
-            .collect()
+    }
+
+    /// Sorted nonidentity `(character, canonical_character)` mappings.
+    /// Legacy characters are UTF-16 units; Unicode characters are code points.
+    pub fn mappings(self) -> &'static [(u32, u32)] {
+        static LEGACY: OnceLock<Vec<(u32, u32)>> = OnceLock::new();
+        static UNICODE: OnceLock<Vec<(u32, u32)>> = OnceLock::new();
+        let mappings = match self {
+            Self::Sensitive => return &[],
+            Self::Legacy => &LEGACY,
+            Self::Unicode => &UNICODE,
+        };
+        mappings.get_or_init(|| {
+            (0..=char::MAX as u32)
+                .filter_map(|character| {
+                    let canonical = self.canonicalize(character);
+                    (canonical != character).then_some((character, canonical))
+                })
+                .collect()
+        })
+    }
+
+    fn from_flags(ignore_case: bool, unicode_mode: RegExpUnicodeMode) -> Self {
+        if !ignore_case {
+            Self::Sensitive
+        } else if unicode_mode.is_unicode_mode() {
+            Self::Unicode
+        } else {
+            Self::Legacy
+        }
+    }
+
+    fn canonicalize(self, code_point: u32) -> u32 {
+        match self {
+            Self::Sensitive => code_point,
+            Self::Unicode => unicode_simple_case_fold(code_point),
+            Self::Legacy => {
+                // Legacy Canonicalize uppercases one UTF-16 code unit and
+                // rejects expansions and non-ASCII to ASCII mappings.
+                let Some(character) = char::from_u32(code_point).filter(|_| code_point <= 0xffff)
+                else {
+                    return code_point;
+                };
+                let mut uppercase = character.to_uppercase();
+                let mapped = uppercase.next().expect("uppercase mapping is nonempty") as u32;
+                if uppercase.next().is_some()
+                    || mapped > 0xffff
+                    || (code_point >= 128 && mapped < 128)
+                {
+                    code_point
+                } else {
+                    mapped
+                }
+            }
+        }
+    }
+}
+
+// The legacy mapping above uses Rust's generated Unicode data. A toolchain
+// upgrade must review this alongside the bundled simple-fold table.
+const _: () = assert!(char::UNICODE_VERSION.0 == 17 && char::UNICODE_VERSION.1 == 0);
+
+fn case_fold_classes(folding: CaseFolding) -> &'static [Vec<u32>] {
+    static LEGACY: OnceLock<Vec<Vec<u32>>> = OnceLock::new();
+    static UNICODE: OnceLock<Vec<Vec<u32>>> = OnceLock::new();
+    let classes = match folding {
+        CaseFolding::Sensitive => return &[],
+        CaseFolding::Legacy => &LEGACY,
+        CaseFolding::Unicode => &UNICODE,
+    };
+    classes.get_or_init(|| {
+        let mut groups: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for &(code_point, key) in folding.mappings() {
+            groups
+                .entry(key)
+                .or_insert_with(|| vec![key])
+                .push(code_point);
+        }
+        groups.into_values().collect()
     })
 }
 
 /// Closes `ranges` under simple case folding, matching the effect of
 /// canonicalizing both the input and the set members.
-fn case_close_ranges(ranges: &[(u32, u32)]) -> Vec<(u32, u32)> {
+fn case_close_ranges(ranges: &[(u32, u32)], folding: CaseFolding) -> Vec<(u32, u32)> {
     let mut extra = Vec::new();
-    for members in case_fold_classes() {
+    for members in case_fold_classes(folding) {
         if members
             .iter()
             .any(|code_point| ranges_contain(ranges, *code_point))
@@ -2778,19 +2940,46 @@ fn parse_class(
     cursor += usize::from(negated);
 
     let mut ranges = Vec::new();
+    let mut pending_trail = None;
     loop {
-        let Some(&member) = bytes.get(cursor) else {
-            return Err(RegExpCompileError::invalid_syntax(
-                SyntaxRule::UnclosedCharacterClass,
-                class_offset,
-                "regular-expression character class is unclosed",
-            ));
+        let (range_offset, start) = if let Some((trail, source_offset)) = pending_trail.take() {
+            (source_offset, ClassAtom::CodePoint(trail))
+        } else {
+            let Some(&member) = bytes.get(cursor) else {
+                return Err(RegExpCompileError::invalid_syntax(
+                    SyntaxRule::UnclosedCharacterClass,
+                    class_offset,
+                    "regular-expression character class is unclosed",
+                ));
+            };
+            if member == b']' {
+                break;
+            }
+            let range_offset = cursor;
+            let start = parse_class_atom(
+                bytes,
+                &mut cursor,
+                mode.unicode_mode(),
+                CaseFolding::from_flags(modifiers.ignore_case, mode.unicode_mode()),
+            )?;
+            (range_offset, start)
         };
-        if member == b']' {
-            break;
-        }
-        let range_offset = cursor;
-        let start = parse_class_atom(bytes, &mut cursor, mode.unicode_mode())?;
+        // In legacy grammar a raw astral character is two ClassAtoms. The
+        // leading unit precedes any range starting at the trailing unit.
+        let start = match start {
+            ClassAtom::CodePoint(code_point) if !unicode => {
+                if let Some(pair) =
+                    char::from_u32(code_point).and_then(LegacyUtf16Pair::from_scalar)
+                {
+                    let [lead, trail] = pair.code_units();
+                    ranges.push((lead, lead));
+                    ClassAtom::CodePoint(trail)
+                } else {
+                    ClassAtom::CodePoint(code_point)
+                }
+            }
+            atom => atom,
+        };
         if bytes.get(cursor) == Some(&b'-') && bytes.get(cursor + 1) != Some(&b']') {
             cursor += 1;
             if bytes.get(cursor).is_none() {
@@ -2800,7 +2989,29 @@ fn parse_class(
                     "regular-expression character class is unclosed",
                 ));
             }
-            let end = parse_class_atom(bytes, &mut cursor, mode.unicode_mode())?;
+            let end_offset = cursor;
+            let end = parse_class_atom(
+                bytes,
+                &mut cursor,
+                mode.unicode_mode(),
+                CaseFolding::from_flags(modifiers.ignore_case, mode.unicode_mode()),
+            )?;
+            let end = match end {
+                ClassAtom::CodePoint(code_point) if !unicode => {
+                    if let Some(pair) =
+                        char::from_u32(code_point).and_then(LegacyUtf16Pair::from_scalar)
+                    {
+                        let [lead, trail] = pair.code_units();
+                        // Only the leading unit ends this range; the trailing
+                        // unit is the next grammar atom, even before `]`.
+                        pending_trail = Some((trail, end_offset));
+                        ClassAtom::CodePoint(lead)
+                    } else {
+                        ClassAtom::CodePoint(code_point)
+                    }
+                }
+                atom => atom,
+            };
             match (start, end) {
                 (ClassAtom::CodePoint(start), ClassAtom::CodePoint(end)) if end < start => {
                     return Err(RegExpCompileError::invalid_syntax(
@@ -2832,21 +3043,24 @@ fn parse_class(
     }
 
     *offset = cursor + 1;
-    finish_range_set(ranges, negated, modifiers.ignore_case, pool, class_offset)
+    finish_range_set(
+        ranges,
+        negated,
+        CaseFolding::from_flags(modifiers.ignore_case, mode.unicode_mode()),
+        pool,
+        class_offset,
+    )
 }
 
 /// Normalizes, case-closes and interns `ranges`, returning a range-set atom.
 fn finish_range_set(
     ranges: Vec<(u32, u32)>,
     negated: bool,
-    ignore_case: bool,
+    folding: CaseFolding,
     pool: &mut RegExpRangePool,
     offset: usize,
 ) -> Result<RegExpInstruction, RegExpCompileError> {
-    let mut ranges = normalize_ranges(ranges);
-    if ignore_case {
-        ranges = case_close_ranges(&ranges);
-    }
+    let ranges = case_close_ranges(&normalize_ranges(ranges), folding);
     let (first_entry, entry_count) = pool.intern(&ranges, offset)?;
     Ok(RegExpInstruction::code_point_range_set(
         first_entry,
@@ -2859,6 +3073,7 @@ fn parse_class_atom(
     bytes: &[u8],
     cursor: &mut usize,
     mode: RegExpUnicodeMode,
+    folding: CaseFolding,
 ) -> Result<ClassAtom, RegExpCompileError> {
     let unicode = mode.is_unicode_mode();
     let offset = *cursor;
@@ -2905,14 +3120,20 @@ fn parse_class_atom(
         }
         b'w' => {
             *cursor += 2;
-            Ok(ClassAtom::Ranges(REGEXP_WORD_RANGES.to_vec()))
+            Ok(ClassAtom::Ranges(case_close_ranges(
+                REGEXP_WORD_RANGES,
+                folding,
+            )))
         }
         b'W' => {
             *cursor += 2;
-            Ok(ClassAtom::Ranges(complement_ranges(REGEXP_WORD_RANGES)))
+            Ok(ClassAtom::Ranges(complement_ranges(&case_close_ranges(
+                REGEXP_WORD_RANGES,
+                folding,
+            ))))
         }
         b'p' | b'P' if unicode => {
-            let ranges = parse_unicode_property_ranges(bytes, cursor)?;
+            let ranges = parse_unicode_property_ranges(bytes, cursor, mode, folding)?;
             Ok(ClassAtom::Ranges(ranges))
         }
         b'b' => {
@@ -3055,8 +3276,15 @@ impl FiniteClassSetAtom {
         pool: &mut RegExpRangePool,
         offset: usize,
     ) -> Result<Self, RegExpCompileError> {
-        let FiniteClassSet { ranges, strings } = if negated { value.complement() } else { value };
-        let singleton = finish_range_set(ranges, false, ignore_case, pool, offset)?;
+        let FiniteClassSet { ranges, strings } = value;
+        let folding = CaseFolding::from_flags(ignore_case, RegExpUnicodeMode::UnicodeSets);
+        let ranges = case_close_ranges(&normalize_ranges(ranges), folding);
+        let ranges = if negated {
+            complement_ranges(&ranges)
+        } else {
+            ranges
+        };
+        let singleton = finish_range_set(ranges, false, CaseFolding::Sensitive, pool, offset)?;
         let contains_empty = strings.iter().any(Vec::is_empty);
         let mut multi_code_point_strings = strings
             .into_iter()
@@ -3091,7 +3319,8 @@ fn parse_unicode_sets_class(
 ) -> Result<UnicodeSetsClassAtom, RegExpCompileError> {
     let class_offset = *offset;
     let mut cursor = class_offset;
-    let ParsedClassSet { value, negated } = parse_class_set(bytes, &mut cursor)?;
+    let folding = CaseFolding::from_flags(modifiers.ignore_case, RegExpUnicodeMode::UnicodeSets);
+    let ParsedClassSet { value, negated } = parse_class_set(bytes, &mut cursor, folding)?;
     *offset = cursor;
     let case_folding = value
         .first_direct_class_string_offset
@@ -3321,9 +3550,12 @@ struct ClassSetValue {
 }
 
 impl ClassSetValue {
-    fn code_points(ranges: Vec<(u32, u32)>) -> Self {
+    fn code_points(ranges: Vec<(u32, u32)>, folding: CaseFolding) -> Self {
         Self {
-            semantics: ClassSetSemantics::Finite(FiniteClassSet::code_points(ranges)),
+            semantics: ClassSetSemantics::Finite(FiniteClassSet::code_points(case_close_ranges(
+                &normalize_ranges(ranges),
+                folding,
+            ))),
             may_contain_strings: false,
             first_direct_class_string_offset: None,
         }
@@ -3389,10 +3621,6 @@ impl ClassSetValue {
             first_direct_class_string_offset,
         }
     }
-
-    fn normalize_code_points(self) -> Self {
-        self
-    }
 }
 
 fn earliest_offset(left: Option<usize>, right: Option<usize>) -> Option<usize> {
@@ -3444,10 +3672,10 @@ enum ClassSetOperand {
 }
 
 impl ClassSetOperand {
-    fn into_value(self) -> ClassSetValue {
+    fn into_value(self, folding: CaseFolding) -> ClassSetValue {
         match self {
             Self::Character(ClassSetCharacter(code_point)) => {
-                ClassSetValue::code_points(vec![(code_point, code_point)])
+                ClassSetValue::code_points(vec![(code_point, code_point)], folding)
             }
             Self::NestedSet(value) => value,
             Self::ClassString(string) => ClassSetValue::class_string(string),
@@ -3469,17 +3697,21 @@ enum ClassSetAtomicOperand {
 }
 
 impl ClassSetAtomicOperand {
-    fn into_operand(self) -> ClassSetOperand {
+    fn into_operand(self, folding: CaseFolding) -> ClassSetOperand {
         match self {
             Self::Character(character) => ClassSetOperand::Character(character),
             Self::CharacterClassEscape(ranges) => {
-                ClassSetOperand::NestedSet(ClassSetValue::code_points(ranges))
+                ClassSetOperand::NestedSet(ClassSetValue::code_points(ranges, folding))
             }
         }
     }
 }
 
-fn parse_class_set(bytes: &[u8], cursor: &mut usize) -> Result<ParsedClassSet, RegExpCompileError> {
+fn parse_class_set(
+    bytes: &[u8],
+    cursor: &mut usize,
+    folding: CaseFolding,
+) -> Result<ParsedClassSet, RegExpCompileError> {
     let class_offset = *cursor;
     debug_assert_eq!(bytes.get(class_offset), Some(&b'['));
     *cursor += 1;
@@ -3497,7 +3729,7 @@ fn parse_class_set(bytes: &[u8], cursor: &mut usize) -> Result<ParsedClassSet, R
         Some(b']') => {
             *cursor += 1;
             return Ok(ParsedClassSet {
-                value: ClassSetValue::code_points(Vec::new()),
+                value: ClassSetValue::code_points(Vec::new(), folding),
                 negated,
             });
         }
@@ -3512,12 +3744,14 @@ fn parse_class_set(bytes: &[u8], cursor: &mut usize) -> Result<ParsedClassSet, R
     }
 
     let first_offset = *cursor;
-    let first = parse_unicode_sets_operand(bytes, cursor, class_offset)?;
+    let first = parse_unicode_sets_operand(bytes, cursor, class_offset, folding)?;
     let value = match ClassSetOperator::at(bytes, *cursor) {
         Some(operator) => {
-            parse_class_set_operation_tail(bytes, cursor, class_offset, operator, first)?
+            parse_class_set_operation_tail(bytes, cursor, class_offset, operator, first, folding)?
         }
-        None => parse_class_set_union_tail(bytes, cursor, class_offset, first, first_offset)?,
+        None => {
+            parse_class_set_union_tail(bytes, cursor, class_offset, first, first_offset, folding)?
+        }
     };
     if negated && value.may_contain_strings {
         return Err(RegExpCompileError::invalid_syntax(
@@ -3535,6 +3769,7 @@ fn parse_unicode_sets_operand(
     bytes: &[u8],
     cursor: &mut usize,
     class_offset: usize,
+    folding: CaseFolding,
 ) -> Result<ClassSetOperand, RegExpCompileError> {
     match bytes.get(*cursor).copied() {
         None => Err(RegExpCompileError::invalid_syntax(
@@ -3548,22 +3783,22 @@ fn parse_unicode_sets_operand(
             "regular-expression class-set operation is missing an operand",
         )),
         Some(b'[') => {
-            let nested = parse_class_set(bytes, cursor)?;
+            let nested = parse_class_set(bytes, cursor, folding)?;
             Ok(ClassSetOperand::NestedSet(nested.into_nested_value()))
         }
         Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'p') => {
             if let Some(value) = parse_unicode_property_of_strings(bytes, cursor)? {
                 Ok(ClassSetOperand::NestedSet(value))
             } else {
-                parse_unicode_sets_character_or_class_escape(bytes, cursor)
-                    .map(ClassSetAtomicOperand::into_operand)
+                parse_unicode_sets_character_or_class_escape(bytes, cursor, folding)
+                    .map(|operand| operand.into_operand(folding))
             }
         }
         Some(b'\\') if bytes.get(*cursor + 1) == Some(&b'q') => {
             validate_class_string_disjunction(bytes, cursor).map(ClassSetOperand::ClassString)
         }
-        Some(_) => parse_unicode_sets_character_or_class_escape(bytes, cursor)
-            .map(ClassSetAtomicOperand::into_operand),
+        Some(_) => parse_unicode_sets_character_or_class_escape(bytes, cursor, folding)
+            .map(|operand| operand.into_operand(folding)),
     }
 }
 
@@ -3694,7 +3929,7 @@ fn parse_unicode_sets_class_set_character(
     cursor: &mut usize,
 ) -> Result<ClassSetCharacter, RegExpCompileError> {
     let offset = *cursor;
-    match parse_unicode_sets_character_or_class_escape(bytes, cursor)? {
+    match parse_unicode_sets_character_or_class_escape(bytes, cursor, CaseFolding::Sensitive)? {
         ClassSetAtomicOperand::Character(character) => Ok(character),
         ClassSetAtomicOperand::CharacterClassEscape(_) => Err(RegExpCompileError::invalid_syntax(
             SyntaxRule::ClassSetCharacter,
@@ -3710,6 +3945,7 @@ fn parse_unicode_sets_class_set_character(
 fn parse_unicode_sets_character_or_class_escape(
     bytes: &[u8],
     cursor: &mut usize,
+    folding: CaseFolding,
 ) -> Result<ClassSetAtomicOperand, RegExpCompileError> {
     let offset = *cursor;
     let Some(&member) = bytes.get(offset) else {
@@ -3748,7 +3984,7 @@ fn parse_unicode_sets_character_or_class_escape(
         }
     }
 
-    match parse_class_atom(bytes, cursor, RegExpUnicodeMode::UnicodeSets)? {
+    match parse_class_atom(bytes, cursor, RegExpUnicodeMode::UnicodeSets, folding)? {
         ClassAtom::CodePoint(code_point) => Ok(ClassSetAtomicOperand::Character(
             ClassSetCharacter(code_point),
         )),
@@ -3763,15 +3999,16 @@ fn parse_class_set_union_tail(
     class_offset: usize,
     mut operand: ClassSetOperand,
     mut operand_offset: usize,
+    folding: CaseFolding,
 ) -> Result<ClassSetValue, RegExpCompileError> {
-    let mut union = ClassSetValue::code_points(Vec::new());
+    let mut union = ClassSetValue::code_points(Vec::new(), folding);
     loop {
         if bytes.get(*cursor) == Some(&b'-')
             && bytes.get(*cursor + 1) != Some(&b']')
             && bytes.get(*cursor + 1) != Some(&b'-')
         {
             *cursor += 1;
-            let end = parse_unicode_sets_operand(bytes, cursor, class_offset)?;
+            let end = parse_unicode_sets_operand(bytes, cursor, class_offset, folding)?;
             let start = operand.into_range_bound();
             let end = end.into_range_bound();
             let (Some(ClassSetCharacter(start)), Some(ClassSetCharacter(end))) = (start, end)
@@ -3789,9 +4026,9 @@ fn parse_class_set_union_tail(
                     "regular-expression character class range is reversed",
                 ));
             }
-            union = union.union(ClassSetValue::code_points(vec![(start, end)]));
+            union = union.union(ClassSetValue::code_points(vec![(start, end)], folding));
         } else {
-            union = union.union(operand.into_value());
+            union = union.union(operand.into_value(folding));
         }
 
         match bytes.get(*cursor).copied() {
@@ -3804,7 +4041,7 @@ fn parse_class_set_union_tail(
             }
             Some(b']') => {
                 *cursor += 1;
-                return Ok(union.normalize_code_points());
+                return Ok(union);
             }
             Some(_) if ClassSetOperator::at(bytes, *cursor).is_some() => {
                 return Err(RegExpCompileError::invalid_syntax(
@@ -3815,7 +4052,7 @@ fn parse_class_set_union_tail(
             }
             Some(_) => {
                 operand_offset = *cursor;
-                operand = parse_unicode_sets_operand(bytes, cursor, class_offset)?;
+                operand = parse_unicode_sets_operand(bytes, cursor, class_offset, folding)?;
             }
         }
     }
@@ -3828,8 +4065,9 @@ fn parse_class_set_operation_tail(
     class_offset: usize,
     operator: ClassSetOperator,
     first: ClassSetOperand,
+    folding: CaseFolding,
 ) -> Result<ClassSetValue, RegExpCompileError> {
-    let mut value = first.into_value().normalize_code_points();
+    let mut value = first.into_value(folding);
     loop {
         let operator_offset = *cursor;
         debug_assert_eq!(ClassSetOperator::at(bytes, operator_offset), Some(operator));
@@ -3877,8 +4115,8 @@ fn parse_class_set_operation_tail(
             Some(_) => {}
         }
 
-        let right = parse_unicode_sets_operand(bytes, cursor, class_offset)?;
-        value = operator.apply(value, right.into_value());
+        let right = parse_unicode_sets_operand(bytes, cursor, class_offset, folding)?;
+        value = operator.apply(value, right.into_value(folding));
 
         match bytes.get(*cursor).copied() {
             None => {
@@ -3890,7 +4128,7 @@ fn parse_class_set_operation_tail(
             }
             Some(b']') => {
                 *cursor += 1;
-                return Ok(value.normalize_code_points());
+                return Ok(value);
             }
             Some(_) if ClassSetOperator::at(bytes, *cursor) == Some(operator) => {}
             Some(_) => {
@@ -4488,9 +4726,18 @@ struct ProgramLowerer<'a> {
 }
 
 #[derive(Clone, Copy)]
-enum FiniteClassSetDirection {
+enum RegExpMatchDirection {
     Forward,
     Reverse,
+}
+
+impl RegExpMatchDirection {
+    const fn operand_bit(self) -> u64 {
+        match self {
+            Self::Forward => 0,
+            Self::Reverse => 1,
+        }
+    }
 }
 
 impl<'a> ProgramLowerer<'a> {
@@ -4719,7 +4966,7 @@ impl<'a> ProgramLowerer<'a> {
         match atom {
             ParsedAtom::Instruction(instruction) => self.push(*instruction),
             ParsedAtom::FiniteClassSet(atom) => {
-                self.finite_class_set_atom(atom, FiniteClassSetDirection::Forward)
+                self.finite_class_set_atom(atom, RegExpMatchDirection::Forward)
             }
             ParsedAtom::Capture {
                 id,
@@ -4744,7 +4991,11 @@ impl<'a> ProgramLowerer<'a> {
                 }
                 self.alternatives(body)
             }
-            ParsedAtom::NamedBackreference { name, offset } => {
+            ParsedAtom::NamedBackreference {
+                name,
+                offset,
+                folding,
+            } => {
                 let name_id = self
                     .named_groups
                     .iter()
@@ -4756,33 +5007,33 @@ impl<'a> ProgramLowerer<'a> {
                             format!("unknown named backreference `{name}`"),
                         )
                     })?;
-                self.push(RegExpInstruction::named_backreference(name_id as u32))
+                self.push(RegExpInstruction::named_backreference(
+                    name_id as u32,
+                    *folding,
+                ))
             }
             ParsedAtom::NumberedBackreference {
                 capture_id,
                 nullable,
+                folding,
             } => self.push(if *nullable {
-                RegExpInstruction::numbered_backreference(*capture_id)
+                RegExpInstruction::numbered_backreference(*capture_id, *folding)
             } else {
-                RegExpInstruction::nonempty_numbered_backreference(*capture_id)
+                RegExpInstruction::nonempty_numbered_backreference(*capture_id, *folding)
             }),
-            ParsedAtom::Lookbehind { polarity, body } => {
-                self.push(RegExpInstruction::lookbehind_start())?;
-                let sentinel = self.instructions.len();
-                self.push(RegExpInstruction::split(0, 0))?;
-                let body_start = self.instructions.len();
-                self.reverse_alternatives(body)?;
-                let end = self.instructions.len();
-                self.push(RegExpInstruction::lookbehind_end(0, 0, polarity))?;
-                let failure = self.instructions.len();
-                self.push(RegExpInstruction::lookbehind_failure(0, polarity))?;
-                let after = self.instructions.len();
-                self.instructions[sentinel] = RegExpInstruction::split(body_start, failure);
-                self.instructions[end] =
-                    RegExpInstruction::lookbehind_end(failure, after, polarity);
-                self.instructions[failure] = RegExpInstruction::lookbehind_failure(after, polarity);
-                Ok(())
-            }
+            ParsedAtom::Lookaround {
+                polarity,
+                direction,
+                body,
+                subtree_start,
+                subtree_end,
+            } => self.lookaround(
+                polarity,
+                *direction,
+                RegExpMatchDirection::Forward,
+                body,
+                *subtree_start..*subtree_end,
+            ),
             // Syntax-only placeholder. `ParsedPatternCapability` prevents the
             // containing tree from becoming a returned matcher program, but
             // lowering continues so its remaining early-error checks run.
@@ -4790,10 +5041,54 @@ impl<'a> ProgramLowerer<'a> {
         }
     }
 
+    fn lookaround(
+        &mut self,
+        polarity: &LookaroundPolarity,
+        direction: RegExpMatchDirection,
+        parent_direction: RegExpMatchDirection,
+        body: &[Vec<ParsedTerm>],
+        captures: std::ops::Range<u32>,
+    ) -> Result<(), RegExpCompileError> {
+        if !captures.is_empty() {
+            self.push(RegExpInstruction::clear_capture_range(
+                captures.start,
+                captures.end,
+            ))?;
+        }
+        self.push(RegExpInstruction::lookaround_start(direction))?;
+        let sentinel = self.instructions.len();
+        self.push(RegExpInstruction::split(0, 0))?;
+        let body_start = self.instructions.len();
+        match direction {
+            RegExpMatchDirection::Forward => self.alternatives(body)?,
+            RegExpMatchDirection::Reverse => self.reverse_alternatives(body)?,
+        }
+        let end = self.instructions.len();
+        self.push(RegExpInstruction::lookaround_end(
+            0,
+            0,
+            polarity,
+            parent_direction,
+        ))?;
+        let failure = self.instructions.len();
+        self.push(RegExpInstruction::lookaround_failure(
+            0,
+            polarity,
+            parent_direction,
+        ))?;
+        let after = self.instructions.len();
+        self.instructions[sentinel] = RegExpInstruction::split(body_start, failure);
+        self.instructions[end] =
+            RegExpInstruction::lookaround_end(failure, after, polarity, parent_direction);
+        self.instructions[failure] =
+            RegExpInstruction::lookaround_failure(after, polarity, parent_direction);
+        Ok(())
+    }
+
     fn finite_class_set_atom(
         &mut self,
         atom: &FiniteClassSetAtom,
-        direction: FiniteClassSetDirection,
+        direction: RegExpMatchDirection,
     ) -> Result<(), RegExpCompileError> {
         let alternative_count =
             atom.multi_code_point_strings.len() + 1 + usize::from(atom.contains_empty);
@@ -4824,16 +5119,16 @@ impl<'a> ProgramLowerer<'a> {
         &mut self,
         atom: &FiniteClassSetAtom,
         index: usize,
-        direction: FiniteClassSetDirection,
+        direction: RegExpMatchDirection,
     ) -> Result<(), RegExpCompileError> {
         if let Some(string) = atom.multi_code_point_strings.get(index) {
             match direction {
-                FiniteClassSetDirection::Forward => {
+                RegExpMatchDirection::Forward => {
                     for instruction in string {
                         self.push(*instruction)?;
                     }
                 }
-                FiniteClassSetDirection::Reverse => {
+                RegExpMatchDirection::Reverse => {
                     for instruction in string.iter().rev() {
                         self.push(*instruction)?;
                     }
@@ -5009,7 +5304,7 @@ impl<'a> ProgramLowerer<'a> {
         match atom {
             ParsedAtom::Instruction(instruction) => self.push(*instruction),
             ParsedAtom::FiniteClassSet(atom) => {
-                self.finite_class_set_atom(atom, FiniteClassSetDirection::Reverse)
+                self.finite_class_set_atom(atom, RegExpMatchDirection::Reverse)
             }
             ParsedAtom::Capture {
                 id,
@@ -5035,12 +5330,22 @@ impl<'a> ProgramLowerer<'a> {
                 self.reverse_alternatives(body)
             }
             ParsedAtom::RequiresUnicodeSetSemantics(_) => Ok(()),
-            ParsedAtom::NamedBackreference { .. }
-            | ParsedAtom::NumberedBackreference { .. }
-            | ParsedAtom::Lookbehind { .. } => Err(RegExpCompileError::unsupported_feature(
-                self.error_offset,
-                "lookbehind body uses an unsupported matcher atom",
-            )),
+            ParsedAtom::Lookaround {
+                polarity,
+                direction,
+                body,
+                subtree_start,
+                subtree_end,
+            } => self.lookaround(
+                polarity,
+                *direction,
+                RegExpMatchDirection::Reverse,
+                body,
+                *subtree_start..*subtree_end,
+            ),
+            ParsedAtom::NamedBackreference { .. } | ParsedAtom::NumberedBackreference { .. } => {
+                self.atom(atom)
+            }
         }
     }
 }
@@ -5155,27 +5460,10 @@ mod tests {
     }
 
     #[test]
-    fn annex_b_quantified_ascii_lookaheads_collapse_zero_width_repetitions() {
-        assert_eq!(
-            compile(".(?=Z)*").instructions,
-            vec![RegExpInstruction::dot(), RegExpInstruction::accept()]
-        );
-        assert_eq!(
-            compile(".(?=Z)+").instructions,
-            vec![
-                RegExpInstruction::dot(),
-                RegExpInstruction::positive_ascii_lookahead(b'Z'),
-                RegExpInstruction::accept(),
-            ]
-        );
-        assert_eq!(
-            compile("[a-e](?!Z){2,3}").instructions,
-            vec![
-                compile("[a-e]").instructions[0],
-                RegExpInstruction::negative_ascii_lookahead(b'Z'),
-                RegExpInstruction::accept(),
-            ]
-        );
+    fn annex_b_quantified_lookaheads_collapse_zero_width_repetitions() {
+        assert_eq!(compile(".(?=Z)*"), compile("."));
+        assert_eq!(compile(".(?=Z)+"), compile(".(?=Z)"));
+        assert_eq!(compile("[a-e](?!Z){2,3}"), compile("[a-e](?!Z)"));
     }
 
     #[test]
@@ -5321,9 +5609,9 @@ mod tests {
     #[test]
     fn numbered_escape_uses_an_existing_capture_before_legacy_octal() {
         let program = compile(r"(.)\1");
-        assert!(program
-            .instructions
-            .contains(&RegExpInstruction::nonempty_numbered_backreference(1)));
+        assert!(program.instructions.contains(
+            &RegExpInstruction::nonempty_numbered_backreference(1, CaseFolding::Sensitive)
+        ));
         assert!(!program
             .instructions
             .contains(&RegExpInstruction::literal_ascii(1)));
@@ -5332,9 +5620,9 @@ mod tests {
     #[test]
     fn nonempty_capture_backreference_allows_unbounded_quantification() {
         let program = compile(r"^(a+)\1*,\1+$");
-        assert!(program
-            .instructions
-            .contains(&RegExpInstruction::nonempty_numbered_backreference(1)));
+        assert!(program.instructions.contains(
+            &RegExpInstruction::nonempty_numbered_backreference(1, CaseFolding::Sensitive)
+        ));
     }
 
     #[test]
@@ -5349,7 +5637,7 @@ mod tests {
         let forward = compile(r"\1(b)");
         assert_eq!(
             forward.instructions[0],
-            RegExpInstruction::numbered_backreference(1)
+            RegExpInstruction::numbered_backreference(1, CaseFolding::Sensitive)
         );
 
         for pattern in [
@@ -6287,11 +6575,11 @@ mod tests {
 
         let mut forward = Vec::new();
         ProgramLowerer::new(&mut forward, 0, &[])
-            .finite_class_set_atom(&direct, FiniteClassSetDirection::Forward)
+            .finite_class_set_atom(&direct, RegExpMatchDirection::Forward)
             .unwrap();
         let mut reverse = Vec::new();
         ProgramLowerer::new(&mut reverse, 0, &[])
-            .finite_class_set_atom(&direct, FiniteClassSetDirection::Reverse)
+            .finite_class_set_atom(&direct, RegExpMatchDirection::Reverse)
             .unwrap();
         let literals = |instructions: &[RegExpInstruction]| {
             instructions
@@ -6499,12 +6787,7 @@ mod tests {
             assert_eq!(error.rule, Some(SyntaxRule::ModifierFlags), "{pattern}");
         }
         for pattern in ["(?=ab)", "(?!ab)"] {
-            assert_eq!(
-                RegExpProgram::compile(pattern, "")
-                    .expect_err("unimplemented legal lookahead")
-                    .kind,
-                RegExpCompileErrorKind::UnsupportedFeature,
-            );
+            RegExpProgram::compile(pattern, "").expect("legal lookahead compiles");
         }
     }
 
@@ -6709,7 +6992,7 @@ mod tests {
         let forward = compile(r"\k<x>(?<x>a)");
         assert_eq!(
             forward.instructions[0],
-            RegExpInstruction::named_backreference(0)
+            RegExpInstruction::named_backreference(0, CaseFolding::Sensitive)
         );
         let repeated = compile(r"(?:(?:(?<x>a)|(?<x>b)|c)\k<x>){2}");
         assert_eq!(repeated.capture_count, 2);
@@ -6770,7 +7053,7 @@ mod tests {
         assert_eq!(non_unicode.named_groups[0].name, "π");
         assert_eq!(
             non_unicode.instructions[4],
-            RegExpInstruction::named_backreference(0)
+            RegExpInstruction::named_backreference(0, CaseFolding::Sensitive)
         );
 
         let unicode_sets = RegExpProgram::compile(r"(?<\u03C0>a)\k<\u{03C0}>", "v").unwrap();
@@ -6821,18 +7104,27 @@ mod tests {
         let program = RegExpProgram::compile(r"(?<=\w+)f", "").unwrap();
         assert_eq!(
             program.instructions[0],
-            RegExpInstruction::lookbehind_start()
+            RegExpInstruction::lookaround_start(RegExpMatchDirection::Reverse)
         );
         assert_eq!(program.instructions[1], RegExpInstruction::split(2, 7));
         assert_eq!(program.instructions[3], RegExpInstruction::split(4, 6));
         assert_eq!(program.instructions[5], RegExpInstruction::jump(3));
         assert_eq!(
             program.instructions[6],
-            RegExpInstruction::lookbehind_end(7, 8, &LookbehindPolarity::Positive)
+            RegExpInstruction::lookaround_end(
+                7,
+                8,
+                &LookaroundPolarity::Positive,
+                RegExpMatchDirection::Forward
+            )
         );
         assert_eq!(
             program.instructions[7],
-            RegExpInstruction::lookbehind_failure(8, &LookbehindPolarity::Positive)
+            RegExpInstruction::lookaround_failure(
+                8,
+                &LookaroundPolarity::Positive,
+                RegExpMatchDirection::Forward
+            )
         );
         assert_eq!(
             program.instructions[8],

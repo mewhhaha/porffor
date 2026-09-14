@@ -230,6 +230,20 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::LocalSet(constructor_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        if let Some(binding_name) = &class.inferred_name_binding {
+            let storage = self
+                .lookup_binding(binding_name)
+                .expect("computed class name key is materialized before class evaluation");
+            self.read_binding_to_locals(storage, key_local, value_tag_local, function)?;
+            self.emit_value_to_property_key_payload(key_local, value_tag_local, function)?;
+            function.instruction(&Instruction::LocalSet(key_local));
+            self.emit_set_function_name(
+                constructor_local,
+                key_local,
+                FunctionNamePrefix::None,
+                function,
+            )?;
+        }
         if let Some(private_environment_local) = private_environment_local {
             self.emit_current_private_environment_to_local(key_local, function);
             if let Some(class_private_scope) = class_private_scope {
@@ -737,6 +751,14 @@ impl FunctionBuilder<'_> {
             function.instruction(&Instruction::LocalSet(value_payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(value_tag_local));
+            if private_name_id.is_none() {
+                let prefix = match kind {
+                    ClassMethodKindIr::Method => FunctionNamePrefix::None,
+                    ClassMethodKindIr::Getter => FunctionNamePrefix::Getter,
+                    ClassMethodKindIr::Setter => FunctionNamePrefix::Setter,
+                };
+                self.emit_set_function_name(value_payload_local, key_local, prefix, function)?;
+            }
             if placement == ClassMethodPlacementIr::Static && private_name_id.is_none() {
                 self.emit_reject_static_class_prototype_definition(
                     key_local,

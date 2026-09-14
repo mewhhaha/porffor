@@ -1331,7 +1331,7 @@ impl<'a> FunctionBuilder<'a> {
 
         let fill_meta = self
             .functions
-            .get(&StandardBuiltinId::ArrayPrototypeFill.function_id())
+            .get(&StandardBuiltinId::TypedArrayPrototypeFill.function_id())
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.fill`",
@@ -3271,6 +3271,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlLocalePrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3279,6 +3284,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlDateTimeFormatPrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3618,6 +3628,7 @@ impl<'a> FunctionBuilder<'a> {
         for builtin in [
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,
@@ -3642,6 +3653,7 @@ impl<'a> FunctionBuilder<'a> {
         for builtin in [
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,

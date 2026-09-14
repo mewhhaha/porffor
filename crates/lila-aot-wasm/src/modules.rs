@@ -23,16 +23,9 @@
 //! `lila_ir::modules::dynamic`, and [`emit_dynamic_import`] for the one case
 //! that still reaches this file.
 //!
-//! Module namespace objects are *not* on that list either. `import * as ns` is
-//! materialized by the linker as generated Script text — one `Object.create`,
-//! one `Object.defineProperty` per export whose getter names the exporter's own
-//! binding, and one `Object.preventExtensions` — so it reaches this backend as
-//! ordinary object code and needs no emitter. See
-//! `lila_ir::modules::namespace`, which owns that source and documents the
-//! single invariant the translation gives up (the properties are accessors, so
-//! `Object.getOwnPropertyDescriptor` reports `get` rather than `value`).
-//! [`emit_module_namespace`] is the seam where a real 10.4.6 exotic object would
-//! close that gap, and it stays a stub until there is one.
+//! Namespace constructors carry their private export-reader table directly in
+//! `ExprIr::ModuleNamespace`. The canonical runtime object implementation lives
+//! in `objects::module_namespace`, alongside the internal methods it dispatches.
 
 use super::*;
 
@@ -152,33 +145,5 @@ impl FunctionBuilder<'_> {
         _function: &mut Function,
     ) -> Result<(), EmitError> {
         Err(unsupported("import.meta"))
-    }
-
-    /// `ExprIr::ModuleNamespace`: leaves the identity-cached namespace exotic
-    /// object on the stack.
-    ///
-    /// Deliberately still a stub. Two things would have to change before a real
-    /// implementation could be anything but dead code:
-    ///
-    /// * nothing constructs `ExprIr::ModuleNamespace`. The linker materializes
-    ///   `import * as ns` as generated Script text (see the module docs), so a
-    ///   namespace object reaches this backend as ordinary object code and this
-    ///   arm is never taken;
-    /// * `emit` hands `emit_script` a bare [`ScriptIr`], never the `ProgramIr`,
-    ///   so `module` here cannot be turned into an export table at all —
-    ///   `ProgramIr::modules` is where the sorted export names and their target
-    ///   bindings live, and it does not reach this far.
-    ///
-    /// So the honest thing this arm can do is say which invariant a caller would
-    /// be reaching for, rather than emit an object that only looks like one.
-    pub(crate) fn emit_module_namespace(
-        &mut self,
-        _module: u32,
-        _function: &mut Function,
-    ) -> Result<(), EmitError> {
-        Err(unsupported(
-            "namespace object (10.4.6 exotic object; the linker emits an ordinary \
-             accessor object instead, so this arm means an IR producer got ahead of it)",
-        ))
     }
 }

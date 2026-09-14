@@ -9,13 +9,16 @@ mod arguments_index_mapping;
 mod bound_function_allocation;
 mod class_definition;
 mod created_realm_array_prototype;
+mod current_builtin_realm_closure;
 mod current_function_realm_array_prototype;
 mod current_function_realm_async_disposable_stack;
 mod current_function_realm_disposable_stack;
 mod direct_eval;
 pub(crate) mod direct_eval_invocation;
 mod eval_intrinsic;
+mod function_name;
 mod function_realm;
+pub(crate) use function_name::FunctionNamePrefix;
 mod indirect_call;
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
@@ -96,14 +99,15 @@ pub(crate) struct RealmRecordLocal(u32);
 pub(crate) struct ReservedRealmFunctionPrototypeLocal(u32);
 
 /// The inseparable realm/default-function-prototype inputs for creating an
-/// ordinary builtin function in a synthetic realm.
+/// ordinary builtin function in a synthetic or active builtin realm.
 ///
 /// The context is deliberately non-`Copy` and its fields are private. This
 /// prevents a call site from attaching one realm as `[[Realm]]` while leaving
 /// the allocator's entry-realm `%Function.prototype%` in `[[Prototype]]` or
 /// pairing the realm with an arbitrary scratch local. The context can only be
-/// constructed by materializing the catalogued callable intrinsic, so callers
-/// cannot supply a payload with a different value kind.
+/// constructed by materializing the catalogued callable intrinsic or loading
+/// that intrinsic from a proven active builtin Realm, so callers cannot supply
+/// a payload with a different value kind.
 #[must_use]
 pub(crate) struct RealmFunctionMaterializationContext {
     realm: RealmRecordLocal,
@@ -165,8 +169,11 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     FinalizationRegistryPrototype,
     RegExpPrototype,
     DatePrototype,
+    IntlLocalePrototype,
+    IntlDateTimeFormatPrototype,
     Float64ArrayPrototype,
     Float32ArrayPrototype,
+    Float16ArrayPrototype,
     Int32ArrayPrototype,
     Int16ArrayPrototype,
     Int8ArrayPrototype,
@@ -390,8 +397,13 @@ impl NonArrayRealmIntrinsicSlot {
             }
             Self::RegExpPrototype => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
             Self::DatePrototype => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
+            Self::IntlLocalePrototype => HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET,
+            Self::IntlDateTimeFormatPrototype => {
+                HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET
+            }
             Self::Float64ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
             Self::Float32ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
+            Self::Float16ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
             Self::Int32ArrayPrototype => HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET,
             Self::Int16ArrayPrototype => HEAP_REALM_INTRINSICS_INT16_ARRAY_PROTOTYPE_OFFSET,
             Self::Int8ArrayPrototype => HEAP_REALM_INTRINSICS_INT8_ARRAY_PROTOTYPE_OFFSET,
@@ -410,6 +422,7 @@ impl NonArrayRealmIntrinsicSlot {
         Some(match builtin {
             StandardBuiltinId::Float64ArrayConstructor => Self::Float64ArrayPrototype,
             StandardBuiltinId::Float32ArrayConstructor => Self::Float32ArrayPrototype,
+            StandardBuiltinId::Float16ArrayConstructor => Self::Float16ArrayPrototype,
             StandardBuiltinId::Int32ArrayConstructor => Self::Int32ArrayPrototype,
             StandardBuiltinId::Int16ArrayConstructor => Self::Int16ArrayPrototype,
             StandardBuiltinId::Int8ArrayConstructor => Self::Int8ArrayPrototype,
@@ -1661,6 +1674,10 @@ pub(crate) fn emit_function_object_alloc_helper_function(
             HEAP_FUNCTION_REALM_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
         ),
         (
+            FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
             INT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
             HEAP_FUNCTION_REALM_INT32_ARRAY_PROTOTYPE_OFFSET,
         ),
@@ -2362,6 +2379,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::FunctionConstructor,
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,

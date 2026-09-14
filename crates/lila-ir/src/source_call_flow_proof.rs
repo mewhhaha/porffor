@@ -332,9 +332,8 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             phase: _phase,
             referrer: _referrer,
         } => false,
-        ExprIr::ImportMeta { module: _module } | ExprIr::ModuleNamespace { module: _module } => {
-            false
-        }
+        ExprIr::ImportMeta { module: _module } => false,
+        ExprIr::ModuleNamespace { exports, .. } => expr_preserves_caller_flow(exports),
         ExprIr::ObjectLiteral(properties) => {
             properties.iter().all(object_property_preserves_caller_flow)
         }
@@ -590,6 +589,7 @@ fn object_property_preserves_caller_flow(property: &ObjectPropertyIr) -> bool {
         ObjectPropertyIr::ComputedData {
             key: _key,
             value: _value,
+            name_inference: _,
         } => false,
         ObjectPropertyIr::ComputedMethod {
             key: _key,
@@ -666,6 +666,7 @@ fn spec_operation_preserves_caller_flow(
         | SpecOperationIr::GetV
         | SpecOperationIr::Set
         | SpecOperationIr::HasProperty
+        | SpecOperationIr::WithEnvironmentHasBinding
         | SpecOperationIr::HasOwnProperty
         | SpecOperationIr::DeletePropertyOrThrow
         | SpecOperationIr::CreateDataPropertyOrThrow

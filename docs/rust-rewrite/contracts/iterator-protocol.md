@@ -6,6 +6,11 @@ This area's contract lives in one document, because the iterator obligations'
 
 **[Spec-operation catalog evidence and the iterator-protocol obligation witness](./Spec-operation%20catalog%20evidence%20and%20the%20iterator-protocol%20obligation%20witness.md)**
 
+The current catalog census is `30 + 2 + 5 + 10 = 47` (2026-09-14), recorded
+in §27 of the combined contract and [spec-operations.md](./spec-operations.md).
+With HasBinding adds an expression row; the iterator rows are unchanged. Older
+dated census counts below describe their historical checkpoints.
+
 Start at §1.2–§1.4 (spec basis) and §4 (type mapping, Part B) for the iterator
 half. §9 holds the dry-run corpus and the three corrections to the area brief.
 

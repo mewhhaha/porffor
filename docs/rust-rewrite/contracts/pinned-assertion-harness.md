@@ -1,0 +1,51 @@
+# Pinned assertion and property harness
+
+The embedded Wasm-AOT named harness carries verbatim copies of the pinned
+Test262 `assert.js`, `sta.js`, and `propertyHelper.js` sources, including their
+copyright and license notices. Its `sta-preamble.js` section is the same pinned
+`sta.js` source. Byte-identity tests compare every section with the vendored
+file plus the materializer's terminating newline. The constructor predicate
+and native-function grammar helpers are loaded in full from pinned
+`isConstructor.js` and `nativeFunctionMatcher.js`.
+
+This replaces local adapters that accepted truthy assertion arguments, threw
+primitive strings, omitted error messages and methods, and skipped property
+checks or destructive probes. The confirmed main witness was
+`harness/assert-samevalue-objects.js`: its assertion failure must be an object
+whose constructor is `Test262Error`.
+
+The original upstream source now defines strict-true assertions, SameValue
+and array comparison, error constructor checks, diagnostic formatting,
+descriptor validation, captured primordial methods, writability and deletion
+probes, and the `restore` option. Assertions in regression tests verify these
+observable results without relying on the harness assertion under test.
+
+Ordinary materialization always retains the complete named assertion prelude.
+Because that prelude uses `Test262Error`, cases without a full host include
+the canonical `sta-preamble.js`; host-owning cases include `sta.js`. Included
+property helpers are copied in full. The obsolete assertion omission and
+compact property verifier are removed, along with their fingerprint gates
+and plan fields. New canonical fingerprints describe the actual source;
+they do not authorize replacing it with the old reduced implementations.
+
+The canonical shortcut scanner observes two removals: the source-text
+predicate in `typed_array_literal_helper_plan`, and the compact property
+prelude publication in `materialize_test`. The latter shifts subsequent
+materializer ordinals; unconditional assertion publication also changes its
+reviewed selector fingerprints. Accounting changes from 112 to 110 entries:
+30 legitimate harness adaptations, 39 diagnostic observations, and 41
+remaining semantic shortcuts. This is selector accounting, not a Test262
+pass count or a claim that all remaining runner shortcuts are removed.
+
+The host transport and other existing materialization transformations retain
+their separate owners. Harness changes can expose compiler failures that a
+weaker adapter concealed; those must be fixed or reported using the actual
+failure, rather than changing the pinned harness to recover a green result.
+
+The canonical constructor predicate rejects non-callables with `Test262Error`
+and observes the `newTarget.prototype` access performed by `Reflect.construct`.
+It therefore preserves throwing prototype getters and revoked callable
+Proxies. The native-function helper retains its complete identifier and
+comment grammar, syntax rejection, and assertion behavior. Function
+`toString` cases use that same helper; materialization does not substitute
+a prefix/suffix validator.

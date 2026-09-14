@@ -1,22 +1,23 @@
 use core::fmt;
 
-use icu_locale::{Locale, LocaleCanonicalizer};
+use icu_locale::LocaleCanonicalizer;
+
+mod keyword_aliases;
+mod language_domain;
+use language_domain::{ParsedLocale, ReservedLanguageAliasRules};
 
 use crate::{
     CanonicalLocaleId, CanonicalizeLocale, CanonicalizeLocaleError, CanonicalizeLocaleRequest,
     CanonicalizeLocaleResult, EmptyIntlProfile, IntlDataDigest, IntlDataIdentity,
     IntlDataPlacement, IntlOperationProvider, IntlProfilePlan, IntlProvider, IntlService,
-    IntlServiceSet, InvalidCanonicalLocaleId, UnsupportedLocale,
+    IntlServiceSet, InvalidCanonicalLocaleId,
 };
 
-/// SHA-256 of the exactly pinned `icu_locale_data-2.0.0.crate` archive.
-///
-/// This identifies the host-embedded locale tables used by this provider. It
-/// is not a claim that those bytes are embedded in an emitted Wasm artifact.
-pub const EMBEDDED_LOCALE_DATA_SHA256: IntlDataDigest = IntlDataDigest::from_sha256([
-    0x4f, 0xde, 0xf0, 0xc1, 0x24, 0x74, 0x9d, 0x06, 0xa7, 0x43, 0xc6, 0x9e, 0x93, 0x83, 0x50, 0x81,
-    0x65, 0x54, 0xeb, 0x63, 0xac, 0x97, 0x91, 0x66, 0x59, 0x0e, 0x2b, 0x4e, 0xe4, 0x25, 0x27, 0x65,
-]);
+/// Composite SHA-256 of the pinned ICU locale archive, CLDR BCP47 source
+/// manifest and generated alias rows. The generator owns this exact recipe;
+/// these tables are embedded in the host, not in emitted Wasm artifacts.
+pub const EMBEDDED_LOCALE_DATA_SHA256: IntlDataDigest =
+    IntlDataDigest::from_sha256(keyword_aliases::PROVIDER_DATA_SHA256);
 
 /// Pure locale canonicalization backed by ICU4X's compiled CLDR 47 data.
 ///
@@ -27,6 +28,7 @@ pub const EMBEDDED_LOCALE_DATA_SHA256: IntlDataDigest = IntlDataDigest::from_sha
 pub struct EmbeddedLocaleProvider {
     identity: IntlDataIdentity,
     canonicalizer: LocaleCanonicalizer,
+    reserved_language_rules: ReservedLanguageAliasRules,
 }
 
 impl EmbeddedLocaleProvider {
@@ -35,6 +37,8 @@ impl EmbeddedLocaleProvider {
         Ok(Self {
             identity,
             canonicalizer: LocaleCanonicalizer::new_extended(),
+            reserved_language_rules: ReservedLanguageAliasRules::from_pinned_data()
+                .map_err(EmbeddedLocaleProviderSetupError::ReservedLanguageData)?,
         })
     }
 }
@@ -71,12 +75,8 @@ impl IntlOperationProvider<CanonicalizeLocale> for EmbeddedLocaleProvider {
         request: CanonicalizeLocaleRequest,
     ) -> Result<CanonicalizeLocaleResult, CanonicalizeLocaleError> {
         let input = request.into_locale();
-        let mut locale = input
-            .as_str()
-            .parse::<Locale>()
-            .map_err(|_| UnsupportedLocale::new(input.clone()))?;
-        self.canonicalizer.canonicalize(&mut locale);
-        let canonical = CanonicalLocaleId::from_data(locale.to_string().into_boxed_str())?;
+        let parsed = ParsedLocale::parse(&input)?;
+        let canonical = parsed.canonicalize(&self.canonicalizer, &self.reserved_language_rules)?;
         Ok(CanonicalizeLocaleResult::new(canonical))
     }
 }
@@ -85,6 +85,7 @@ impl IntlOperationProvider<CanonicalizeLocale> for EmbeddedLocaleProvider {
 pub enum EmbeddedLocaleProviderSetupError {
     EmptyProfile(EmptyIntlProfile),
     InvalidDefaultLocale(InvalidCanonicalLocaleId),
+    ReservedLanguageData(&'static str),
 }
 
 impl fmt::Display for EmbeddedLocaleProviderSetupError {
@@ -92,6 +93,10 @@ impl fmt::Display for EmbeddedLocaleProviderSetupError {
         match self {
             Self::EmptyProfile(error) => error.fmt(f),
             Self::InvalidDefaultLocale(error) => error.fmt(f),
+            Self::ReservedLanguageData(reason) => write!(
+                f,
+                "pinned Intl reserved-language data is incompatible: {reason}"
+            ),
         }
     }
 }
@@ -101,6 +106,7 @@ impl std::error::Error for EmbeddedLocaleProviderSetupError {
         match self {
             Self::EmptyProfile(error) => Some(error),
             Self::InvalidDefaultLocale(error) => Some(error),
+            Self::ReservedLanguageData(_) => None,
         }
     }
 }

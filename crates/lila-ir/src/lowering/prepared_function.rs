@@ -47,7 +47,7 @@ pub(super) fn compile_dynamic_function_sources(
             parsed.source_text.len(),
             vec![LoweringStage::ParsedSource],
             None,
-            &modules::DefaultExportDefinitions::default(),
+            &modules::LinkedScriptDefinitions::default(),
             host_surface_policy,
             allocations,
             ScriptInstantiation::FreshEntry,

@@ -85,7 +85,6 @@ fn typed_array_source_uses_one_validated_method_entry_witness() {
         "HEAP_TYPED_ARRAY_BYTE_OFFSET",
         "HEAP_TYPED_ARRAY_BYTE_LENGTH_OFFSET",
         "HEAP_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET",
-        "HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET",
         "HEAP_TYPED_ARRAY_LENGTH_TRACKING_OFFSET",
     ] {
         let offset_position = unique_position(body, offset, "target private-state offset");
@@ -98,6 +97,22 @@ fn typed_array_source_uses_one_validated_method_entry_witness() {
             "{offset} must be used only to initialize the constructed target"
         );
     }
+
+    assert_eq!(
+        body.matches("HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET").count(),
+        2
+    );
+    let source_kind = unique_position(
+        body,
+        "arg_payload_local,\n                    HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,\n                    source_element_kind_local,",
+        "validated source content-kind load",
+    );
+    let target_kind = unique_position(
+        body,
+        "typed_array_object_local,\n                    HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET,\n                    element_kind_local,",
+        "constructed target content-kind store",
+    );
+    assert!(source_kind < target_kind);
 
     let unsigned_divide = unique_position(
         body,
@@ -124,8 +139,8 @@ fn source_snapshot_precedes_target_allocation_and_copy() {
     assert_eq!(
         body.matches("OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64")
             .count(),
-        1,
-        "the constructor must have only its exhaustive TypedArray source branch"
+        2,
+        "the constructor validates the typed source, then selects its post-allocation copy path"
     );
     let source_brand = body
         .find("OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64")
@@ -140,6 +155,11 @@ fn source_snapshot_precedes_target_allocation_and_copy() {
         body,
         "TypedArrayWitnessUse::ValidatedMethodEntry",
         "source length snapshot",
+    );
+    let content_type = unique_position(
+        body,
+        "TypedArray constructor source and target content types differ",
+        "source and target content-type validation",
     );
     let generator_throw_probe = unique_position(
         body,
@@ -165,6 +185,14 @@ fn source_snapshot_precedes_target_allocation_and_copy() {
         "let buffer_memory_alloc = self.functions.shared_memory_alloc_function_index()",
         "target backing-store allocation",
     );
+    let copy_branch = body
+        .rfind("OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64")
+        .expect("missing post-allocation typed-source copy branch");
+    let raw_copy = unique_position(
+        body,
+        "emit_typed_array_copy_bytes_in_order(",
+        "same-kind raw-byte copy",
+    );
     let indexed_read = unique_position(
         body,
         "emit_typed_array_or_object_index_read_from_locals(",
@@ -189,8 +217,11 @@ fn source_snapshot_precedes_target_allocation_and_copy() {
             && source_witness < non_typed_array_branch
             && non_typed_array_branch < generator_throw_probe
             && generator_throw_probe < iterator_probe
-            && source_witness < target_allocation
-            && target_allocation < indexed_read
+            && source_witness < content_type
+            && content_type < target_allocation
+            && target_allocation < copy_branch
+            && copy_branch < raw_copy
+            && raw_copy < indexed_read
             && indexed_read < conversions[1]
             && conversions[1] < target_materialization
     );

@@ -1069,6 +1069,38 @@ impl<'a> ScriptLowerer<'a> {
                 "baseName",
                 StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
             ),
+            (
+                "calendar",
+                StandardBuiltinId::IntlLocalePrototypeCalendarGetter,
+            ),
+            (
+                "collation",
+                StandardBuiltinId::IntlLocalePrototypeCollationGetter,
+            ),
+            (
+                "firstDayOfWeek",
+                StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter,
+            ),
+            (
+                "hourCycle",
+                StandardBuiltinId::IntlLocalePrototypeHourCycleGetter,
+            ),
+            (
+                "caseFirst",
+                StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter,
+            ),
+            (
+                "numeric",
+                StandardBuiltinId::IntlLocalePrototypeNumericGetter,
+            ),
+            (
+                "numberingSystem",
+                StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter,
+            ),
+            (
+                "variants",
+                StandardBuiltinId::IntlLocalePrototypeVariantsGetter,
+            ),
         ] {
             properties.insert(
                 name.to_string(),
@@ -2425,6 +2457,7 @@ impl<'a> ScriptLowerer<'a> {
             ("keys", StandardBuiltinId::TypedArrayPrototypeKeys),
             ("entries", StandardBuiltinId::TypedArrayPrototypeEntries),
             ("toString", StandardBuiltinId::TypedArrayPrototypeToString),
+            ("fill", StandardBuiltinId::TypedArrayPrototypeFill),
             ("join", StandardBuiltinId::TypedArrayPrototypeJoin),
             ("set", StandardBuiltinId::TypedArrayPrototypeSet),
             ("reverse", StandardBuiltinId::TypedArrayPrototypeReverse),
@@ -2562,6 +2595,7 @@ impl<'a> ScriptLowerer<'a> {
             builtin,
             StandardBuiltinId::Float64ArrayConstructor
                 | StandardBuiltinId::Float32ArrayConstructor
+                | StandardBuiltinId::Float16ArrayConstructor
                 | StandardBuiltinId::Int32ArrayConstructor
                 | StandardBuiltinId::Int16ArrayConstructor
                 | StandardBuiltinId::Int8ArrayConstructor
@@ -3939,6 +3973,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 StandardBuiltinId::Float64ArrayConstructor
                 | StandardBuiltinId::Float32ArrayConstructor
+                | StandardBuiltinId::Float16ArrayConstructor
                 | StandardBuiltinId::Int32ArrayConstructor
                 | StandardBuiltinId::Int16ArrayConstructor
                 | StandardBuiltinId::Int8ArrayConstructor
@@ -5266,7 +5301,8 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::TypedArrayPrototypeReverse
+            StandardBuiltinId::TypedArrayPrototypeFill
+            | StandardBuiltinId::TypedArrayPrototypeReverse
             | StandardBuiltinId::TypedArrayPrototypeCopyWithin
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeSubarray
@@ -6114,8 +6150,21 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::IntlLocalePrototypeNumericGetter => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
-            | StandardBuiltinId::IntlLocalePrototypeRegionGetter => (
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+            | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+            | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+            | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+            | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+            | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter => (
                 ValueKind::Dynamic,
                 KindSet::from_kind(ValueKind::String)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
@@ -6606,7 +6655,14 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_zoned_date_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeRound
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWith
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
             | StandardBuiltinId::TemporalZonedDateTimeFrom => (
@@ -6842,6 +6898,7 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
+            | StandardBuiltinId::Float16ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor
             | StandardBuiltinId::Int16ArrayConstructor
             | StandardBuiltinId::Int8ArrayConstructor

@@ -8,7 +8,7 @@ fn with_compiler() -> &'static str {
         .split_once("    fn compile_typed_array_prototype_with_builtin(")
         .expect("missing TypedArray.prototype.with compiler")
         .1
-        .split_once("    fn compile_typed_array_prototype_set_builtin(")
+        .split_once("    fn emit_iterator_zip_keyed(")
         .expect("missing boundary after TypedArray.prototype.with compiler")
         .0
 }

@@ -4,12 +4,17 @@ Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, lib
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
-The direct Wasm `Intl.Locale` constructor now has an ordered core-options
-lowering for `language`, `script` and `region`, preserving the remaining tag
-and rebuilding its represented slots together. Rust/Wasm verification of
-this change remains pending; see [the core-options follow-up](docs/rust-rewrite/aot-intl-locale-options.md)
-for the regression target and remaining Intl work. Published conformance
-counts are unchanged.
+The direct Wasm `Intl.Locale` constructor applies core and Unicode-extension
+options in order, resolves pinned provider aliases before and after overrides,
+and exposes eight additional getters. Locale canonicalization preserves valid
+five-to-eight-letter languages and tags longer than 255 bytes through a typed
+provider domain and exact-capacity host calls. Each compiled provider caller
+declares its host import, including standalone Locale construction.
+Verification is pending; see the
+[constructor contract](docs/rust-rewrite/aot-intl-locale-options.md). The provider
+now includes all 65 keyword-value aliases from pinned CLDR 47; broader Intl
+services remain open.
+Published conformance counts are unchanged.
 
 The public project and all current Rust packages, commands, environment
 variables, cache paths, diagnostics and host ABI names use the Lila identity.
@@ -104,6 +109,45 @@ supported SharedArrayBuffer subclasses. The `2026-09-13` audited replay passes
 324 passing controls; 35 focused Wasmtime regressions also pass. The notes
 include refresh commands, source provenance and the remaining module-loading
 and private numeric-update gaps. These counts are separate from full-suite status.
+
+The [completed-baseline follow-up](docs/rust-rewrite/completed-baseline-follow-up.md)
+tracks all 14,402 failures from the completed historical sweep against merged
+main. The first paired cohorts pass 119/124 executions, repairing 113 failures
+and retaining six passing controls. The fourth checkpoint separately repairs
+all five remaining compiler-size cases and two function-coercion cases, retaining
+nine passing controls in the latter cohort. Further
+work covers namespace internal methods,
+`for-in` enumeration, pinned harness semantics, and
+[Buddhist calendar arithmetic](docs/rust-rewrite/temporal-buddhist-calendar.md).
+The next checkpoint adds general RegExp lookahead, shared With binding queries,
+distinct eager/deferred namespaces, and
+[ZonedDateTime field replacement](docs/rust-rewrite/temporal-zoned-field-replacement.md).
+Follow-up repairs cover observable function coercion, reverse RegExp
+backreferences and [case folding](docs/rust-rewrite/regexp-case-folding.md),
+shared dynamic property writes, cross-realm Proxy read errors, for-of head
+completion, and retained deferred-module failures.
+The next batch adds [word boundaries and reverse whitespace](crates/lila-aot-wasm/docs/regexp-word-boundary.md),
+[case-insensitive backreference comparison](crates/lila-aot-wasm/docs/regexp-backreference-folding.md),
+correct forward non-whitespace movement across UTF-16 surrogate pairs,
+[legacy pooled-class membership and advancement](crates/lila-aot-wasm/docs/regexp-legacy-pooled-class.md),
+[bounded numeric bitwise emission](crates/lila-aot-wasm/docs/numeric-bitwise-emission.md),
+and a dedicated [TypedArray fill operation](docs/rust-rewrite/contracts/typed-array-fill-buffer-witness.md)
+with single value conversion, ordered buffer validation and immutable-buffer rejection.
+Float16Array uses the shared TypedArray view and method implementation with
+[direct binary64-to-binary16 rounding](docs/rust-rewrite/contracts/float16-array-storage.md).
+[Same-kind byte copies](docs/rust-rewrite/contracts/typed-array-byte-copies.md)
+preserve NaN payload bits, and constructor-owned buffers use the executing Realm.
+The sixth checkpoint passes the byte-copy (6), fill (11), backreference-folding
+(8), and numeric behavior (7) native tests. The separate pinned fill cohort
+passes 102/102 executions. Its Intl, Float16Array Realm and legacy class-range
+failures remain recorded while the next source batch repairs their causes.
+That batch also restores the canonical callable harnesses, merges branch flow
+facts, preserves saved compound-assignment operand types, corrects Set copy
+timing, and adds pinned CLDR keyword aliases and Intl intrinsics in created
+Realms. Pure numeric IR conditions can omit unreachable branches after lowering
+and planning; the numeric stress replay remains a required check.
+Verification and the wider replay remain in progress; these counts do not
+update the generated full-suite conformance status.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for

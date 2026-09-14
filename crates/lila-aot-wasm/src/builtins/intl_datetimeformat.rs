@@ -264,10 +264,10 @@ const INTL_DTF_ACCEPTED_CALENDARS: &[(&str, &str)] = &[
 /// `new Intl.DateTimeFormat("en", { calendar: "gregorian" })
 ///     .resolvedOptions().calendar` cannot answer differently.
 ///
-/// The assertion is deliberately one-directional: `Intl` may accept a spelling
-/// `Temporal` does not (a locale extension is not a `[[Calendar]]` slot), but
-/// every spelling `Temporal` accepts must resolve to the same canonical form on
-/// both sides.
+/// Calendar arithmetic support does not supply formatter data. In particular,
+/// Temporal supports Buddhist dates while this formatter still lacks Buddhist
+/// patterns and era labels. Check canonicalization for the shared supported
+/// spellings without claiming that both services have the same capabilities.
 const _: () = {
     let mut calendar_index = 0;
     while calendar_index < TemporalCalendarId::ALL.len() {
@@ -278,7 +278,6 @@ const _: () = {
         while spelling_index < spellings.len() {
             let spelling = spellings[spelling_index];
             let mut row_index = 0;
-            let mut found = false;
             while row_index < INTL_DTF_ACCEPTED_CALENDARS.len() {
                 let (accepted, resolved) = INTL_DTF_ACCEPTED_CALENDARS[row_index];
                 if const_str_eq(accepted, spelling) {
@@ -286,14 +285,9 @@ const _: () = {
                         const_str_eq(resolved, canonical),
                         "Intl and Temporal disagree about a calendar's canonical form"
                     );
-                    found = true;
                 }
                 row_index += 1;
             }
-            assert!(
-                found,
-                "Intl.DateTimeFormat does not accept a calendar Temporal accepts"
-            );
             spelling_index += 1;
         }
         calendar_index += 1;
@@ -4469,17 +4463,12 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Intl.DateTimeFormat Format Function`",
                 )
             })?;
-        self.emit_function_value_payload(&meta, function)?;
-        function.instruction(&Instruction::LocalSet(bound_local));
-        // The format function reaches its DateTimeFormat through the function
-        // object's environment handle, the same channel a promise resolving
-        // function uses for its capability record.
-        self.store_i64_local_at_offset(
-            bound_local,
-            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+        self.emit_current_builtin_realm_closure_value(
+            &meta,
             this_payload_local,
+            bound_local,
             function,
-        );
+        )?;
         self.store_i64_local_at_offset(
             record_local,
             HEAP_INTL_DTF_BOUND_FORMAT_OFFSET,
@@ -6417,8 +6406,9 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// The DateTime Format Function (ECMA-402 11.1.5): a nullary-named
-    /// closure over the `Intl.DateTimeFormat` that produced it, reached
-    /// through the function object's environment handle.
+    /// closure over the `Intl.DateTimeFormat` that produced it. The builtin
+    /// capture slot holds the formatter; the environment retains the function
+    /// identity needed by coercion and generated-error Realm lookup.
     pub(crate) fn emit_intl_date_time_format_bound_format(
         &mut self,
         function: &mut Function,
@@ -6429,8 +6419,12 @@ impl<'a> FunctionBuilder<'a> {
         let kind_local = self.reserve_temp_local();
         let out_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::LocalSet(object_local));
+        self.load_i64_to_local_from_offset(
+            self.current_env_local,
+            HEAP_FUNCTION_BUILTIN_CLOSURE_CONTEXT_OFFSET,
+            object_local,
+            function,
+        );
         self.load_i64_to_local_from_offset(
             object_local,
             HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,

@@ -49,7 +49,7 @@ fn created_realm_publishes_the_complete_main_realm_typed_array_method_surface() 
         ("values", "TypedArrayPrototypeValues"),
         ("keys", "TypedArrayPrototypeKeys"),
         ("entries", "TypedArrayPrototypeEntries"),
-        ("fill", "ArrayPrototypeFill"),
+        ("fill", "TypedArrayPrototypeFill"),
         ("join", "TypedArrayPrototypeJoin"),
         ("subarray", "TypedArrayPrototypeSubarray"),
         ("slice", "TypedArrayPrototypeSlice"),

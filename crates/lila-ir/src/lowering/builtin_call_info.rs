@@ -1004,7 +1004,8 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeConcat
             | StandardBuiltinId::ArrayPrototypeSlice
             | StandardBuiltinId::ArrayPrototypeSplice => Some(Self::unshaped_array_result_info()),
-            StandardBuiltinId::TypedArrayPrototypeReverse
+            StandardBuiltinId::TypedArrayPrototypeFill
+            | StandardBuiltinId::TypedArrayPrototypeReverse
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeSubarray
             | StandardBuiltinId::TypedArrayPrototypeSlice
@@ -1461,6 +1462,7 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
+            | StandardBuiltinId::Float16ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor
             | StandardBuiltinId::Int16ArrayConstructor
             | StandardBuiltinId::Int8ArrayConstructor
@@ -1945,8 +1947,18 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlLocalePrototypeToString => {
                 Some(ValueInfo::new(ValueKind::String))
             }
+            StandardBuiltinId::IntlLocalePrototypeNumericGetter => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
-            | StandardBuiltinId::IntlLocalePrototypeRegionGetter => None,
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+            | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+            | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+            | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+            | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+            | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter => None,
             StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => Some(ValueInfo {
                 kind: ValueKind::Object,
@@ -1977,6 +1989,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::TemporalNowZonedDateTimeIso
             | StandardBuiltinId::TemporalZonedDateTimeConstructor
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
@@ -2048,6 +2061,9 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
             | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => Some(
                 Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
             ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),

@@ -161,19 +161,19 @@ pub use prepared_script::{
 };
 pub(crate) use prepared_script::{DynamicScriptSource, ScriptInstantiation};
 pub use regexp::{
-    RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction,
-    RegExpModifierOverride, RegExpNamedGroup, RegExpProgram, RegExpUnicodeMode,
-    REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
-    REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START,
-    REGEXP_OPCODE_CLEAR_CAPTURE_RANGE, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
-    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKBEHIND_END,
-    REGEXP_OPCODE_LOOKBEHIND_FAILURE, REGEXP_OPCODE_LOOKBEHIND_START,
+    CaseFolding as RegExpCaseFolding, RegExpCompileError, RegExpCompileErrorKind, RegExpFlags,
+    RegExpInstruction, RegExpModifierOverride, RegExpNamedGroup, RegExpProgram, RegExpUnicodeMode,
+    REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_INSTRUCTION_WIDTH,
+    REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END, REGEXP_OPCODE_ASSERT_START,
+    REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START, REGEXP_OPCODE_CLEAR_CAPTURE_RANGE,
+    REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
+    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKAROUND_END,
+    REGEXP_OPCODE_LOOKAROUND_FAILURE, REGEXP_OPCODE_LOOKAROUND_START,
     REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
-    REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
-    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_PROGRESS_CHECK,
-    REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
-    REGEXP_OPCODE_WHITESPACE, REGEXP_RANGE_ENTRY_WIDTH,
+    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
+    REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
+    REGEXP_OPCODE_WORD_BOUNDARY, REGEXP_RANGE_ENTRY_WIDTH,
 };
 pub use task::{ParseTaskIdError, TaskId};
 
@@ -1218,20 +1218,12 @@ mod tests {
         let ExprIr::Conditional { condition, .. } = &assignment.expr else {
             unreachable!()
         };
-        let ExprIr::LogicalShortCircuit {
-            op: LogicalBinaryOp::And,
-            lhs,
-            ..
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::WithEnvironmentHasBinding,
+            operands,
         } = &condition.expr
         else {
             panic!("Object Environment HasBinding must guard the selected write");
-        };
-        let ExprIr::SpecOperation {
-            operation: SpecOperationIr::HasProperty,
-            operands,
-        } = &lhs.expr
-        else {
-            panic!("initial Object Environment resolution must call HasProperty");
         };
         assert!(matches!(
             &operands[0].expr,
@@ -3172,7 +3164,7 @@ mod tests {
         let StatementIr::Block(block) = body.as_ref() else {
             panic!("expected assignment prefix block");
         };
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     value,
@@ -3284,7 +3276,7 @@ mod tests {
             };
             assert!(matches!(
                 block.statements.first(),
-                Some(StatementIr::Expression(TypedExpr {
+                Some(StatementIr::DeclarationEvaluation(TypedExpr {
                     expr: ExprIr::PrivateWrite { .. },
                     ..
                 }))
@@ -4142,7 +4134,14 @@ with ({
         let StatementIr::Block(with_scope) = &with_block[1] else {
             panic!("with lexical block should contain its body block");
         };
-        let StatementIr::Block(with_body) = &with_scope.statements[1] else {
+        assert!(matches!(
+            &with_scope.statements[1],
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::Undefined,
+                ..
+            })
+        ));
+        let StatementIr::Block(with_body) = &with_scope.statements[2] else {
             panic!("with scope should contain its statement body");
         };
         let expr = with_body
@@ -8098,7 +8097,7 @@ target[Symbol.iterator];"#,
         ));
         assert!(matches!(
             plan.before_await(),
-            [StatementIr::Expression(TypedExpr {
+            [StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::AssignIdentifier { value, .. },
                 ..
             })] if matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name())
@@ -8131,7 +8130,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("static member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::PropertyWrite {
                 target, key, value, ..
             },
@@ -8188,7 +8187,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("computed member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::PropertyWrite {
                 target, key, value, ..
             },
@@ -8238,7 +8237,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("private member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::PrivateWrite {
                     target,
@@ -8615,7 +8614,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("assignment pattern head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
@@ -10350,7 +10349,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::AssignIdentifier { name, value },
                         ..
                     })) if name == outer_storage
@@ -10395,7 +10394,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::AssignIdentifier { name, .. },
                         ..
                     })) if name == &capture.name
@@ -10436,7 +10435,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::Comma { lhs, rhs },
                         ..
                     })) if matches!(&lhs.expr, ExprIr::Identifier(name) if name == &binding.name)
@@ -11311,7 +11310,7 @@ target[Symbol.iterator];"#,
                         | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             has_reference_error_throw(value)
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             has_reference_error_throw(key) || has_reference_error_throw(value)
                         }
                         ObjectPropertyIr::ComputedMethod { key, .. }
@@ -18741,7 +18740,7 @@ eval(1);
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::PropertyWrite { .. },
                         ..
                     }))

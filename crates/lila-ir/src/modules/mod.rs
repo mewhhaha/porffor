@@ -47,6 +47,7 @@ mod loaded_sources;
 mod module_key;
 mod module_unit;
 mod namespace;
+mod namespace_definition;
 mod record;
 mod resolved_binding;
 mod source;
@@ -69,4 +70,4 @@ pub(crate) use graph::link;
 pub(crate) use graph_build::build_graph;
 pub(crate) use link::linked_script_source;
 
-pub(crate) use default_export_definition::DefaultExportDefinitions;
+pub(crate) use namespace_definition::LinkedScriptDefinitions;

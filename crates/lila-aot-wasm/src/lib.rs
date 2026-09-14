@@ -23,12 +23,12 @@ use lila_ir::{
     StatementIr, Strictness, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
     SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint, TypedExpr, UnaryBitwiseOp,
     UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm, AGGREGATE_ERROR_NAME,
-    ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME,
-    BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME,
-    FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
-    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
-    INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
-    LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
+    ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
+    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT16_ARRAY_NAME, FLOAT32_ARRAY_NAME,
+    FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID,
+    INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS,
+    IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME,
+    LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
     LILA_GENERATOR_THROW_SLOT, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
     PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME,
     SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
@@ -2690,7 +2690,13 @@ mod tests {
             .0;
         assert!(helper_call.contains("self.emit_conversion_error_realm_argument(error_realm"));
         assert!(helper_call.contains("for _ in 0..3"));
-        assert!(helper_call.contains("LocalGet(self.current_env_local)"));
+        assert_eq!(
+            helper_call
+                .matches("self.emit_outlined_object_read_realm_argument(function)")
+                .count(),
+            1,
+            "outlined ToPrimitive must forward the typed property-read Realm argument"
+        );
         assert!(
             operations.contains("ConversionErrorRealmSource::RuntimeHelperArgument"),
             "the outlined helper body must decode the forwarded closed realm word"
@@ -6004,6 +6010,78 @@ object[key];
             incremental_body_bytes < 64 * 1024,
             "eleven additional outlined reads added {incremental_body_bytes} bytes \
              ({single_read_body_bytes} -> {repeated_read_body_bytes})"
+        );
+    }
+
+    #[test]
+    fn with_has_binding_has_bounded_incremental_function_body_growth() {
+        let emit_reads = |count| {
+            let reads = "selected;".repeat(count);
+            emit_script(&format!(
+                "function probe(scope, selected) {{ with (scope) {{ {reads} }} }} probe({{selected: 1}}, 0);"
+            ))
+            .expect("with binding reads should emit")
+        };
+        let single = emit_reads(1);
+        let repeated = emit_reads(10);
+        expect_valid_module(&single, 1);
+        expect_valid_module(&repeated, 1);
+        let largest_probe = |artifact: &WasmArtifact| {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::probe#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("the probe body must be emitted")
+        };
+        let single_bytes = largest_probe(&single);
+        let repeated_bytes = largest_probe(&repeated);
+        let growth = repeated_bytes
+            .checked_sub(single_bytes)
+            .expect("additional observable reads must not shrink the body");
+        // Frozen main added 92,151 bytes for these nine sites. This ceiling
+        // detects a return to the repeated generic HasBinding expression tree.
+        assert!(
+            growth < 45_000,
+            "nine With reads added {growth} bytes ({single_bytes} -> {repeated_bytes})"
+        );
+    }
+
+    #[test]
+    fn nested_with_writes_share_dynamic_property_set_dispatch() {
+        let emit_writes = |count| {
+            let writes = "destination = selected;".repeat(count);
+            emit_script(&format!(
+                "function probe(outer, inner, destination, selected) {{ \
+                 with (outer) {{ with (inner) {{ {writes} }} }} }} \
+                 probe({{}}, {{}}, 0, 1);"
+            ))
+            .expect("nested With assignments should emit")
+        };
+        let single = emit_writes(1);
+        let repeated = emit_writes(10);
+        expect_valid_module(&single, 1);
+        expect_valid_module(&repeated, 1);
+        let largest_probe = |artifact: &WasmArtifact| {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::probe#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("the probe body must be emitted")
+        };
+        let single_bytes = largest_probe(&single);
+        let repeated_bytes = largest_probe(&repeated);
+        let growth = repeated_bytes
+            .checked_sub(single_bytes)
+            .expect("additional observable assignments must not shrink the body");
+        // The frozen baseline added 538,272 bytes by copying array dispatch
+        // into each possible SetMutableBinding branch.
+        assert!(
+            growth < 180_000,
+            "nine nested With assignments added {growth} bytes ({single_bytes} -> {repeated_bytes})"
         );
     }
 

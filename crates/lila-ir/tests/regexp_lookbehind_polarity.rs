@@ -1,17 +1,17 @@
-use lila_ir::{RegExpProgram, REGEXP_OPCODE_LOOKBEHIND_END, REGEXP_OPCODE_LOOKBEHIND_FAILURE};
+use lila_ir::{RegExpProgram, REGEXP_OPCODE_LOOKAROUND_END, REGEXP_OPCODE_LOOKAROUND_FAILURE};
 
 fn polarity_bits(program: &RegExpProgram) -> (u64, u64) {
     let end = program
         .instructions
         .iter()
-        .find(|instruction| instruction.opcode == REGEXP_OPCODE_LOOKBEHIND_END)
+        .find(|instruction| instruction.opcode == REGEXP_OPCODE_LOOKAROUND_END)
         .expect("lookbehind end instruction");
     let failure = program
         .instructions
         .iter()
-        .find(|instruction| instruction.opcode == REGEXP_OPCODE_LOOKBEHIND_FAILURE)
+        .find(|instruction| instruction.opcode == REGEXP_OPCODE_LOOKAROUND_FAILURE)
         .expect("lookbehind failure instruction");
-    (end.operand1 >> 63, failure.operand1)
+    (end.operand1 >> 63, failure.operand1 & 1)
 }
 
 #[test]

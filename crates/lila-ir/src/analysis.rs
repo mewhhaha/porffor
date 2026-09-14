@@ -226,6 +226,7 @@ pub(crate) struct Analysis<'a> {
     pub(crate) annex_b_function_plans: BTreeMap<String, AnnexBFunctionPlan>,
     pub(crate) function_expr_ids: BTreeMap<String, FunctionId>,
     pub(crate) class_execution_ids: BTreeMap<String, FunctionId>,
+    pub(crate) namespace_initializers: BTreeMap<usize, ModuleNamespaceModeIr>,
     pub(crate) default_export_class_ids: BTreeSet<FunctionId>,
     pub(crate) hoisted_default_export_function_ids: BTreeSet<FunctionId>,
     pub(crate) class_name_environment_ids: BTreeMap<String, EnvironmentId>,
@@ -539,6 +540,7 @@ impl<'a> AnalysisBuilder<'a> {
             annex_b_function_plans: self.annex_b_function_plans,
             function_expr_ids: self.function_expr_ids,
             class_execution_ids: self.class_execution_ids,
+            namespace_initializers: BTreeMap::new(),
             default_export_class_ids: BTreeSet::new(),
             hoisted_default_export_function_ids: BTreeSet::new(),
             class_name_environment_ids: self.class_name_environment_ids,
@@ -5766,8 +5768,8 @@ impl<'a> AnalysisBuilder<'a> {
                     refs,
                 );
             }
-            Expression::Update(update) => {
-                if let UpdateTarget::Identifier(identifier) = update.target() {
+            Expression::Update(update) => match update.target() {
+                UpdateTarget::Identifier(identifier) => {
                     self.record_ref(
                         owner_id,
                         interner.resolve_expect(identifier.sym()).to_string(),
@@ -5775,7 +5777,38 @@ impl<'a> AnalysisBuilder<'a> {
                         refs,
                     );
                 }
-            }
+                UpdateTarget::PropertyAccess(access) => self.scan_property_access(
+                    owner_id,
+                    access,
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                ),
+                UpdateTarget::WebCompatCall(call) => {
+                    self.scan_expression(
+                        owner_id,
+                        call.function(),
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    for argument in call.args() {
+                        self.scan_expression(
+                            owner_id,
+                            argument,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
+                    }
+                }
+            },
             Expression::Call(call) => {
                 self.scan_expression(
                     owner_id,
@@ -6012,7 +6045,7 @@ impl<'a> AnalysisBuilder<'a> {
                         name: function
                             .name()
                             .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
-                            .unwrap_or_else(|| "<arrow>".to_string()),
+                            .unwrap_or_default(),
                         to_string_representation: CallableToStringRepresentation::ExactSource(
                             arrow_function_source_slice(function, source_text),
                         ),

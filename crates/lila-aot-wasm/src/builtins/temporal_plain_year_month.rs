@@ -527,8 +527,12 @@ impl<'a> FunctionBuilder<'a> {
                 let value_local = self.reserve_temp_local();
                 match builtin {
                     StandardBuiltinId::TemporalPlainYearMonthPrototypeYearGetter => {
-                        function.instruction(&Instruction::LocalGet(year_local));
-                        function.instruction(&Instruction::LocalSet(value_local));
+                        self.emit_temporal_calendar_year(
+                            calendar_payload_local,
+                            year_local,
+                            value_local,
+                            function,
+                        );
                     }
                     StandardBuiltinId::TemporalPlainYearMonthPrototypeMonthGetter => {
                         function.instruction(&Instruction::LocalGet(month_local));

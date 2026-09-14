@@ -19,8 +19,14 @@ The public predicate dispatcher constructs those restricted operations through
 one exhaustive match. The algebra operation exhaustively selects whether it may
 iterate the receiver, while the other-iteration helper retains the complete
 four-operation domain because every algebra method may use that path. Result
-initialization is also exhaustive: intersection starts empty, while difference,
-symmetric difference and union copy the receiver.
+copying is also exhaustive: intersection starts empty; difference copies before
+its size-directed traversal; symmetric difference and union copy after calling
+`keys` and reading the returned iterator's `next` method, before calling `next`.
+
+The has-method path for difference visits its private result copy. Mutating the
+original receiver during `other.has` does not replace the original keys still
+to be visited. Intersection retains its live receiver traversal, including
+reinserted keys. The restricted operation selects those two sources explicitly.
 
 Adding a public operation therefore requires selecting its initialization and
 iteration plan. Adding a restricted helper operation requires implementing its
@@ -52,3 +58,9 @@ deferred.
 This type closure preserves valid Set values, ordering, size selection,
 set-like observation and iterator closing. It does not claim the complete
 pinned Set tree or weak-collection semantics.
+
+`aot_set_algebra_copy_phases` covers receiver mutation in `has`, `keys`, the
+iterator's `next` getter and its first `next` call. It retains intersection's
+live traversal, duplicate suppression, and SameValueZero normalization. The
+pinned SpiderMonkey difference, symmetric-difference and union cases supply
+the corresponding complete harness consumers.

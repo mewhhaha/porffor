@@ -1,4 +1,4 @@
-//! The language/script/region part of Intl.Locale's ordered options pass.
+//! The language/script/region/variants part of Intl.Locale's ordered options pass.
 //!
 //! Observable operations remain in the shared object/coercion emitters. This
 //! module only emits subtag validation and reconstruction of an already-valid
@@ -13,11 +13,18 @@ use super::*;
 #[must_use]
 pub(super) struct CoercedIntlLocaleOptions(TaggedLocals);
 
+impl CoercedIntlLocaleOptions {
+    pub(super) const fn receiver(&self) -> TaggedLocals {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy)]
 enum LanguageOption {
     Language,
     Script,
     Region,
+    Variants,
 }
 
 impl LanguageOption {
@@ -26,6 +33,7 @@ impl LanguageOption {
             Self::Language => "language",
             Self::Script => "script",
             Self::Region => "region",
+            Self::Variants => "variants",
         }
     }
 }
@@ -78,12 +86,12 @@ impl<'a> FunctionBuilder<'a> {
 
     /// Apply core overrides without losing variants, other extensions, or
     /// private use. The original suffix boundary is captured before any field
-    /// is replaced. Reusing the structural canonicalizer keeps all five
-    /// represented Locale slots consistent, including script/region casing.
+    /// is replaced. Per-option validation guarantees a valid reconstruction;
+    /// the final provider pass refreshes all cached component slots.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_intl_locale_language_options(
         &mut self,
-        options: CoercedIntlLocaleOptions,
+        options: &CoercedIntlLocaleOptions,
         tag: u32,
         language: u32,
         script: u32,
@@ -92,6 +100,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let options = options.0;
+        let variants = self.reserve_temp_local();
         let source_offset = self.reserve_temp_local();
         let source_length = self.reserve_temp_local();
         let prefix_length = self.reserve_temp_local();
@@ -105,7 +114,6 @@ impl<'a> FunctionBuilder<'a> {
         let position = self.reserve_temp_local();
         let separator = self.reserve_temp_local();
         let rebuilt_tag = self.reserve_temp_local();
-        let valid = self.reserve_temp_local();
         let result = (|| {
             function.instruction(&Instruction::LocalGet(options.tag));
             function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -113,15 +121,10 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::If(BlockType::Empty));
 
             self.emit_unpack_string_payload(tag, source_offset, source_length, function);
-            self.emit_intl_locale_prefix_length(
-                language,
-                script,
-                region,
-                prefix_length,
-                scratch_offset,
-                scratch_length,
-                function,
+            self.emit_intl_locale_variants_payload(
+                tag, language, script, region, base_name, variants, function,
             );
+            self.emit_unpack_string_payload(base_name, scratch_offset, prefix_length, function);
             function.instruction(&Instruction::LocalGet(source_length));
             function.instruction(&Instruction::LocalGet(prefix_length));
             function.instruction(&Instruction::I64Sub);
@@ -141,6 +144,7 @@ impl<'a> FunctionBuilder<'a> {
                 (LanguageOption::Language, language),
                 (LanguageOption::Script, script),
                 (LanguageOption::Region, region),
+                (LanguageOption::Variants, variants),
             ] {
                 self.emit_intl_locale_language_option(
                     options,
@@ -164,6 +168,18 @@ impl<'a> FunctionBuilder<'a> {
                 scratch_length,
                 function,
             );
+            function.instruction(&Instruction::LocalGet(variants));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_unpack_string_payload(variants, scratch_offset, scratch_length, function);
+            function.instruction(&Instruction::LocalGet(prefix_length));
+            function.instruction(&Instruction::LocalGet(scratch_length));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(prefix_length));
+            function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(prefix_length));
             function.instruction(&Instruction::LocalGet(suffix_length));
             function.instruction(&Instruction::I64Add);
@@ -172,7 +188,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(output));
             self.emit_intl_set_const(position, 0, function);
             self.emit_intl_locale_append_payload(language, output, position, function);
-            for component in [script, region] {
+            for component in [script, region, variants] {
                 function.instruction(&Instruction::LocalGet(component));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::I32Eqz);
@@ -189,35 +205,13 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(position));
             function.instruction(&Instruction::I64Or);
             function.instruction(&Instruction::LocalSet(rebuilt_tag));
-            self.emit_intl_canonicalize_locale_tag(
-                CanonicalLocaleTagInvocationLocals::new(
-                    CanonicalLocaleTagInputPayloadLocal::new(rebuilt_tag),
-                    CanonicalLocaleTagPayloadLocal::new(tag),
-                    CanonicalLocaleLanguagePayloadLocal::new(language),
-                    CanonicalLocaleScriptPayloadLocal::new(script),
-                    CanonicalLocaleRegionPayloadLocal::new(region),
-                    CanonicalLocaleBaseNamePayloadLocal::new(base_name),
-                    CanonicalLocaleValidityLocal::new(valid),
-                ),
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(valid));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Invalid language tag after Intl.Locale options",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalGet(rebuilt_tag));
+            function.instruction(&Instruction::LocalSet(tag));
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::End);
             Ok(())
         })();
         for local in [
-            valid,
             rebuilt_tag,
             separator,
             position,
@@ -231,6 +225,7 @@ impl<'a> FunctionBuilder<'a> {
             prefix_length,
             source_length,
             source_offset,
+            variants,
         ] {
             self.release_temp_local(local);
         }
@@ -238,7 +233,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn emit_intl_locale_prefix_length(
+    pub(super) fn emit_intl_locale_prefix_length(
         &mut self,
         language: u32,
         script: u32,
@@ -318,6 +313,9 @@ impl<'a> FunctionBuilder<'a> {
         value: u32,
         function: &mut Function,
     ) -> Result<ValidatedLocaleComponent, EmitError> {
+        if matches!(option, LanguageOption::Variants) {
+            return self.emit_intl_locale_validate_variants(value, function);
+        }
         let offset = self.reserve_temp_local();
         let length = self.reserve_temp_local();
         let index = self.reserve_temp_local();
@@ -336,6 +334,9 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 LanguageOption::Script => {
                     self.emit_intl_locale_in_range(length, 4, 4, function);
+                }
+                LanguageOption::Variants => {
+                    unreachable!("variants use the locale grammar validator")
                 }
                 LanguageOption::Region => {
                     self.emit_intl_locale_in_range(length, 2, 3, function);
@@ -378,6 +379,9 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I32Eqz);
             match option {
                 LanguageOption::Language | LanguageOption::Script => {}
+                LanguageOption::Variants => {
+                    unreachable!("variants use the locale grammar validator")
+                }
                 LanguageOption::Region => {
                     self.emit_intl_locale_in_range(length, 2, 2, function);
                     function.instruction(&Instruction::I32And);
@@ -393,6 +397,75 @@ impl<'a> FunctionBuilder<'a> {
             Ok(ValidatedLocaleComponent(value))
         })();
         for local in [all_digit, all_alpha, folded, byte, index, length, offset] {
+            self.release_temp_local(local);
+        }
+        result
+    }
+
+    fn emit_intl_locale_validate_variants(
+        &mut self,
+        value: u32,
+        function: &mut Function,
+    ) -> Result<ValidatedLocaleComponent, EmitError> {
+        let offset = self.reserve_temp_local();
+        let length = self.reserve_temp_local();
+        let output = self.reserve_temp_local();
+        let position = self.reserve_temp_local();
+        let prefix = self.reserve_temp_local();
+        let input = self.reserve_temp_local();
+        let tag = self.reserve_temp_local();
+        let language = self.reserve_temp_local();
+        let script = self.reserve_temp_local();
+        let region = self.reserve_temp_local();
+        let base_name = self.reserve_temp_local();
+        let valid = self.reserve_temp_local();
+        let result = (|| {
+            // Reuse the authoritative locale grammar and duplicate detection.
+            // Requiring no script, region or extensions restricts the suffix
+            // of `und-` to exactly one or more variant subtags.
+            self.emit_unpack_string_payload(value, offset, length, function);
+            function.instruction(&Instruction::LocalGet(length));
+            function.instruction(&Instruction::I64Const(4));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(length));
+            self.emit_heap_alloc_from_local(length, function)?;
+            function.instruction(&Instruction::LocalSet(output));
+            self.emit_intl_set_const(position, 0, function);
+            self.emit_intl_set_const(prefix, self.strings.payload("und-"), function);
+            self.emit_intl_locale_append_payload(prefix, output, position, function);
+            self.emit_intl_locale_append_payload(value, output, position, function);
+            self.emit_pack_string_payload(output, position, function);
+            function.instruction(&Instruction::LocalSet(input));
+            self.emit_intl_canonicalize_locale_tag(
+                CanonicalLocaleTagInvocationLocals::new(
+                    CanonicalLocaleTagInputPayloadLocal::new(input),
+                    CanonicalLocaleTagPayloadLocal::new(tag),
+                    CanonicalLocaleLanguagePayloadLocal::new(language),
+                    CanonicalLocaleScriptPayloadLocal::new(script),
+                    CanonicalLocaleRegionPayloadLocal::new(region),
+                    CanonicalLocaleBaseNamePayloadLocal::new(base_name),
+                    CanonicalLocaleValidityLocal::new(valid),
+                ),
+                function,
+            )?;
+            function.instruction(&Instruction::LocalGet(valid));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::LocalGet(script));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::LocalGet(region));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32And);
+            self.emit_string_payload_equality_i32(tag, base_name, function);
+            function.instruction(&Instruction::I32And);
+            self.emit_intl_locale_component_guard(LanguageOption::Variants, function)?;
+            Ok(ValidatedLocaleComponent(value))
+        })();
+        for local in [
+            valid, base_name, region, script, language, tag, input, prefix, position, output,
+            length, offset,
+        ] {
             self.release_temp_local(local);
         }
         result
@@ -417,7 +490,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_intl_locale_in_range(
+    pub(super) fn emit_intl_locale_in_range(
         &self,
         value: u32,
         minimum: i64,
@@ -433,7 +506,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
     }
 
-    fn emit_intl_locale_append_payload(
+    pub(super) fn emit_intl_locale_append_payload(
         &mut self,
         payload: u32,
         output: u32,

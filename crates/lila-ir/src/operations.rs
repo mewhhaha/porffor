@@ -147,6 +147,7 @@ pub enum SpecOperationFamily {
     TypeQuery,
     Conversion,
     Comparison,
+    Environment,
     Object,
     Invocation,
     Iterator,
@@ -742,6 +743,7 @@ pub enum OperationDomain {
     ValuePair,
     ValueAndInteger,
     ObjectAndPropertyKey,
+    WithBindingObjectAndName,
     ValueAndPropertyKey,
     ObjectPropertyKeyValue,
     ObjectAndSourceValue,
@@ -756,6 +758,7 @@ impl OperationDomain {
             Self::ValuePair
             | Self::ValueAndInteger
             | Self::ObjectAndPropertyKey
+            | Self::WithBindingObjectAndName
             | Self::ValueAndPropertyKey
             | Self::ObjectAndSourceValue => operand_count == 2,
             Self::ObjectPropertyKeyValue => operand_count == 3,
@@ -770,6 +773,7 @@ impl OperationDomain {
             Self::ValuePair => "2 values",
             Self::ValueAndInteger => "a value and an integer",
             Self::ObjectAndPropertyKey => "an object and a property key",
+            Self::WithBindingObjectAndName => "a with binding object and a String binding name",
             Self::ValueAndPropertyKey => "a value and a property key",
             Self::ObjectPropertyKeyValue => "an object, a property key, and a value",
             Self::ObjectAndSourceValue => "a target object and a source value",
@@ -1095,6 +1099,14 @@ spec_operations! {
         name: "HasProperty",
         family: Object,
         domain: ObjectAndPropertyKey,
+        result: Boolean,
+        abrupt: MayThrow,
+    };
+    WithEnvironmentHasBinding => {
+        canonical: SpecOperationIr::WithEnvironmentHasBinding,
+        name: "WithEnvironmentHasBinding",
+        family: Environment,
+        domain: WithBindingObjectAndName,
         result: Boolean,
         abrupt: MayThrow,
     };
@@ -1911,16 +1923,16 @@ const _: () = {
 //      AGENTS.md's own test.
 
 // (J4) The census the contract states, tied to the tables that produce it:
-//      29 shared-expression rows + 2 shared-backend rows + 5 statement-emission
+//      30 shared-expression rows + 2 shared-backend rows + 5 statement-emission
 //      rows + 10 tracked gaps. Changing any table without restating the census
 //      is a compile error, which is the point — the row counts are the claim
 //      this area exists to keep honest.
 const _: () = {
-    assert!(SpecOperationIr::ALL.len() == 29);
+    assert!(SpecOperationIr::ALL.len() == 30);
     assert!(BackendSpecOperation::ALL.len() == 2);
     assert!(STATEMENT_EMISSION_ROWS.len() == 5);
     assert!(TRACKED_GAP_ROWS.len() == 10);
-    assert!(SPEC_OPERATION_ROW_COUNT == 46);
+    assert!(SPEC_OPERATION_ROW_COUNT == 47);
 };
 
 // (J5) Row order: `build_catalog` lays each derived domain down first, in its

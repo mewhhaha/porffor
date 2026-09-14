@@ -15,27 +15,6 @@ impl<'a> ScriptLowerer<'a> {
             return (StatementIr::Empty, ValueKind::Undefined);
         }
         let initializer_prefix = self.lower_for_in_initializer_prefix(for_in.initializer());
-        if self.for_in_known_empty_target(for_in.target()) {
-            return Self::prepend_statement(
-                initializer_prefix,
-                StatementIr::Empty,
-                ValueKind::Undefined,
-            );
-        }
-        if self.for_in_global_non_enumerable_guard_only(for_in) {
-            return Self::prepend_statement(
-                initializer_prefix,
-                StatementIr::Empty,
-                ValueKind::Undefined,
-            );
-        }
-        if self.for_in_builtin_non_enumerable_assert_only(for_in) {
-            return Self::prepend_statement(
-                initializer_prefix,
-                StatementIr::Empty,
-                ValueKind::Undefined,
-            );
-        }
         if let IterableLoopInitializer::WebCompatCall(call) = for_in.initializer() {
             return Self::prepend_statement(
                 initializer_prefix,
@@ -146,8 +125,6 @@ impl<'a> ScriptLowerer<'a> {
             || target.possible_kinds.contains(ValueKind::Arguments);
         let is_string_target = target.possible_kinds.contains(ValueKind::String)
             || Self::value_info_is_boxed_string(&target.value_info());
-        let is_object_target = target.possible_kinds.contains(ValueKind::Object)
-            || target.possible_kinds.contains(ValueKind::Function);
         // 14.7.5.6 ForIn/OfHeadEvaluation step 3.a: when `exprValue` is
         // `undefined` or `null`, return a **break completion**. The head is
         // evaluated, the loop body runs zero times, and nothing throws — a
@@ -204,17 +181,6 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Undefined,
             );
         }
-        if !is_dynamic_target && !is_array_target && !is_string_target && !is_object_target {
-            // What is left is Number/Boolean/Symbol/BigInt: 14.7.5.6 step 3.b
-            // sends those through ToObject (7.1.18) and enumerates the wrapper's
-            // own enumerable properties, which is a separate and currently
-            // uncounted family. Named in the message so the next lane inherits
-            // an accurate diagnostic instead of "non-enumerable target", which
-            // was never true of any of them.
-            self.unsupported("for-in target requiring ToObject (number, boolean, symbol, bigint)");
-            return (StatementIr::Empty, ValueKind::Undefined);
-        }
-
         // EnumerateObjectProperties can enter Proxy ownKeys and descriptor
         // traps while discovering the keys, before the first loop head or body
         // evaluation.
@@ -276,7 +242,7 @@ impl<'a> ScriptLowerer<'a> {
             let value =
                 TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
             let access = access.clone();
-            vec![StatementIr::Expression(
+            vec![StatementIr::DeclarationEvaluation(
                 self.lower_property_assign_value(&access, value),
             )]
         } else if let Some(pattern) = assignment_pattern_initializer.as_ref() {
@@ -286,7 +252,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.pop_scope();
                 return (StatementIr::Empty, ValueKind::Undefined);
             };
-            vec![StatementIr::Expression(assign)]
+            vec![StatementIr::DeclarationEvaluation(assign)]
         } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
             let init =
                 TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
@@ -438,172 +404,5 @@ impl<'a> ScriptLowerer<'a> {
             mode,
             self.interner.resolve_expect(identifier.sym()).to_string(),
         ))
-    }
-
-    fn for_in_known_empty_target(&self, target: &Expression) -> bool {
-        let Expression::Identifier(identifier) = target else {
-            return false;
-        };
-        let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        self.identifier_is_builtin_native_error(&name).is_some()
-    }
-
-    fn for_in_global_non_enumerable_guard_only(
-        &self,
-        for_in: &boa_ast::statement::iteration::ForInLoop,
-    ) -> bool {
-        if !self.for_in_global_target(for_in.target()) {
-            return false;
-        }
-        let Some(loop_name) = self.for_in_initializer_name(for_in.initializer()) else {
-            return false;
-        };
-        let Some(watched_name) =
-            self.for_in_non_enumerable_guarded_assignment(for_in.body(), &loop_name)
-        else {
-            return false;
-        };
-        self.is_known_non_enumerable_global(&watched_name)
-    }
-
-    fn for_in_builtin_non_enumerable_assert_only(
-        &self,
-        for_in: &boa_ast::statement::iteration::ForInLoop,
-    ) -> bool {
-        let Some(target_name) = self.for_in_static_builtin_target(for_in.target()) else {
-            return false;
-        };
-        let Some(loop_name) = self.for_in_initializer_name(for_in.initializer()) else {
-            return false;
-        };
-        let Some(watched_name) = self.for_in_not_same_value_guard_name(for_in.body(), &loop_name)
-        else {
-            return false;
-        };
-        self.is_known_non_enumerable_builtin_property(&target_name, &watched_name)
-    }
-
-    fn for_in_static_builtin_target(&self, target: &Expression) -> Option<String> {
-        match target {
-            Expression::Identifier(identifier) => {
-                let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                matches!(name.as_str(), NUMBER_NAME | BOOLEAN_NAME).then_some(name)
-            }
-            Expression::Parenthesized(parenthesized) => {
-                self.for_in_static_builtin_target(parenthesized.expression())
-            }
-            _ => None,
-        }
-    }
-
-    fn for_in_initializer_name(&self, initializer: &IterableLoopInitializer) -> Option<String> {
-        let identifier = match initializer {
-            IterableLoopInitializer::Identifier(identifier) => identifier,
-            IterableLoopInitializer::Var(variable) if variable.init().is_none() => {
-                let Binding::Identifier(identifier) = variable.binding() else {
-                    return None;
-                };
-                identifier
-            }
-            IterableLoopInitializer::Let(Binding::Identifier(identifier))
-            | IterableLoopInitializer::Const(Binding::Identifier(identifier)) => identifier,
-            _ => return None,
-        };
-        Some(self.interner.resolve_expect(identifier.sym()).to_string())
-    }
-
-    fn for_in_non_enumerable_guarded_assignment(
-        &self,
-        body: &Statement,
-        loop_name: &str,
-    ) -> Option<String> {
-        let Statement::If(if_statement) = self.single_statement(body) else {
-            return None;
-        };
-        if if_statement.else_node().is_some() {
-            return None;
-        }
-        let watched_name = self.for_in_non_enumerable_guard_name(if_statement.cond(), loop_name)?;
-        if self.statement_is_simple_false_assignment(if_statement.body()) {
-            Some(watched_name)
-        } else {
-            None
-        }
-    }
-
-    fn for_in_non_enumerable_guard_name(
-        &self,
-        condition: &Expression,
-        loop_name: &str,
-    ) -> Option<String> {
-        let condition = Self::unwrap_parenthesized_expr(condition);
-        let Expression::Binary(binary) = condition else {
-            return None;
-        };
-        if binary.op() != BinaryOp::Relational(RelationalOp::StrictEqual) {
-            return None;
-        }
-        if self.expr_is_identifier_named(binary.lhs(), loop_name) {
-            return self.static_string_expression(binary.rhs());
-        }
-        if self.expr_is_identifier_named(binary.rhs(), loop_name) {
-            return self.static_string_expression(binary.lhs());
-        }
-        None
-    }
-
-    fn for_in_not_same_value_guard_name(
-        &self,
-        body: &Statement,
-        loop_name: &str,
-    ) -> Option<String> {
-        let Statement::Expression(expression) = self.single_statement(body) else {
-            return None;
-        };
-        let Expression::Call(call) = Self::unwrap_parenthesized_expr(expression) else {
-            return None;
-        };
-        let Expression::PropertyAccess(PropertyAccess::Simple(access)) =
-            Self::unwrap_parenthesized_expr(call.function())
-        else {
-            return None;
-        };
-        let (Expression::Identifier(target), PropertyAccessField::Const(field)) =
-            (access.target(), access.field())
-        else {
-            return None;
-        };
-        if self.interner.resolve_expect(target.sym()).to_string() != "assert"
-            || self.interner.resolve_expect(field.sym()).to_string() != "notSameValue"
-            || call.args().len() < 2
-        {
-            return None;
-        }
-        if self.expr_is_identifier_named(&call.args()[0], loop_name) {
-            return self.static_string_expression(&call.args()[1]);
-        }
-        if self.expr_is_identifier_named(&call.args()[1], loop_name) {
-            return self.static_string_expression(&call.args()[0]);
-        }
-        None
-    }
-
-    fn statement_is_simple_false_assignment(&self, statement: &Statement) -> bool {
-        let Statement::Expression(expression) = self.single_statement(statement) else {
-            return false;
-        };
-        let Expression::Assign(assign) = Self::unwrap_parenthesized_expr(expression) else {
-            return false;
-        };
-        if assign.op() != AssignOp::Assign {
-            return false;
-        }
-        if !matches!(assign.lhs(), AssignTarget::Identifier(_)) {
-            return false;
-        }
-        matches!(
-            Self::unwrap_parenthesized_expr(assign.rhs()),
-            Expression::Literal(literal) if matches!(literal.kind(), LiteralKind::Bool(false))
-        )
     }
 }

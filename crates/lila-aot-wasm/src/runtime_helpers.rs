@@ -5,7 +5,7 @@
 //! (emission of the body), once as 27 hand-written `base + N` accessors on
 //! [`FunctionBuilder`](crate::emit::FunctionBuilder), and once as a literal
 //! `27` in `debug_dump`. The literal had already drifted — the counted truth is
-//! now 40 unconditional helpers plus one conditional one — because nothing
+//! now 41 unconditional helpers plus one conditional one — because nothing
 //! forced the four copies to agree.
 //!
 //! Now the enum *is* the order. `RuntimeHelperId as u32` is the offset from the
@@ -334,16 +334,21 @@ pub(crate) enum RuntimeHelperId {
     /// the trusted caller Realm environment or zero in 6. Slots 4/5 are unused.
     /// Returns a Boolean or the standard abrupt completion tuple.
     ObjectHasProperty = 39,
+    /// Object Environment Record HasBinding for [[IsWithEnvironment]] = true.
+    /// Receives binding object payload/tag in 0/1, String name in 2/3, and
+    /// trusted caller Realm environment or zero in 6. Slots 4/5 are unused.
+    /// Returns a Boolean or the standard abrupt completion tuple.
+    WithEnvironmentHasBinding = 40,
     /// Only helper whose emission is conditional today. Keep conditional
     /// helpers last; `conditional_helpers_are_last` is a compile-time check,
     /// not a comment.
-    JsonStringifyValue = 40,
+    JsonStringifyValue = 41,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 41] = [
+    pub(crate) const ALL: [Self; 42] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -384,6 +389,7 @@ impl RuntimeHelperId {
         Self::ValueToPrimitiveString,
         Self::ValueToPropertyKey,
         Self::ObjectHasProperty,
+        Self::WithEnvironmentHasBinding,
         Self::JsonStringifyValue,
     ];
 
@@ -468,6 +474,7 @@ impl RuntimeHelperId {
             | Self::ValueToPrimitiveString
             | Self::ValueToPropertyKey
             | Self::ObjectHasProperty
+            | Self::WithEnvironmentHasBinding
             | Self::JsonStringifyValue => JS_FUNCTION_TYPE_INDEX,
         }
     }
@@ -517,7 +524,8 @@ impl RuntimeHelperId {
             | Self::ValueToPrimitiveNumber
             | Self::ValueToPrimitiveString
             | Self::ValueToPropertyKey
-            | Self::ObjectHasProperty => true,
+            | Self::ObjectHasProperty
+            | Self::WithEnvironmentHasBinding => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
     }
@@ -575,6 +583,7 @@ impl RuntimeHelperId {
             Self::ValueToPrimitiveString => "value_to_primitive_string",
             Self::ValueToPropertyKey => "value_to_property_key",
             Self::ObjectHasProperty => "object_has_property",
+            Self::WithEnvironmentHasBinding => "with_environment_has_binding",
             Self::JsonStringifyValue => "json_stringify_value",
         }
     }
@@ -698,7 +707,7 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 40 unconditional helpers plus JSON.stringify's value helper. The
+        // 41 unconditional helpers plus JSON.stringify's value helper. The
         // `debug_dump` line used to hard-code 27 and had drifted by five.
         let without_json = RuntimeHelperId::ALL
             .iter()
@@ -712,8 +721,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 40);
-        assert_eq!(with_json, 41);
+        assert_eq!(without_json, 41);
+        assert_eq!(with_json, 42);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in

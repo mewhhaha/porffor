@@ -99,9 +99,9 @@ fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
     );
     assert_eq!(
         reserve
-            .matches("NewTargetPrototypeFallback::CurrentGlobal")
+            .matches("OrdinaryDefaultPrototype::IntlDateTimeFormat")
             .count(),
-        1
+        2
     );
     assert_eq!(
         reserve

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{IrDiagnostic, MAX_LINKABLE_MODULE_UNIT_ID};
 
@@ -86,7 +86,7 @@ pub(crate) fn build_graph(
                     body: None,
                     functions: Vec::new(),
                     owned_env_bindings: Vec::new(),
-                    namespace: None,
+                    namespaces: BTreeMap::new(),
                     resolved_imports,
                     resolved_indirect_exports,
                 });

@@ -1602,6 +1602,46 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_is_module_namespace_i32(target_payload_local, target_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let namespace_descriptor = crate::objects::WasmPartialDescriptor {
+            value: lila_ir::property_descriptor::Presence::Runtime {
+                present: value_present_local,
+                value: TaggedLocals::new(value_payload_local, value_tag_local),
+            },
+            get: lila_ir::property_descriptor::Presence::Runtime {
+                present: getter_present_local,
+                value: TaggedLocals::new(getter_payload_local, getter_tag_local),
+            },
+            set: lila_ir::property_descriptor::Presence::Runtime {
+                present: setter_present_local,
+                value: TaggedLocals::new(setter_payload_local, setter_tag_local),
+            },
+            writable: lila_ir::property_descriptor::Presence::Runtime {
+                present: writable_present_local,
+                value: writable_payload_local,
+            },
+            enumerable: lila_ir::property_descriptor::Presence::Runtime {
+                present: enumerable_present_local,
+                value: enumerable_payload_local,
+            },
+            configurable: lila_ir::property_descriptor::Presence::Runtime {
+                present: configurable_present_local,
+                value: configurable_payload_local,
+            },
+        };
+        self.emit_namespace_define_own_property(
+            target_payload_local,
+            key_string_local,
+            &namespace_descriptor,
+            self.result_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
@@ -2152,6 +2192,25 @@ impl<'a> FunctionBuilder<'a> {
             trap_result,
             function,
         )?;
+        function.instruction(&Instruction::End);
+
+        self.emit_is_module_namespace_i32(target_payload_local, target_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_own_keys(
+            target_payload_local,
+            crate::objects::NamespaceOwnKeys::All,
+            self.result_local,
+            function,
+        )?;
+        let prototype = self.emit_load_current_function_realm_array_prototype(function);
+        self.emit_install_current_function_realm_array_prototype(
+            self.result_local,
+            prototype,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
         let names_meta = self

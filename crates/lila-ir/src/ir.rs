@@ -811,6 +811,13 @@ impl ObjectMethodFunctionIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComputedPropertyNameInferenceIr {
+    None,
+    Function,
+    Class { key_binding: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectPropertyIr {
     PrototypeSetter {
         value: TypedExpr,
@@ -830,6 +837,7 @@ pub enum ObjectPropertyIr {
     ComputedData {
         key: TypedExpr,
         value: TypedExpr,
+        name_inference: ComputedPropertyNameInferenceIr,
     },
     ComputedMethod {
         key: TypedExpr,
@@ -1060,6 +1068,7 @@ impl ClassPrivateEnvironmentIr {
 pub struct ClassDefinitionIr {
     pub name: Option<String>,
     pub name_binding: Option<ClassNameBindingIr>,
+    pub inferred_name_binding: Option<String>,
     pub constructor_function_id: FunctionId,
     pub explicit_constructor: bool,
     pub heritage_kind: ClassHeritageKind,
@@ -1999,6 +2008,22 @@ impl ArrayAccumulationIr {
     }
 }
 
+/// Evaluation behavior of the same module namespace exotic representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ModuleNamespaceModeIr {
+    Eager,
+    Deferred,
+}
+
+impl ModuleNamespaceModeIr {
+    pub(crate) const fn cell_role(self) -> crate::UnitCellRole {
+        match self {
+            Self::Eager => crate::UnitCellRole::Namespace,
+            Self::Deferred => crate::UnitCellRole::DeferredNamespace,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprIr {
     Undefined,
@@ -2038,9 +2063,13 @@ pub enum ExprIr {
     ImportMeta {
         module: ModuleUnitId,
     },
-    /// The module namespace exotic object of `module`, identity-cached.
+    /// A namespace's private closure table, produced only from trusted linker
+    /// metadata. Its first element is undefined (eager) or an evaluation closure
+    /// (deferred), followed by sorted export-name / live-reader pairs. The linker
+    /// binds the resulting object once to preserve namespace identity.
     ModuleNamespace {
-        module: ModuleUnitId,
+        mode: ModuleNamespaceModeIr,
+        exports: Box<TypedExpr>,
     },
     This,
     Arguments,
@@ -5172,7 +5201,8 @@ impl IrSummaryCounts {
                     self.visit_expr(operand);
                 }
             }
-            ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+            ExprIr::ImportMeta { .. } => {}
+            ExprIr::ModuleNamespace { exports, .. } => self.visit_expr(exports),
             ExprIr::DynamicImport {
                 specifier, options, ..
             } => {
@@ -5217,7 +5247,7 @@ impl IrSummaryCounts {
                         ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             self.visit_expr(value);
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             self.visit_expr(key);
                             self.visit_expr(value);
                         }

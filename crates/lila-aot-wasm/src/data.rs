@@ -8,11 +8,13 @@ use icu_normalizer::{
 use icu_properties::{props, CodePointSetData};
 use lila_ir::ArrayAccumulationElementIr;
 use lila_ir::{
-    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
-    ResumableLoopIterationEnvironmentIr, StaticRegExpCompilation, TemplateObjectIr,
-    BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
-    REALM_EVAL_SCRIPT_METHOD_NAME, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
-    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
+    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCaseFolding,
+    RegExpCompileErrorKind, RegExpProgram, ResumableLoopIterationEnvironmentIr,
+    StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REALM_EVAL_SCRIPT_METHOD_NAME,
+    REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_OPCODE_ACCEPT,
+    REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
+    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NAMED_BACKREFERENCE,
     REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
     REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT,
@@ -463,6 +465,13 @@ enum CandidateOutcome {
     Unsupported,
 }
 
+/// Eight-byte rows contain a source code point and its canonical code point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RegExpCaseFoldingTable {
+    pub(crate) ptr: u32,
+    pub(crate) count: u32,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct StringPool {
     pub(crate) bytes: Vec<u8>,
@@ -491,6 +500,8 @@ pub(crate) struct StringPool {
     runtime_regexp_argument_literals: BTreeSet<String>,
     regexp_programs: BTreeMap<RegExpProgramStaticKey, RegExpProgramRef>,
     pending_regexp_programs: Vec<(RegExpProgramStaticKey, u32, u32, u32)>,
+    needed_regexp_case_folding: BTreeSet<RegExpCaseFolding>,
+    regexp_case_folding_tables: BTreeMap<RegExpCaseFolding, RegExpCaseFoldingTable>,
     runtime_regexp_programs: Vec<(String, String, RuntimeRegExpEntry)>,
     needs_runtime_regexp_programs: bool,
     pub(crate) runtime_regexp_program_table_ptr: u32,
@@ -707,6 +718,7 @@ impl StringPool {
             JSON_NAME,
             FLOAT64_ARRAY_NAME,
             FLOAT32_ARRAY_NAME,
+            FLOAT16_ARRAY_NAME,
             INT32_ARRAY_NAME,
             INT16_ARRAY_NAME,
             INT8_ARRAY_NAME,
@@ -718,6 +730,7 @@ impl StringPool {
             "BigUint64Array",
             "$Realm.Float64Array.prototype",
             "$Realm.Float32Array.prototype",
+            "$Realm.Float16Array.prototype",
             "$Realm.Int32Array.prototype",
             "$Realm.Int16Array.prototype",
             "$Realm.Int8Array.prototype",
@@ -1192,6 +1205,7 @@ impl StringPool {
             "TypedArray.from constructed target is too small",
             "TypedArray.of receiver is not a constructor",
             "TypedArray constructor requires new",
+            "TypedArray constructor source and target content types differ",
             "TypedArray byteOffset out of range",
             "TypedArray byteOffset must be aligned",
             "TypedArray byteLength out of range",
@@ -1374,6 +1388,9 @@ impl StringPool {
             "Symbol.search",
             "Symbol.split",
             "Symbol.toStringTag",
+            "Module",
+            "Deferred Module",
+            "then",
             "anonymous",
             "function anonymous(\n) {\n\n}",
             "GeneratorFunction",
@@ -1588,6 +1605,8 @@ impl StringPool {
             "TypedArray.prototype.set source is too large",
             "TypedArray.prototype.reverse requires TypedArray",
             "TypedArray.prototype.copyWithin requires TypedArray",
+            "TypedArray.prototype.fill requires TypedArray",
+            "TypedArray.prototype.fill backing buffer is immutable",
             "TypedArray.prototype.sort requires TypedArray",
             "TypedArray.prototype.toReversed requires TypedArray",
             "TypedArray.prototype.toReversed has unknown element type",
@@ -1740,6 +1759,7 @@ impl StringPool {
             "Object.values requires object",
             "Object.assign called on null or undefined",
             "Object.entries called on null or undefined",
+            "Object.keys called on null or undefined",
             "Object.getOwnPropertyDescriptors called on null or undefined",
             "Object.values called on null or undefined",
             "String.prototype method requires a String receiver",
@@ -1757,6 +1777,8 @@ impl StringPool {
             "Array.prototype.push length exceeds safe integer",
             "Array.prototype.push length is not writable",
             "Cannot assign to read only property",
+            "Cannot assign to module namespace property",
+            "Cannot redefine module namespace property",
             "Cannot delete property",
             "Cannot add property to non-extensible object",
             "Array.prototype.push index write failed",
@@ -1863,7 +1885,54 @@ impl StringPool {
             "Invalid Intl.Locale language option",
             "Invalid Intl.Locale script option",
             "Invalid Intl.Locale region option",
-            "Invalid language tag after Intl.Locale options",
+            "calendar",
+            "Invalid Intl.Locale calendar option",
+            "collation",
+            "Invalid Intl.Locale collation option",
+            "firstDayOfWeek",
+            "Invalid Intl.Locale firstDayOfWeek option",
+            "hourCycle",
+            "Invalid Intl.Locale hourCycle option",
+            "caseFirst",
+            "Invalid Intl.Locale caseFirst option",
+            "numeric",
+            "Invalid Intl.Locale numeric option",
+            "numberingSystem",
+            "Invalid Intl.Locale numberingSystem option",
+            "variants",
+            "Invalid Intl.Locale variants option",
+            "und-",
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "-u",
+            "ca",
+            "co",
+            "fw",
+            "hc",
+            "kf",
+            "kn",
+            "nu",
+            "mon",
+            "tue",
+            "wed",
+            "thu",
+            "fri",
+            "sat",
+            "sun",
+            "h11",
+            "h12",
+            "h23",
+            "h24",
+            "upper",
+            "lower",
+            "false",
+            "true",
             "Intl.getCanonicalLocales argument must be an object",
             "Intl.getCanonicalLocales locale must be a string or an object",
             "Invalid language tag",
@@ -2064,8 +2133,10 @@ impl StringPool {
         ] {
             pool.intern_string(value);
         }
-        // Keep diagnostics after the fixed literal seed: inserting them into
+        // Keep additional literals after the fixed seed: inserting them into
         // its prefix changes every following packed string offset.
+        pool.intern_string("get ");
+        pool.intern_string("set ");
         pool.intern_string(UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE);
         // Unconditional, and it must stay unconditional: these are the messages
         // `emit_runtime_error_object` now reads out of the pool, and the paths
@@ -2235,6 +2306,7 @@ impl StringPool {
             pool.queue_runtime_regexp_programs();
         }
         pool.append_regexp_programs();
+        pool.append_regexp_case_folding_tables();
         if compiled_standard_builtins.iter().any(|builtin| {
             matches!(
                 builtin,
@@ -2272,6 +2344,9 @@ impl StringPool {
                 StandardBuiltinId::TemporalPlainDateConstructor
                     | StandardBuiltinId::TemporalPlainDateFrom
                     | StandardBuiltinId::TemporalPlainDateCompare
+                    // Zoned field replacement shares the PlainDate field
+                    // reader and resolver, including their diagnostics.
+                    | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             ) || builtin
                 .debug_name()
                 .starts_with("Temporal.PlainDate.prototype.")
@@ -2820,10 +2895,18 @@ impl StringPool {
                 pool.intern_string(value);
             }
         }
-        if compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom) {
+        if compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeWith)
+        {
             for value in [
                 "Temporal.ZonedDateTime.from requires a string or Temporal.ZonedDateTime",
                 "Temporal.ZonedDateTime.from options must be an object or undefined",
+                "Temporal.ZonedDateTime.prototype.with requires an object",
+                "Temporal.ZonedDateTime.prototype.with does not accept a Temporal object",
+                "Temporal.ZonedDateTime.prototype.with does not accept calendar or timeZone",
+                "Temporal.ZonedDateTime.prototype.with requires at least one date, time, or offset field",
+                "Temporal.ZonedDateTime.prototype.with options must be an object or undefined",
                 "calendar",
                 "day",
                 "hour",
@@ -3684,10 +3767,13 @@ impl StringPool {
                     self.collect_expr(operand);
                 }
             }
-            // A namespace object and `import.meta` are allocated from static
-            // tables the module graph owns, not from expression operands.
-            ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {
+            ExprIr::ImportMeta { .. } => self.uses_heap = true,
+            ExprIr::ModuleNamespace { exports, .. } => {
                 self.uses_heap = true;
+                self.collect_expr(exports);
+                self.intern_string("Module");
+                self.intern_string("then");
+                self.intern_string("Symbol.toStringTag");
             }
             ExprIr::DynamicImport {
                 specifier, options, ..
@@ -3752,7 +3838,7 @@ impl StringPool {
                             self.intern_string(key);
                             self.collect_expr(value);
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             self.collect_expr(key);
                             self.collect_expr(value);
                         }
@@ -4603,6 +4689,22 @@ impl StringPool {
         for group in &program.named_groups {
             self.intern_string(&group.name);
         }
+        // The program key omits flags: identical instruction streams may be
+        // shared by legacy and Unicode regexps, which need different tables.
+        if program.instructions.iter().any(|instruction| {
+            matches!(
+                instruction.opcode,
+                REGEXP_OPCODE_NAMED_BACKREFERENCE | REGEXP_OPCODE_NUMBERED_BACKREFERENCE
+            ) && instruction.operand1 & REGEXP_BACKREFERENCE_IGNORE_CASE != 0
+        }) {
+            self.needed_regexp_case_folding.insert(
+                if program.flags.unicode_mode.is_unicode_mode() {
+                    RegExpCaseFolding::Unicode
+                } else {
+                    RegExpCaseFolding::Legacy
+                },
+            );
+        }
         let key = RegExpProgramStaticKey::from_program(program);
         if self.regexp_programs.contains_key(&key)
             || self
@@ -4808,6 +4910,35 @@ impl StringPool {
                 },
             );
         }
+    }
+
+    fn append_regexp_case_folding_tables(&mut self) {
+        for folding in self.needed_regexp_case_folding.clone() {
+            if self.regexp_case_folding_tables.contains_key(&folding) {
+                continue;
+            }
+            let mappings = folding.mappings();
+            self.align_bytes(8);
+            let ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+            for &(source, canonical) in mappings {
+                self.bytes.extend_from_slice(&source.to_le_bytes());
+                self.bytes.extend_from_slice(&canonical.to_le_bytes());
+            }
+            self.regexp_case_folding_tables.insert(
+                folding,
+                RegExpCaseFoldingTable {
+                    ptr,
+                    count: mappings.len() as u32,
+                },
+            );
+        }
+    }
+
+    pub(crate) fn regexp_case_folding_table(
+        &self,
+        folding: RegExpCaseFolding,
+    ) -> Option<RegExpCaseFoldingTable> {
+        self.regexp_case_folding_tables.get(&folding).copied()
     }
 
     fn append_named_group_table(&mut self, named_groups: &[(String, Vec<u32>)]) -> u32 {
@@ -5107,6 +5238,14 @@ fn repeatable_split_count(program: &RegExpProgram) -> u32 {
             .collect(),
             REGEXP_OPCODE_PROGRESS_CHECK => valid(instruction.operand1).into_iter().collect(),
             REGEXP_OPCODE_JUMP => valid(instruction.operand0).into_iter().collect(),
+            lila_ir::REGEXP_OPCODE_LOOKAROUND_END => {
+                valid(instruction.operand1 & 0x3fff_ffff_ffff_ffff)
+                    .into_iter()
+                    .collect()
+            }
+            lila_ir::REGEXP_OPCODE_LOOKAROUND_FAILURE => {
+                valid(instruction.operand0).into_iter().collect()
+            }
             REGEXP_OPCODE_ACCEPT => Vec::new(),
             _ if pc + 1 < instructions.len() => vec![pc + 1],
             _ => Vec::new(),
@@ -5153,7 +5292,7 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
                 | REGEXP_OPCODE_DOT
                 | REGEXP_OPCODE_UNICODE_PROPERTY
         ) || (instruction.opcode == REGEXP_OPCODE_NUMBERED_BACKREFERENCE
-            && instruction.operand1 != 0)
+            && instruction.operand1 & REGEXP_BACKREFERENCE_NONEMPTY != 0)
     }
 
     fn visit(pc: usize, instructions: &[lila_ir::RegExpInstruction], state: &mut [u8]) -> bool {
@@ -5189,6 +5328,14 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
             .flatten()
             .collect::<Vec<_>>(),
             REGEXP_OPCODE_JUMP => valid_target(instruction.operand0).into_iter().collect(),
+            lila_ir::REGEXP_OPCODE_LOOKAROUND_END => {
+                valid_target(instruction.operand1 & 0x3fff_ffff_ffff_ffff)
+                    .into_iter()
+                    .collect()
+            }
+            lila_ir::REGEXP_OPCODE_LOOKAROUND_FAILURE => {
+                valid_target(instruction.operand0).into_iter().collect()
+            }
             REGEXP_OPCODE_ACCEPT => Vec::new(),
             _ if pc + 1 < instructions.len() => vec![pc + 1],
             _ => Vec::new(),
@@ -5300,6 +5447,33 @@ mod runtime_error_message_pool_tests {
                     builtin.debug_name(),
                 );
             }
+        }
+    }
+
+    #[test]
+    fn zoned_field_replacement_pools_shared_date_field_diagnostics() {
+        let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
+        let script = lower(&parsed).script.expect("empty script should lower");
+        let pool = StringPool::collect(
+            &script,
+            &BTreeMap::new(),
+            &[StandardBuiltinId::TemporalZonedDateTimePrototypeWith],
+        );
+        for message in [
+            "Temporal.PlainDate monthCode must be a string",
+            "Invalid Temporal.PlainDate monthCode",
+            "Temporal.PlainDate fields require year",
+            "Temporal.PlainDate fields require day",
+            "Temporal.PlainDate fields require month or monthCode",
+            "Temporal.PlainDate month and monthCode must agree",
+            "Temporal.PlainDate month and day must be positive",
+            "Temporal.PlainDateTime fields must be finite",
+            "Temporal.PlainDateTime month and day must be positive",
+        ] {
+            let payload = pool.payload(message) as u64;
+            let offset = (payload >> 32) as usize - STATIC_DATA_OFFSET as usize;
+            let len = (payload & 0xFFFF_FFFF) as usize;
+            assert_eq!(&pool.bytes[offset..offset + len], message.as_bytes());
         }
     }
 
@@ -5462,6 +5636,122 @@ mod regexp_program_validation_tests {
         assert!(!has_non_consuming_cycle(&valid_star));
         let valid_lazy_star = RegExpProgram::compile("a*?b", "").expect("lazy star should compile");
         assert!(!has_non_consuming_cycle(&valid_lazy_star));
+    }
+
+    #[test]
+    fn word_boundaries_remain_zero_width_in_program_cycle_validation() {
+        for pattern in [r"\b", r"\B"] {
+            let mut boundary = RegExpProgram::compile(pattern, "").unwrap();
+            boundary.instructions.pop();
+            boundary.instructions.push(RegExpInstruction::jump(0));
+            assert!(has_non_consuming_cycle(&boundary), "{pattern}");
+        }
+        for pattern in [r"(?:\b)*", r"(\B)+", r"(?:(\b)|x)+"] {
+            let guarded = RegExpProgram::compile(pattern, "").unwrap();
+            assert!(!has_non_consuming_cycle(&guarded), "{pattern}");
+        }
+    }
+
+    #[test]
+    fn repeatable_split_analysis_walks_through_word_boundaries() {
+        let mut boundary = RegExpProgram::compile(r"\b", "").unwrap();
+        let assertion = boundary.instructions[0];
+        let accept = *boundary.instructions.last().unwrap();
+        boundary.instructions = vec![
+            RegExpInstruction::split(1, 3),
+            assertion,
+            RegExpInstruction::jump(0),
+            accept,
+        ];
+        assert_eq!(repeatable_split_count(&boundary), 1);
+        assert!(has_non_consuming_cycle(&boundary));
+    }
+
+    #[test]
+    fn shared_programs_collect_both_case_folding_modes_before_deduplication() {
+        let legacy = RegExpProgram::compile(r"^(.)\1$", "i").unwrap();
+        let unicode = RegExpProgram::compile(r"^(.)\1$", "ui").unwrap();
+        assert_eq!(
+            RegExpProgramStaticKey::from_program(&legacy),
+            RegExpProgramStaticKey::from_program(&unicode)
+        );
+        for append_between in [false, true] {
+            for (first, second) in [(&legacy, &unicode), (&unicode, &legacy)] {
+                let mut pool = StringPool::default();
+                pool.queue_regexp_program(first);
+                if append_between {
+                    pool.append_regexp_programs();
+                }
+                pool.queue_regexp_program(second);
+                pool.append_regexp_programs();
+                pool.append_regexp_case_folding_tables();
+                assert_eq!(
+                    pool.regexp_program(first).ptr,
+                    pool.regexp_program(second).ptr
+                );
+                assert_eq!(pool.regexp_case_folding_tables.len(), 2);
+                for folding in [RegExpCaseFolding::Legacy, RegExpCaseFolding::Unicode] {
+                    let table = pool
+                        .regexp_case_folding_table(folding)
+                        .expect("required mapping table");
+                    assert_eq!(table.ptr % 8, 0);
+                    assert_eq!(table.count as usize, folding.mappings().len());
+                    let start = (table.ptr - STATIC_DATA_OFFSET) as usize;
+                    let rows = pool.bytes[start..start + table.count as usize * 8]
+                        .chunks_exact(8)
+                        .map(|row| {
+                            (
+                                u32::from_le_bytes(row[..4].try_into().unwrap()),
+                                u32::from_le_bytes(row[4..].try_into().unwrap()),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(rows, folding.mappings());
+                }
+                let bytes = pool.bytes.clone();
+                pool.append_regexp_case_folding_tables();
+                assert_eq!(pool.bytes, bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn backreference_tables_follow_scoped_references_instead_of_global_flags() {
+        let mut sensitive = StringPool::default();
+        sensitive.queue_regexp_program(&RegExpProgram::compile(r"(a)(?-i:\1)", "i").unwrap());
+        sensitive.append_regexp_case_folding_tables();
+        assert!(sensitive.regexp_case_folding_tables.is_empty());
+        let mut scoped = StringPool::default();
+        scoped.queue_regexp_program(&RegExpProgram::compile(r"(a)(?i:\1)", "u").unwrap());
+        scoped.append_regexp_case_folding_tables();
+        assert_eq!(scoped.regexp_case_folding_tables.len(), 1);
+        assert!(scoped
+            .regexp_case_folding_table(RegExpCaseFolding::Legacy)
+            .is_none());
+        assert_eq!(
+            scoped
+                .regexp_case_folding_table(RegExpCaseFolding::Unicode)
+                .unwrap()
+                .count,
+            1512
+        );
+    }
+
+    #[test]
+    fn case_folding_bit_does_not_prove_that_a_numbered_reference_consumes() {
+        let mut nullable = program(vec![
+            RegExpInstruction::numbered_backreference(1, RegExpCaseFolding::Legacy),
+            RegExpInstruction::jump(0),
+        ]);
+        nullable.capture_count = 1;
+        assert!(has_non_consuming_cycle(&nullable));
+        nullable.instructions[0] =
+            RegExpInstruction::nonempty_numbered_backreference(1, RegExpCaseFolding::Legacy);
+        assert!(!has_non_consuming_cycle(&nullable));
+        for flags in ["i", "ui", "vi"] {
+            let guarded = RegExpProgram::compile(r"(a*)\1*", flags).unwrap();
+            assert!(!has_non_consuming_cycle(&guarded));
+        }
     }
 
     #[test]

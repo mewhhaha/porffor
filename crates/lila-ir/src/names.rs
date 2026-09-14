@@ -254,6 +254,14 @@ pub const TEMPORAL_NOW_NAMESPACE_MEMBERS: &[(&str, StandardBuiltinId)] = &[
 /// fold byte-neutral.
 pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId)] = &[
     (
+        "with",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
+    ),
+    (
+        "toPlainDate",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
+    ),
+    (
         "equals",
         StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
     ),
@@ -304,6 +312,10 @@ pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId
     ),
 ];
 
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.toPlainDate";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.with";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.round";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GET_TIME_ZONE_TRANSITION_FUNCTION_ID: &str =
@@ -320,6 +332,7 @@ pub const JSON_NAME: &str = "JSON";
 pub const ATOMICS_NAME: &str = "Atomics";
 pub const FLOAT64_ARRAY_NAME: &str = "Float64Array";
 pub const FLOAT32_ARRAY_NAME: &str = "Float32Array";
+pub const FLOAT16_ARRAY_NAME: &str = "Float16Array";
 pub const INT32_ARRAY_NAME: &str = "Int32Array";
 pub const INT16_ARRAY_NAME: &str = "Int16Array";
 pub const INT8_ARRAY_NAME: &str = "Int8Array";
@@ -643,6 +656,8 @@ pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID: &str = "$builtin.TypedArray.prototype.at";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.copyWithin";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_FILL_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.fill";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.includes";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID: &str =
@@ -1254,6 +1269,22 @@ pub const BUILTIN_INTL_LOCALE_PROTOTYPE_SCRIPT_GETTER_FUNCTION_ID: &str =
     "$builtin.Intl.Locale.prototype.script.get";
 pub const BUILTIN_INTL_LOCALE_PROTOTYPE_REGION_GETTER_FUNCTION_ID: &str =
     "$builtin.Intl.Locale.prototype.region.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_CALENDAR_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.calendar.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_COLLATION_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.collation.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_FIRST_DAY_OF_WEEK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.firstDayOfWeek.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_HOUR_CYCLE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.hourCycle.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_CASE_FIRST_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.caseFirst.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_NUMERIC_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.numeric.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_NUMBERING_SYSTEM_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.numberingSystem.get";
+pub const BUILTIN_INTL_LOCALE_PROTOTYPE_VARIANTS_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Locale.prototype.variants.get";
 pub const BUILTIN_INTL_LOCALE_PROTOTYPE_BASE_NAME_GETTER_FUNCTION_ID: &str =
     "$builtin.Intl.Locale.prototype.baseName.get";
 pub const BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
@@ -1320,6 +1351,7 @@ pub const BUILTIN_ATOMICS_XOR_FUNCTION_ID: &str = "$builtin.Atomics.xor";
 pub const BUILTIN_ATOMICS_IS_LOCK_FREE_FUNCTION_ID: &str = "$builtin.Atomics.isLockFree";
 pub const BUILTIN_FLOAT64_ARRAY_FUNCTION_ID: &str = "$builtin.Float64Array";
 pub const BUILTIN_FLOAT32_ARRAY_FUNCTION_ID: &str = "$builtin.Float32Array";
+pub const BUILTIN_FLOAT16_ARRAY_FUNCTION_ID: &str = "$builtin.Float16Array";
 pub const BUILTIN_INT32_ARRAY_FUNCTION_ID: &str = "$builtin.Int32Array";
 pub const BUILTIN_INT16_ARRAY_FUNCTION_ID: &str = "$builtin.Int16Array";
 pub const BUILTIN_INT8_ARRAY_FUNCTION_ID: &str = "$builtin.Int8Array";

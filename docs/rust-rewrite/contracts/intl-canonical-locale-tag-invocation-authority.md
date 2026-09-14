@@ -7,8 +7,10 @@ Status: implemented as a source-equivalent Wasm-AOT invariant boundary.
 The structural locale canonicalizer accepts one private, move-only
 `CanonicalLocaleTagInvocationLocals` authority. Its constructor requires seven
 distinct roles: input, canonical tag, language, script, region, base name, and
-validity. The canonicalizer is the sole consumer and the sole place that
-projects those roles back to raw Wasm locals.
+validity. The structural canonicalizer and provider/component refresh each consume their
+own invocation and project its roles once. The refresh copies its input before
+calling the structural operation, whose output initialization forbids aliasing
+the raw input and output locals.
 
 Previously, every producer passed seven adjacent `u32` locals. A producer could
 therefore transpose tag, language, script, region, base-name, and validity roles
@@ -24,24 +26,28 @@ canonicalization surface.
 
 ## Producers and semantics
 
-Exactly five producers construct the complete authority:
+There are nine complete authority construction sites:
 
-- `Intl.Locale` construction;
+- initial `Intl.Locale` structural validation;
+- the constructor's two provider/component refresh invocations;
 - each present entry in `Intl.getCanonicalLocales`;
-- the DateTimeFormat single-string locale path;
-- the DateTimeFormat array-like locale path; and
-- `Intl.DateTimeFormat.supportedLocalesOf`.
+- the three DateTimeFormat locale-list producers;
+- variants-option structural validation; and
+- provider-result structural component refresh.
 
-The structural algorithm, Wasm locals, instruction order, error paths, provider
-call, locale matching, and result publication are unchanged. This boundary
-does not add locale data or implement any open ECMA-402 service.
+The original boundary was source-equivalent hardening. The constructor-options
+batch adds provider alias resolution before and after overrides, with separate
+input storage during component refresh. The role domain and move-only authority
+still prevent adjacent local-role substitutions. No new locale data is added.
 
 ## Durable evidence
 
 `intl_canonical_locale_tag_invocation_structure` uses a Rust lexical scanner
 that excludes comments and every Rust string/character literal form. It pins
-the private non-copyable role domain, recursive product-source census, all five
-complete producers, the typed signature, and the sole consuming projection.
+the private non-copyable role domain, recursive product-source census, all nine
+complete construction sites, both typed consumers and their single projections.
+The product census is 15 uses of the authority and each role type. Earlier
+counts omitted the independently introduced language-options producer.
 
 The public `wasm_intl_canonical_locale_tag_roles.js` fixture observes the
 canonical tag and all four `Intl.Locale` component slots, the

@@ -47,7 +47,8 @@ fn regexp_modifier_override_is_a_non_copyable_three_variant_abi_domain() {
         assert!(!IR.contains(&format!("impl {capability} for RegExpModifierOverride")));
     }
     assert!(!IR.contains("#[derive(Clone, Copy)]\npub enum RegExpModifierOverride"));
-    assert!(IR_LIB.contains("RegExpModifierOverride, RegExpProgram"));
+    assert!(IR_LIB.contains("RegExpModifierOverride,"));
+    assert!(IR_LIB.contains("RegExpProgram,"));
 
     let implementation = bounded(
         IR,
@@ -76,7 +77,7 @@ fn dot_and_assertion_constructors_name_the_inherited_override_code() {
         ),
         (
             "    pub const fn assert_end() -> Self {",
-            "    pub const fn lookbehind_start() -> Self {",
+            "    const fn lookaround_start(direction: RegExpMatchDirection) -> Self {",
         ),
     ] {
         let body = bounded(IR, constructor, next_constructor);
@@ -163,21 +164,23 @@ fn parser_names_every_override_and_restores_outer_state_before_propagation() {
 
 #[test]
 fn ir_encoder_and_wasm_decoder_share_the_typed_operand_codes() {
-    let encoder = bounded(IR, "fn apply_modifiers(", "fn apply_ascii_ignore_case(");
+    let encoder = bounded(IR, "fn apply_modifiers(", "fn parse_escaped_atom(");
     assert!(encoder.contains("modifiers: &Modifiers"));
     let normalized_encoder = without_whitespace(encoder);
     assert!(normalized_encoder.contains(
-        "REGEXP_OPCODE_DOT=>{instruction.operand0=modifiers.dot_all.operand_code();return;}"
+        "REGEXP_OPCODE_DOT=>{instruction.operand0=modifiers.dot_all.operand_code();returnOk(());}"
     ));
     assert!(normalized_encoder.contains(
-        "REGEXP_OPCODE_ASSERT_START|REGEXP_OPCODE_ASSERT_END=>{instruction.operand0=modifiers.multiline.operand_code();return;}"
+        "REGEXP_OPCODE_ASSERT_START|REGEXP_OPCODE_ASSERT_END=>{instruction.operand0=modifiers.multiline.operand_code();returnOk(());}"
     ));
     assert_eq!(encoder.matches(".operand_code()").count(), 2);
     for forbidden in ["None => 0", "Some(true) => 1", "Some(false) => 2"] {
         assert!(!encoder.contains(forbidden));
     }
 
-    assert!(WASM.contains("RegExpModifierOverride, REGEXP_INSTRUCTION_WIDTH"));
+    let imports = bounded(WASM, "use lila_ir::{", "};");
+    assert!(imports.contains("RegExpModifierOverride,"));
+    assert!(imports.contains("REGEXP_INSTRUCTION_WIDTH,"));
     let decoder = bounded(
         WASM,
         "// `.`, `^` and `$` carry a RegExp-modifier override in `operand0`:",
