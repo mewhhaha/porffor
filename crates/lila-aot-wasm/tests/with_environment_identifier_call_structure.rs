@@ -66,7 +66,7 @@ fn noncopy_plan_owns_the_only_callee_withbaseobject_product() {
         "    fn put_value_or_else(",
     );
     for marker in [
-        "binding_object.binding_visible(referenced_name, unscopables_binding)",
+        "binding_object.binding_visible(referenced_name)",
         "binding_object\n            .clone()\n            .get_value(referenced_name, strictness)",
         "let receiver = binding_object.read();",
         "ExprIr::CallIndirect {",

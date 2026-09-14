@@ -23,9 +23,9 @@
 //! * `[[OwnPropertyKeys]]` is [`ModuleNamespaceIr::exports`] in UTF-16
 //!   code-unit order, then `@@toStringTag`.
 //!
-//! Identity is cached in one cell per module ([`ModuleNamespaceIr::cell`]), so
-//! repeated `import * as ns` and repeated `import()` of the same module observe
-//! the same object.
+//! Identity is cached separately for eager and deferred requests. Repeated
+//! requests in one phase share a cell; the two phases remain distinct even when
+//! the reflected module is evaluated eagerly.
 //!
 //! # The one name domain that is *not* here
 //!
@@ -85,12 +85,10 @@ pub struct ModuleNamespaceIr {
     /// [`MergedName::minted`] mints it from the unit id and a
     /// [`UnitCellRole`] rather than from source.
     pub cell: MergedName,
-    /// How the reflected module is present in the artifact.
-    ///
-    /// Private so a namespace cannot be manufactured for a source-only unit,
-    /// and typed so direct and deferred getter generation is exhaustive rather
-    /// than selected by a parallel boolean.
-    mode: ModuleMaterializationModeIr,
+    /// Identity and internal-method behavior selected by the import request.
+    mode: ModuleNamespaceModeIr,
+    /// How the reflected module's body is emitted, independently of identity.
+    materialization: ModuleMaterializationModeIr,
     /// Merged-script source that materializes this object, or the reason it
     /// cannot be expressed as Script text.
     ///
@@ -100,6 +98,10 @@ pub struct ModuleNamespaceIr {
 }
 
 impl ModuleNamespaceIr {
+    pub(crate) const fn mode(&self) -> ModuleNamespaceModeIr {
+        self.mode
+    }
+
     /// `[[GetPrototypeOf]]` of a namespace object is always `null` (10.4.6.1).
     pub const PROTOTYPE_IS_NULL: bool = true;
     /// A namespace object is never extensible (10.4.6.3).
@@ -249,8 +251,8 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<MergedNa
     match target {
         ResolvedBindingIr::Resolved {
             module,
-            binding: ModuleBindingNameIr::Namespace,
-        } => Some(MergedName::minted(*module, UnitCellRole::Namespace)),
+            binding: ModuleBindingNameIr::Namespace(mode),
+        } => Some(MergedName::minted(*module, mode.cell_role())),
         ResolvedBindingIr::Resolved {
             module,
             binding: ModuleBindingNameIr::ModuleSource,
@@ -280,11 +282,16 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
     let defer_evaluate = MergedName::minted(namespace.module, UnitCellRole::DeferEvaluate);
     let mut text = format!("const {} = [", namespace.cell.as_str());
     match namespace.mode {
-        ModuleMaterializationModeIr::Eager => text.push_str("void 0"),
-        ModuleMaterializationModeIr::Deferred => {
+        ModuleNamespaceModeIr::Eager => text.push_str("void 0"),
+        ModuleNamespaceModeIr::Deferred => {
             text.push_str("() => ");
-            text.push_str(defer_evaluate.as_str());
-            text.push_str("()");
+            match namespace.materialization {
+                ModuleMaterializationModeIr::Eager => text.push_str("void 0"),
+                ModuleMaterializationModeIr::Deferred => {
+                    text.push_str(defer_evaluate.as_str());
+                    text.push_str("()");
+                }
+            }
         }
     }
     for export in &namespace.exports {
@@ -297,7 +304,7 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
         text.push_str(", ");
         push_js_string_literal(&mut text, export.export_name.as_str());
         text.push_str(", () => ");
-        match namespace.mode {
+        match namespace.materialization {
             ModuleMaterializationModeIr::Eager => text.push_str(reference.as_str()),
             ModuleMaterializationModeIr::Deferred => {
                 text.push_str(defer_evaluate.as_str());
@@ -333,7 +340,7 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
     let dynamic_source_modules = graph.dynamic_source_modules();
     if graph
         .materialized_units()
-        .all(|(_, _, unit)| unit.namespace.is_none())
+        .all(|(_, _, unit)| unit.namespaces.is_empty())
         && !has_source_import
         && dynamic_source_modules.is_empty()
     {
@@ -369,13 +376,12 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
         text.push_str(&module_source_object_source(*module));
     }
     for (_, _, unit) in graph.materialized_units() {
-        let Some(namespace) = unit.namespace.as_ref() else {
-            continue;
-        };
-        match &namespace.source {
-            Ok(source) => text.push_str(source),
-            Err(reason) => {
-                diagnostics.push(namespace_unsupported(unit.record.key.as_str(), reason))
+        for namespace in unit.namespaces.values() {
+            match &namespace.source {
+                Ok(source) => text.push_str(source),
+                Err(reason) => {
+                    diagnostics.push(namespace_unsupported(unit.record.key.as_str(), reason))
+                }
             }
         }
     }
@@ -493,13 +499,10 @@ fn collect_namespace_aliases(
     }
 
     let mut aliases = Vec::new();
-    let mut owners: BTreeMap<MergedName, &str> = BTreeMap::new();
+    let mut owners: BTreeMap<MergedName, (&str, MergedName)> = BTreeMap::new();
     for (_, _, unit) in graph.materialized_units() {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
-            if entry.import_name != ImportNameIr::Namespace {
-                continue;
-            }
             // The alias is emitted as a real `const` in the merged scope, so
             // the name that matters here is the merged one — the same domain
             // as the `declared` map it is checked against below.
@@ -507,15 +510,12 @@ fn collect_namespace_aliases(
             let local = merged.as_str();
             let Some(ResolvedBindingIr::Resolved {
                 module,
-                binding: ModuleBindingNameIr::Namespace,
+                binding: ModuleBindingNameIr::Namespace(mode),
             }) = unit.resolved_imports.get(index)
             else {
-                diagnostics.push(namespace_unsupported(
-                    key,
-                    &format!("`import * as {local}` did not resolve to a module namespace"),
-                ));
                 continue;
             };
+            let namespace_cell = MergedName::minted(*module, mode.cell_role());
             if !is_binding_identifier(&merged) {
                 diagnostics.push(namespace_unsupported(
                     key,
@@ -528,11 +528,15 @@ fn collect_namespace_aliases(
                         "module prelude uses `{local}`, which this module binds as a namespace alias"
                     ),
                 ));
-            } else if let Some(previous) = owners.insert(merged.clone(), key) {
-                diagnostics.push(namespace_unsupported(
-                    key,
-                    &format!("namespace binding `{local}` is already bound by module {previous}"),
-                ));
+            } else if let Some((previous, previous_cell)) = owners.get(&merged) {
+                if previous_cell != &namespace_cell {
+                    diagnostics.push(namespace_unsupported(
+                        key,
+                        &format!(
+                            "namespace binding `{local}` is already bound by module {previous}"
+                        ),
+                    ));
+                }
             } else if let Some(owner) = declared.get(&merged) {
                 diagnostics.push(namespace_unsupported(
                     key,
@@ -541,10 +545,8 @@ fn collect_namespace_aliases(
                     ),
                 ));
             } else {
-                aliases.push((
-                    merged.clone(),
-                    MergedName::minted(*module, UnitCellRole::Namespace),
-                ));
+                owners.insert(merged.clone(), (key, namespace_cell.clone()));
+                aliases.push((merged, namespace_cell));
             }
         }
     }
@@ -608,7 +610,7 @@ pub(crate) fn deferred_body_source(
     let exports = graph
         .units
         .get(module as usize)
-        .and_then(|unit| unit.namespace.as_ref())
+        .and_then(|unit| unit.namespaces.values().next())
         .map(|namespace| namespace.exports.as_slice())
         .ok_or_else(|| {
             "deferred module has no namespace object to publish its exports through".to_string()
@@ -785,16 +787,17 @@ fn namespace_unsupported(key: &str, reason: &str) -> IrDiagnostic {
 pub(crate) fn ensure_namespace(
     graph: &mut ModuleGraphIr,
     module: ModuleUnitId,
+    mode: ModuleNamespaceModeIr,
 ) -> Option<MergedName> {
-    let cell = MergedName::minted(module, UnitCellRole::Namespace);
-    let mode = graph.materialization_mode(module)?;
+    let cell = MergedName::minted(module, mode.cell_role());
+    let materialization = graph.materialization_mode(module)?;
     let Some(index) = usize::try_from(module)
         .ok()
         .filter(|index| *index < graph.units.len())
     else {
         return None;
     };
-    if graph.units[index].namespace.is_some() {
+    if graph.units[index].namespaces.contains_key(&mode) {
         return Some(cell);
     }
 
@@ -826,10 +829,11 @@ pub(crate) fn ensure_namespace(
         exports,
         cell: cell.clone(),
         mode,
+        materialization,
         source: Ok(String::new()),
     };
     namespace.source = namespace_object_source(&namespace);
-    graph.units[index].namespace = Some(namespace);
+    graph.units[index].namespaces.insert(mode, namespace);
     Some(cell)
 }
 
@@ -852,10 +856,10 @@ pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
         {
             if let ResolvedBindingIr::Resolved {
                 module,
-                binding: ModuleBindingNameIr::Namespace,
+                binding: ModuleBindingNameIr::Namespace(mode),
             } = binding
             {
-                observed.insert(*module);
+                observed.insert((*module, *mode));
             }
         }
     }
@@ -863,31 +867,32 @@ pub(crate) fn collect_observed_namespaces(graph: &mut ModuleGraphIr) {
         // A source-phase component hands out a module *source* object, and its
         // module is never instantiated: a namespace for it would carry getters
         // naming bindings the merged script never declares.
-        if component.request().phase() != ImportPhaseIr::Source {
-            observed.insert(component.target());
+        if let Some(mode) = component.request().phase().namespace_mode() {
+            observed.insert((component.target(), mode));
         }
     }
 
-    let mut pending: Vec<ModuleUnitId> = observed.iter().copied().collect();
-    while let Some(module) = pending.pop() {
-        let Some(_) = ensure_namespace(graph, module) else {
+    let mut pending: Vec<(ModuleUnitId, ModuleNamespaceModeIr)> =
+        observed.iter().copied().collect();
+    while let Some((module, mode)) = pending.pop() {
+        let Some(_) = ensure_namespace(graph, module, mode) else {
             continue;
         };
         let Some(namespace) = usize::try_from(module)
             .ok()
             .and_then(|index| graph.units.get(index))
-            .and_then(|unit| unit.namespace.as_ref())
+            .and_then(|unit| unit.namespaces.get(&mode))
         else {
             continue;
         };
-        let nested: Vec<ModuleUnitId> = namespace
+        let nested: Vec<(ModuleUnitId, ModuleNamespaceModeIr)> = namespace
             .exports
             .iter()
             .filter_map(|export| match &export.target {
                 ResolvedBindingIr::Resolved {
                     module,
-                    binding: ModuleBindingNameIr::Namespace,
-                } => Some(*module),
+                    binding: ModuleBindingNameIr::Namespace(mode),
+                } => Some((*module, *mode)),
                 ResolvedBindingIr::Resolved { .. }
                 | ResolvedBindingIr::Ambiguous
                 | ResolvedBindingIr::NotFound => None,
@@ -938,10 +943,10 @@ mod tests {
             "export { a as 'a b' };\n",
         );
         let mut graph = graph_of(&[("m", graph_source)]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let namespace = graph.units[0]
-            .namespace
-            .as_ref()
+            .namespaces
+            .get(&ModuleNamespaceModeIr::Eager)
             .expect("namespace should exist");
 
         let keys = namespace.own_property_keys();
@@ -971,10 +976,10 @@ mod tests {
     #[test]
     fn namespace_entries_point_at_the_exporter_cell() {
         let mut graph = graph_of(&[("m", "export let value = 1;")]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let namespace = graph.units[0]
-            .namespace
-            .as_ref()
+            .namespaces
+            .get(&ModuleNamespaceModeIr::Eager)
             .expect("namespace should exist");
         let export = namespace
             .exports
@@ -996,12 +1001,17 @@ mod tests {
     #[test]
     fn namespace_identity_is_cached_in_one_cell() {
         let mut graph = graph_of(&[("m", "export let value = 1;")]);
-        let first = ensure_namespace(&mut graph, 0).expect("entry materializes");
-        let second = ensure_namespace(&mut graph, 0).expect("entry materializes");
+        let first = ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager)
+            .expect("entry materializes");
+        let second = ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager)
+            .expect("entry materializes");
         assert_eq!(first, second);
         assert_eq!(first, MergedName::minted(0, UnitCellRole::Namespace));
         assert_eq!(
-            graph.units[0].namespace.as_ref().map(|ns| ns.cell.clone()),
+            graph.units[0]
+                .namespaces
+                .get(&ModuleNamespaceModeIr::Eager)
+                .map(|ns| ns.cell.clone()),
             Some(first)
         );
     }
@@ -1011,10 +1021,10 @@ mod tests {
     #[test]
     fn star_exports_do_not_contribute_default() {
         let mut graph = graph_of(&[("m", "export * from 'other';")]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let namespace = graph.units[0]
-            .namespace
-            .as_ref()
+            .namespaces
+            .get(&ModuleNamespaceModeIr::Eager)
             .expect("namespace should exist");
         assert!(!namespace
             .own_property_keys()
@@ -1055,8 +1065,9 @@ mod tests {
     fn source_of(graph: &ModuleGraphIr, module: ModuleUnitId) -> String {
         graph
             .unit(module)
-            .namespace
-            .as_ref()
+            .namespaces
+            .values()
+            .next()
             .expect("namespace should exist")
             .source
             .as_ref()
@@ -1067,7 +1078,7 @@ mod tests {
     #[test]
     fn namespace_source_carries_private_live_readers_for_the_linker() {
         let mut graph = graph_of(&[("m", "export const value = 41;")]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let binding = MergedName::minted(0, UnitCellRole::Namespace);
         assert_eq!(
             source_of(&graph, 0),
@@ -1085,7 +1096,7 @@ mod tests {
     #[test]
     fn namespace_source_reads_the_exporter_binding_rather_than_a_snapshot() {
         let mut graph = graph_of(&[("m", "export let value = 41;")]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let source = source_of(&graph, 0);
 
         assert!(source.contains("() => value"), "got {source}");
@@ -1109,7 +1120,7 @@ mod tests {
     #[test]
     fn namespace_source_separates_the_export_name_from_the_local_name() {
         let mut graph = graph_of(&[("m", "const a = 1;\nexport { a as b };")]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let source = source_of(&graph, 0);
         assert!(source.contains("\"b\", () => a"), "got {source}");
     }
@@ -1117,7 +1128,7 @@ mod tests {
     #[test]
     fn an_empty_namespace_still_has_a_constructor_table() {
         let mut graph = graph_of(&[("m", "export {};")]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let binding = MergedName::minted(0, UnitCellRole::Namespace);
         assert_eq!(
             source_of(&graph, 0),
@@ -1136,7 +1147,7 @@ mod tests {
             "export { a as 'a b' };\n",
         );
         let mut graph = graph_of(&[("m", graph_source)]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let source = source_of(&graph, 0);
         assert!(
             source.find("\"a b\"") < source.find("\"b\""),
@@ -1154,7 +1165,7 @@ mod tests {
             "export { a as '\\u{10000}' };\n",
         );
         let mut graph = graph_of(&[("m", graph_source)]);
-        ensure_namespace(&mut graph, 0).expect("entry materializes");
+        ensure_namespace(&mut graph, 0, ModuleNamespaceModeIr::Eager).expect("entry materializes");
         let source = source_of(&graph, 0);
 
         assert!(
@@ -1178,7 +1189,8 @@ mod tests {
                 },
             }],
             cell: MergedName::minted(module, UnitCellRole::Namespace),
-            mode: ModuleMaterializationModeIr::Eager,
+            mode: ModuleNamespaceModeIr::Eager,
+            materialization: ModuleMaterializationModeIr::Eager,
             source: Ok(String::new()),
         }
     }

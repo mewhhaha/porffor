@@ -360,3 +360,156 @@ print('deferred completion identity');
         &["deferred completion identity"],
     );
 }
+
+#[test]
+fn transparent_namespace_definitions_preserve_compatibility_and_proxy_identity() {
+    assert_namespace_modules(
+        &[(
+            "main.mjs",
+            r###"import * as ns from './main.mjs';
+export let value = 1;
+const proxy = new Proxy(ns, {});
+const nested = new Proxy(proxy, {});
+let conversions = 0;
+const descriptor = {get value() { conversions++; return 1; }};
+const compatible = Reflect.defineProperty(proxy, 'value', descriptor);
+const returned = Object.defineProperty(nested, 'value', {value: 1}) === nested;
+const incompatible = Reflect.defineProperty(nested, 'value', {value: 2});
+let rejected = false;
+try { Object.defineProperty(proxy, 'value', {value: 2}); } catch (error) { rejected = error instanceof TypeError; }
+print([compatible, returned, incompatible, rejected, conversions, ns.value].join('|'));
+"###,
+        )],
+        &["true|true|false|true|1|1"],
+    );
+}
+
+#[test]
+fn transparent_namespace_definitions_read_tdz_bindings() {
+    assert_namespace_modules(
+        &[(
+            "main.mjs",
+            r###"import * as ns from './main.mjs';
+const proxy = new Proxy(new Proxy(ns, {}), {});
+let reflectTDZ = false, objectTDZ = false;
+try { Reflect.defineProperty(proxy, 'value', {}); } catch (error) { reflectTDZ = error instanceof ReferenceError; }
+try { Object.defineProperty(proxy, 'value', {}); } catch (error) { objectTDZ = error instanceof ReferenceError; }
+export let value = 1;
+print(reflectTDZ + '|' + objectTDZ);
+"###,
+        )],
+        &["true|true"],
+    );
+}
+
+#[test]
+fn transparent_deferred_namespace_definitions_preserve_evaluation_errors() {
+    assert_namespace_modules(
+        &[
+            (
+                "main.mjs",
+                r###"import defer * as ns from './dep.mjs';
+const sentinel = {};
+globalThis.namespaceSentinel = sentinel;
+const proxy = new Proxy(ns, {});
+let same = false;
+try { Reflect.defineProperty(proxy, 'absent', {}); } catch (error) { same = error === sentinel; }
+print(same);
+"###,
+            ),
+            (
+                "dep.mjs",
+                r###"throw globalThis.namespaceSentinel;
+export const value = 1;
+"###,
+            ),
+        ],
+        &["true"],
+    );
+}
+
+#[test]
+fn namespace_key_arrays_use_the_invoked_builtin_realm() {
+    assert_namespace_modules(
+        &[(
+            "runtime-intrinsic.mjs",
+            r###"import * as ns from './runtime-intrinsic.mjs';
+export const value = 1;
+const foreign = __lilaCreateRealm().global;
+const names = foreign.Object.getOwnPropertyNames(ns);
+const symbols = foreign.Object.getOwnPropertySymbols(ns);
+const all = foreign.Reflect.ownKeys(ns);
+print([Object.getPrototypeOf(names) === foreign.Array.prototype,
+ Object.getPrototypeOf(symbols) === foreign.Array.prototype,
+ Object.getPrototypeOf(all) === foreign.Array.prototype].join('|'));
+"###,
+        )],
+        &["true|true|true"],
+    );
+}
+
+#[test]
+fn namespace_identities_follow_import_phase_through_reexports_and_dynamic_import() {
+    assert_namespace_modules(
+        &[
+            (
+                "main.mjs",
+                r###"import * as eager from './dep.mjs';
+import defer * as deferred from './dep.mjs';
+import defer * as repeated from './dep.mjs';
+import {forwarded} from './forward.mjs';
+const dynamic = await import.defer('./dep.mjs');
+print([eager !== deferred, deferred === repeated, deferred === forwarded,
+ deferred === dynamic, eager[Symbol.toStringTag], deferred[Symbol.toStringTag],
+ eager.value, deferred.value].join('|'));
+"###,
+            ),
+            (
+                "dep.mjs",
+                r###"export let value = 1;
+"###,
+            ),
+            (
+                "forward.mjs",
+                r###"import defer * as forwarded from './dep.mjs';
+export {forwarded};
+"###,
+            ),
+        ],
+        &["true|true|true|true|Module|Deferred Module|1|1"],
+    );
+}
+
+#[test]
+fn namespace_import_reexports_resolve_unambiguously() {
+    assert_namespace_modules(
+        &[
+            (
+                "main.mjs",
+                r###"export * from './left.mjs';
+export * from './right.mjs';
+import {forwarded} from './main.mjs';
+print(forwarded.value);
+"###,
+            ),
+            (
+                "dep.mjs",
+                r###"export const value = 7;
+"###,
+            ),
+            (
+                "left.mjs",
+                r###"import * as forwarded from './dep.mjs';
+export {forwarded};
+"###,
+            ),
+            (
+                "right.mjs",
+                r###"import * as forwarded from './dep.mjs';
+export {forwarded};
+"###,
+            ),
+        ],
+        &["7"],
+    );
+}

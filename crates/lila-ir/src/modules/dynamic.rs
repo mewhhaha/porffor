@@ -484,16 +484,18 @@ fn exported_dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String 
 /// * evaluation — the module's namespace object, whose module has already been
 ///   evaluated (`classify_evaluation_modes` marks an evaluation-phase dynamic
 ///   target `Eager`);
-/// * defer — the *same cell*, which for a module nothing evaluates eagerly
-///   holds a Deferred Module Namespace whose getters run the body on first
-///   touch. `import.defer('m')` and `import defer * as ns from 'm'` therefore
-///   hand back one object, exactly as the two evaluation-phase forms do;
+/// * defer — the independent deferred namespace cell. `import.defer('m')`
+///   and `import defer * as ns from 'm'` share this identity even when an
+///   evaluation-phase request also evaluates the module eagerly;
 /// * source — the module source object, which is not a namespace at all: the
 ///   module is loaded and parsed but never instantiated.
 fn component_resolution_cell(component: &DynamicComponentIr) -> MergedName {
     match component.request().phase() {
-        ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {
+        ImportPhaseIr::Evaluation => {
             MergedName::minted(component.target(), UnitCellRole::Namespace)
+        }
+        ImportPhaseIr::Defer => {
+            MergedName::minted(component.target(), UnitCellRole::DeferredNamespace)
         }
         ImportPhaseIr::Source => MergedName::minted(component.target(), UnitCellRole::ModuleSource),
     }
@@ -864,11 +866,11 @@ impl ModuleGraphIr {
             )));
         }
 
-        for module in self.component_namespace_modules() {
+        for (module, mode) in self.component_namespace_modules() {
             let Some(namespace) = self
                 .units
                 .get(module as usize)
-                .and_then(|unit| unit.namespace.as_ref())
+                .and_then(|unit| unit.namespaces.get(&mode))
             else {
                 diagnostics.push(IrDiagnostic::unsupported(format!(
                     "unsupported in lila wasm-aot: `import()` target module {module} has no \
@@ -899,34 +901,40 @@ impl ModuleGraphIr {
     /// Transitive, because `export * as inner from "m"` makes one namespace's
     /// export *be* another module's namespace: resolving the outer one hands the
     /// inner object to the program even though no `import()` named it.
-    fn component_namespace_modules(&self) -> BTreeSet<ModuleUnitId> {
+    fn component_namespace_modules(&self) -> BTreeSet<(ModuleUnitId, ModuleNamespaceModeIr)> {
         // A source-phase component reaches a module *source* object, not a
         // namespace: its module is never instantiated, so it has no exports to
         // expose and asking for a namespace it must not have would report every
         // such module as unlinkable.
-        let mut observed: BTreeSet<ModuleUnitId> = self
+        let mut observed: BTreeSet<(ModuleUnitId, ModuleNamespaceModeIr)> = self
             .dynamic_components()
             .iter()
-            .filter(|entry| entry.request().phase() != ImportPhaseIr::Source)
-            .map(DynamicComponentIr::target)
+            .filter_map(|entry| {
+                entry
+                    .request()
+                    .phase()
+                    .namespace_mode()
+                    .map(|mode| (entry.target(), mode))
+            })
             .collect();
-        let mut pending: Vec<ModuleUnitId> = observed.iter().copied().collect();
-        while let Some(module) = pending.pop() {
+        let mut pending: Vec<(ModuleUnitId, ModuleNamespaceModeIr)> =
+            observed.iter().copied().collect();
+        while let Some((module, mode)) = pending.pop() {
             let Some(namespace) = self
                 .units
                 .get(module as usize)
-                .and_then(|unit| unit.namespace.as_ref())
+                .and_then(|unit| unit.namespaces.get(&mode))
             else {
                 continue;
             };
-            let nested: Vec<ModuleUnitId> = namespace
+            let nested: Vec<(ModuleUnitId, ModuleNamespaceModeIr)> = namespace
                 .exports
                 .iter()
                 .filter_map(|export| match &export.target {
                     ResolvedBindingIr::Resolved {
                         module,
-                        binding: ModuleBindingNameIr::Namespace,
-                    } => Some(*module),
+                        binding: ModuleBindingNameIr::Namespace(mode),
+                    } => Some((*module, *mode)),
                     ResolvedBindingIr::Resolved { .. }
                     | ResolvedBindingIr::Ambiguous
                     | ResolvedBindingIr::NotFound => None,
@@ -2030,13 +2038,13 @@ mod tests {
         let graph = graph_of(&sources);
         assert_eq!(graph.check_dynamic_import_linkable(), Vec::new());
         let namespace = graph.units[0]
-            .namespace
-            .as_ref()
+            .namespaces
+            .get(&ModuleNamespaceModeIr::Eager)
             .expect("the import() target has a namespace");
         let source = namespace.source.as_ref().expect("namespace is expressible");
         assert!(
             source.contains(&format!(
-                "get: () => {}",
+                ", () => {}",
                 LocalName::AnonymousDefault.merged_in(0).as_str()
             )),
             "got {source}"

@@ -607,6 +607,9 @@ impl<'a> ScriptLowerer<'a> {
                     info =
                         self.merge_optional_value_info(info, self.infer_expr_throw_info(operand));
                 }
+                if *operation == SpecOperationIr::WithEnvironmentHasBinding {
+                    info = self.merge_optional_value_info(info, Some(unknown_runtime_value_info()));
+                }
                 if *operation == SpecOperationIr::HasProperty {
                     if let Some(target) = operands.first() {
                         let object_like = KindSet::from_kind(ValueKind::Object)

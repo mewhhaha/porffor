@@ -666,6 +666,7 @@ fn spec_operation_preserves_caller_flow(
         | SpecOperationIr::GetV
         | SpecOperationIr::Set
         | SpecOperationIr::HasProperty
+        | SpecOperationIr::WithEnvironmentHasBinding
         | SpecOperationIr::HasOwnProperty
         | SpecOperationIr::DeletePropertyOrThrow
         | SpecOperationIr::CreateDataPropertyOrThrow

@@ -59,8 +59,8 @@ be reported as current compiler failures or passes.
   internal methods read live export bindings and return data descriptors,
   including TDZ errors and deferred evaluation triggers. See
   [the namespace contract](contracts/module-namespace-internal-methods.md).
-  Distinct eager/deferred identities and the deferred module activation lifecycle
-  still require linker work; this batch does not claim the whole module family.
+  The deferred module activation lifecycle still requires linker work; this
+  batch does not claim the whole module family.
 - `for-in` enumerates each prototype level lazily, observes current descriptors,
   and retains visited string names, including non-enumerable shadowing names.
   All assignment-head forms share that algorithm and preserve completion values.
@@ -74,11 +74,36 @@ be reported as current compiler failures or passes.
   checks and restoration. Weakened assertion omission and property-helper
   compaction are removed.
 - Reverse RegExp matching admits the start/end anchors already implemented by
-  the matcher. Nested lookarounds and backreferences remain separate gaps.
+  the matcher. The following checkpoint extends assertion grammar and nesting;
+  reverse backreferences remain a separate gap.
 - Private update dependency scanning records lexical `this` and computed target
   captures. With statements normalize empty body completions to undefined.
   Parser diagnostic spans use typed lexer positions, including all ECMAScript
   line terminators, instead of parsing formatted error messages.
+
+## Lookaround, binding and field-replacement checkpoint
+
+- RegExp lookahead compiles its full disjunction through the shared matcher,
+  including captures, alternatives, nested assertions and scoped flags. Private
+  assertion backtracking restores the cursor and parent direction, retains
+  successful positive captures and restores negative captures. Legacy quantified
+  assertions preserve zero-progress semantics. Reverse scalar/property atoms use
+  existing matching operations, and ASCII classes reject non-ASCII bitmap aliases.
+  See [the assertion contract](contracts/regexp-lookbehind-polarity.md).
+- With entry performs ToObject before executing the body. A typed HasBinding
+  operation outlines the property/unscopables query into a shared runtime
+  function, preserving lookup order, realm and abrupt completions. Exact emitted
+  size and native admission of the five oversized cases still require measurement.
+  See [the binding contract](contracts/with-has-binding.md).
+- Namespace identity includes eager/deferred phase. Transparent Proxy definition,
+  failed namespace Set handling and key-array allocation retain the namespace
+  internal-method and builtin-realm contracts. Full module instantiation and
+  deferred activation remain open.
+- ZonedDateTime.with uses ordered partial-field reads, calendar field merging,
+  strict offset-string conversion and shared exact epoch conversion.
+  ZonedDateTime.toPlainDate uses the same local components as toPlainDateTime.
+  Named-zone/DST and other-calendar support remain open. See
+  [the field-replacement note](temporal-zoned-field-replacement.md).
 
 ## Verification in progress
 
@@ -96,14 +121,22 @@ failures, six retained passing controls and zero timeouts. The full IR suite
 passes all 1,126 tests. The backend suite reports 431 passed and four failed;
 three failures share the naming-string seed placement error and the fourth is
 the assignment planner test measuring an unrelated object initializer. Both
-corrections are written for the second checkpoint.
+corrections pass all four focused tests on the second checkpoint.
 
 Verification found a private arrow-capture bug, a NUL diagnostic-span bug, a
 tagged-template fixture escape error and stale structural test markers. The
 second batch includes those corrections. After the span correction, all 164
-frontend unit tests and four NUL integration tests pass. Its other native and
-IR checks remain pending. A 769-execution main reference cohort covers the
-second batch's affected families, including historical passing controls.
+frontend unit tests and four NUL integration tests pass. The second checkpoint,
+`f1fe521f48c6fac4bc5e8004dd9c9b6b269eee29`, passes the workspace all-targets
+release check and all native for-in (9), private update (8), With completion (12),
+NUL (3), naming (6), BigInt comparison (6), and pinned harness (4) tests.
+Its namespace, calendar and RegExp tests expose further defects or fixture
+errors addressed in the following checkpoint. Its Test262 unit suite reports
+351 passed and 10 failed; the failure evidence is retained while test setup and
+capability expectations are corrected and rechecked. A 769-execution main
+reference cohort covers the second batch's affected families, including
+historical passing controls; native replay and the remaining broad tests are
+still running.
 
 Evidence is under `target/failure-review/completed-baseline-20260914`.
 `batch1-candidate-initial-main-audit.json` records the verified 50-case result;

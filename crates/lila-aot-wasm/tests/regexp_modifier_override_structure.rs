@@ -76,7 +76,7 @@ fn dot_and_assertion_constructors_name_the_inherited_override_code() {
         ),
         (
             "    pub const fn assert_end() -> Self {",
-            "    pub const fn lookbehind_start() -> Self {",
+            "    const fn lookaround_start(direction: RegExpMatchDirection) -> Self {",
         ),
     ] {
         let body = bounded(IR, constructor, next_constructor);

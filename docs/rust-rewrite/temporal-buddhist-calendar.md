@@ -35,9 +35,10 @@ runtime dependency is required for this calendar.
 canonicalization assertion now checks spellings supported by both services;
 Temporal arithmetic support does not imply formatter patterns or era labels.
 Other calendars still need their own complete arithmetic implementation.
-Existing missing Temporal methods also remain separate work, including
-ZonedDateTime.prototype.with and calendar-relative Duration operations. This
-change does not claim that all Buddhist fixtures or all Temporal tests pass.
+The follow-up [zoned field replacement](temporal-zoned-field-replacement.md)
+also covers `ZonedDateTime.prototype.with` and `toPlainDate`. Calendar-relative
+Duration operations remain separate work. This change does not claim that all
+Buddhist fixtures or all Temporal tests pass.
 
 The dedicated native regression target is
 `cargo test -p lila-engine --test aot_temporal_buddhist_calendar -- --test-threads=1`.

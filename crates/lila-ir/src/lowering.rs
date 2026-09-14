@@ -1340,17 +1340,16 @@ impl<'a> ScriptLowerer<'a> {
         let with_environments = with_positions
             .into_iter()
             .map(|(binding_name, position)| {
-                let capture = function
+                function
                     .captures
                     .get(binding_name.as_str())
                     .expect("surrounding WithObject environment must be captured");
                 PositionedWithEnvironment::captured(
                     ObjectEnvironmentBindingObject::materialized(
                         &binding_name,
-                        self.capture_value_info(
-                            capture.owner_id.as_str(),
-                            capture.source_name.as_str(),
-                        ),
+                        // The hidden slot contains the once-boxed With entry
+                        // value, independent of the original head's type.
+                        Self::unknown_construct_result_info(),
                     ),
                     position,
                 )
@@ -7794,9 +7793,7 @@ impl<'a> ScriptLowerer<'a> {
         objects: SelectedWithEnvironmentObjects,
     ) -> WithEnvironmentReferencePlan {
         let strictness = self.reference_strictness();
-        objects.into_reference_plan(name, strictness, || {
-            self.alloc_temp_binding_name("with.unscopables.")
-        })
+        objects.into_reference_plan(name, strictness)
     }
 
     fn script_global_var_binding_info(&self, name: &str) -> Option<BindingInfo> {

@@ -134,7 +134,8 @@ mod tests {
                 RuntimeHelperId::ObjectRead,
                 RuntimeHelperId::ObjectReadProxy,
                 RuntimeHelperId::IndexedElementRead,
-                RuntimeHelperId::ObjectHasProperty
+                RuntimeHelperId::ObjectHasProperty,
+                RuntimeHelperId::WithEnvironmentHasBinding
             ]
         );
 

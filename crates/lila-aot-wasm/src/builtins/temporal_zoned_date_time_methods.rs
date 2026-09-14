@@ -12,6 +12,7 @@
 //! date-unit differences require the same zone after reading options.
 
 use super::super::*;
+use super::temporal::TemporalZonedDateTimePlainTarget;
 use super::temporal_difference::TemporalDifferenceContext;
 use super::temporal_options::TemporalUnit;
 use super::temporal_plain_date_time_methods::{
@@ -272,7 +273,10 @@ impl<'a> FunctionBuilder<'a> {
         // an inline emitter does not. `CreateTemporalDateTime` runs
         // `ISODateTimeWithinLimits`, so this is reachable, and without the
         // guard a throw completion would be handed on as a *receiver*.
-        self.emit_temporal_zoned_date_time_to_plain_date_time(function)?;
+        self.emit_temporal_zoned_date_time_to_plain(
+            TemporalZonedDateTimePlainTarget::DateTime,
+            function,
+        )?;
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::LocalSet(plain_payload_local));
@@ -549,7 +553,10 @@ impl<'a> FunctionBuilder<'a> {
         // `other` through a call because its `this` is not. The explicit throw
         // guard is the one `emit_direct_js_call` would have supplied; see the
         // sibling comment in `emit_temporal_zoned_date_time_add_or_subtract`.
-        self.emit_temporal_zoned_date_time_to_plain_date_time(function)?;
+        self.emit_temporal_zoned_date_time_to_plain(
+            TemporalZonedDateTimePlainTarget::DateTime,
+            function,
+        )?;
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::LocalSet(plain_payload_local));

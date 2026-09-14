@@ -6008,6 +6008,41 @@ object[key];
     }
 
     #[test]
+    fn with_has_binding_has_bounded_incremental_function_body_growth() {
+        let emit_reads = |count| {
+            let reads = "selected;".repeat(count);
+            emit_script(&format!(
+                "function probe(scope, selected) {{ with (scope) {{ {reads} }} }} probe({{selected: 1}}, 0);"
+            ))
+            .expect("with binding reads should emit")
+        };
+        let single = emit_reads(1);
+        let repeated = emit_reads(10);
+        expect_valid_module(&single, 1);
+        expect_valid_module(&repeated, 1);
+        let largest_probe = |artifact: &WasmArtifact| {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::probe#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("the probe body must be emitted")
+        };
+        let single_bytes = largest_probe(&single);
+        let repeated_bytes = largest_probe(&repeated);
+        let growth = repeated_bytes
+            .checked_sub(single_bytes)
+            .expect("additional observable reads must not shrink the body");
+        // Frozen main added 92,151 bytes for these nine sites. This ceiling
+        // detects a return to the repeated generic HasBinding expression tree.
+        assert!(
+            growth < 45_000,
+            "nine With reads added {growth} bytes ({single_bytes} -> {repeated_bytes})"
+        );
+    }
+
+    #[test]
     fn statically_nullish_computed_property_read_emits_after_throw_path() {
         let artifact = emit_script(
             r#"

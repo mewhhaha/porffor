@@ -1,4 +1,5 @@
 const SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_time_methods.rs");
+const ZONED_SOURCE: &str = include_str!("../src/builtins/temporal_zoned_date_time_with.rs");
 const YEAR_MONTH_SOURCE: &str =
     include_str!("../src/builtins/temporal_plain_year_month_methods.rs");
 
@@ -13,77 +14,85 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 }
 
 #[test]
-fn plain_date_time_field_read_mode_is_a_private_capability_free_domain() {
-    let domain = bounded(
+fn date_time_field_read_mode_expresses_the_zoned_offset_destination() {
+    let declaration = bounded(
         SOURCE,
-        "    EraPair,\n}\n\n",
-        "\n\nimpl TemporalDateTimeFieldKey",
+        "pub(super) enum TemporalDateTimeFieldReadMode {",
+        "\n}",
     );
-    let declaration = bounded(domain, "enum TemporalPlainDateTimeFieldReadMode {", "\n}");
     let variants = declaration
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
-
-    assert_eq!(variants, ["Conversion,", "With,"]);
-    assert!(!SOURCE.contains("pub enum TemporalPlainDateTimeFieldReadMode"));
-    assert!(!SOURCE.contains("pub(crate) enum TemporalPlainDateTimeFieldReadMode"));
-    assert!(!SOURCE.contains("pub(super) enum TemporalPlainDateTimeFieldReadMode"));
-    assert!(!domain.contains("#[derive("));
-    for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
-        assert!(!declaration.contains(capability));
-    }
+    assert_eq!(
+        variants,
+        [
+            "Conversion,",
+            "With,",
+            "ZonedWith {",
+            "offset_nanoseconds_local: u32,",
+            "},"
+        ]
+    );
+    assert!(!declaration.contains(": bool"));
+    assert!(!declaration.contains("Option<"));
 }
 
 #[test]
-fn field_reader_projects_the_mode_once_and_exhaustively() {
+fn field_reader_projects_calendar_and_offset_modes_exhaustively() {
     let reader = bounded(
         SOURCE,
-        "    fn emit_temporal_plain_date_time_read_fields(",
+        "    pub(super) fn emit_temporal_date_time_read_fields(",
         "    /// `ToTemporalDateTime`.",
     );
-
-    assert!(reader.contains("mode: TemporalPlainDateTimeFieldReadMode,"));
-    assert_eq!(reader.matches("match mode {").count(), 1);
-    assert_eq!(
-        reader
-            .matches("TemporalPlainDateTimeFieldReadMode::Conversion => {")
-            .count(),
-        1
-    );
-    assert_eq!(
-        reader
-            .matches("TemporalPlainDateTimeFieldReadMode::With => {}")
-            .count(),
-        1
-    );
-    let conversion_arm = bounded(
+    assert!(reader.contains("mode: TemporalDateTimeFieldReadMode,"));
+    assert_eq!(reader.matches("match &mode {").count(), 2);
+    let calendar_projection = bounded(
         reader,
-        "TemporalPlainDateTimeFieldReadMode::Conversion => {",
-        "\n            }\n            TemporalPlainDateTimeFieldReadMode::With => {}",
+        "match &mode {",
+        "for key in TemporalDateTimeFieldKey::ALL",
     );
+    assert!(calendar_projection.contains("TemporalDateTimeFieldReadMode::Conversion => {"));
+    assert!(calendar_projection.contains("TemporalDateTimeFieldReadMode::With"));
+    assert!(calendar_projection.contains("TemporalDateTimeFieldReadMode::ZonedWith"));
     assert_eq!(
-        conversion_arm
+        calendar_projection
             .matches("self.strings.payload(\"calendar\")")
             .count(),
         1
     );
     assert_eq!(
-        conversion_arm
+        calendar_projection
             .matches("self.emit_temporal_to_temporal_calendar_identifier(")
             .count(),
         1
     );
-    assert!(!reader.contains("read_calendar"));
-    assert!(!reader.contains(": bool"));
-    assert!(!reader.contains("matches!(mode"));
-    assert!(!reader.contains("_ =>"));
-    assert!(!reader.contains("unreachable!"));
+    let offset_projection = bounded(
+        reader,
+        "TemporalDateTimeFieldRead::Offset => {",
+        "TemporalDateTimeFieldRead::EraPair => {",
+    );
+    assert!(offset_projection.contains("TemporalDateTimeFieldReadMode::ZonedWith"));
+    assert_eq!(
+        offset_projection
+            .matches("self.emit_temporal_offset_string(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        offset_projection
+            .matches("self.emit_temporal_utc_offset_nanoseconds(")
+            .count(),
+        1
+    );
+    for absent in ["read_calendar", ": bool", "_ =>", "unreachable!"] {
+        assert!(!reader.contains(absent));
+    }
 }
 
 #[test]
-fn exactly_two_producers_select_conversion_and_with() {
+fn three_producers_select_plain_conversion_plain_with_and_zoned_with() {
     let conversion = bounded(
         SOURCE,
         "    pub(super) fn emit_to_temporal_date_time(",
@@ -91,11 +100,11 @@ fn exactly_two_producers_select_conversion_and_with() {
     );
     assert_eq!(
         conversion
-            .matches("TemporalPlainDateTimeFieldReadMode::Conversion,")
+            .matches("TemporalDateTimeFieldReadMode::Conversion,")
             .count(),
         1
     );
-    assert!(!conversion.contains("TemporalPlainDateTimeFieldReadMode::With"));
+    assert!(!conversion.contains("TemporalDateTimeFieldReadMode::With"));
 
     let with = bounded(
         SOURCE,
@@ -103,16 +112,27 @@ fn exactly_two_producers_select_conversion_and_with() {
         "    /// Temporal proposal 5.3.x `withPlainTime`.",
     );
     assert_eq!(
-        with.matches("TemporalPlainDateTimeFieldReadMode::With,")
+        with.matches("TemporalDateTimeFieldReadMode::With,").count(),
+        1
+    );
+    assert!(!with.contains("TemporalDateTimeFieldReadMode::Conversion"));
+    assert_eq!(
+        SOURCE
+            .matches("self.emit_temporal_date_time_read_fields(")
+            .count(),
+        2
+    );
+    assert_eq!(
+        ZONED_SOURCE
+            .matches("self.emit_temporal_date_time_read_fields(")
             .count(),
         1
     );
-    assert!(!with.contains("TemporalPlainDateTimeFieldReadMode::Conversion"));
     assert_eq!(
-        SOURCE
-            .matches("self.emit_temporal_plain_date_time_read_fields(")
+        ZONED_SOURCE
+            .matches("TemporalDateTimeFieldReadMode::ZonedWith {")
             .count(),
-        2
+        1
     );
     assert!(!YEAR_MONTH_SOURCE.contains("read_calendar: bool,"));
     assert!(YEAR_MONTH_SOURCE.contains("enum TemporalPlainYearMonthFieldReadMode {"));
@@ -156,7 +176,7 @@ fn with_reads_both_forbidden_temporal_properties_before_the_field_sweep() {
     assert!(
         with.find(forbidden_property_reads).unwrap()
             < with
-                .find("self.emit_temporal_plain_date_time_read_fields(")
+                .find("self.emit_temporal_date_time_read_fields(")
                 .unwrap()
     );
 }

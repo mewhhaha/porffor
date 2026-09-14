@@ -22,31 +22,31 @@ fn compact(source: &str) -> String {
 }
 
 #[test]
-fn lookbehind_polarity_is_a_private_non_capability_domain() {
+fn lookaround_polarity_is_a_private_non_capability_domain() {
     let declaration = bounded(
         REGEXP_SOURCE,
-        "enum LookbehindPolarity {",
-        "impl LookbehindPolarity {",
+        "enum LookaroundPolarity {",
+        "impl LookaroundPolarity {",
     );
     assert_eq!(compact(declaration), "Positive,Negative,}");
     let prefix = bounded(
         REGEXP_SOURCE,
         "enum ParsedTermAtom {",
-        "enum LookbehindPolarity {",
+        "enum LookaroundPolarity {",
     );
     assert!(!prefix.contains("#[derive"));
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
-        assert!(!REGEXP_SOURCE.contains(&format!("impl {capability} for LookbehindPolarity")));
+        assert!(!REGEXP_SOURCE.contains(&format!("impl {capability} for LookaroundPolarity")));
     }
-    assert!(!REGEXP_SOURCE.contains("pub enum LookbehindPolarity"));
-    assert!(!REGEXP_SOURCE.contains("pub(crate) enum LookbehindPolarity"));
+    assert!(!REGEXP_SOURCE.contains("pub enum LookaroundPolarity"));
+    assert!(!REGEXP_SOURCE.contains("pub(crate) enum LookaroundPolarity"));
 }
 
 #[test]
 fn syntax_and_wire_projection_each_have_one_exhaustive_owner() {
     let implementation = bounded(
         REGEXP_SOURCE,
-        "impl LookbehindPolarity {",
+        "impl LookaroundPolarity {",
         "enum ParsedAtom {",
     );
     let implementation = compact(implementation);
@@ -56,17 +56,17 @@ fn syntax_and_wire_projection_each_have_one_exhaustive_owner() {
     assert!(implementation.contains(
         "constfnoperand_bit(&self)->u64{matchself{Self::Positive=>0,Self::Negative=>1,}}"
     ));
-    assert_eq!(REGEXP_SOURCE.matches("from_syntax_marker").count(), 2);
-    assert_eq!(REGEXP_SOURCE.matches(".operand_bit()").count(), 2);
+    assert_eq!(REGEXP_SOURCE.matches("from_syntax_marker").count(), 3);
+    assert_eq!(REGEXP_SOURCE.matches("polarity.operand_bit()").count(), 2);
 
     let constructors = bounded(
         REGEXP_SOURCE,
-        "const fn lookbehind_end(",
+        "const fn lookaround_end(",
         "pub const fn positive_ascii_class_contains(",
     );
     assert_eq!(
         constructors
-            .matches("polarity: &LookbehindPolarity")
+            .matches("polarity: &LookaroundPolarity")
             .count(),
         2
     );
@@ -78,7 +78,7 @@ fn syntax_and_wire_projection_each_have_one_exhaustive_owner() {
 #[test]
 fn parsed_atom_owns_polarity_and_lowering_only_borrows_it() {
     let parsed_atom = bounded(REGEXP_SOURCE, "enum ParsedAtom {", "struct NamedCapture {");
-    assert!(parsed_atom.contains("Lookbehind {\n        polarity: LookbehindPolarity,"));
+    assert!(parsed_atom.contains("Lookaround {\n        polarity: LookaroundPolarity,"));
     assert!(!parsed_atom.contains("negative: bool"));
 
     let parser = bounded(
@@ -88,26 +88,21 @@ fn parsed_atom_owns_polarity_and_lowering_only_borrows_it() {
     );
     assert_eq!(
         parser
-            .matches("LookbehindPolarity::from_syntax_marker")
+            .matches("LookaroundPolarity::from_syntax_marker")
             .count(),
         1
     );
-    assert_eq!(
-        parser
-            .matches("ParsedAtom::Lookbehind { polarity, body }")
-            .count(),
-        1
-    );
+    assert_eq!(parser.matches("ParsedAtom::Lookaround {").count(), 1);
     assert!(!parser.contains("negative"));
 
     let lowerer = bounded(
         REGEXP_SOURCE,
-        "ParsedAtom::Lookbehind { polarity, body } => {",
-        "ParsedAtom::RequiresUnicodeSetSemantics(_) => Ok(()),",
+        "    fn lookaround(",
+        "    fn finite_class_set_atom(",
     );
-    assert_eq!(lowerer.matches("lookbehind_end(").count(), 2);
-    assert_eq!(lowerer.matches("lookbehind_failure(").count(), 2);
-    assert_eq!(lowerer.matches(", polarity)").count(), 4);
+    assert_eq!(lowerer.matches("lookaround_end(").count(), 2);
+    assert_eq!(lowerer.matches("lookaround_failure(").count(), 2);
+    assert_eq!(lowerer.matches("polarity,").count(), 4);
     assert!(!lowerer.contains("operand_bit"));
     assert!(!lowerer.contains("*polarity"));
     assert!(!lowerer.contains("negative"));
@@ -122,7 +117,7 @@ fn focused_witness_and_evidence_cover_both_polarities() {
     assert!(BEHAVIOR_SOURCE.contains("assert_eq!(polarity_bits(&negative), (1, 1));"));
 
     for evidence in [CONTRACT, TASK] {
-        assert!(evidence.contains("LookbehindPolarity"));
+        assert!(evidence.contains("LookaroundPolarity"));
         assert!(evidence.contains("from_syntax_marker"));
         assert!(evidence.contains("operand_bit"));
     }

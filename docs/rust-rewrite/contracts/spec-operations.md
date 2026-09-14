@@ -18,7 +18,23 @@ disagree.** For this half, read 13.2 (the catalog entry was forgeable), 13.3
 membership over T00–T29) and 13.11 (what `EmitterEvidence` actually proves, and
 how L2 must be scoped).
 
-## Current catalog checkpoint (2026-08-29)
+## Current catalog checkpoint (2026-09-14)
+
+The authoritative macro/table census is **30 expression rows + 2 backend rows +
+5 statement rows + 10 tracked gaps = 47 rows**. Const assertion J4 and both
+backend-evidence census tests pin these counts. §27 of the combined contract
+supersedes the historical census statements below.
+
+`WithEnvironmentHasBinding` adds one expression row in the Environment family:
+a With binding object and String name produce a Boolean or Throw. Its actual
+producer is the validated Object Environment reference, and its shared Wasm
+body serves both static reference resolution and named environment lookup.
+The independent `ToObject` row is unchanged; With entry now uses it before
+publishing the binding object. See [With HasBinding](./with-has-binding.md).
+This catalog update does not change a Test262 status count or claim validation
+of the new implementation.
+
+## Backend-operation checkpoint (2026-08-29)
 
 §16 supersedes the earlier status and census claims. `ArraySpeciesCreate` is a
 macro-backed `BackendSpecOperation`, with unforgeable `BackendEmitterEvidence`

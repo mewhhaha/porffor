@@ -2009,10 +2009,19 @@ impl ArrayAccumulationIr {
 }
 
 /// Evaluation behavior of the same module namespace exotic representation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ModuleNamespaceModeIr {
     Eager,
     Deferred,
+}
+
+impl ModuleNamespaceModeIr {
+    pub(crate) const fn cell_role(self) -> crate::UnitCellRole {
+        match self {
+            Self::Eager => crate::UnitCellRole::Namespace,
+            Self::Deferred => crate::UnitCellRole::DeferredNamespace,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

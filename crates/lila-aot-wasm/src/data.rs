@@ -2828,10 +2828,18 @@ impl StringPool {
                 pool.intern_string(value);
             }
         }
-        if compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom) {
+        if compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeWith)
+        {
             for value in [
                 "Temporal.ZonedDateTime.from requires a string or Temporal.ZonedDateTime",
                 "Temporal.ZonedDateTime.from options must be an object or undefined",
+                "Temporal.ZonedDateTime.prototype.with requires an object",
+                "Temporal.ZonedDateTime.prototype.with does not accept a Temporal object",
+                "Temporal.ZonedDateTime.prototype.with does not accept calendar or timeZone",
+                "Temporal.ZonedDateTime.prototype.with requires at least one date, time, or offset field",
+                "Temporal.ZonedDateTime.prototype.with options must be an object or undefined",
                 "calendar",
                 "day",
                 "hour",
@@ -5118,6 +5126,14 @@ fn repeatable_split_count(program: &RegExpProgram) -> u32 {
             .collect(),
             REGEXP_OPCODE_PROGRESS_CHECK => valid(instruction.operand1).into_iter().collect(),
             REGEXP_OPCODE_JUMP => valid(instruction.operand0).into_iter().collect(),
+            lila_ir::REGEXP_OPCODE_LOOKAROUND_END => {
+                valid(instruction.operand1 & 0x3fff_ffff_ffff_ffff)
+                    .into_iter()
+                    .collect()
+            }
+            lila_ir::REGEXP_OPCODE_LOOKAROUND_FAILURE => {
+                valid(instruction.operand0).into_iter().collect()
+            }
             REGEXP_OPCODE_ACCEPT => Vec::new(),
             _ if pc + 1 < instructions.len() => vec![pc + 1],
             _ => Vec::new(),
@@ -5200,6 +5216,14 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
             .flatten()
             .collect::<Vec<_>>(),
             REGEXP_OPCODE_JUMP => valid_target(instruction.operand0).into_iter().collect(),
+            lila_ir::REGEXP_OPCODE_LOOKAROUND_END => {
+                valid_target(instruction.operand1 & 0x3fff_ffff_ffff_ffff)
+                    .into_iter()
+                    .collect()
+            }
+            lila_ir::REGEXP_OPCODE_LOOKAROUND_FAILURE => {
+                valid_target(instruction.operand0).into_iter().collect()
+            }
             REGEXP_OPCODE_ACCEPT => Vec::new(),
             _ if pc + 1 < instructions.len() => vec![pc + 1],
             _ => Vec::new(),

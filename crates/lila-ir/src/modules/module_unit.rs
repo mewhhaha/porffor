@@ -1,4 +1,6 @@
-use crate::{BlockIr, FunctionIr, OwnedEnvBindingIr};
+use std::collections::BTreeMap;
+
+use crate::{BlockIr, FunctionIr, ModuleNamespaceModeIr, OwnedEnvBindingIr};
 
 use super::namespace::ModuleNamespaceIr;
 use super::record::SourceTextModuleRecordIr;
@@ -23,7 +25,7 @@ pub struct ModuleUnitIr {
     /// This unit's own top-level environment bindings.
     pub owned_env_bindings: Vec<OwnedEnvBindingIr>,
     /// Set when any importer or `import()` observes this module's namespace.
-    pub namespace: Option<ModuleNamespaceIr>,
+    pub namespaces: BTreeMap<ModuleNamespaceModeIr, ModuleNamespaceIr>,
     /// One entry per `record.import_entries[i]`, same index.
     pub resolved_imports: Vec<ResolvedBindingIr>,
     /// One entry per `record.indirect_export_entries[i]`, same index.

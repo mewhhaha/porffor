@@ -1188,6 +1188,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             SpecOperationIr::Set
             | SpecOperationIr::HasProperty
+            | SpecOperationIr::WithEnvironmentHasBinding
             | SpecOperationIr::HasOwnProperty
             | SpecOperationIr::DeletePropertyOrThrow => {
                 let payload_local = self.reserve_temp_local();
@@ -1830,6 +1831,49 @@ impl<'a> FunctionBuilder<'a> {
                     ));
                 };
                 self.emit_construct(callee, args, None, payload_local, tag_local, function)
+            }
+            SpecOperationIr::WithEnvironmentHasBinding => {
+                let [target, name] = operands else {
+                    return Err(EmitError::unsupported(format!(
+                        "WithEnvironmentHasBinding expects 2 operands, got {}",
+                        operands.len()
+                    )));
+                };
+                if name.kind != ValueKind::String {
+                    return Err(EmitError::unsupported(
+                        "WithEnvironmentHasBinding requires a String binding name",
+                    ));
+                }
+                let object_local = self.reserve_temp_local();
+                let object_tag_local = self.reserve_temp_local();
+                let name_local = self.reserve_temp_local();
+                let name_tag_local = self.reserve_temp_local();
+                self.compile_expr_to_locals(target, object_local, object_tag_local, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    object_local,
+                    object_tag_local,
+                    function,
+                )?;
+                self.compile_expr_to_locals(name, name_local, name_tag_local, function)?;
+                self.emit_propagate_throw_from_locals_if_needed(
+                    name_local,
+                    name_tag_local,
+                    function,
+                )?;
+                self.emit_with_environment_has_binding(
+                    object_local,
+                    object_tag_local,
+                    name_local,
+                    payload_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag_local));
+                self.release_temp_local(name_tag_local);
+                self.release_temp_local(name_local);
+                self.release_temp_local(object_tag_local);
+                self.release_temp_local(object_local);
+                Ok(())
             }
             SpecOperationIr::HasProperty => {
                 let [target, key] = operands else {
@@ -3905,7 +3949,7 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));

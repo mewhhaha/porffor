@@ -5,7 +5,7 @@ use super::binary_data::{
     TypedArrayAccessorKind, TypedArrayViewLocals, TypedArrayWitnessUse,
 };
 use super::string::StringNormalizationForm;
-use super::temporal::ZonedDateTimeField;
+use super::temporal::{TemporalZonedDateTimePlainTarget, ZonedDateTimeField};
 use super::temporal_options::TemporalTimeUnit;
 use super::temporal_plain_date_time_methods::{
     TemporalPlainArithmeticOperation, TemporalPlainDateTimeComponent,
@@ -22619,6 +22619,9 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimeCompare => {
                 self.emit_temporal_zoned_date_time_compare(function)?;
             }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWith => {
+                self.emit_temporal_zoned_date_time_with(function)?;
+            }
             StandardBuiltinId::TemporalZonedDateTimePrototypeRound => {
                 self.emit_temporal_zoned_date_time_round(function)?;
             }
@@ -22772,8 +22775,17 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant => {
                 self.emit_temporal_zoned_date_time_to_instant(function)?;
             }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => {
+                self.emit_temporal_zoned_date_time_to_plain(
+                    TemporalZonedDateTimePlainTarget::Date,
+                    function,
+                )?;
+            }
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => {
-                self.emit_temporal_zoned_date_time_to_plain_date_time(function)?;
+                self.emit_temporal_zoned_date_time_to_plain(
+                    TemporalZonedDateTimePlainTarget::DateTime,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone => {
                 self.emit_temporal_zoned_date_time_with_time_zone(function)?;

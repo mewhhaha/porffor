@@ -17173,7 +17173,6 @@ print('Test262:AsyncTestComplete');
 
     #[test]
     fn wasm_aot_retains_async_done_failures_alongside_execution_failures() {
-        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
         let preludes = async_done_preludes();
         for (path, source, negative_error, outcome, execution_detail, timeout_ms) in [
             (
@@ -20698,7 +20697,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             assert_eq!(prelude.origin, PreludeOrigin::VendoredHarness, "{name}");
             assert_eq!(prelude.contents, vendored_harness_source(name), "{name}");
         }
-        assert!(!local_store
+        assert!(local_store
             .get("assert.js")
             .expect("local store should contain assert.js")
             .contents
@@ -21948,7 +21947,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             assert_eq!(prelude.origin, PreludeOrigin::VendoredHarness, "{name}");
             assert_eq!(prelude.contents, vendored_harness_source(name), "{name}");
         }
-        assert!(!local_store
+        assert!(local_store
             .get("assert.js")
             .expect("local store should contain assert.js")
             .contents
@@ -23875,7 +23874,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     }
 
     #[test]
-    fn string_dynamic_source_cases_preserve_pinned_sources_and_report_typed_unsupported() {
+    fn string_prepared_source_cases_preserve_pinned_sources_and_emit_wasm() {
         const CASES: [(
             &str,
             usize,
@@ -23884,7 +23883,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             &str,
             usize,
             lila_ir::DynamicSourceKind,
-            lila_ir::DynamicSourceRequirement,
         ); 5] = [
             (
                 "built-ins/String/prototype/charAt/S15.5.4.4_A1.1.js",
@@ -23894,7 +23892,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "eval(\"1\")",
                 3,
                 lila_ir::DynamicSourceKind::DirectEval,
-                lila_ir::DynamicSourceRequirement::CallerEnvironment,
             ),
             (
                 "built-ins/String/prototype/charCodeAt/S15.5.4.5_A1.1.js",
@@ -23904,7 +23901,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "eval(\"1\")",
                 4,
                 lila_ir::DynamicSourceKind::DirectEval,
-                lila_ir::DynamicSourceRequirement::CallerEnvironment,
             ),
             (
                 "built-ins/String/prototype/indexOf/S15.5.4.7_A3_T2.js",
@@ -23914,7 +23910,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "eval(\"\\\"-99\\\"\")",
                 3,
                 lila_ir::DynamicSourceKind::DirectEval,
-                lila_ir::DynamicSourceRequirement::CallerEnvironment,
             ),
             (
                 "built-ins/String/prototype/match/S15.5.4.10_A1_T3.js",
@@ -23924,7 +23919,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "eval(\"\\\"bj\\\"\")",
                 2,
                 lila_ir::DynamicSourceKind::DirectEval,
-                lila_ir::DynamicSourceRequirement::CallerEnvironment,
             ),
             (
                 "built-ins/String/prototype/slice/S15.5.4.13_A1_T5.js",
@@ -23934,7 +23928,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "Function()",
                 3,
                 lila_ir::DynamicSourceKind::Function(lila_ir::DynamicFunctionKind::Ordinary),
-                lila_ir::DynamicSourceRequirement::TargetRealmEnvironment,
             ),
         ];
         const COMBINED_PATH_SOURCE_FNV1A: u64 = 0xa8d8_8f84_b00e_6dcb;
@@ -23956,7 +23949,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             dynamic_source_needle,
             expected_dynamic_source_needle_count,
             dynamic_source_kind,
-            expected_requirement,
         ) in CASES
         {
             physical_count += 1;
@@ -24051,15 +24043,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     TestExecutionMode::StrictScript => "\"use strict\";\n",
                     unexpected => panic!("unexpected {path} execution mode: {unexpected:?}"),
                 };
-                let expected_gap = lila_ir::DynamicSourceGap::aot_known_source(dynamic_source_kind);
-                assert_eq!(
-                    expected_gap.requirement(),
-                    expected_requirement,
-                    "{} dynamic source ownership",
-                    case.execution_id()
-                );
-                let expected_feature = UnsupportedFeature::DynamicSource(expected_gap);
-
                 for (store_name, store, sta_name, expected_origin) in [
                     (
                         "local",
@@ -24120,47 +24103,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                                 case.execution_id()
                             )
                         });
-                    let error = match engine.emit_wasm(&unit) {
-                        Err(error) => error,
-                        Ok(_) => panic!(
-                            "{store_name} {} must remain outside the Wasm-AOT product path",
-                            case.execution_id()
-                        ),
-                    };
-                    let unsupported_feature = error
-                        .ir_diagnostic()
-                        .and_then(|diagnostic| diagnostic.unsupported_feature());
-                    assert_eq!(
-                        unsupported_feature,
-                        Some(expected_feature),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
-                    let Some(UnsupportedFeature::DynamicSource(actual_gap)) = unsupported_feature
-                    else {
+                    engine.emit_wasm(&unit).unwrap_or_else(|error| {
                         panic!(
-                            "{store_name} {} should report typed dynamic source ownership",
+                            "{store_name} {} prepared source should emit Wasm: {error}",
                             case.execution_id()
-                        );
-                    };
-                    assert_eq!(
-                        actual_gap.kind(),
-                        dynamic_source_kind,
-                        "{store_name} {} dynamic source kind",
-                        case.execution_id()
-                    );
-                    assert_eq!(
-                        actual_gap.requirement(),
-                        expected_requirement,
-                        "{store_name} {} dynamic source requirement",
-                        case.execution_id()
-                    );
-                    assert_eq!(
-                        classify_engine_error(&error),
-                        FailureKind::Unsupported,
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
+                        )
+                    });
                 }
             }
         }
@@ -24866,26 +24814,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     )
                 );
 
-                let engine = Engine::new(RealmBuilder::new().build());
-                let unit = engine
-                    .compile_script(&materialized.source, compile_options_for_case(&case))
-                    .expect("the raw Realm case should reach typed IR");
-                let error = match engine.emit_wasm(&unit) {
-                    Err(error) => error,
-                    Ok(_) => {
-                        panic!("Realm evalScript must remain outside the Wasm-AOT product path")
-                    }
-                };
-                assert_eq!(
-                    error
-                        .ir_diagnostic()
-                        .and_then(|diagnostic| diagnostic.unsupported_feature()),
-                    Some(UnsupportedFeature::DynamicSource(
-                        lila_ir::DynamicSourceGap::aot_known_source(
-                            lila_ir::DynamicSourceKind::RealmEvalScript,
-                        ),
-                    )),
-                    "{path} should retain the typed RealmEvalScript boundary",
+                let result = run_one_case(&case, &preludes, 60_000, ExecutionBackend::WasmAot);
+                assert!(
+                    matches!(result.status, TestStatus::Passed),
+                    "{path} must preserve the revoked Proxy error's executing Realm: {:?}",
+                    result.status
                 );
             }
         }
@@ -35833,20 +35766,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[test]
     fn wasm_aot_classifies_feature_gated_cases_as_unsupported() {
-        for feature in [
-            "resizable-arraybuffer",
-            "immutable-arraybuffer",
-            "SharedArrayBuffer",
-        ] {
+        let preludes = real_wasm_aot_preludes();
+        for feature in ["immutable-arraybuffer", "SharedArrayBuffer"] {
             let mut case = synthetic_case("built-ins/Map/prototype/feature.js");
             case.features.insert(feature.to_string());
 
-            let result = run_one_case(
-                &case,
-                &PreludeStore::default(),
-                5_000,
-                ExecutionBackend::WasmAot,
-            );
+            let result = run_one_case(&case, &preludes, 5_000, ExecutionBackend::WasmAot);
 
             let TestStatus::Failed(failure) = result.status else {
                 panic!("feature-gated case should fail as unsupported");
@@ -35854,6 +35779,36 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             assert_eq!(failure.kind, FailureKind::Unsupported);
             assert!(failure.detail.contains(feature));
         }
+    }
+
+    #[test]
+    fn wasm_aot_executes_resizable_arraybuffer_with_the_canonical_harness() {
+        let mut case =
+            synthetic_case("built-ins/ArrayBuffer/prototype/resize/feature-admission.js");
+        case.features.insert("resizable-arraybuffer".to_string());
+        case.original_source = Arc::from(
+            r#"
+var buffer = new ArrayBuffer(2, { maxByteLength: 4 });
+var bytes = new Uint8Array(buffer);
+bytes[0] = 7;
+buffer.resize(4);
+assert.sameValue(buffer.byteLength, 4);
+assert.sameValue(bytes.length, 4);
+assert.sameValue(bytes[0], 7);
+assert.sameValue(bytes[3], 0);
+"#,
+        );
+        let result = run_one_case(
+            &case,
+            &real_wasm_aot_preludes(),
+            60_000,
+            ExecutionBackend::WasmAot,
+        );
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "{:?}",
+            result.status
+        );
     }
 
     #[test]
@@ -36854,7 +36809,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[test]
     fn runtime_dynamic_source_cannot_pass_by_catching_or_matching_a_js_error() {
-        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
         let preludes = PreludeStore::default();
         for expected_error in [None, Some(""), Some("Error"), Some("TypeError")] {
             let path = "language/runtime-dynamic-source.js";
@@ -36888,7 +36842,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[test]
     fn agent_failures_never_satisfy_expected_root_runtime_exceptions() {
-        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
         let preludes = real_wasm_aot_host_only_preludes();
         let eval_worker = "var holder = { invoke: eval }; \
             var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1/*' + Math.random() + '*/');";
@@ -36941,7 +36894,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[test]
     fn typed_root_runtime_exception_still_satisfies_negative_expectations() {
-        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
         let mut case = synthetic_case("language/runtime-root-negative.js");
         case.execution_id = TestExecutionId::new(
             "language/runtime-root-negative.js",
@@ -36975,7 +36927,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
     #[test]
     fn typed_runtime_negative_ignores_error_names_in_messages_and_primitives() {
-        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
         let mut case = synthetic_case("language/runtime-negative-constructor-name.js");
         case.execution_id = TestExecutionId::new(
             "language/runtime-negative-constructor-name.js",

@@ -5907,6 +5907,20 @@ standard_builtin_catalog! {
         installer: None,
         native: "toHex",
     }
+    TemporalZonedDateTimePrototypeWith {
+        function: FunctionOrdinal(812) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.with",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "with",
+    }
+    TemporalZonedDateTimePrototypeToPlainDate {
+        function: FunctionOrdinal(813) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.toPlainDate",
+        flags: [],
+        installer: None,
+        native: "toPlainDate",
+    }
 }
 
 impl StandardBuiltinId {

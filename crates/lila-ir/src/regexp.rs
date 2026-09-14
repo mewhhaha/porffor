@@ -45,22 +45,18 @@ pub const REGEXP_OPCODE_NAMED_BACKREFERENCE: u64 = 12;
 pub const REGEXP_OPCODE_NEGATIVE_ASCII_CLASS: u64 = 13;
 /// Match the numbered capture stored in `operand0`.
 pub const REGEXP_OPCODE_NUMBERED_BACKREFERENCE: u64 = 14;
-/// Assert that the next ASCII code unit equals `operand0` without consuming it.
-pub const REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD: u64 = 15;
-/// Assert that the next ASCII code unit differs from `operand0` without consuming it.
-pub const REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD: u64 = 16;
 /// Assert that the current position is the start of the input or a line.
 pub const REGEXP_OPCODE_ASSERT_START: u64 = 17;
 /// Assert that the current position is the end of the input or a line.
 pub const REGEXP_OPCODE_ASSERT_END: u64 = 18;
 /// Match one code point that is not ECMAScript WhiteSpace or a LineTerminator.
 pub const REGEXP_OPCODE_NOT_WHITESPACE: u64 = 19;
-/// Enter a reverse-matching lookbehind body.
-pub const REGEXP_OPCODE_LOOKBEHIND_START: u64 = 20;
-/// Complete a lookbehind body. `operand0` identifies its failure sentinel.
-pub const REGEXP_OPCODE_LOOKBEHIND_END: u64 = 21;
-/// Handle exhaustion of every path through a lookbehind body.
-pub const REGEXP_OPCODE_LOOKBEHIND_FAILURE: u64 = 22;
+/// Enter a lookaround body in the direction encoded by `operand0`.
+pub const REGEXP_OPCODE_LOOKAROUND_START: u64 = 20;
+/// Complete a lookaround body. `operand0` identifies its failure sentinel.
+pub const REGEXP_OPCODE_LOOKAROUND_END: u64 = 21;
+/// Handle exhaustion of every path through a lookaround body.
+pub const REGEXP_OPCODE_LOOKAROUND_FAILURE: u64 = 22;
 /// Enter one optional iteration whose atom may leave the input index unchanged.
 /// `operand0` is the attempt target. `operand1` packs the fallback target in
 /// bits 1 and above and [`QuantifierPreference::Lazy`] in bit 0.
@@ -252,22 +248,6 @@ impl RegExpInstruction {
         }
     }
 
-    pub const fn positive_ascii_lookahead(code_unit: u8) -> Self {
-        Self {
-            opcode: REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD,
-            operand0: code_unit as u64,
-            operand1: 0,
-        }
-    }
-
-    pub const fn negative_ascii_lookahead(code_unit: u8) -> Self {
-        Self {
-            opcode: REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD,
-            operand0: code_unit as u64,
-            operand1: 0,
-        }
-    }
-
     pub const fn assert_start() -> Self {
         Self {
             opcode: REGEXP_OPCODE_ASSERT_START,
@@ -284,31 +264,38 @@ impl RegExpInstruction {
         }
     }
 
-    pub const fn lookbehind_start() -> Self {
+    const fn lookaround_start(direction: RegExpMatchDirection) -> Self {
         Self {
-            opcode: REGEXP_OPCODE_LOOKBEHIND_START,
-            operand0: 0,
+            opcode: REGEXP_OPCODE_LOOKAROUND_START,
+            operand0: direction.operand_bit(),
             operand1: 0,
         }
     }
 
-    const fn lookbehind_end(
+    const fn lookaround_end(
         failure_pc: usize,
         after_pc: usize,
-        polarity: &LookbehindPolarity,
+        polarity: &LookaroundPolarity,
+        parent_direction: RegExpMatchDirection,
     ) -> Self {
         Self {
-            opcode: REGEXP_OPCODE_LOOKBEHIND_END,
+            opcode: REGEXP_OPCODE_LOOKAROUND_END,
             operand0: failure_pc as u64,
-            operand1: (after_pc as u64) | (polarity.operand_bit() << 63),
+            operand1: (after_pc as u64)
+                | (parent_direction.operand_bit() << 62)
+                | (polarity.operand_bit() << 63),
         }
     }
 
-    const fn lookbehind_failure(after_pc: usize, polarity: &LookbehindPolarity) -> Self {
+    const fn lookaround_failure(
+        after_pc: usize,
+        polarity: &LookaroundPolarity,
+        parent_direction: RegExpMatchDirection,
+    ) -> Self {
         Self {
-            opcode: REGEXP_OPCODE_LOOKBEHIND_FAILURE,
+            opcode: REGEXP_OPCODE_LOOKAROUND_FAILURE,
             operand0: after_pc as u64,
-            operand1: polarity.operand_bit(),
+            operand1: polarity.operand_bit() | (parent_direction.operand_bit() << 1),
         }
     }
 
@@ -971,13 +958,13 @@ enum ParsedTermAtom {
     LegacyUtf16Pair(LegacyUtf16Pair),
 }
 
-/// Whether a lookbehind succeeds when its body matches or fails.
-enum LookbehindPolarity {
+/// Whether a lookaround succeeds when its body matches or fails.
+enum LookaroundPolarity {
     Positive,
     Negative,
 }
 
-impl LookbehindPolarity {
+impl LookaroundPolarity {
     fn from_syntax_marker(marker: u8) -> Option<Self> {
         match marker {
             b'=' => Some(Self::Positive),
@@ -1015,9 +1002,12 @@ enum ParsedAtom {
         capture_id: u32,
         nullable: bool,
     },
-    Lookbehind {
-        polarity: LookbehindPolarity,
+    Lookaround {
+        polarity: LookaroundPolarity,
+        direction: RegExpMatchDirection,
         body: Vec<Vec<ParsedTerm>>,
+        subtree_start: u32,
+        subtree_end: u32,
     },
     RequiresUnicodeSetSemantics(RequiresUnicodeSetSemantics),
 }
@@ -1173,20 +1163,7 @@ impl PatternParser<'_> {
 
     fn term(&mut self) -> Result<ParsedTerm, RegExpCompileError> {
         let atom_offset = self.offset;
-        let atom = if matches!(
-            self.bytes.get(self.offset..self.offset + 4),
-            Some([b'(', b'?', b'=' | b'!', byte @ 0..=127])
-                if *byte != b')' && self.bytes.get(self.offset + 4) == Some(&b')')
-        ) {
-            let negative = self.bytes[self.offset + 2] == b'!';
-            let code_unit = self.bytes[self.offset + 3];
-            self.offset += 5;
-            ParsedTermAtom::Ordinary(ParsedAtom::Instruction(if negative {
-                RegExpInstruction::negative_ascii_lookahead(code_unit)
-            } else {
-                RegExpInstruction::positive_ascii_lookahead(code_unit)
-            }))
-        } else if self.bytes[self.offset] == b'(' {
+        let atom = if self.bytes[self.offset] == b'(' {
             if self.bytes.get(self.offset + 1) == Some(&b'?') {
                 match self.bytes.get(self.offset + 2).copied() {
                     Some(b':') => {
@@ -1204,9 +1181,10 @@ impl PatternParser<'_> {
                             .bytes
                             .get(self.offset + 3)
                             .copied()
-                            .and_then(LookbehindPolarity::from_syntax_marker);
+                            .and_then(LookaroundPolarity::from_syntax_marker);
                         if let Some(polarity) = polarity {
                             self.offset += 4;
+                            let subtree_start = self.capture_count + 1;
                             let body = self.alternatives(Some(atom_offset))?;
                             if first_required_unicode_set_semantics(&body).is_none()
                                 && !lookbehind_body_supported(&body)
@@ -1216,7 +1194,13 @@ impl PatternParser<'_> {
                                     "lookbehind body uses an unsupported matcher atom",
                                 ));
                             }
-                            ParsedTermAtom::Ordinary(ParsedAtom::Lookbehind { polarity, body })
+                            ParsedTermAtom::Ordinary(ParsedAtom::Lookaround {
+                                polarity,
+                                direction: RegExpMatchDirection::Reverse,
+                                body,
+                                subtree_start,
+                                subtree_end: self.capture_count + 1,
+                            })
                         } else {
                             let name = self.parse_group_name()?;
                             self.capture_count =
@@ -1258,11 +1242,19 @@ impl PatternParser<'_> {
                             subtree_end: self.capture_count + 1,
                         })
                     }
-                    Some(b'=' | b'!') => {
-                        return Err(RegExpCompileError::unsupported_feature(
-                            self.offset,
-                            "unsupported regular-expression lookahead body",
-                        ));
+                    Some(marker @ (b'=' | b'!')) => {
+                        let polarity = LookaroundPolarity::from_syntax_marker(marker)
+                            .expect("lookahead syntax admits only polarity markers");
+                        self.offset += 3;
+                        let subtree_start = self.capture_count + 1;
+                        let body = self.alternatives(Some(atom_offset))?;
+                        ParsedTermAtom::Ordinary(ParsedAtom::Lookaround {
+                            polarity,
+                            direction: RegExpMatchDirection::Forward,
+                            body,
+                            subtree_start,
+                            subtree_end: self.capture_count + 1,
+                        })
                     }
                     _ => {
                         return Err(RegExpCompileError::invalid_syntax(
@@ -1324,29 +1316,49 @@ impl PatternParser<'_> {
         };
         let quantifier_offset = self.offset;
         let mut quantifier = parse_postfix_quantifier(self.bytes, &mut self.offset)?;
-        if matches!(
-            atom,
-            ParsedTermAtom::Ordinary(ParsedAtom::Instruction(RegExpInstruction {
-                opcode: REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD
-                    | REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD
-                    | REGEXP_OPCODE_ASSERT_START
-                    | REGEXP_OPCODE_ASSERT_END,
-                ..
-            }))
-        ) {
-            quantifier = if quantifier.is_optional() {
-                Quantifier {
-                    required_iterations: 0,
+        if let ParsedTermAtom::Ordinary(ParsedAtom::Lookaround {
+            polarity,
+            direction,
+            subtree_start,
+            subtree_end,
+            ..
+        }) = &atom
+        {
+            if self.offset != quantifier_offset {
+                if self.unicode_mode.is_unicode_mode()
+                    || matches!(direction, RegExpMatchDirection::Reverse)
+                {
+                    return Err(RegExpCompileError::invalid_syntax(
+                        SyntaxRule::QuantifierWithoutAtom,
+                        quantifier_offset,
+                        "only legacy lookahead assertions may be quantified",
+                    ));
+                }
+                quantifier = Quantifier {
+                    required_iterations: usize::from(!quantifier.is_optional()),
                     optional_iterations: QuantifierOptionalIterations::Finite(0),
                     preference: quantifier.preference,
+                };
+            }
+            if matches!(polarity, LookaroundPolarity::Negative) || quantifier.is_optional() {
+                for capture in *subtree_start..*subtree_end {
+                    self.capture_nullability.insert(capture, true);
                 }
-            } else {
-                Quantifier {
-                    required_iterations: 1,
-                    optional_iterations: QuantifierOptionalIterations::Finite(0),
-                    preference: quantifier.preference,
-                }
-            };
+            }
+        } else if self.offset != quantifier_offset
+            && matches!(
+                atom,
+                ParsedTermAtom::Ordinary(ParsedAtom::Instruction(RegExpInstruction {
+                    opcode: REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END,
+                    ..
+                }))
+            )
+        {
+            return Err(RegExpCompileError::invalid_syntax(
+                SyntaxRule::QuantifierWithoutAtom,
+                quantifier_offset,
+                "an input boundary assertion cannot be quantified",
+            ));
         }
         Ok(match atom {
             ParsedTermAtom::Ordinary(atom) => ParsedTerm::Quantified {
@@ -1717,17 +1729,14 @@ fn atom_nullable(atom: &ParsedAtom) -> bool {
     match atom {
         ParsedAtom::Instruction(instruction) => matches!(
             instruction.opcode,
-            REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD
-                | REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD
-                | REGEXP_OPCODE_ASSERT_START
-                | REGEXP_OPCODE_ASSERT_END
+            REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END
         ),
         ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => body
             .iter()
             .any(|sequence| sequence.iter().all(|term| term_nullable(term))),
         ParsedAtom::NamedBackreference { .. } => true,
         ParsedAtom::NumberedBackreference { nullable, .. } => *nullable,
-        ParsedAtom::Lookbehind { .. } => true,
+        ParsedAtom::Lookaround { .. } => true,
         ParsedAtom::FiniteClassSet(atom) => atom.contains_empty,
         // Parsing must continue through the whole Pattern. Its actual
         // nullability is a matcher-semantic question and the typed capability
@@ -1742,6 +1751,8 @@ fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
             ParsedAtom::Instruction(instruction) => matches!(
                 instruction.opcode,
                 REGEXP_OPCODE_LITERAL_ASCII
+                    | REGEXP_OPCODE_LITERAL_CODE_POINT
+                    | REGEXP_OPCODE_UNICODE_PROPERTY
                     | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
                     | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
                     | REGEXP_OPCODE_DOT
@@ -1752,11 +1763,12 @@ fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
                 lookbehind_body_supported(body)
             }
             ParsedAtom::FiniteClassSet(_) | ParsedAtom::RequiresUnicodeSetSemantics(_) => true,
-            ParsedAtom::NamedBackreference { .. }
-            | ParsedAtom::NumberedBackreference { .. }
-            | ParsedAtom::Lookbehind { .. } => false,
+            ParsedAtom::Lookaround { .. } => true,
+            ParsedAtom::NamedBackreference { .. } | ParsedAtom::NumberedBackreference { .. } => {
+                false
+            }
         },
-        ParsedTerm::LegacyUtf16Pair { .. } => false,
+        ParsedTerm::LegacyUtf16Pair { .. } => true,
     })
 }
 fn term_nullable(term: &ParsedTerm) -> bool {
@@ -1793,7 +1805,7 @@ fn first_required_unicode_set_semantics_in_atom(
     match atom {
         ParsedAtom::Capture { body, .. }
         | ParsedAtom::NonCapture { body, .. }
-        | ParsedAtom::Lookbehind { body, .. } => first_required_unicode_set_semantics(body),
+        | ParsedAtom::Lookaround { body, .. } => first_required_unicode_set_semantics(body),
         ParsedAtom::RequiresUnicodeSetSemantics(required) => Some(*required),
         ParsedAtom::Instruction(_)
         | ParsedAtom::FiniteClassSet(_)
@@ -1816,7 +1828,7 @@ fn validate_named_backreferences(
         match atom {
             ParsedAtom::Capture { body, .. }
             | ParsedAtom::NonCapture { body, .. }
-            | ParsedAtom::Lookbehind { body, .. } => {
+            | ParsedAtom::Lookaround { body, .. } => {
                 validate_named_backreferences(body, named_groups)?;
             }
             ParsedAtom::NamedBackreference { name, offset } => {
@@ -4490,9 +4502,18 @@ struct ProgramLowerer<'a> {
 }
 
 #[derive(Clone, Copy)]
-enum FiniteClassSetDirection {
+enum RegExpMatchDirection {
     Forward,
     Reverse,
+}
+
+impl RegExpMatchDirection {
+    const fn operand_bit(self) -> u64 {
+        match self {
+            Self::Forward => 0,
+            Self::Reverse => 1,
+        }
+    }
 }
 
 impl<'a> ProgramLowerer<'a> {
@@ -4721,7 +4742,7 @@ impl<'a> ProgramLowerer<'a> {
         match atom {
             ParsedAtom::Instruction(instruction) => self.push(*instruction),
             ParsedAtom::FiniteClassSet(atom) => {
-                self.finite_class_set_atom(atom, FiniteClassSetDirection::Forward)
+                self.finite_class_set_atom(atom, RegExpMatchDirection::Forward)
             }
             ParsedAtom::Capture {
                 id,
@@ -4768,23 +4789,19 @@ impl<'a> ProgramLowerer<'a> {
             } else {
                 RegExpInstruction::nonempty_numbered_backreference(*capture_id)
             }),
-            ParsedAtom::Lookbehind { polarity, body } => {
-                self.push(RegExpInstruction::lookbehind_start())?;
-                let sentinel = self.instructions.len();
-                self.push(RegExpInstruction::split(0, 0))?;
-                let body_start = self.instructions.len();
-                self.reverse_alternatives(body)?;
-                let end = self.instructions.len();
-                self.push(RegExpInstruction::lookbehind_end(0, 0, polarity))?;
-                let failure = self.instructions.len();
-                self.push(RegExpInstruction::lookbehind_failure(0, polarity))?;
-                let after = self.instructions.len();
-                self.instructions[sentinel] = RegExpInstruction::split(body_start, failure);
-                self.instructions[end] =
-                    RegExpInstruction::lookbehind_end(failure, after, polarity);
-                self.instructions[failure] = RegExpInstruction::lookbehind_failure(after, polarity);
-                Ok(())
-            }
+            ParsedAtom::Lookaround {
+                polarity,
+                direction,
+                body,
+                subtree_start,
+                subtree_end,
+            } => self.lookaround(
+                polarity,
+                *direction,
+                RegExpMatchDirection::Forward,
+                body,
+                *subtree_start..*subtree_end,
+            ),
             // Syntax-only placeholder. `ParsedPatternCapability` prevents the
             // containing tree from becoming a returned matcher program, but
             // lowering continues so its remaining early-error checks run.
@@ -4792,10 +4809,54 @@ impl<'a> ProgramLowerer<'a> {
         }
     }
 
+    fn lookaround(
+        &mut self,
+        polarity: &LookaroundPolarity,
+        direction: RegExpMatchDirection,
+        parent_direction: RegExpMatchDirection,
+        body: &[Vec<ParsedTerm>],
+        captures: std::ops::Range<u32>,
+    ) -> Result<(), RegExpCompileError> {
+        if !captures.is_empty() {
+            self.push(RegExpInstruction::clear_capture_range(
+                captures.start,
+                captures.end,
+            ))?;
+        }
+        self.push(RegExpInstruction::lookaround_start(direction))?;
+        let sentinel = self.instructions.len();
+        self.push(RegExpInstruction::split(0, 0))?;
+        let body_start = self.instructions.len();
+        match direction {
+            RegExpMatchDirection::Forward => self.alternatives(body)?,
+            RegExpMatchDirection::Reverse => self.reverse_alternatives(body)?,
+        }
+        let end = self.instructions.len();
+        self.push(RegExpInstruction::lookaround_end(
+            0,
+            0,
+            polarity,
+            parent_direction,
+        ))?;
+        let failure = self.instructions.len();
+        self.push(RegExpInstruction::lookaround_failure(
+            0,
+            polarity,
+            parent_direction,
+        ))?;
+        let after = self.instructions.len();
+        self.instructions[sentinel] = RegExpInstruction::split(body_start, failure);
+        self.instructions[end] =
+            RegExpInstruction::lookaround_end(failure, after, polarity, parent_direction);
+        self.instructions[failure] =
+            RegExpInstruction::lookaround_failure(after, polarity, parent_direction);
+        Ok(())
+    }
+
     fn finite_class_set_atom(
         &mut self,
         atom: &FiniteClassSetAtom,
-        direction: FiniteClassSetDirection,
+        direction: RegExpMatchDirection,
     ) -> Result<(), RegExpCompileError> {
         let alternative_count =
             atom.multi_code_point_strings.len() + 1 + usize::from(atom.contains_empty);
@@ -4826,16 +4887,16 @@ impl<'a> ProgramLowerer<'a> {
         &mut self,
         atom: &FiniteClassSetAtom,
         index: usize,
-        direction: FiniteClassSetDirection,
+        direction: RegExpMatchDirection,
     ) -> Result<(), RegExpCompileError> {
         if let Some(string) = atom.multi_code_point_strings.get(index) {
             match direction {
-                FiniteClassSetDirection::Forward => {
+                RegExpMatchDirection::Forward => {
                     for instruction in string {
                         self.push(*instruction)?;
                     }
                 }
-                FiniteClassSetDirection::Reverse => {
+                RegExpMatchDirection::Reverse => {
                     for instruction in string.iter().rev() {
                         self.push(*instruction)?;
                     }
@@ -5011,7 +5072,7 @@ impl<'a> ProgramLowerer<'a> {
         match atom {
             ParsedAtom::Instruction(instruction) => self.push(*instruction),
             ParsedAtom::FiniteClassSet(atom) => {
-                self.finite_class_set_atom(atom, FiniteClassSetDirection::Reverse)
+                self.finite_class_set_atom(atom, RegExpMatchDirection::Reverse)
             }
             ParsedAtom::Capture {
                 id,
@@ -5037,12 +5098,25 @@ impl<'a> ProgramLowerer<'a> {
                 self.reverse_alternatives(body)
             }
             ParsedAtom::RequiresUnicodeSetSemantics(_) => Ok(()),
-            ParsedAtom::NamedBackreference { .. }
-            | ParsedAtom::NumberedBackreference { .. }
-            | ParsedAtom::Lookbehind { .. } => Err(RegExpCompileError::unsupported_feature(
-                self.error_offset,
-                "lookbehind body uses an unsupported matcher atom",
-            )),
+            ParsedAtom::Lookaround {
+                polarity,
+                direction,
+                body,
+                subtree_start,
+                subtree_end,
+            } => self.lookaround(
+                polarity,
+                *direction,
+                RegExpMatchDirection::Reverse,
+                body,
+                *subtree_start..*subtree_end,
+            ),
+            ParsedAtom::NamedBackreference { .. } | ParsedAtom::NumberedBackreference { .. } => {
+                Err(RegExpCompileError::unsupported_feature(
+                    self.error_offset,
+                    "lookbehind body uses an unsupported matcher atom",
+                ))
+            }
         }
     }
 }
@@ -5157,27 +5231,10 @@ mod tests {
     }
 
     #[test]
-    fn annex_b_quantified_ascii_lookaheads_collapse_zero_width_repetitions() {
-        assert_eq!(
-            compile(".(?=Z)*").instructions,
-            vec![RegExpInstruction::dot(), RegExpInstruction::accept()]
-        );
-        assert_eq!(
-            compile(".(?=Z)+").instructions,
-            vec![
-                RegExpInstruction::dot(),
-                RegExpInstruction::positive_ascii_lookahead(b'Z'),
-                RegExpInstruction::accept(),
-            ]
-        );
-        assert_eq!(
-            compile("[a-e](?!Z){2,3}").instructions,
-            vec![
-                compile("[a-e]").instructions[0],
-                RegExpInstruction::negative_ascii_lookahead(b'Z'),
-                RegExpInstruction::accept(),
-            ]
-        );
+    fn annex_b_quantified_lookaheads_collapse_zero_width_repetitions() {
+        assert_eq!(compile(".(?=Z)*"), compile("."));
+        assert_eq!(compile(".(?=Z)+"), compile(".(?=Z)"));
+        assert_eq!(compile("[a-e](?!Z){2,3}"), compile("[a-e](?!Z)"));
     }
 
     #[test]
@@ -6289,11 +6346,11 @@ mod tests {
 
         let mut forward = Vec::new();
         ProgramLowerer::new(&mut forward, 0, &[])
-            .finite_class_set_atom(&direct, FiniteClassSetDirection::Forward)
+            .finite_class_set_atom(&direct, RegExpMatchDirection::Forward)
             .unwrap();
         let mut reverse = Vec::new();
         ProgramLowerer::new(&mut reverse, 0, &[])
-            .finite_class_set_atom(&direct, FiniteClassSetDirection::Reverse)
+            .finite_class_set_atom(&direct, RegExpMatchDirection::Reverse)
             .unwrap();
         let literals = |instructions: &[RegExpInstruction]| {
             instructions
@@ -6501,12 +6558,7 @@ mod tests {
             assert_eq!(error.rule, Some(SyntaxRule::ModifierFlags), "{pattern}");
         }
         for pattern in ["(?=ab)", "(?!ab)"] {
-            assert_eq!(
-                RegExpProgram::compile(pattern, "")
-                    .expect_err("unimplemented legal lookahead")
-                    .kind,
-                RegExpCompileErrorKind::UnsupportedFeature,
-            );
+            RegExpProgram::compile(pattern, "").expect("legal lookahead compiles");
         }
     }
 
@@ -6823,18 +6875,27 @@ mod tests {
         let program = RegExpProgram::compile(r"(?<=\w+)f", "").unwrap();
         assert_eq!(
             program.instructions[0],
-            RegExpInstruction::lookbehind_start()
+            RegExpInstruction::lookaround_start(RegExpMatchDirection::Reverse)
         );
         assert_eq!(program.instructions[1], RegExpInstruction::split(2, 7));
         assert_eq!(program.instructions[3], RegExpInstruction::split(4, 6));
         assert_eq!(program.instructions[5], RegExpInstruction::jump(3));
         assert_eq!(
             program.instructions[6],
-            RegExpInstruction::lookbehind_end(7, 8, &LookbehindPolarity::Positive)
+            RegExpInstruction::lookaround_end(
+                7,
+                8,
+                &LookaroundPolarity::Positive,
+                RegExpMatchDirection::Forward
+            )
         );
         assert_eq!(
             program.instructions[7],
-            RegExpInstruction::lookbehind_failure(8, &LookbehindPolarity::Positive)
+            RegExpInstruction::lookaround_failure(
+                8,
+                &LookaroundPolarity::Positive,
+                RegExpMatchDirection::Forward
+            )
         );
         assert_eq!(
             program.instructions[8],

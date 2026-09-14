@@ -2,6 +2,8 @@ const FUNCTION_PROTOCOL_SOURCE: &str = include_str!("../../lila-ir/src/function_
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const SUPER_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/super_property_mutation.rs");
 const FUNCTION_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/function_definition.rs");
 const LOWERING_HELPERS_SOURCE: &str = include_str!("../../lila-ir/src/lowering_helpers.rs");
@@ -249,8 +251,23 @@ fn super_references_carry_receiver_and_parameter_initializers_gain_context_first
         "    fn lower_super_property_access(",
         "    fn lower_private_property_access(",
     );
-    assert_before(super_read, "lower_super_property_key", "lower_current_this");
-    assert!(super_read.contains("receiver: Box::new(receiver)"));
+    assert_before(
+        super_read,
+        "self.lower_super_property_reference_parts(access)",
+        "ExprIr::SuperPropertyRead { key, receiver }",
+    );
+    let reference_parts = bounded(
+        SUPER_LOWERING_SOURCE,
+        "    pub(super) fn lower_super_property_reference_parts(",
+        "    fn lower_super_property_reference_plan(",
+    );
+    assert_before(
+        reference_parts,
+        "lower_current_this",
+        "lower_super_property_key",
+    );
+    assert!(reference_parts.contains("let receiver = Box::new(self.lower_current_this());"));
+    assert!(reference_parts.contains("Some((key, receiver, info))"));
 
     let super_write = bounded(
         LOWERING_SOURCE,

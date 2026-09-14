@@ -421,6 +421,63 @@ mod tests {
     }
 
     #[test]
+    fn to_object_budgets_the_input_pair_across_nested_conversions() {
+        run_deep_planning_test(|| {
+            let object = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier("scope".to_string()),
+            );
+            const DEPTH: usize = 1025;
+            let nested = (0..DEPTH).fold(object, |value, _| TypedExpr::spec_to_object(value));
+            let expected = DEPTH * 2 + 9;
+            assert!(expected > 2048);
+            assert_eq!(count_expr_temp_locals(&nested), expected);
+        });
+    }
+
+    #[test]
+    fn with_has_binding_budgets_retained_operands_across_nested_queries() {
+        run_deep_planning_test(|| {
+            let object = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Object),
+                ExprIr::Identifier("scope".to_string()),
+            );
+            let name = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::String),
+                ExprIr::String("selected".to_string()),
+            );
+            let mut query = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Boolean),
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::WithEnvironmentHasBinding,
+                    operands: vec![object.clone(), name.clone()],
+                },
+            );
+            const DEPTH: usize = 520;
+            for _ in 0..DEPTH {
+                let target = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Object),
+                    ExprIr::Conditional {
+                        condition: Box::new(query),
+                        then_expr: Box::new(object.clone()),
+                        else_expr: Box::new(object.clone()),
+                    },
+                );
+                query = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::SpecOperation {
+                        operation: SpecOperationIr::WithEnvironmentHasBinding,
+                        operands: vec![target, name.clone()],
+                    },
+                );
+            }
+            let expected = 6 + DEPTH * 4;
+            assert!(expected > 2048);
+            assert_eq!(count_expr_temp_locals(&query), expected);
+        });
+    }
+
+    #[test]
     fn remainder_budgets_retained_operands_and_exact_reduction() {
         run_deep_planning_test(|| {
             let one = TypedExpr::from_info(
@@ -1003,6 +1060,8 @@ mod tests {
             StandardBuiltinId::TemporalPlainDateTimeConstructor,
             StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
             StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
             StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
             StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
@@ -1084,6 +1143,8 @@ mod tests {
                 StandardBuiltinId::TemporalPlainDateTimePrototypeUntil,
                 StandardBuiltinId::TemporalPlainDateTimePrototypeSince,
                 StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
                 StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
                 StandardBuiltinId::TemporalZonedDateTimeFrom,
             ] {
@@ -2988,6 +3049,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
             | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
@@ -3012,6 +3074,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
@@ -3084,7 +3147,7 @@ impl RuntimeBootstrapPlan {
                 // ZonedDateTime member — `zdt.hour` included — now emits
                 // `withCalendar`, `add`, `subtract`, `until` and `since` as
                 // well. `add`/`subtract` and `until`/`since` each inline the
-                // whole `emit_temporal_zoned_date_time_to_plain_date_time` body
+                // whole `emit_temporal_zoned_date_time_to_plain` body
                 // on top of two or three `emit_direct_js_call` sequences, so
                 // this is five function bodies, two of them large. No budget
                 // test reddens on it (`LILA_EMIT_SIZE_REPORT[_PATH]` is
@@ -3108,6 +3171,7 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToString,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeRound,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter,
@@ -3132,6 +3196,7 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
@@ -5839,6 +5904,21 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             operands
                 .iter()
                 .any(|operand| expr_references_function(operand, target))
+                || matches!(operation, SpecOperationIr::ToObject)
+                    && operands.first().is_some_and(|operand| {
+                        [
+                            (ValueKind::Number, StandardBuiltinId::NumberConstructor),
+                            (ValueKind::String, StandardBuiltinId::StringConstructor),
+                            (ValueKind::Boolean, StandardBuiltinId::BooleanConstructor),
+                            (ValueKind::Symbol, StandardBuiltinId::SymbolConstructor),
+                            (ValueKind::BigInt, StandardBuiltinId::BigIntConstructor),
+                        ]
+                        .iter()
+                        .any(|(kind, builtin)| {
+                            operand.possible_kinds.contains(*kind)
+                                && builtin.function_id() == *target
+                        })
+                    })
                 || matches!(operation, SpecOperationIr::CopyDataProperties)
                     && (*target == StandardBuiltinId::ReflectOwnKeys.function_id()
                         || *target
@@ -7168,6 +7248,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract
         | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
         | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
         | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
         | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
         | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
@@ -7394,6 +7475,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
         | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => 0,
         StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape
@@ -8837,12 +8919,16 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         ExprIr::SpecOperation {
             operation: SpecOperationIr::ToObject,
             operands,
-        } => operands
-            .iter()
-            .map(count_expr_temp_locals)
-            .max()
-            .unwrap_or(0)
-            .max(8),
+        } => {
+            2 + operands
+                .iter()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0)
+                // Realm/prototype, boxed String fields or error fields, and
+                // the three flags passed to the property-definition helper.
+                .max(2 + 4 + 3)
+        }
         ExprIr::SpecOperation {
             operation: SpecOperationIr::ToPropertyKey,
             operands,
@@ -8964,6 +9050,17 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             .max()
             .unwrap_or(0)
             .max(32),
+        ExprIr::SpecOperation {
+            operation: SpecOperationIr::WithEnvironmentHasBinding,
+            operands,
+        } => {
+            4 + operands
+                .iter()
+                .map(count_expr_temp_locals)
+                .max()
+                .unwrap_or(0)
+                .max(2)
+        }
         ExprIr::SpecOperation {
             operation: SpecOperationIr::HasProperty,
             operands,

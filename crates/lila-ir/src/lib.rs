@@ -166,14 +166,13 @@ pub use regexp::{
     REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
     REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START,
     REGEXP_OPCODE_CLEAR_CAPTURE_RANGE, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
-    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKBEHIND_END,
-    REGEXP_OPCODE_LOOKBEHIND_FAILURE, REGEXP_OPCODE_LOOKBEHIND_START,
+    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKAROUND_END,
+    REGEXP_OPCODE_LOOKAROUND_FAILURE, REGEXP_OPCODE_LOOKAROUND_START,
     REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
-    REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
-    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_PROGRESS_CHECK,
-    REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
-    REGEXP_OPCODE_WHITESPACE, REGEXP_RANGE_ENTRY_WIDTH,
+    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
+    REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
+    REGEXP_RANGE_ENTRY_WIDTH,
 };
 pub use task::{ParseTaskIdError, TaskId};
 
@@ -1218,20 +1217,12 @@ mod tests {
         let ExprIr::Conditional { condition, .. } = &assignment.expr else {
             unreachable!()
         };
-        let ExprIr::LogicalShortCircuit {
-            op: LogicalBinaryOp::And,
-            lhs,
-            ..
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::WithEnvironmentHasBinding,
+            operands,
         } = &condition.expr
         else {
             panic!("Object Environment HasBinding must guard the selected write");
-        };
-        let ExprIr::SpecOperation {
-            operation: SpecOperationIr::HasProperty,
-            operands,
-        } = &lhs.expr
-        else {
-            panic!("initial Object Environment resolution must call HasProperty");
         };
         assert!(matches!(
             &operands[0].expr,

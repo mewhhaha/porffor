@@ -2048,7 +2048,7 @@ fn a_namespace_import_resolves_to_the_namespace_cell() {
     let a = unit_of(&graph, "/root/a.js");
     let binding = ResolvedBindingIr::Resolved {
         module: a,
-        binding: ModuleBindingNameIr::Namespace,
+        binding: ModuleBindingNameIr::Namespace(ModuleNamespaceModeIr::Eager),
     };
     assert_eq!(graph.units[0].resolved_imports, vec![binding.clone()]);
     assert_eq!(

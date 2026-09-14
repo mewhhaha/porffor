@@ -112,8 +112,11 @@ and retaining six passing controls; five compiler-size failures remain. Further
 work covers namespace internal methods,
 `for-in` enumeration, pinned harness semantics, and
 [Buddhist calendar arithmetic](docs/rust-rewrite/temporal-buddhist-calendar.md).
-Verification of that batch and the wider replay is in progress; these counts
-do not update the generated full-suite conformance status.
+The next checkpoint adds general RegExp lookahead, shared With binding queries,
+distinct eager/deferred namespaces, and
+[ZonedDateTime field replacement](docs/rust-rewrite/temporal-zoned-field-replacement.md).
+Verification and the wider replay remain in progress; these counts do not
+update the generated full-suite conformance status.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for

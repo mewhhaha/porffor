@@ -1,7 +1,7 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower, ExprIr, FunctionIr, KindSet, NumericUpdateOp, NumericUpdateValueKind, ScriptIr,
-    StatementIr, TypedExpr, UpdateReturnMode, ValueKind,
+    lower, ExprIr, FunctionFlavor, FunctionIr, KindSet, NumericUpdateOp, NumericUpdateValueKind,
+    ScriptIr, StatementIr, TypedExpr, UpdateReturnMode, ValueKind,
 };
 
 fn lower_private_updates(source: &str) -> ScriptIr {
@@ -183,12 +183,23 @@ function outer() {
   return label + 1;
 }
 
+"#,
+    );
+    let result = returned_expression(method(&script, "outer"));
+    assert!(
+        matches!(result.expr, ExprIr::CoerciveAdd { .. }),
+        "{result:?}"
+    );
+}
+
 #[test]
 fn private_update_arrows_capture_the_lexical_receiver() {
     let script = lower_private_updates(
         "class Counter { #value = 0; closure() { return () => this.#value++; } }",
     );
-    let arrow = script.functions.iter()
+    let arrow = script
+        .functions
+        .iter()
         .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
         .expect("private update arrow");
     assert!(arrow.captures_lexical_this);
@@ -200,19 +211,19 @@ fn property_updates_capture_both_the_base_and_computed_key() {
     let script = lower_private_updates(
         "function make() { const base = { value: 1 }; const key = 'value'; return () => base[key]++; }",
     );
-    let arrow = script.functions.iter()
+    let arrow = script
+        .functions
+        .iter()
         .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
         .expect("computed property update arrow");
     for name in ["base", "key"] {
-        assert!(arrow.captured_bindings.iter().any(|binding| binding.source_name == name),
-            "missing {name}: {:?}", arrow.captured_bindings);
+        assert!(
+            arrow
+                .captured_bindings
+                .iter()
+                .any(|binding| binding.source_name == name),
+            "missing {name}: {:?}",
+            arrow.captured_bindings
+        );
     }
-}
-"#,
-    );
-    let result = returned_expression(method(&script, "outer"));
-    assert!(
-        matches!(result.expr, ExprIr::CoerciveAdd { .. }),
-        "{result:?}"
-    );
 }

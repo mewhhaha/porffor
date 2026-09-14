@@ -249,15 +249,18 @@ and IR/Wasm witnesses distinguish that code-unit behavior from the whole-scalar
 case folding, the restricted lookbehind subset, or arbitrary runtime pattern
 compilation.
 
-Lookbehind polarity now remains the private, non-derived
-`LookbehindPolarity::{Positive, Negative}` domain from its sole syntax-marker
-producer, `from_syntax_marker`, through `ParsedAtom` ownership and the four
-borrowed lowering uses. Only one exhaustive `operand_bit` projection emits the
-unchanged positive-zero and negative-one matcher ABI, so end and failure
-instructions cannot receive independently spelled Booleans. The focused invariant and evidence live in
+Lookahead and lookbehind share the private, non-derived
+`LookaroundPolarity::{Positive, Negative}` domain from `from_syntax_marker`
+through typed `ParsedAtom` ownership and borrowed instruction construction.
+The exhaustive `operand_bit` projection retains positive-zero and negative-one;
+a separate closed matching direction records both the assertion and its caller.
+Shared sentinels preserve captures, restore the input cursor, and discard private
+alternatives after an assertion completes. Full lookahead Disjunction grammar
+replaces the literal-byte shortcut, including nested assertions. The contract is
 [`regexp-lookbehind-polarity.md`](../docs/rust-rewrite/contracts/regexp-lookbehind-polarity.md).
-This source-equivalent boundary adds no grammar, reverse matcher or broader
-RegExp conformance claim.
+Reverse scalar/range/pair atoms now reach the existing matcher. The ASCII class
+membership primitive rejects non-ASCII code points instead of aliasing their
+low bits. Reverse backreferences and whitespace atoms remain explicit gaps.
 
 The `v`-mode class parser now commits to one closed expression shape after its
 first typed operand: union, homogeneous intersection, or homogeneous

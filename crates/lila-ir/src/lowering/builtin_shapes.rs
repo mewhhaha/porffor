@@ -6606,7 +6606,14 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_zoned_date_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeRound
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWith
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
             | StandardBuiltinId::TemporalZonedDateTimeFrom => (

@@ -48,12 +48,19 @@ target. Object.keys, Object.values and Object.entries share
 EnumerableOwnProperties through the intrinsic Reflect own-key and descriptor
 routes; for-in uses those same operations lazily.
 
-The current linker still classifies materialization per module and has one
-namespace identity cell per module. A graph observing both eager and deferred
-namespaces requires separate caches for those two namespace identities. The
-pinned witness is
-`language/import/import-defer/deferred-namespace-object/identity.js`; the runtime
-representation in this change does not by itself close that linker boundary.
+Namespace identity is keyed by `(module, ModuleNamespaceModeIr)`, independently
+of body materialization. Static imports, namespace reexports and dynamic imports
+preserve the request phase. Reexporting an imported namespace produces an
+indirect export, so converging export-star paths agree on the same resolved
+namespace identity. Transparent Proxy definitions dispatch again after unwrapping,
+and successful Object.defineProperty returns the original Proxy receiver.
+Public own-key array results use the invoked builtin's realm.
+
+Module evaluation lifecycle remains a separate boundary: deferred dependency
+activation, instantiation before evaluation, ready-for-sync checks and sticky
+abrupt completions require the module environment and scheduler changes tracked
+by the lifecycle cohort. Separate namespace caches do not establish those
+semantics on their own.
 
 Regression coverage lives in `lila-ir/tests/module_namespace_construction.rs`
 and `lila-engine/tests/aot_module_namespace.rs`. The completed baseline's 38

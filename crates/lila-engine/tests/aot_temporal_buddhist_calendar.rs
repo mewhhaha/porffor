@@ -138,8 +138,9 @@ for (var options of [
 ]) {
   var actual = leap.until(end, options);
   var expected = leap.withCalendar('iso8601').until(end.withCalendar('iso8601'), options);
+  var expectedSince = end.withCalendar('iso8601').since(leap.withCalendar('iso8601'), options);
   if (actual.toString() !== expected.toString() ||
-      end.since(leap, options).toString() !== expected.toString()) throw 'calendar difference';
+      end.since(leap, options).toString() !== expectedSince.toString()) throw 'calendar difference';
 }
 var time = leap.toPlainDateTime({hour: 18});
 if (time.round('day').year !== 2563 || time.round('day').month !== 3 ||

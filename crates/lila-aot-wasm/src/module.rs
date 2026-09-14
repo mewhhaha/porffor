@@ -1632,6 +1632,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
         | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
         | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
         | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
@@ -1657,6 +1658,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar

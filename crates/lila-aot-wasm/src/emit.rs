@@ -318,6 +318,7 @@ impl NumericErrorRealmSource {
             | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -354,7 +355,8 @@ impl ProxyExecutionRealmSource {
             RuntimeHelperId::ObjectRead
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::IndexedElementRead
-            | RuntimeHelperId::ObjectHasProperty => Self::ObjectReadHelperArgument,
+            | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -479,6 +481,7 @@ impl ObjectMutationErrorRealmSource {
             | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -499,7 +502,8 @@ impl ObjectReadErrorRealmSource {
             RuntimeHelperId::ObjectRead
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::IndexedElementRead
-            | RuntimeHelperId::ObjectHasProperty => Self::ObjectReadHelperArgument,
+            | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -2230,6 +2234,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_object_has_property_helper()
         })
         .transpose()?;
+    let with_environment_has_binding_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_with_environment_has_binding_helper()
+        })
+        .transpose()?;
     let indexed_element_read_helper_function = uses_heap
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -2525,6 +2546,11 @@ fn emit_script_with_forced_builtins(
             RuntimeHelperId::ObjectHasProperty,
             object_has_property_helper_function
                 .expect("object has-property helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::WithEnvironmentHasBinding,
+            with_environment_has_binding_helper_function
+                .expect("with HasBinding helper must exist when heap is enabled"),
         );
         helper_bodies.insert(
             RuntimeHelperId::IndexedElementRead,
@@ -4449,8 +4475,8 @@ impl<'a> FunctionBuilder<'a> {
     /// a new [`RuntimeHelperId`] does not build until it states whether it owns
     /// a seam.
     ///
-    /// Twenty-three of the forty helpers own a seam. The other seventeen
-    /// own none: their call sites have no inline body to fall back *to* (the six
+    /// Helpers without a seam have no inline body at their call sites to fall
+    /// back *to* (the six
     /// allocation helpers are plain free functions, not `FunctionBuilder`
     /// bodies at all), and [`RuntimeHelperId::JsonStringifyValue`] deliberately
     /// keeps its seam live: nested-value serialization *is* a runtime self-call
@@ -4526,6 +4552,7 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::ObjectHasProperty
+            | RuntimeHelperId::WithEnvironmentHasBinding
             // Deliberately recursive: see above.
             | RuntimeHelperId::JsonStringifyValue => {}
         }

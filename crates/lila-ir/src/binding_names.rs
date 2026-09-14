@@ -411,6 +411,7 @@ macro_rules! unit_cell_roles {
 unit_cell_roles! {
     /// Identity-cached namespace exotic object (16.2.1.10).
     Namespace => "namespace";
+    DeferredNamespace => "deferred$namespace";
     /// `import defer` export table; `undefined` until the body has begun, which
     /// is what [`UnitCellRole::DeferEvaluate`] tests to evaluate at most once.
     DeferCells => "defer$cells";

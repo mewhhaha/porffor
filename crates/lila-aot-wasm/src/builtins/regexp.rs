@@ -6,13 +6,12 @@ use lila_ir::{
     REGEXP_OPCODE_ASSERT_END, REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END,
     REGEXP_OPCODE_CAPTURE_START, REGEXP_OPCODE_CLEAR_CAPTURE_RANGE, REGEXP_OPCODE_DOT,
     REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
-    REGEXP_OPCODE_LOOKBEHIND_END, REGEXP_OPCODE_LOOKBEHIND_FAILURE, REGEXP_OPCODE_LOOKBEHIND_START,
+    REGEXP_OPCODE_LOOKAROUND_END, REGEXP_OPCODE_LOOKAROUND_FAILURE, REGEXP_OPCODE_LOOKAROUND_START,
     REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
-    REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
-    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_PROGRESS_CHECK,
-    REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
-    REGEXP_OPCODE_WHITESPACE, REGEXP_RANGE_ENTRY_WIDTH,
+    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
+    REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
+    REGEXP_RANGE_ENTRY_WIDTH,
 };
 
 mod range_search;
@@ -79,6 +78,7 @@ impl<'a> FunctionBuilder<'a> {
         let program_ptr = self.reserve_temp_local();
         let named_group_table_ptr = self.reserve_temp_local();
         let input_len = self.reserve_temp_local();
+        let input_utf16_len = self.reserve_temp_local();
         let candidate_byte = self.reserve_temp_local();
         let candidate_utf16 = self.reserve_temp_local();
         let match_byte = self.reserve_temp_local();
@@ -136,8 +136,7 @@ impl<'a> FunctionBuilder<'a> {
         let capture_unit = self.reserve_temp_local();
         let compare_unit = self.reserve_temp_local();
         let reverse_mode = self.reserve_temp_local();
-        let lookbehind_frame_depth = self.reserve_temp_local();
-        let lookbehind_succeeded = self.reserve_temp_local();
+        let lookaround_frame_depth = self.reserve_temp_local();
         let previous_byte = self.reserve_temp_local();
         let range_base = self.reserve_temp_local();
         let range_low = self.reserve_temp_local();
@@ -205,8 +204,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(repeatable_split_count));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(reverse_mode));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(lookbehind_succeeded));
         function.instruction(&Instruction::LocalGet(capture_count));
         function.instruction(&Instruction::I64Const(16));
         function.instruction(&Instruction::I64Mul);
@@ -548,6 +545,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_unpack_string_payload(2, input_offset, input_len, &mut function);
+        function.instruction(&Instruction::LocalGet(capture_count));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_utf16_code_unit_len_from_utf8_locals(
+            input_offset,
+            input_len,
+            input_utf16_len,
+            &mut function,
+        );
+        function.instruction(&Instruction::End);
         // One-shot splits execute once per candidate; only cycle-reentered
         // splits can retain a frame at every consumed-byte position.
         function.instruction(&Instruction::LocalGet(input_len));
@@ -805,17 +813,17 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(
-            REGEXP_OPCODE_LOOKBEHIND_START as i64,
+            REGEXP_OPCODE_LOOKAROUND_START as i64,
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(reverse_mode));
-        function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_match_result(
             candidate_utf16,
@@ -825,10 +833,8 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalGet(operand0));
         function.instruction(&Instruction::LocalSet(reverse_mode));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(lookbehind_succeeded));
         function.instruction(&Instruction::LocalGet(pc));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
@@ -837,17 +843,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(opcode));
-        function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LOOKBEHIND_END as i64));
+        function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LOOKAROUND_END as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(reverse_mode));
-        function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::LocalGet(operand0));
         function.instruction(&Instruction::LocalGet(instruction_count));
         function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Const(i64::MAX));
+        function.instruction(&Instruction::I64Const(0x3fff_ffff_ffff_ffff));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::LocalGet(instruction_count));
         function.instruction(&Instruction::I64GeU);
@@ -863,10 +866,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(choice_depth));
-        function.instruction(&Instruction::LocalSet(lookbehind_frame_depth));
+        function.instruction(&Instruction::LocalSet(lookaround_frame_depth));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(lookbehind_frame_depth));
+        function.instruction(&Instruction::LocalGet(lookaround_frame_depth));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_match_result(
@@ -877,10 +880,10 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(lookbehind_frame_depth));
+        function.instruction(&Instruction::LocalGet(lookaround_frame_depth));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalTee(lookbehind_frame_depth));
+        function.instruction(&Instruction::LocalTee(lookaround_frame_depth));
         function.instruction(&Instruction::LocalGet(frame_width));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalGet(6));
@@ -950,26 +953,45 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(lookbehind_succeeded));
-        function.instruction(&Instruction::LocalGet(operand0));
-        function.instruction(&Instruction::LocalSet(pc));
-        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(lookaround_frame_depth));
+        function.instruction(&Instruction::LocalSet(choice_depth));
         function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Const(i64::MAX));
+        function.instruction(&Instruction::I64Const(62));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalSet(reverse_mode));
+        // A completed negative body rejects the assertion immediately. Its
+        // private alternatives cannot be revisited by an outer continuation.
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(63));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I32WrapI64);
+        self.emit_regexp_backtrack_or_fail(
+            1,
+            choice_depth,
+            choice_address,
+            match_byte,
+            match_utf16,
+            pc,
+            match_on_low_surrogate,
+            capture_count,
+            frame_width,
+            capture_index,
+            capture_address,
+            &mut function,
+        );
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(0x3fff_ffff_ffff_ffff));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::LocalSet(pc));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(lookbehind_frame_depth));
-        function.instruction(&Instruction::LocalSet(choice_depth));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(reverse_mode));
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(
-            REGEXP_OPCODE_LOOKBEHIND_FAILURE as i64,
+            REGEXP_OPCODE_LOOKAROUND_FAILURE as i64,
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -977,7 +999,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(instruction_count));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Const(3));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -989,14 +1011,14 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::LocalSet(reverse_mode));
         function.instruction(&Instruction::LocalGet(operand1));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(lookbehind_succeeded));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
         self.emit_regexp_backtrack_or_fail(
             1,
             choice_depth,
@@ -1303,7 +1325,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(named_capture_end));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::LocalGet(named_capture_end));
-        function.instruction(&Instruction::LocalGet(match_utf16));
+        function.instruction(&Instruction::LocalGet(input_utf16_len));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1770,106 +1792,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(opcode));
-        function.instruction(&Instruction::I64Const(
-            REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(opcode));
-        function.instruction(&Instruction::I64Const(
-            REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(operand0));
-        function.instruction(&Instruction::I64Const(127));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::LocalGet(operand1));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(
-            candidate_utf16,
-            candidate_utf16,
-            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
-            &mut function,
-        );
-        function.instruction(&Instruction::Return);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(opcode));
-        function.instruction(&Instruction::I64Const(
-            REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(match_byte));
-        function.instruction(&Instruction::LocalGet(input_len));
-        function.instruction(&Instruction::I64GeU);
-        self.emit_regexp_backtrack_or_fail(
-            2,
-            choice_depth,
-            choice_address,
-            match_byte,
-            match_utf16,
-            pc,
-            match_on_low_surrogate,
-            capture_count,
-            frame_width,
-            capture_index,
-            capture_address,
-            &mut function,
-        );
-        self.emit_load_string_byte(input_offset, match_byte, byte, &mut function);
-        function.instruction(&Instruction::LocalGet(byte));
-        function.instruction(&Instruction::LocalGet(operand0));
-        function.instruction(&Instruction::I64Ne);
-        self.emit_regexp_backtrack_or_fail(
-            2,
-            choice_depth,
-            choice_address,
-            match_byte,
-            match_utf16,
-            pc,
-            match_on_low_surrogate,
-            capture_count,
-            frame_width,
-            capture_index,
-            capture_address,
-            &mut function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(match_byte));
-        function.instruction(&Instruction::LocalGet(input_len));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_load_string_byte(input_offset, match_byte, byte, &mut function);
-        function.instruction(&Instruction::LocalGet(byte));
-        function.instruction(&Instruction::LocalGet(operand0));
-        function.instruction(&Instruction::I64Eq);
-        self.emit_regexp_backtrack_or_fail(
-            3,
-            choice_depth,
-            choice_address,
-            match_byte,
-            match_utf16,
-            pc,
-            match_on_low_surrogate,
-            capture_count,
-            frame_width,
-            capture_index,
-            capture_address,
-            &mut function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(pc));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(pc));
-        function.instruction(&Instruction::Br(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(opcode));
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_CAPTURE_END as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1949,7 +1871,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(REGEXP_OPCODE_ACCEPT as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        // A corrupt program cannot manufacture invalid capture boundaries.
+        // Positive lookahead can capture beyond the consumed match. Capture
+        // boundaries are bounded by the whole input, not the match end.
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(capture_index));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -1984,7 +1907,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(operand0));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::LocalGet(operand0));
-        function.instruction(&Instruction::LocalGet(match_utf16));
+        function.instruction(&Instruction::LocalGet(input_utf16_len));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::End);
@@ -3643,6 +3566,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(codepoint_local));
+        function.instruction(&Instruction::I64Const(128));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::I32And);
     }
 
     fn emit_regexp_match_result(

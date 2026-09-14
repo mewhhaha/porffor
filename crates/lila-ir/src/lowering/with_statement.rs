@@ -27,15 +27,8 @@ impl<'a> ScriptLowerer<'a> {
             .clone();
         // The source expression belongs to the outer environment. Only after
         // it has been lowered do we enter/materialize the WithObject record.
-        let object = self.lower_expression(with.expression());
+        let object = TypedExpr::spec_to_object(self.lower_expression(with.expression()));
         let object_info = object.value_info();
-        if !object
-            .possible_kinds
-            .is_subset_of(Self::object_like_kind_set().union(KindSet::all_runtime_tags()))
-        {
-            self.unsupported("with object expression");
-            return (StatementIr::Empty, ValueKind::Undefined);
-        }
         let crosses_suspension = (self.current_generator_resume_state.is_some()
             && contains(with.statement(), ContainsSymbol::YieldExpression))
             || (self.current_async_resume_state.is_some()

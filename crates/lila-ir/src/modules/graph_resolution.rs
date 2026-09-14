@@ -135,7 +135,13 @@ impl ModuleGraphIr {
             return match &entry.import_name {
                 ImportNameIr::Namespace => ResolvedBindingIr::Resolved {
                     module: target,
-                    binding: ModuleBindingNameIr::Namespace,
+                    binding: ModuleBindingNameIr::Namespace(
+                        entry
+                            .request
+                            .phase()
+                            .namespace_mode()
+                            .expect("namespace reexports use an evaluation or defer request"),
+                    ),
                 },
                 ImportNameIr::Name(name) => self.resolve_export_inner(target, name, resolve_set),
             };

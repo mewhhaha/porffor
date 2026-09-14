@@ -1153,36 +1153,23 @@ fn build_module_record(
                     // type error at the struct literals below.
                     let local = resolved_local_name(interner, entry.private_name());
                     let export_name = resolved_export_name(interner, entry.alias());
-                    // ParseModule step 12. An `export { x }` clause has a null
-                    // `[[ModuleRequest]]` at ExportEntries time; ParseModule
-                    // then rewrites it against `[[ImportEntries]]`:
-                    //
-                    // * `x` is not imported     -> local entry (12.a.ii);
-                    // * `x` is a namespace      -> *still* a local entry
-                    //                              (12.a.iii), because what is
-                    //                              exported is this module's own
-                    //                              cell holding the namespace
-                    //                              object, not a binding of the
-                    //                              requested module;
-                    // * `x` is a named import   -> indirect entry (12.a.iv),
-                    //                              which is what makes the
-                    //                              re-exported binding stay live
-                    //                              and stay observable through
-                    //                              its original module.
+                    // Imported bindings re-export indirectly. Namespace imports
+                    // retain the request phase so repeated paths resolve to the
+                    // same eager or deferred namespace identity.
                     let imported = record
                         .import_entries
                         .iter()
                         .find(|import| import.local_name == local)
                         .map(|import| (import.request.clone(), import.import_name.clone()));
                     match imported {
-                        Some((request, ImportNameIr::Name(import_name))) => {
+                        Some((request, import_name)) => {
                             record.indirect_export_entries.push(IndirectExportEntryIr {
                                 request,
-                                import_name: ImportNameIr::Name(import_name),
+                                import_name,
                                 export_name,
                             });
                         }
-                        Some((_, ImportNameIr::Namespace)) | None => {
+                        None => {
                             record.local_export_entries.push(LocalExportEntryIr {
                                 local_name: local,
                                 export_name,
@@ -2179,9 +2166,6 @@ mod tests {
                 local_export(local("thing"), ExportName::new("renamed")),
                 local_export(local("counted"), ExportName::new("counted")),
                 local_export(local("fn"), ExportName::new("fn")),
-                // ParseModule 12.a.iii: re-exporting a namespace *import* is a
-                // local entry, because the exported cell is this module's own.
-                local_export(local("namespaced"), ExportName::new("namespaced")),
             ]
         );
         assert_eq!(
@@ -2192,6 +2176,7 @@ mod tests {
                 // ParseModule 12.a.iv: `export { imported }` where `imported` is
                 // a *named* import is an indirect entry, not a local one.
                 indirect_export("./imp.mjs", named("imported"), "imported"),
+                indirect_export("./nsimp.mjs", ImportNameIr::Namespace, "namespaced"),
             ]
         );
         assert_eq!(
@@ -2200,6 +2185,19 @@ mod tests {
                 request: ModuleRequestIr::plain("./star.mjs"),
             }]
         );
+    }
+
+    #[test]
+    fn reexported_deferred_namespace_retains_its_request_phase() {
+        let record = record_of(
+            "import defer * as deferred from './value.js'; export { deferred as forwarded };",
+        );
+        assert!(record.local_export_entries.is_empty());
+        assert_eq!(record.indirect_export_entries.len(), 1);
+        let export = &record.indirect_export_entries[0];
+        assert_eq!(export.import_name, ImportNameIr::Namespace);
+        assert_eq!(export.export_name, ExportName::new("forwarded"));
+        assert_eq!(export.request.phase(), ImportPhaseIr::Defer);
     }
 
     #[test]

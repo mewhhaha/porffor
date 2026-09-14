@@ -192,7 +192,7 @@ fn entrypoints_read_options_once_and_share_the_typed_arithmetic_boundary() {
     assert_before(
         zoned,
         "emit_temporal_zoned_date_time_epoch_pair(",
-        "emit_temporal_zoned_date_time_to_plain_date_time(",
+        "emit_temporal_zoned_date_time_to_plain(",
     );
 }
 

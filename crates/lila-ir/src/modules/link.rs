@@ -684,7 +684,7 @@ fn merged_lexical_names(graph: &ModuleGraphIr) -> BTreeMap<MergedName, String> {
             if matches!(
                 unit.resolved_imports.get(index),
                 Some(ResolvedBindingIr::Resolved {
-                    binding: ModuleBindingNameIr::Namespace | ModuleBindingNameIr::ModuleSource,
+                    binding: ModuleBindingNameIr::Namespace(_) | ModuleBindingNameIr::ModuleSource,
                     ..
                 })
             ) {
@@ -1196,7 +1196,9 @@ mod tests {
         let linked = linked_script_source(&sources, &mut graph).expect("import() should link");
 
         assert_eq!(graph.dynamic_components().len(), 1);
-        assert!(graph.units[0].namespace.is_some());
+        assert!(graph.units[0]
+            .namespaces
+            .contains_key(&ModuleNamespaceModeIr::Eager));
         assert!(
             linked
                 .source
@@ -1415,7 +1417,11 @@ mod tests {
             "an import() in a source-only referrer is not an artifact component"
         );
         assert_eq!(
-            crate::modules::namespace::ensure_namespace(&mut graph, 0),
+            crate::modules::namespace::ensure_namespace(
+                &mut graph,
+                0,
+                ModuleNamespaceModeIr::Eager
+            ),
             None,
             "a source-only unit has no environment for a namespace"
         );

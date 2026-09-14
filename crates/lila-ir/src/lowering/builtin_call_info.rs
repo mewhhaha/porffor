@@ -1977,6 +1977,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::TemporalNowZonedDateTimeIso
             | StandardBuiltinId::TemporalZonedDateTimeConstructor
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
@@ -2048,6 +2049,9 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
             | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => Some(
                 Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
             ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),

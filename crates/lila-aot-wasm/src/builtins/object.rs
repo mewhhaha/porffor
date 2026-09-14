@@ -819,6 +819,12 @@ impl<'a> FunctionBuilder<'a> {
             self.result_local,
             function,
         )?;
+        let prototype = self.emit_load_current_function_realm_array_prototype(function);
+        self.emit_install_current_function_realm_array_prototype(
+            self.result_local,
+            prototype,
+            function,
+        );
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.emit_return_current_completion(function);
@@ -1843,6 +1849,12 @@ impl<'a> FunctionBuilder<'a> {
             self.result_local,
             function,
         )?;
+        let prototype = self.emit_load_current_function_realm_array_prototype(function);
+        self.emit_install_current_function_realm_array_prototype(
+            self.result_local,
+            prototype,
+            function,
+        );
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.emit_return_current_completion(function);

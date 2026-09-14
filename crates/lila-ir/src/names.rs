@@ -254,6 +254,14 @@ pub const TEMPORAL_NOW_NAMESPACE_MEMBERS: &[(&str, StandardBuiltinId)] = &[
 /// fold byte-neutral.
 pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId)] = &[
     (
+        "with",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
+    ),
+    (
+        "toPlainDate",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
+    ),
+    (
         "equals",
         StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
     ),
@@ -304,6 +312,10 @@ pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId
     ),
 ];
 
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.toPlainDate";
+pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID: &str =
+    "$builtin.Temporal.ZonedDateTime.prototype.with";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID: &str =
     "$builtin.Temporal.ZonedDateTime.prototype.round";
 pub const BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GET_TIME_ZONE_TRANSITION_FUNCTION_ID: &str =

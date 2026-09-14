@@ -34,18 +34,10 @@ impl LinkedScriptDefinitions {
     pub(super) fn record_namespaces(&mut self, prelude: &str, graph: &ModuleGraphIr) {
         let mut expected = graph
             .materialized_units()
-            .filter_map(|(_, mode, unit)| {
-                unit.namespace.as_ref().map(|namespace| {
-                    (
-                        namespace.cell.as_str().to_string(),
-                        match mode {
-                            ModuleMaterializationModeIr::Eager => ModuleNamespaceModeIr::Eager,
-                            ModuleMaterializationModeIr::Deferred => {
-                                ModuleNamespaceModeIr::Deferred
-                            }
-                        },
-                    )
-                })
+            .flat_map(|(_, _, unit)| {
+                unit.namespaces
+                    .values()
+                    .map(|namespace| (namespace.cell.as_str().to_string(), namespace.mode()))
             })
             .collect::<BTreeMap<_, _>>();
         if expected.is_empty() {

@@ -90,7 +90,8 @@ mod tests {
                 RuntimeHelperId::ObjectRead,
                 RuntimeHelperId::ObjectReadProxy,
                 RuntimeHelperId::IndexedElementRead,
-                RuntimeHelperId::ObjectHasProperty
+                RuntimeHelperId::ObjectHasProperty,
+                RuntimeHelperId::WithEnvironmentHasBinding
             ]
         );
 
@@ -9287,7 +9288,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    fn emit_outlined_object_read_realm_argument(&mut self, function: &mut Function) {
+    pub(crate) fn emit_outlined_object_read_realm_argument(&mut self, function: &mut Function) {
         match outlined_object_read_realm_argument(self.object_read_error_realm_source()) {
             OutlinedObjectReadRealmArgument::TrustedCurrentEnvironment => {
                 function.instruction(&Instruction::LocalGet(self.current_env_local));
@@ -17321,7 +17322,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::BrIf(1));
 
         self.emit_is_module_namespace_i32(current_payload_local, current_tag_local, function);
-        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
 
         self.emit_typed_array_canonical_numeric_index_i32(
             current_payload_local,

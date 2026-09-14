@@ -109,12 +109,18 @@ fn namespace_tables(script: &ScriptIr) -> Vec<(ModuleNamespaceModeIr, &[TypedExp
 
 #[test]
 fn repeated_self_imports_construct_one_namespace_with_live_readers() {
-    let script = graph(&[("entry.js", "import * as first from './entry.js'; import * as second from './entry.js'; export let value = 1; print(first === second, first.value); value = 2; print(second.value);")], ParseGoal::Module);
+    let script = graph(
+        &[(
+            "entry.js",
+            "import * as first from './entry.js'; import * as second from './entry.js'; export let value = 1; print(first === second, first.value); value = 2; print(second.value);",
+        )],
+        ParseGoal::Module,
+    );
     let tables = namespace_tables(&script);
     assert_eq!(tables.len(), 1);
     assert_eq!(tables[0].0, ModuleNamespaceModeIr::Eager);
     assert_eq!(tables[0].1.len(), 3);
-    assert_eq!(tables[0].1[0].expr, ExprIr::Undefined);
+    assert_eq!(tables[0].1[0].kind, ValueKind::Undefined);
     assert_eq!(tables[0].1[1].expr, ExprIr::String("value".into()));
 }
 
@@ -136,7 +142,16 @@ fn ordinary_arrays_with_namespace_spelling_keep_array_semantics() {
     assert!(matches!(ordinary.expr, ExprIr::ArrayLiteral(_)));
     assert!(ordinary.heap_shape.is_some());
 
-    let linked = graph(&[("entry.js", "import * as ns from './value.js'; const ordinary = [void 0, 'value', () => 1]; print(ns.value, ordinary.length);"), ("value.js", "export let value = 1;")], ParseGoal::Module);
+    let linked = graph(
+        &[
+            (
+                "entry.js",
+                "import * as ns from './value.js'; const ordinary = [void 0, 'value', () => 1]; print(ns.value, ordinary.length);",
+            ),
+            ("value.js", "export let value = 1;"),
+        ],
+        ParseGoal::Module,
+    );
     assert_eq!(namespace_tables(&linked).len(), 1);
     let ordinary = initializers(&linked)
         .into_iter()
@@ -148,7 +163,19 @@ fn ordinary_arrays_with_namespace_spelling_keep_array_semantics() {
 
 #[test]
 fn export_tables_keep_utf16_order_including_numeric_strings() {
-    let script = graph(&[("entry.js", "import * as ns from './value.js'; print(Reflect.ownKeys(ns));"), ("value.js", "const value = 1; export { value as '2', value as '10', value as '\\uFF3A', value as '\\u{10000}' };")], ParseGoal::Module);
+    let script = graph(
+        &[
+            (
+                "entry.js",
+                "import * as ns from './value.js'; print(Reflect.ownKeys(ns));",
+            ),
+            (
+                "value.js",
+                "const value = 1; export { value as '2', value as '10', value as '\\uFF3A', value as '\\u{10000}' };",
+            ),
+        ],
+        ParseGoal::Module,
+    );
     let tables = namespace_tables(&script);
     assert_eq!(tables.len(), 1);
     let keys = tables[0]
@@ -218,4 +245,25 @@ fn async_and_dynamic_import_wrappers_retain_trusted_namespace_spans() {
             assert_eq!(table[1].expr, ExprIr::String("value".into()));
         }
     }
+}
+
+#[test]
+fn eager_and_deferred_requests_construct_separate_namespace_identities() {
+    let script = graph(
+        &[
+            (
+                "entry.js",
+                "import * as eager from './value.js'; import defer * as deferred from './value.js'; import defer * as repeated from './value.js'; print(eager !== deferred, repeated === deferred);",
+            ),
+            ("value.js", "export let value = 1;"),
+        ],
+        ParseGoal::Module,
+    );
+    let tables = namespace_tables(&script);
+    assert_eq!(tables.len(), 2);
+    assert_eq!(tables[0].0, ModuleNamespaceModeIr::Eager);
+    assert_eq!(tables[1].0, ModuleNamespaceModeIr::Deferred);
+    assert_eq!(tables[0].1[0].kind, ValueKind::Undefined);
+    assert_eq!(tables[1].1[0].kind, ValueKind::Function);
+    assert_eq!(tables[0].1[1], tables[1].1[1]);
 }

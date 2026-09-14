@@ -521,11 +521,13 @@ use crate::{
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TIME_ZONE_ID_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_INSTANT_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_CALENDAR_FUNCTION_ID,
+    BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
     BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID,
@@ -1642,6 +1644,16 @@ mod tests {
     #[test]
     fn temporal_zoned_date_time_arithmetic_surface_is_registered_as_nonconstructable_methods() {
         for (builtin, native_name, debug_name) in [
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
+                "with",
+                "Temporal.ZonedDateTime.prototype.with",
+            ),
+            (
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
+                "toPlainDate",
+                "Temporal.ZonedDateTime.prototype.toPlainDate",
+            ),
             (
                 StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar,
                 "withCalendar",
