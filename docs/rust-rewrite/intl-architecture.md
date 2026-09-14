@@ -81,12 +81,17 @@ language, script, region and base-name slots together after provider calls.
 The reserved five-to-eight-letter language domain uses pinned alias tables
 through an explicit adapter, including independent transform-language aliases;
 it never substitutes an unknown language into likely-subtag inference. BCP47
-keyword-value aliases absent from the pinned provider remain open. There is
+keyword-value aliases are generated from all 15 hash-pinned CLDR47 XML files,
+including both Unicode and transform values. Aliases match complete values;
+lossless keyword records preserve embedded `true` despite ICU parser folding. There is
 also no generated artifact data
 image or artifact-embedded ICU payload yet. The current provider is compiled
 into the Rust host and truthfully declares `External` placement relative to
-emitted Wasm; its digest identifies the exact `icu_locale_data-2.0.0.crate`
-archive, not data embedded in the artifact.
+emitted Wasm. Its composite digest identifies the exact
+`icu_locale_data-2.0.0.crate` archive, CLDR BCP47 source manifest and canonical
+alias rows, not data embedded in the artifact. The offline generator and CI
+check reproduce every alias from all 15 upstream XML files; no dependency
+upgrade or host-locale lookup is involved.
 
 The provider identity is now carried and enforced independently of that future
 data image. A module that imports `lila_host.intl_call` carries exactly one

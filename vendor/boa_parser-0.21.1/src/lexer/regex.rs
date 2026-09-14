@@ -152,17 +152,23 @@ impl<R> Tokenizer<R> for RegexLiteral {
         if flags.intersects(RegExpFlags::UNICODE | RegExpFlags::UNICODE_SETS)
             || !is_simple_non_unicode_pattern(&body)
         {
-            // Only try to parse and validate, do not optimize/compile.
-            drop(
-                regress::backends::try_parse(body.iter().copied(), flags.into()).map_err(
-                    |error| {
-                        Error::syntax(
-                            format!("Invalid regular expression literal: {error}"),
-                            start_pos,
-                        )
-                    },
-                )?,
-            );
+            // Legacy ClassAtoms are UTF-16 units, including each half of a raw
+            // astral character. Unicode modes parse those characters as scalars.
+            // Keep the interned source unchanged and validate the selected grammar.
+            let parsed = if flags.intersects(RegExpFlags::UNICODE | RegExpFlags::UNICODE_SETS) {
+                regress::backends::try_parse(body.iter().copied(), flags.into())
+            } else {
+                regress::backends::try_parse(
+                    body_utf16.iter().copied().map(u32::from),
+                    flags.into(),
+                )
+            };
+            drop(parsed.map_err(|error| {
+                Error::syntax(
+                    format!("Invalid regular expression literal: {error}"),
+                    start_pos,
+                )
+            })?);
         }
 
         Ok(Token::new_by_position_group(

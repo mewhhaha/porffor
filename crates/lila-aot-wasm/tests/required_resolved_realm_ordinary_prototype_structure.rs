@@ -127,7 +127,7 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
             .lines()
             .filter(|line| line.trim_end().ends_with(','))
             .count(),
-        12
+        14
     );
     for (variant, offset) in [
         ("Object", "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET"),
@@ -141,6 +141,14 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
             "HEAP_REALM_INTRINSICS_ITERATOR_PROTOTYPE_OFFSET",
         ),
         ("RegExp", "HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET"),
+        (
+            "IntlLocale",
+            "HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET",
+        ),
+        (
+            "IntlDateTimeFormat",
+            "{\n                HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET\n            }",
+        ),
         ("Promise", "HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET"),
         (
             "DisposableStack",
@@ -173,7 +181,7 @@ fn every_resolved_ordinary_prototype_is_loaded_and_installed_as_one_witness() {
     for (call, expected) in [
         (".emit_load_required_resolved_realm_ordinary_prototype(", 5),
         (".emit_install_resolved_realm_ordinary_prototype(", 5),
-        (".emit_required_new_target_realm_ordinary_prototype(", 3),
+        (".emit_required_new_target_realm_ordinary_prototype(", 4),
     ] {
         assert_eq!(
             recursive_rust_source_count(&source_root, call),

@@ -5640,7 +5640,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_set_algebra_iterate_receiver(
         &mut self,
         operation: SetAlgebraReceiverIterationOperation,
-        receiver_record_local: u32,
+        iteration_record_local: u32,
         result_record_local: u32,
         other_payload_local: u32,
         other_tag_local: u32,
@@ -5663,7 +5663,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
         self.load_i64_to_local_from_offset(
-            receiver_record_local,
+            iteration_record_local,
             HEAP_SET_ENTRIES_LEN_OFFSET,
             entries_len_local,
             function,
@@ -5673,7 +5673,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
         self.load_i64_to_local_from_offset(
-            receiver_record_local,
+            iteration_record_local,
             HEAP_SET_ENTRIES_PTR_OFFSET,
             entries_ptr_local,
             function,
@@ -5826,6 +5826,15 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+
+        // GetIteratorFromMethod observes keys() and the next getter before
+        // Union and SymmetricDifference copy the receiver's current values.
+        match operation {
+            SetAlgebraOperation::Difference | SetAlgebraOperation::Intersection => {}
+            SetAlgebraOperation::SymmetricDifference | SetAlgebraOperation::Union => {
+                self.emit_copy_set_record(receiver_record_local, result_record_local, function)?;
+            }
+        }
 
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
@@ -6029,12 +6038,12 @@ impl<'a> FunctionBuilder<'a> {
         );
 
         match operation {
-            SetAlgebraOperation::Intersection => {}
-            SetAlgebraOperation::Difference
-            | SetAlgebraOperation::SymmetricDifference
-            | SetAlgebraOperation::Union => {
+            SetAlgebraOperation::Difference => {
                 self.emit_copy_set_record(receiver_record_local, result_record_local, function)?;
             }
+            SetAlgebraOperation::Intersection
+            | SetAlgebraOperation::SymmetricDifference
+            | SetAlgebraOperation::Union => {}
         }
 
         let receiver_iteration = match operation {
@@ -6054,9 +6063,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Le);
                 function.instruction(&Instruction::If(BlockType::Empty));
+                let iteration_record_local = match receiver_iteration {
+                    SetAlgebraReceiverIterationOperation::Difference => result_record_local,
+                    SetAlgebraReceiverIterationOperation::Intersection => receiver_record_local,
+                };
                 self.emit_set_algebra_iterate_receiver(
                     receiver_iteration,
-                    receiver_record_local,
+                    iteration_record_local,
                     result_record_local,
                     other_payload_local,
                     other_tag_local,

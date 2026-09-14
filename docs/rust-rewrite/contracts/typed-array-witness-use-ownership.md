@@ -42,8 +42,8 @@ boundary, and the borrowed-validation-before-owned-result order. A lexical
 probe prevents comments, nested comments, raw identifiers and literals from
 making the census vacuous.
 
-The current inventory contains 53 view-carrier references, 41 constructors,
-two borrowed type boundaries, and 71 witness-use references. The 53 witness
+The current inventory contains 54 view-carrier references, 41 constructors,
+two borrowed type boundaries, and 72 witness-use references. The 53 witness
 sites comprise one definition and 52 calls. The four route counts are
 `ValidatedMethodEntry 36`, `ArrayLikeLengthSnapshot 8`,
 `IntegerIndexedProperty 13`, and `Accessor 4`; these include both exhaustive

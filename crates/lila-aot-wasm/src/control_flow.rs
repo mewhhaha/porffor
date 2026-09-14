@@ -20,6 +20,7 @@ use lila_ir::{
 mod annex_b_function_copy;
 mod arguments_iterator;
 mod async_function_for_of_iterator;
+mod constant_number_condition;
 mod for_await_iteration_environment;
 mod for_await_iterator_symbol;
 mod for_in;
@@ -3600,6 +3601,18 @@ impl<'a> FunctionBuilder<'a> {
                 then_branch,
                 else_branch,
             } => {
+                if let Some(taken) = constant_number_condition::truthiness(condition) {
+                    // Lowering and planning have already visited both branches.
+                    // Preserve If's UpdateEmpty(undefined) before the selected
+                    // statement, including an empty branch or no else branch.
+                    self.emit_statement_result(function, ValueKind::Undefined);
+                    if taken {
+                        self.compile_statement(then_branch, function)?;
+                    } else if let Some(else_branch) = else_branch {
+                        self.compile_statement(else_branch, function)?;
+                    }
+                    return Ok(());
+                }
                 self.compile_truthy_i32(condition, function)?;
                 self.emit_propagate_throw_from_locals_if_needed(
                     self.result_local,

@@ -23665,8 +23665,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray constructor requires new",
                     self.result_local,
                     self.result_tag_local,
@@ -23996,8 +23995,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray iterator method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -24035,8 +24033,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray iterator method must return an object",
                     self.result_local,
                     self.result_tag_local,
@@ -24065,8 +24062,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray iterator next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -24113,8 +24109,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(array_element_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray iterator next result must be an object",
                     self.result_local,
                     self.result_tag_local,
@@ -24286,8 +24281,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray iterator method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -24324,8 +24318,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(iterator_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray iterator method must return an object",
                     self.result_local,
                     self.result_tag_local,
@@ -24354,8 +24347,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray iterator next method must be callable",
                     self.result_local,
                     self.result_tag_local,
@@ -24480,8 +24472,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_is_heap_object_like_tag_i32(array_element_tag_local, function);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
+                self.emit_throw_current_function_realm_type_error(
                     "TypedArray iterator next result must be an object",
                     self.result_local,
                     self.result_tag_local,

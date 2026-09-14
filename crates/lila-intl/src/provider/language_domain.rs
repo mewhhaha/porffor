@@ -14,6 +14,8 @@ use icu_locale::{LanguageIdentifier, Locale, LocaleCanonicalizer};
 
 use crate::{CanonicalLocaleId, CanonicalizeLocaleError, LocaleId, UnsupportedLocale};
 
+use super::keyword_aliases::{self, TransformKeywordValues};
+
 #[derive(Debug)]
 struct ReservedLanguage(Box<str>);
 
@@ -189,6 +191,7 @@ pub(super) struct ParsedLocale {
     locale: Locale,
     reserved_base_language: Option<ReservedLanguage>,
     reserved_transform_language: Option<ReservedLanguage>,
+    transform_keyword_values: TransformKeywordValues,
 }
 
 impl ParsedLocale {
@@ -208,13 +211,16 @@ impl ParsedLocale {
         if reserved_base_language.is_some() {
             structural.replace_range(..base_end, "und");
         }
-        let locale = structural
+        let mut locale: Locale = structural
             .parse()
             .map_err(|_| UnsupportedLocale::new(input.clone()))?;
+        locale.extensions.unicode.keywords = keyword_aliases::lossless_unicode_keywords(source);
+        let transform_keyword_values = TransformKeywordValues::from_validated_locale(source);
         Ok(Self {
             locale,
             reserved_base_language,
             reserved_transform_language,
+            transform_keyword_values,
         })
     }
 
@@ -240,7 +246,11 @@ impl ParsedLocale {
             self.locale.extensions.transform.lang = Some(transform);
         }
         rules.canonicalize_subdivision_keywords(&mut self.locale);
+        keyword_aliases::canonicalize_unicode_keywords(&mut self.locale);
+        self.transform_keyword_values.canonicalize();
         let mut canonical = self.locale.to_string();
+        self.transform_keyword_values
+            .write_canonical_fields(&mut canonical);
         if let Some(language) = self.reserved_transform_language {
             let range = transform_language_range(&canonical)
                 .expect("parsed transform language survives canonicalization");

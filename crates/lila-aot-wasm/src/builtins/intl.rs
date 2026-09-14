@@ -4,8 +4,8 @@
 //! coercion emitters. The structural pass validates Unicode locale identifiers;
 //! the typed host provider applies its pinned ICU4X language alias data before
 //! core options and after extension replacement. All cached components are
-//! refreshed from the final tag. Missing provider BCP47 value-alias data remains
-//! an explicit conformance gap; it is not approximated by constructor tables.
+//! refreshed from the final tag. The provider resolves complete keyword values
+//! against generated, hash-pinned CLDR BCP47 aliases in its pure data layer.
 
 use super::super::*;
 use crate::functions::NewTargetPrototypeFallback;
@@ -2303,7 +2303,7 @@ mod intl_locale_construction_order_tests {
         );
         assert_eq!(
             reserve
-                .matches("NewTargetPrototypeFallback::CurrentGlobal")
+                .matches("OrdinaryDefaultPrototype::IntlLocale")
                 .count(),
             1
         );

@@ -13,20 +13,15 @@ impl<'a> ScriptLowerer<'a> {
                 None => (StatementIr::Empty, ValueKind::Undefined),
             };
         }
-        let before_vars = self.var_bindings.clone();
-        let before_globals = self.global_properties.clone();
+        let before = self.capture_conditional_flow_facts();
         let (then_branch, then_kind) = self.lower_statement(if_statement.body());
-        let then_vars = self.var_bindings.clone();
-        let then_globals = self.global_properties.clone();
+        let then_facts = self.capture_conditional_flow_facts();
         let (else_branch, result_kind) = match if_statement.else_node() {
             Some(else_node) => {
-                self.var_bindings = before_vars.clone();
-                self.global_properties = before_globals.clone();
+                self.install_conditional_flow_facts(before);
                 let (else_branch, else_kind) = self.lower_statement(else_node);
-                let else_vars = self.var_bindings.clone();
-                let else_globals = self.global_properties.clone();
-                self.var_bindings = self.merge_var_bindings(&then_vars, &else_vars);
-                self.global_properties = self.merge_global_properties(&then_globals, &else_globals);
+                let else_facts = self.capture_conditional_flow_facts();
+                self.merge_conditional_flow_facts(then_facts, else_facts);
                 let kind = if then_kind == else_kind {
                     then_kind
                 } else if Self::statement_completes_by_throw(&then_branch) {
@@ -39,9 +34,7 @@ impl<'a> ScriptLowerer<'a> {
                 (Some(Box::new(else_branch)), kind)
             }
             None => {
-                self.var_bindings = self.merge_var_bindings(&then_vars, &before_vars);
-                self.global_properties =
-                    self.merge_global_properties(&then_globals, &before_globals);
+                self.merge_conditional_flow_facts(then_facts, before);
                 (None, ValueKind::Undefined)
             }
         };

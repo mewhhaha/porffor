@@ -1,4 +1,5 @@
 use super::*;
+use crate::functions::OrdinaryDefaultPrototype;
 
 /// An allocated `Intl.Locale` result that is not yet branded or initialized.
 ///
@@ -33,7 +34,9 @@ impl<'a> FunctionBuilder<'a> {
         let result = (|| {
             self.emit_new_target_prototype_to_locals(
                 INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX,
-                NewTargetPrototypeFallback::CurrentGlobal,
+                NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
+                    OrdinaryDefaultPrototype::IntlLocale,
+                ),
                 prototype.payload,
                 prototype.tag,
                 function,

@@ -139,8 +139,8 @@ fn source_snapshot_precedes_target_allocation_and_copy() {
     assert_eq!(
         body.matches("OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64")
             .count(),
-        1,
-        "the constructor must have only its exhaustive TypedArray source branch"
+        2,
+        "the constructor validates the typed source, then selects its post-allocation copy path"
     );
     let source_brand = body
         .find("OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64")
@@ -185,6 +185,14 @@ fn source_snapshot_precedes_target_allocation_and_copy() {
         "let buffer_memory_alloc = self.functions.shared_memory_alloc_function_index()",
         "target backing-store allocation",
     );
+    let copy_branch = body
+        .rfind("OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64")
+        .expect("missing post-allocation typed-source copy branch");
+    let raw_copy = unique_position(
+        body,
+        "emit_typed_array_copy_bytes_in_order(",
+        "same-kind raw-byte copy",
+    );
     let indexed_read = unique_position(
         body,
         "emit_typed_array_or_object_index_read_from_locals(",
@@ -211,7 +219,9 @@ fn source_snapshot_precedes_target_allocation_and_copy() {
             && generator_throw_probe < iterator_probe
             && source_witness < content_type
             && content_type < target_allocation
-            && target_allocation < indexed_read
+            && target_allocation < copy_branch
+            && copy_branch < raw_copy
+            && raw_copy < indexed_read
             && indexed_read < conversions[1]
             && conversions[1] < target_materialization
     );

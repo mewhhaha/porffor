@@ -243,3 +243,52 @@ owners, including absence checks for removed Test262-specific for-in recognizers
 it passes on the fifth-checkpoint source. Two stale CI Realm-routing assertions
 are staged for the next batch. No generated full-suite status numbers have been
 changed.
+
+## Seventh source batch and sixth-checkpoint findings
+
+Checkpoint six is `7a761070589ba794aa1fa919a84ed2c1cda5dc5f` with compiler
+SHA-256 `6517ab5d2ee6d4f0a8c57413105c938e998abd3f81d425e311f6d2d25387b84b`
+and 2,981 frozen inputs. Its workspace all-targets release check passes.
+All 32 focused test targets completed. Passing native targets include byte
+copies (6), fill (11), backreference folding (8), and numeric behavior (7).
+The Intl provider passes 17 unit tests. The fifth-checkpoint Test262 library
+suite passes all 362 tests, including the agent test that previously timed out.
+The fifth-checkpoint pinned fill cohort separately passes all 102 executions
+with zero timeouts; its complete current-main paired audit is still pending.
+
+Sixth-checkpoint failures remain recorded in `batch6-test-verdicts.json`.
+Float16Array passes 10 tests and fails one foreign constructor error test;
+follow-up probes reproduce the same entry-Realm TypeError on all twelve
+constructors' call and iterator validation paths. The shared paths now select
+the executing function Realm. Intl Locale constructor and option tests expose
+a missing host-import dependency, and a foreign getter test requires the full
+created-Realm Intl namespace. Legacy pooled-class tests expose a parser that
+validates raw astral range endpoints as code points in non-Unicode mode;
+the IR test also assumes pooled storage for an optimized singleton class.
+Structural census failures cover the new shared byte-copy owner and updated
+source boundaries. These are failures and follow-up work, not passing claims.
+
+All 24 numeric stress executions still fail at checkpoint six because their
+Wasm functions are too large. The next emission change proves only immutable
+Number IR conditions and omits unreachable branches after complete lowering
+and planning. Its controls preserve early errors, hoists, statement completion,
+labels, constructors, calls, mutable properties, and BigInt errors. The 24-case
+replay must pass before this family can be called repaired.
+
+The seventh source batch also restores pinned `isConstructor.js` and native
+function matching without semantic harness replacements; merges both branches'
+flow facts; snapshots compound-assignment left-value types before lowering the
+right side; fixes Set operation copy timing; supplies all 65 keyword-value
+aliases from pinned CLDR 47; and publishes represented Intl intrinsics in
+created Realms. Cached format functions use the first getter's Realm and retain
+the formatter in the canonical closure capture slot. Source tests, native
+targets and generated alias checks accompany these changes. The shortcut
+inventory now contains 108 exact observations after removing the two callable
+harness replacements. No generated full-suite counts have been changed.
+
+Earlier candidate replay pipelines were retired after complete audited cohorts
+so subsequent comparisons can use the current compiler. Their completed and
+partial artifacts remain intact; pending executions have no assigned result.
+Current-main reference replay continues independently. Module instantiation
+and the wider failure list remain open, and the PR stays draft until the
+requested fixes and verification are complete.

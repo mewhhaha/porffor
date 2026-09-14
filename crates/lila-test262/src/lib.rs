@@ -2568,15 +2568,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 used_preludes.push((prelude.name.clone(), prelude.origin));
                 continue;
             }
-            if include == "nativeFunctionMatcher.js"
-                && case
-                    .path
-                    .starts_with("built-ins/Function/prototype/toString/")
-            {
-                source.push_str(WASM_AOT_NATIVE_FUNCTION_MATCHER_PRELUDE);
-                used_preludes.push((prelude.name.clone(), prelude.origin));
-                continue;
-            }
             source.push_str(&prelude.contents);
             used_preludes.push((prelude.name.clone(), prelude.origin));
         }
@@ -2611,8 +2602,6 @@ const COMPARE_ARRAY_PRELUDE_FNV1A: u64 = 0x5bb6_1296_deec_6e91;
 const DETACH_ARRAY_BUFFER_PRELUDE_FNV1A: u64 = 0xb288_4dc7_609b_1d2a;
 
 const IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0x5815_595f_f0a9_9c34;
-
-const LOCAL_IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0x8380_3414_fa56_4722;
 
 const RESIZABLE_ARRAY_BUFFER_UTILS_PRELUDE_FNV1A: u64 = 0x6466_6602_9ee8_9d5d;
 
@@ -3253,19 +3242,12 @@ fn typed_array_literal_include_matches_contract(include: &str, prelude: &Prelude
             PreludeOrigin::VendoredHarness,
             DETACH_ARRAY_BUFFER_PRELUDE_FNV1A,
         ),
-        "isConstructor.js" => {
-            prelude_matches_fingerprint(
-                prelude,
-                include,
-                PreludeOrigin::VendoredHarness,
-                IS_CONSTRUCTOR_PRELUDE_FNV1A,
-            ) || prelude_matches_fingerprint(
-                prelude,
-                include,
-                PreludeOrigin::LocalMerged,
-                LOCAL_IS_CONSTRUCTOR_PRELUDE_FNV1A,
-            )
-        }
+        "isConstructor.js" => prelude_matches_fingerprint(
+            prelude,
+            include,
+            PreludeOrigin::VendoredHarness,
+            IS_CONSTRUCTOR_PRELUDE_FNV1A,
+        ),
         "resizableArrayBufferUtils.js" => prelude_matches_fingerprint(
             prelude,
             include,
@@ -3429,40 +3411,6 @@ $DONE = function $DONE(error) {
   return __lilaTest262OriginalDONE(error);
 };
 globalThis.$DONE = $DONE;
-"#;
-
-const WASM_AOT_NATIVE_FUNCTION_MATCHER_PRELUDE: &str = r#"
-function __lilaValidateNativeFunctionSource(source, special) {
-  if (typeof source !== "string") {
-    throw "Conforms to NativeFunction Syntax: " + source;
-  }
-
-  var prefix = "function ";
-  var suffix = "() { [native code] }";
-  if (source.slice(0, prefix.length) !== prefix ||
-      source.slice(source.length - suffix.length) !== suffix) {
-    if (special === undefined) {
-      throw "Conforms to NativeFunction Syntax: " + source;
-    }
-    throw "Conforms to NativeFunction Syntax: " + source + " (" + special + ")";
-  }
-}
-
-const validateNativeFunctionSource = function(source) {
-  __lilaValidateNativeFunctionSource(source);
-};
-
-const assertToStringOrNativeFunction = function(fn, expected) {
-  const actual = "" + fn;
-  if (actual === expected) {
-    return;
-  }
-  assertNativeFunction(fn, expected);
-};
-
-const assertNativeFunction = function(fn, special) {
-  __lilaValidateNativeFunctionSource("" + fn, special);
-};
 "#;
 
 fn case_needs_test262_error_prelude(case: &TestCase) -> bool {
@@ -19559,7 +19507,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     }
 
     #[test]
-    fn copy_within_not_a_constructor_keeps_literal_or_exact_intrinsic_semantics() {
+    fn copy_within_not_a_constructor_keeps_the_canonical_constructor_helper() {
         let case = typed_array_literal_physical_cases()
             .into_iter()
             .find(|case| case.path.ends_with("/copyWithin/not-a-constructor.js"))
@@ -19569,10 +19517,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             .expect("local intrinsic case should materialize");
         assert!(local_materialized
             .source
-            .contains("var isConstructor = __lilaIsConstructor;"));
-        assert!(local_materialized
-            .used_preludes
-            .contains(&("isConstructor.js".to_string(), PreludeOrigin::LocalMerged)));
+            .contains("Reflect.construct(function(){}, [], f);"));
+        assert!(local_materialized.used_preludes.contains(&(
+            "isConstructor.js".to_string(),
+            PreludeOrigin::VendoredHarness
+        )));
 
         let mut vendored_store = real_wasm_aot_preludes();
         let vendored_source =
@@ -19784,7 +19733,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         const VENDORED_STA_BYTES: usize = 720;
         const LOCAL_PROPERTY_HELPER_BYTES: usize = 12_073;
         const VENDORED_PROPERTY_HELPER_BYTES: usize = 12_073;
-        const LOCAL_IS_CONSTRUCTOR_BYTES: usize = 41;
         const VENDORED_IS_CONSTRUCTOR_BYTES: usize = 545;
         const STATIC_RESIZABLE_ARRAY_BUFFER_BYTES: usize = 3_682;
         const STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A: u64 = 0xa692_1818_39bc_0bb1;
@@ -19874,11 +19822,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "propertyHelper.js",
                 LOCAL_PROPERTY_HELPER_BYTES,
                 LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A,
-            ),
-            (
-                "isConstructor.js",
-                LOCAL_IS_CONSTRUCTOR_BYTES,
-                LOCAL_IS_CONSTRUCTOR_PRELUDE_FNV1A,
             ),
         ] {
             let prelude = local_store
@@ -20294,10 +20237,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                                 panic!("{store_name} store should contain {include}")
                             });
                             let expected_origin = if store_name == "local"
-                                && matches!(
-                                    include.as_str(),
-                                    "propertyHelper.js" | "isConstructor.js"
-                                ) {
+                                && matches!(include.as_str(), "propertyHelper.js")
+                            {
                                 PreludeOrigin::LocalMerged
                             } else {
                                 PreludeOrigin::VendoredHarness
@@ -20670,7 +20611,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             fnv1a(&pinned_test_typed_array_source),
             TEST_TYPED_ARRAY_PRELUDE_FNV1A
         );
-        for name in ["assert.js", "isConstructor.js", "propertyHelper.js"] {
+        for name in ["assert.js", "propertyHelper.js"] {
             let prelude = local_store
                 .get(name)
                 .unwrap_or_else(|| panic!("local store should contain {name}"));
@@ -20906,10 +20847,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             .iter()
                             .map(|include| {
                                 let expected_origin = if store_name == "local"
-                                    && matches!(
-                                        include.as_str(),
-                                        "propertyHelper.js" | "isConstructor.js"
-                                    ) {
+                                    && matches!(include.as_str(), "propertyHelper.js")
+                                {
                                     PreludeOrigin::LocalMerged
                                 } else {
                                     PreludeOrigin::VendoredHarness
@@ -21911,7 +21850,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             "assert.js",
             "sta.js",
             "sta-preamble.js",
-            "isConstructor.js",
             "propertyHelper.js",
         ] {
             let prelude = local_store
@@ -22188,10 +22126,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                                 panic!("{store_name} store should contain {include}")
                             });
                             let expected_origin = if store_name == "local"
-                                && matches!(
-                                    include.as_str(),
-                                    "propertyHelper.js" | "isConstructor.js"
-                                ) {
+                                && matches!(include.as_str(), "propertyHelper.js")
+                            {
                                 PreludeOrigin::LocalMerged
                             } else {
                                 PreludeOrigin::VendoredHarness
@@ -22486,13 +22422,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "{include}"
             );
         }
-        for include in ["propertyHelper.js", "isConstructor.js"] {
+        for (include, expected_origin) in [
+            ("propertyHelper.js", PreludeOrigin::LocalMerged),
+            ("isConstructor.js", PreludeOrigin::VendoredHarness),
+        ] {
             assert_eq!(
                 local_store
                     .get(include)
                     .unwrap_or_else(|| panic!("local store should contain {include}"))
                     .origin,
-                PreludeOrigin::LocalMerged,
+                expected_origin,
                 "{include}"
             );
         }
@@ -22931,13 +22870,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "{include}"
             );
         }
-        for include in ["propertyHelper.js", "isConstructor.js"] {
+        for (include, expected_origin) in [
+            ("propertyHelper.js", PreludeOrigin::LocalMerged),
+            ("isConstructor.js", PreludeOrigin::VendoredHarness),
+        ] {
             assert_eq!(
                 local_store
                     .get(include)
                     .unwrap_or_else(|| panic!("local store should contain {include}"))
                     .origin,
-                PreludeOrigin::LocalMerged,
+                expected_origin,
                 "{include}"
             );
         }
@@ -23473,34 +23415,49 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     }
 
     #[test]
-    fn materialize_function_tostring_native_matcher_uses_lightweight_wasm_aot_prelude() {
-        let mut store = fixture_preludes();
-        store.insert(
-            "nativeFunctionMatcher.js".to_string(),
-            "const UnicodeIDStart = /large/;\nfunction assertToStringOrNativeFunction() {}\n"
-                .to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        let mut case =
-            synthetic_case("built-ins/Function/prototype/toString/function-declaration.js");
-        case.includes = vec!["nativeFunctionMatcher.js".to_string()];
-        case.original_source = Arc::from(
-            "function f() {}\nassertToStringOrNativeFunction(f, \"function f() {}\");".to_string(),
-        );
-
-        let materialized = materialize_test(&case, &store).expect("materialization should work");
-
-        assert!(materialized
-            .source
-            .contains("__lilaValidateNativeFunctionSource"));
-        assert!(materialized
-            .source
-            .contains("assertToStringOrNativeFunction(f"));
-        assert!(!materialized.source.contains("UnicodeIDStart"));
-        assert!(materialized
-            .used_preludes
-            .iter()
-            .any(|(name, _)| name == "nativeFunctionMatcher.js"));
+    fn callable_introspection_cases_preserve_the_complete_pinned_helpers() {
+        let store = real_wasm_aot_preludes();
+        for (include, paths) in [
+            (
+                "isConstructor.js",
+                [
+                    "harness/isConstructor.js",
+                    "built-ins/Array/prototype/map/not-a-constructor.js",
+                ],
+            ),
+            (
+                "nativeFunctionMatcher.js",
+                [
+                    "harness/nativeFunctionMatcher.js",
+                    "built-ins/Function/prototype/toString/function-declaration.js",
+                ],
+            ),
+        ] {
+            let pinned = fs::read_to_string(
+                repo_root()
+                    .join("test262/vendor/test262/harness")
+                    .join(include),
+            )
+            .expect("pinned callable helper");
+            let prelude = store.get(include).expect("canonical callable helper");
+            assert_eq!(prelude.origin, PreludeOrigin::VendoredHarness);
+            assert_eq!(prelude.contents, format!("{pinned}\n"));
+            for path in paths {
+                let mut case = synthetic_case(path);
+                case.includes = vec![include.to_string()];
+                case.original_source = Arc::from("var originalBody = true;\n");
+                let materialized = materialize_test(&case, &store)
+                    .expect("callable helper must materialize unchanged");
+                assert!(materialized.source.contains(&prelude.contents));
+                assert!(materialized.source.ends_with(case.original_source.as_ref()));
+                assert!(!materialized
+                    .source
+                    .contains("__lilaValidateNativeFunctionSource"));
+                assert!(!materialized
+                    .source
+                    .contains("var isConstructor = __lilaIsConstructor"));
+            }
+        }
     }
 
     #[test]
@@ -24668,7 +24625,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             .expect("merged constructor-test prelude should exist");
 
         assert_eq!(assert_prelude.origin, PreludeOrigin::LocalMerged);
-        assert_eq!(is_constructor_prelude.origin, PreludeOrigin::LocalMerged);
+        assert_eq!(
+            is_constructor_prelude.origin,
+            PreludeOrigin::VendoredHarness
+        );
 
         let full_assert_prefix = format!("{}{}", assert_prelude.contents, sta_prelude.contents);
         let full_assert_and_constructor_prefix = format!(
@@ -24723,9 +24683,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             for include in &case.includes {
                 assert!(
                     materialized.used_preludes.iter().any(|(used, origin)| {
-                        used == include && *origin == PreludeOrigin::LocalMerged
+                        used == include && *origin == PreludeOrigin::VendoredHarness
                     }),
-                    "{path} should use LocalMerged {include}"
+                    "{path} should use canonical vendored {include}"
                 );
             }
         }
@@ -25985,13 +25945,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "{include}"
             );
         }
-        for include in ["propertyHelper.js", "isConstructor.js"] {
+        for (include, expected_origin) in [
+            ("propertyHelper.js", PreludeOrigin::LocalMerged),
+            ("isConstructor.js", PreludeOrigin::VendoredHarness),
+        ] {
             assert_eq!(
                 local_store
                     .get(include)
                     .unwrap_or_else(|| panic!("local store should contain {include}"))
                     .origin,
-                PreludeOrigin::LocalMerged,
+                expected_origin,
                 "{include}"
             );
         }
@@ -29061,7 +29024,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .get("isConstructor.js")
             .expect("vendored constructor-test prelude should exist");
 
-        for prelude in [local_assert, local_property, local_is_constructor] {
+        for prelude in [local_assert, local_property] {
             assert_eq!(prelude.origin, PreludeOrigin::LocalMerged);
             assert_eq!(prelude.contents, local_harness_section(&prelude.name));
         }
@@ -29070,6 +29033,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             vendored_assert,
             vendored_property,
             vendored_is_constructor,
+            local_is_constructor,
         ] {
             assert_eq!(prelude.origin, PreludeOrigin::VendoredHarness);
             assert_eq!(prelude.contents, vendored_harness_source(&prelude.name));
@@ -29141,7 +29105,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                         .get(*include)
                         .unwrap_or_else(|| panic!("local {include} should exist"));
                     local_source.push_str(&prelude.contents);
-                    local_origins.push(((*include).to_string(), PreludeOrigin::LocalMerged));
+                    local_origins.push(((*include).to_string(), prelude.origin));
                 }
                 local_source.push_str(&original_source);
 

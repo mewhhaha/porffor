@@ -9,6 +9,7 @@ mod arguments_index_mapping;
 mod bound_function_allocation;
 mod class_definition;
 mod created_realm_array_prototype;
+mod current_builtin_realm_closure;
 mod current_function_realm_array_prototype;
 mod current_function_realm_async_disposable_stack;
 mod current_function_realm_disposable_stack;
@@ -98,14 +99,15 @@ pub(crate) struct RealmRecordLocal(u32);
 pub(crate) struct ReservedRealmFunctionPrototypeLocal(u32);
 
 /// The inseparable realm/default-function-prototype inputs for creating an
-/// ordinary builtin function in a synthetic realm.
+/// ordinary builtin function in a synthetic or active builtin realm.
 ///
 /// The context is deliberately non-`Copy` and its fields are private. This
 /// prevents a call site from attaching one realm as `[[Realm]]` while leaving
 /// the allocator's entry-realm `%Function.prototype%` in `[[Prototype]]` or
 /// pairing the realm with an arbitrary scratch local. The context can only be
-/// constructed by materializing the catalogued callable intrinsic, so callers
-/// cannot supply a payload with a different value kind.
+/// constructed by materializing the catalogued callable intrinsic or loading
+/// that intrinsic from a proven active builtin Realm, so callers cannot supply
+/// a payload with a different value kind.
 #[must_use]
 pub(crate) struct RealmFunctionMaterializationContext {
     realm: RealmRecordLocal,
@@ -167,6 +169,8 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     FinalizationRegistryPrototype,
     RegExpPrototype,
     DatePrototype,
+    IntlLocalePrototype,
+    IntlDateTimeFormatPrototype,
     Float64ArrayPrototype,
     Float32ArrayPrototype,
     Float16ArrayPrototype,
@@ -393,6 +397,10 @@ impl NonArrayRealmIntrinsicSlot {
             }
             Self::RegExpPrototype => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
             Self::DatePrototype => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
+            Self::IntlLocalePrototype => HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET,
+            Self::IntlDateTimeFormatPrototype => {
+                HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET
+            }
             Self::Float64ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
             Self::Float32ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
             Self::Float16ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET,

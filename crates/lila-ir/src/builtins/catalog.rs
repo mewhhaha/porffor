@@ -3469,14 +3469,14 @@ standard_builtin_catalog! {
     IntlGetCanonicalLocales {
         function: FunctionOrdinal(485) => BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID,
         debug: "Intl.getCanonicalLocales",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "getCanonicalLocales",
     }
     IntlLocaleConstructor {
         function: FunctionOrdinal(486) => BUILTIN_INTL_LOCALE_FUNCTION_ID,
         debug: "Intl.Locale",
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, INTL_HOST],
         installer: IntlLocale,
         native: INTL_LOCALE_NAME,
     }
@@ -5996,6 +5996,12 @@ standard_builtin_catalog! {
 }
 
 impl StandardBuiltinId {
+    /// Whether this builtin body calls the pinned Intl provider. Import planning
+    /// uses compiled bodies, including dependencies discovered during emission.
+    pub const fn requires_intl_host(self) -> bool {
+        self.flags().contains(BuiltinFlags::INTL_HOST)
+    }
+
     /// Whether this builtin reads the realm's host randomness provider. This
     /// catalog bit is the sole authority for importing `lila_host.random_f64`.
     pub const fn requires_random(self) -> bool {
@@ -6006,6 +6012,22 @@ impl StandardBuiltinId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intl_provider_callers_declare_the_host_import() {
+        let callers = StandardBuiltinId::all_functions()
+            .iter()
+            .copied()
+            .filter(|builtin| builtin.requires_intl_host())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            callers,
+            [
+                StandardBuiltinId::IntlGetCanonicalLocales,
+                StandardBuiltinId::IntlLocaleConstructor,
+            ]
+        );
+    }
 
     #[test]
     fn uint8_array_codecs_preserve_ordinals_and_observable_effects() {

@@ -112,3 +112,24 @@ folded.indices[2][0] === 1 && folded.indices[3][1] === 3 &&
 "#,
     );
 }
+
+#[test]
+fn frontend_preserves_raw_and_escaped_legacy_range_membership() {
+    assert_pooled_class(
+        r#"
+var raw = /^[😀-\uFFFF]$/;
+var escaped = /^[\uD83D\uDE00-\uFFFF]$/;
+var sourcePreserved = raw.source === '^[😀-\\uFFFF]$' &&
+    escaped.source === '^[\\uD83D\\uDE00-\\uFFFF]$';
+var agreement = true;
+for (var sample of ['x', '\uD83C', '\uD83D', '\uD83E', '\uDDFF', '\uDE00', '\uDE01', '\uFFFF', '😀']) {
+  if (raw.test(sample) !== escaped.test(sample)) agreement = false;
+}
+sourcePreserved && agreement && raw.test('\uD83D') && raw.test('\uDE00') &&
+raw.test('\uDE01') && raw.test('\uFFFF') && !raw.test('\uDDFF') &&
+!raw.test('x') && !raw.test('😀') &&
+/^[😀-😁]$/u.test('😀') && /^[😀-😁]$/v.test('😁') &&
+!/^[😀-😁]$/u.test('\uD83D') && !/^[😀-😁]$/v.test('😂');
+"#,
+    );
+}

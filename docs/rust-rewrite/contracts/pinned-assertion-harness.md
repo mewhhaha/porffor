@@ -4,8 +4,9 @@ The embedded Wasm-AOT named harness carries verbatim copies of the pinned
 Test262 `assert.js`, `sta.js`, and `propertyHelper.js` sources, including their
 copyright and license notices. Its `sta-preamble.js` section is the same pinned
 `sta.js` source. Byte-identity tests compare every section with the vendored
-file plus the materializer's terminating newline. The local `isConstructor.js`
-bridge remains separate and uses the existing typed host intrinsic.
+file plus the materializer's terminating newline. The constructor predicate
+and native-function grammar helpers are loaded in full from pinned
+`isConstructor.js` and `nativeFunctionMatcher.js`.
 
 This replaces local adapters that accepted truthy assertion arguments, threw
 primitive strings, omitted error messages and methods, and skipped property
@@ -40,3 +41,11 @@ The host transport and other existing materialization transformations retain
 their separate owners. Harness changes can expose compiler failures that a
 weaker adapter concealed; those must be fixed or reported using the actual
 failure, rather than changing the pinned harness to recover a green result.
+
+The canonical constructor predicate rejects non-callables with `Test262Error`
+and observes the `newTarget.prototype` access performed by `Reflect.construct`.
+It therefore preserves throwing prototype getters and revoked callable
+Proxies. The native-function helper retains its complete identifier and
+comment grammar, syntax rejection, and assertion behavior. Function
+`toString` cases use that same helper; materialization does not substitute
+a prefix/suffix validator.

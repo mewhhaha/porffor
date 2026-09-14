@@ -603,6 +603,3 @@ var verifyPrimordialProperty = verifyProperty;
  * See: https://github.com/tc39/how-we-work/blob/main/terminology.md#primordial
  */
 var verifyPrimordialCallableProperty = verifyCallableProperty;
-
-/// isConstructor.js
-var isConstructor = __lilaIsConstructor;

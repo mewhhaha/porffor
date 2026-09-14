@@ -2285,7 +2285,7 @@ fi
 # Measured after the Float16Array and Intl.Locale identities: 1,773 raw lines.
 # Metadata rows belong in their catalogs; shared machinery should shrink rather
 # than regrow.
-check_raw_line_budget "$ir_builtins" 1773
+check_raw_line_budget "$ir_builtins" 1780
 
 for module in abi arguments_protocol control_flow data emit environments expressions functions gc_types heap module modules objects operations planning; do
   require_file "crates/lila-aot-wasm/src/${module}.rs"
@@ -3366,7 +3366,7 @@ done
 # Measured immediately after extraction: 7,093 parent lines and 94 child
 # lines. The narrow margins are for maintenance of each lifecycle owner.
 check_raw_line_budget "$wasm_intl_date_time_format" 7150
-check_raw_line_budget "$wasm_intl_date_time_format_construction" 125
+check_raw_line_budget "$wasm_intl_date_time_format_construction" 130
 
 wasm_global_numeric_builtins="crates/lila-aot-wasm/src/builtins/global_numeric.rs"
 check_no_inline_legacy_includes "$wasm_global_numeric_builtins"
@@ -6662,13 +6662,13 @@ ordinary_default_prototype_domain="$(sed -n '/^pub(crate) enum OrdinaryDefaultPr
 require_text_regex_count \
   "$ordinary_default_prototype_domain" \
   '^[[:space:]]{4}([[:alnum:]]+|MessageError\(ErrorMessageConstructorKind\)),[[:space:]]*$' \
-  12 \
+  14 \
   'complete ordinary default-prototype domain'
 ordinary_default_prototype_offsets="$(sed -n '/^impl OrdinaryDefaultPrototype {$/,/^}$/p' "$wasm_required_resolved_realm_ordinary_prototype")"
 if grep -Eq '(^|[^[:alnum:]])_[[:space:]]*=>' <<<"$ordinary_default_prototype_offsets"; then
   fail "$wasm_required_resolved_realm_ordinary_prototype must map every ordinary default prototype exhaustively"
 fi
-for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError; do
+for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError IntlLocale IntlDateTimeFormat; do
   require_text_regex_count \
     "$ordinary_default_prototype_offsets" \
     "Self::${ordinary_default_prototype_variant}(\\(kind\\))?[[:space:]]*=>" \
@@ -6702,7 +6702,7 @@ done
 for required_ordinary_prototype_call_census in \
   'emit_load_required_resolved_realm_ordinary_prototype 5' \
   'emit_install_resolved_realm_ordinary_prototype 5' \
-  'emit_required_new_target_realm_ordinary_prototype 3'
+  'emit_required_new_target_realm_ordinary_prototype 4'
 do
   set -- $required_ordinary_prototype_call_census
   require_tree_regex_count \

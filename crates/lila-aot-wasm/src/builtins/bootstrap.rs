@@ -3271,6 +3271,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlLocalePrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3279,6 +3284,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlDateTimeFormatPrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),

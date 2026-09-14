@@ -26,3 +26,10 @@ shared and resizable buffers, detachment during offset coercion, exception
 precedence, numeric cross-kind controls, and foreign constructor/newTarget
 combinations. Source review and formatting alone do not establish Wasm behavior;
 the native target remains mandatory before declaring verification complete.
+
+Constructor-generated call and iterator TypeErrors use the executing builtin's
+stored Realm, including when its public binding or internal prototype changes.
+Calling without `new` rejects before observing arguments; exceptions thrown by
+iterator hooks retain their original identity. The
+`aot_typed_array_constructor_error_realm` target covers all twelve constructors,
+ordinary and callable iterable sources, and the ordering and identity controls.

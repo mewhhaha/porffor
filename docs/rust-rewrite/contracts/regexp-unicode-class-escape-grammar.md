@@ -91,3 +91,27 @@ class parser receives `OrdinaryClassMode`, `git diff --check`, and manual
 exhaustive-match review. Cargo, fixture execution, focused pinned RegExp cases,
 and the broad batch ladder remain deferred until the frozen patch is
 independently reviewed.
+
+## Frontend literal validation
+
+The Boa lexer validates legacy literal bodies as the UTF-16 code units already
+produced for interning. Unicode modes retain the scalar source sequence. This
+keeps `[😀-\uFFFF]` valid in legacy grammar (the standalone lead surrogate
+followed by the trail-surrogate-to-FFFF range) while rejecting that reversed
+scalar range under `u` and `v`. Conversely, `[😀-😁]` is a valid scalar range
+in Unicode modes and a reversed surrogate-unit range in legacy mode. Validation
+still runs through the parser; the source retained by the literal is unchanged.
+
+The dependency parser's `UnicodeEscapeMode` keeps fixed-width escapes as
+individual code units in legacy character grammar. Unicode character grammar
+and capture-name grammar admit code-point escapes and surrogate-pair composition.
+A failed Unicode pair lookahead restores the entire following escape, including
+its backslash and `u`, so a reversed second-atom range cannot disappear. Capture
+names use Unicode identifier grammar even in a legacy pattern.
+
+`lila-front/tests/regexp_legacy_astral_ranges.rs` covers accepted and rejected
+raw/escaped ranges in Script and Module goals, both Unicode flags, unpaired
+surrogate lookahead, and astral capture names. The pooled-class native target
+covers raw/escaped membership and retained `.source`. Its IR membership oracle
+accepts the existing literal-code-point singleton encoding as well as pooled
+ranges; the production singleton optimization remains unchanged.

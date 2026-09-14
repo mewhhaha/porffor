@@ -21,6 +21,7 @@ mod created_realm_async_disposable_stack_intrinsics;
 mod created_realm_disposable_stack_intrinsics;
 mod created_realm_dynamic_function_intrinsics;
 mod created_realm_finalization_registry_intrinsics;
+mod created_realm_intl_intrinsics;
 mod created_realm_iterator_next;
 mod created_realm_weak_collection_intrinsics;
 mod created_realm_weak_ref_intrinsics;
@@ -7760,6 +7761,19 @@ impl<'a> FunctionBuilder<'a> {
                 type_error_prototype_local,
                 function,
             )?;
+        let intl_members = self
+            .runtime_bootstrap_plan
+            .intl_namespace_members()
+            .ok_or_else(|| {
+                EmitError::unsupported("created Realm requires the complete Intl namespace")
+            })?;
+        let created_realm_intl = self.emit_materialize_created_realm_intl_intrinsics(
+            intl_members,
+            realm_record,
+            &realm_functions,
+            object_prototype_local,
+            function,
+        )?;
 
         self.emit_function_value_payload_in_realm(
             &regexp_meta,
@@ -8294,6 +8308,11 @@ impl<'a> FunctionBuilder<'a> {
             MAP_NAME,
             map_constructor_local,
             tag_local,
+            function,
+        )?;
+        self.emit_publish_created_realm_intl_intrinsics(
+            created_realm_intl,
+            global_local,
             function,
         )?;
         self.emit_publish_created_realm_weak_collection_intrinsics(

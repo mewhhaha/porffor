@@ -279,7 +279,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 320;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 480;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 496;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -719,6 +719,8 @@ pub(crate) const HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET: u64 = 440;
 pub(crate) const HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET: u64 = 448;
 pub(crate) const HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET: u64 = 456;
 pub(crate) const HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET: u64 = 464;
+pub(crate) const HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET: u64 = 480;
+pub(crate) const HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET: u64 = 488;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -3602,6 +3604,20 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Intl.Locale.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Intl.DateTimeFormat.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -5643,7 +5659,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 480);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 496);
         assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
         assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);

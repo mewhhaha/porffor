@@ -8,9 +8,12 @@ The direct Wasm `Intl.Locale` constructor applies core and Unicode-extension
 options in order, resolves pinned provider aliases before and after overrides,
 and exposes eight additional getters. Locale canonicalization preserves valid
 five-to-eight-letter languages and tags longer than 255 bytes through a typed
-provider domain and exact-capacity host calls. Verification is pending; see the
-[constructor contract](docs/rust-rewrite/aot-intl-locale-options.md). Missing
-provider keyword-value alias data and broader Intl services remain open.
+provider domain and exact-capacity host calls. Each compiled provider caller
+declares its host import, including standalone Locale construction.
+Verification is pending; see the
+[constructor contract](docs/rust-rewrite/aot-intl-locale-options.md). The provider
+now includes all 65 keyword-value aliases from pinned CLDR 47; broader Intl
+services remain open.
 Published conformance counts are unchanged.
 
 The public project and all current Rust packages, commands, environment
@@ -134,7 +137,15 @@ Float16Array uses the shared TypedArray view and method implementation with
 [direct binary64-to-binary16 rounding](docs/rust-rewrite/contracts/float16-array-storage.md).
 [Same-kind byte copies](docs/rust-rewrite/contracts/typed-array-byte-copies.md)
 preserve NaN payload bits, and constructor-owned buffers use the executing Realm.
-These additions are awaiting the next runtime checkpoint.
+The sixth checkpoint passes the byte-copy (6), fill (11), backreference-folding
+(8), and numeric behavior (7) native tests. The separate pinned fill cohort
+passes 102/102 executions. Its Intl, Float16Array Realm and legacy class-range
+failures remain recorded while the next source batch repairs their causes.
+That batch also restores the canonical callable harnesses, merges branch flow
+facts, preserves saved compound-assignment operand types, corrects Set copy
+timing, and adds pinned CLDR keyword aliases and Intl intrinsics in created
+Realms. Pure numeric IR conditions can omit unreachable branches after lowering
+and planning; the numeric stress replay remains a required check.
 Verification and the wider replay remain in progress; these counts do not
 update the generated full-suite conformance status.
 

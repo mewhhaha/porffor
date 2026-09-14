@@ -120,7 +120,8 @@ fn legacy_utf16_pair_constructor_and_projections_have_closed_callers() {
     let parsed_term_atom = bounded(
         REGEXP_SOURCE,
         "enum ParsedTermAtom {",
-        "/// Whether a lookbehind succeeds",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WordBoundaryPolarity",
     );
     assert_eq!(
         parsed_term_atom

@@ -292,7 +292,7 @@ fn view_locals_is_the_exact_non_copyable_borrowed_carrier() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayViewLocals"),
-        53
+        54
     );
     assert_eq!(
         count_normalized_in_rust_sources(&source_root, "TypedArrayViewLocals::new("),
@@ -359,7 +359,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayWitnessUse"),
-        71
+        72
     );
     for forbidden in [
         "impl Clone for TypedArrayWitnessUse",

@@ -757,6 +757,7 @@ impl BuiltinFlags {
     const SYNCHRONOUS_USER_CODE: u16 = 1 << 6;
     const ALWAYS_THROWS: u16 = 1 << 7;
     const INDEXED_RECEIVER_MUTATION: u16 = 1 << 8;
+    const INTL_HOST: u16 = 1 << 9;
 
     const fn contains(self, flag: u16) -> bool {
         self.0 & flag != 0
@@ -864,6 +865,9 @@ macro_rules! catalog_flag_bit {
     };
     (RANDOM) => {
         BuiltinFlags::RANDOM
+    };
+    (INTL_HOST) => {
+        BuiltinFlags::INTL_HOST
     };
     (SYNCHRONOUS_USER_CODE) => {
         BuiltinFlags::SYNCHRONOUS_USER_CODE

@@ -1,16 +1,24 @@
-use lila_ir::{RegExpCompileErrorKind, RegExpProgram, REGEXP_OPCODE_UNICODE_PROPERTY};
+use lila_ir::{
+    RegExpCompileErrorKind, RegExpProgram, REGEXP_OPCODE_LITERAL_CODE_POINT,
+    REGEXP_OPCODE_UNICODE_PROPERTY,
+};
 
 fn contains(pattern: &str, flags: &str, character: u32) -> bool {
     let program = RegExpProgram::compile(pattern, flags)
         .unwrap_or_else(|error| panic!("/{pattern}/{flags}: {error}"));
     let instruction = program.instructions[0];
-    assert_eq!(instruction.opcode, REGEXP_OPCODE_UNICODE_PROPERTY);
-    let first = instruction.operand0 as usize;
-    let count = (instruction.operand1 >> 1) as usize;
-    program.ranges[first..first + count]
-        .iter()
-        .any(|&(start, end)| (start..=end).contains(&character))
-        ^ (instruction.operand1 & 1 != 0)
+    match instruction.opcode {
+        REGEXP_OPCODE_LITERAL_CODE_POINT => instruction.operand0 == u64::from(character),
+        REGEXP_OPCODE_UNICODE_PROPERTY => {
+            let first = instruction.operand0 as usize;
+            let count = (instruction.operand1 >> 1) as usize;
+            program.ranges[first..first + count]
+                .iter()
+                .any(|&(start, end)| (start..=end).contains(&character))
+                ^ (instruction.operand1 & 1 != 0)
+        }
+        opcode => panic!("unexpected class membership opcode {opcode} for /{pattern}/{flags}"),
+    }
 }
 
 #[test]

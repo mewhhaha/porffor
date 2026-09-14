@@ -2,6 +2,7 @@ use core::fmt;
 
 use icu_locale::LocaleCanonicalizer;
 
+mod keyword_aliases;
 mod language_domain;
 use language_domain::{ParsedLocale, ReservedLanguageAliasRules};
 
@@ -12,14 +13,11 @@ use crate::{
     IntlServiceSet, InvalidCanonicalLocaleId,
 };
 
-/// SHA-256 of the exactly pinned `icu_locale_data-2.0.0.crate` archive.
-///
-/// This identifies the host-embedded locale tables used by this provider. It
-/// is not a claim that those bytes are embedded in an emitted Wasm artifact.
-pub const EMBEDDED_LOCALE_DATA_SHA256: IntlDataDigest = IntlDataDigest::from_sha256([
-    0x4f, 0xde, 0xf0, 0xc1, 0x24, 0x74, 0x9d, 0x06, 0xa7, 0x43, 0xc6, 0x9e, 0x93, 0x83, 0x50, 0x81,
-    0x65, 0x54, 0xeb, 0x63, 0xac, 0x97, 0x91, 0x66, 0x59, 0x0e, 0x2b, 0x4e, 0xe4, 0x25, 0x27, 0x65,
-]);
+/// Composite SHA-256 of the pinned ICU locale archive, CLDR BCP47 source
+/// manifest and generated alias rows. The generator owns this exact recipe;
+/// these tables are embedded in the host, not in emitted Wasm artifacts.
+pub const EMBEDDED_LOCALE_DATA_SHA256: IntlDataDigest =
+    IntlDataDigest::from_sha256(keyword_aliases::PROVIDER_DATA_SHA256);
 
 /// Pure locale canonicalization backed by ICU4X's compiled CLDR 47 data.
 ///

@@ -36,6 +36,13 @@ same catalog identities in their own function realms.
 
 ## Provider domain and host-call contract
 
+The builtin catalog declares the Intl host dependency on each provider caller:
+`Intl.Locale` and `Intl.getCanonicalLocales`. Import planning reads the final
+compiled builtin set, including bodies promoted by the emission dependency
+fixpoint. Standalone Locale constructors, options and created-Realm Locale calls
+therefore receive `lila_host.intl_call` without depending on a source reference
+to another Intl method. Slot getters do not invoke the provider.
+
 Locale identifiers have no 255-byte syntactic limit. A pure zero-capacity
 provider call returns `RequiredCapacity(u32)`, encoded as `-2 - capacity`,
 before an exact-size allocation and a second writing call. No JavaScript
@@ -72,6 +79,8 @@ Existing core-options and neighboring authority tests remain required.
 cargo test -p lila-intl -- --test-threads=1
 cargo test -p lila-ir --test intl_locale_getters -- --test-threads=1
 cargo test -p lila-aot-wasm --test intl_canonical_locale_tag_invocation_structure --test intl_namespace_plan_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test intl_host_imports -- --test-threads=1
+cargo test -p lila-engine --test aot_intl_locale_host_import -- --test-threads=1
 cargo test -p lila-engine --test aot_intl_locale_options --test aot_intl_locale_constructor -- --test-threads=1
 ```
 
@@ -83,12 +92,30 @@ unchanged. Follow the repository batch verification ladder after integration.
 
 ## Remaining provider and service work
 
-The pinned ICU canonicalizer lacks BCP47 keyword-value alias tables. In
-particular, `islamicc` and `ethiopic-amete-alem` still require canonical calendar
-aliases; the exact `constructor-options-canonicalized.js` case remains open
-pending real provider data integration. This batch does not guess alias
-outputs or weaken that test. Locale maximize/minimize, locale information
-services, complete matching and broader Intl services remain open.
+The provider supplements ICU's locale aliases with the complete well-formed
+keyword-value aliases in CLDR47's 15 BCP47 XML files: 60 Unicode values and five
+transform values. This includes calendar aliases `islamicc` and
+`ethiopic-amete-alem`, key-specific Boolean aliases, collation strength,
+measurement-system and time-zone keyword aliases, plus transform mechanism and
+destination aliases. Time-zone keyword canonicalization does not bind the
+separate `CanonicalizeTimeZone` operation or add time-zone data services.
+
+Aliases match a complete value within its own key and extension. Unknown and
+compound values retain every original subtag, including embedded `true`.
+Only a whole Unicode value `true` becomes empty; transform values retain it.
+Pinned ICU parsing drops embedded `true`, so the provider reconstructs Unicode
+values from validated subtags and retains private transform-key records through
+serialization. ICU still owns the language/extension structure. The generator
+checks upstream hashes, conflicting/cyclic aliases and terminal replacements;
+CI verifies that the committed tables reproduce exactly. Provider identity
+covers the ICU archive, CLDR source manifest and generated alias rows.
+
+The alias batch adds four provider tests, six native Wasm-AOT regressions and
+seven generator failure controls. At staging handoff, generator checks pass;
+compilation and provider/native/Test262 execution remain pending. Locale
+maximize/minimize, locale information services, complete matching and broader
+Intl services remain open. See the [data provenance and regeneration
+contract](../../crates/lila-intl/data/cldr-47-bcp47/README.md).
 
 References: [ECMA-402 Locale construction](https://tc39.es/ecma402/#sec-intl.locale),
 [UTS35 canonicalization](https://unicode.org/reports/tr35/#Annex_C_LocaleId_Canonicalization),

@@ -1414,8 +1414,9 @@ fn emit_script_with_forced_builtins(
     let uses_wall_clock_millis = compiled_standard_builtins
         .iter()
         .any(|builtin| builtin.requires_wall_clock());
-    let uses_intl_host =
-        compiled_standard_builtins.contains(&StandardBuiltinId::IntlGetCanonicalLocales);
+    let uses_intl_host = compiled_standard_builtins
+        .iter()
+        .any(|builtin| builtin.requires_intl_host());
     let uses_random_f64 = compiled_standard_builtins
         .iter()
         .any(|builtin| builtin.requires_random());

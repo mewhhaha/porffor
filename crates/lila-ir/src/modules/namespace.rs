@@ -1396,16 +1396,26 @@ mod tests {
                 ("a", "export const value = 41;"),
                 (
                     "b",
-                    "import * as unreachable from './a.mjs'; print(unreachable.value);",
+                    "import './b.mjs'; import * as unreachable from './a.mjs'; print(unreachable.value);",
                 ),
                 ("c", "import * as ns from './a.mjs'; print(ns.value);"),
             ],
             vec![
                 (1, request_key("./a.mjs"), 0),
+                (1, request_key("./b.mjs"), 1),
                 (2, request_key("./a.mjs"), 0),
             ],
         );
+        // Units with no incoming request are embedder roots. A self-contained
+        // cycle gives this importer an incoming edge without making it reachable
+        // from the entry, so it must contribute no merged-scope alias.
         assert!(graph.materialization_mode(1).is_none());
+        for reachable in [0, 2] {
+            assert_eq!(
+                graph.materialization_mode(reachable),
+                Some(ModuleMaterializationModeIr::Eager),
+            );
+        }
         let prelude = namespace_prelude_source(&graph).expect("only reachable aliases materialize");
         let namespace = MergedName::minted(0, UnitCellRole::Namespace);
         assert!(prelude.contains(&format!("const ns = {};", namespace.as_str())));
