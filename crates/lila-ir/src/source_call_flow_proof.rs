@@ -332,9 +332,8 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             phase: _phase,
             referrer: _referrer,
         } => false,
-        ExprIr::ImportMeta { module: _module } | ExprIr::ModuleNamespace { module: _module } => {
-            false
-        }
+        ExprIr::ImportMeta { module: _module } => false,
+        ExprIr::ModuleNamespace { exports, .. } => expr_preserves_caller_flow(exports),
         ExprIr::ObjectLiteral(properties) => {
             properties.iter().all(object_property_preserves_caller_flow)
         }

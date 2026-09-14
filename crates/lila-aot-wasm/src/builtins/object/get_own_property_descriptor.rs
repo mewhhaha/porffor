@@ -84,6 +84,16 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(proxy_handled_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
+        self.emit_is_module_namespace_i32(target_payload_local, target_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_descriptor_object(
+            target_payload_local,
+            key_string_local,
+            TaggedLocals::new(self.result_local, self.result_tag_local),
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Ne);

@@ -34,7 +34,7 @@ fn tagged_templates_distinguish_literal_and_escaped_nuls_in_raw_strings() {
            return strings[0] === '\0' && strings[1] === '' && strings.raw[0] === raw;\n\
          }\n\
          var literal = tag`\0${'\0'}`;\n\
-         var escaped = tag`\\0${'\\0'}`;\n\
+         var escaped = tag`\\0${'\\\\0'}`;\n\
          literal && escaped && calls === 2;",
     );
 }

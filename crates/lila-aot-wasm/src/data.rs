@@ -547,8 +547,6 @@ impl StringPool {
         for value in [
             "",
             " ",
-            "get ",
-            "set ",
             "          ",
             "\n",
             ": ",
@@ -1376,6 +1374,9 @@ impl StringPool {
             "Symbol.search",
             "Symbol.split",
             "Symbol.toStringTag",
+            "Module",
+            "Deferred Module",
+            "then",
             "anonymous",
             "function anonymous(\n) {\n\n}",
             "GeneratorFunction",
@@ -1742,6 +1743,7 @@ impl StringPool {
             "Object.values requires object",
             "Object.assign called on null or undefined",
             "Object.entries called on null or undefined",
+            "Object.keys called on null or undefined",
             "Object.getOwnPropertyDescriptors called on null or undefined",
             "Object.values called on null or undefined",
             "String.prototype method requires a String receiver",
@@ -1759,6 +1761,8 @@ impl StringPool {
             "Array.prototype.push length exceeds safe integer",
             "Array.prototype.push length is not writable",
             "Cannot assign to read only property",
+            "Cannot assign to module namespace property",
+            "Cannot redefine module namespace property",
             "Cannot delete property",
             "Cannot add property to non-extensible object",
             "Array.prototype.push index write failed",
@@ -2066,8 +2070,10 @@ impl StringPool {
         ] {
             pool.intern_string(value);
         }
-        // Keep diagnostics after the fixed literal seed: inserting them into
+        // Keep additional literals after the fixed seed: inserting them into
         // its prefix changes every following packed string offset.
+        pool.intern_string("get ");
+        pool.intern_string("set ");
         pool.intern_string(UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE);
         // Unconditional, and it must stay unconditional: these are the messages
         // `emit_runtime_error_object` now reads out of the pool, and the paths
@@ -3686,10 +3692,13 @@ impl StringPool {
                     self.collect_expr(operand);
                 }
             }
-            // A namespace object and `import.meta` are allocated from static
-            // tables the module graph owns, not from expression operands.
-            ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {
+            ExprIr::ImportMeta { .. } => self.uses_heap = true,
+            ExprIr::ModuleNamespace { exports, .. } => {
                 self.uses_heap = true;
+                self.collect_expr(exports);
+                self.intern_string("Module");
+                self.intern_string("then");
+                self.intern_string("Symbol.toStringTag");
             }
             ExprIr::DynamicImport {
                 specifier, options, ..

@@ -182,6 +182,32 @@ function outer() {
   counter.update();
   return label + 1;
 }
+
+#[test]
+fn private_update_arrows_capture_the_lexical_receiver() {
+    let script = lower_private_updates(
+        "class Counter { #value = 0; closure() { return () => this.#value++; } }",
+    );
+    let arrow = script.functions.iter()
+        .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+        .expect("private update arrow");
+    assert!(arrow.captures_lexical_this);
+    assert!(arrow.captures_private_environment);
+}
+
+#[test]
+fn property_updates_capture_both_the_base_and_computed_key() {
+    let script = lower_private_updates(
+        "function make() { const base = { value: 1 }; const key = 'value'; return () => base[key]++; }",
+    );
+    let arrow = script.functions.iter()
+        .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+        .expect("computed property update arrow");
+    for name in ["base", "key"] {
+        assert!(arrow.captured_bindings.iter().any(|binding| binding.source_name == name),
+            "missing {name}: {:?}", arrow.captured_bindings);
+    }
+}
 "#,
     );
     let result = returned_expression(method(&script, "outer"));

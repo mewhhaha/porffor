@@ -1745,6 +1745,8 @@ fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
                     | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
                     | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
                     | REGEXP_OPCODE_DOT
+                    | REGEXP_OPCODE_ASSERT_START
+                    | REGEXP_OPCODE_ASSERT_END
             ),
             ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => {
                 lookbehind_body_supported(body)

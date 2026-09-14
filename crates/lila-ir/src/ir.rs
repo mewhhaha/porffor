@@ -2008,6 +2008,13 @@ impl ArrayAccumulationIr {
     }
 }
 
+/// Evaluation behavior of the same module namespace exotic representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleNamespaceModeIr {
+    Eager,
+    Deferred,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprIr {
     Undefined,
@@ -2047,9 +2054,13 @@ pub enum ExprIr {
     ImportMeta {
         module: ModuleUnitId,
     },
-    /// The module namespace exotic object of `module`, identity-cached.
+    /// A namespace's private closure table, produced only from trusted linker
+    /// metadata. Its first element is undefined (eager) or an evaluation closure
+    /// (deferred), followed by sorted export-name / live-reader pairs. The linker
+    /// binds the resulting object once to preserve namespace identity.
     ModuleNamespace {
-        module: ModuleUnitId,
+        mode: ModuleNamespaceModeIr,
+        exports: Box<TypedExpr>,
     },
     This,
     Arguments,
@@ -5181,7 +5192,8 @@ impl IrSummaryCounts {
                     self.visit_expr(operand);
                 }
             }
-            ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+            ExprIr::ImportMeta { .. } => {}
+            ExprIr::ModuleNamespace { exports, .. } => self.visit_expr(exports),
             ExprIr::DynamicImport {
                 specifier, options, ..
             } => {

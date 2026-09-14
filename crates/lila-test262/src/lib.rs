@@ -2443,14 +2443,7 @@ pub fn materialize_test(
             )
         })?;
         let typed_array_literal_plan = typed_array_literal_helper_plan(case);
-        let typed_array_literal_assert_can_be_omitted = typed_array_literal_plan.is_some()
-            && typed_array_literal_assert_omission_is_safe(case, preludes, assert_prelude);
-        let omit_assert_prelude = matches!(host_requirement, Test262HostRequirement::None)
-            && typed_array_literal_assert_can_be_omitted
-            && typed_array_literal_plan
-                .is_some_and(|plan| plan.assert_mode == TypedArrayLiteralAssertMode::Omit);
-        let assert_needs_test262_error =
-            !omit_assert_prelude && assert_prelude.contents.contains("Test262Error");
+        let assert_needs_test262_error = assert_prelude.contents.contains("Test262Error");
         let needs_test262_error_preamble =
             assert_needs_test262_error || case_needs_test262_error_prelude(case);
 
@@ -2490,10 +2483,8 @@ pub fn materialize_test(
         if let Some(host) = &wasm_aot_host_source {
             source.push_str(host);
         }
-        if !omit_assert_prelude {
-            source.push_str(&assert_prelude.contents);
-            used_preludes.push((assert_prelude.name.clone(), assert_prelude.origin));
-        }
+        source.push_str(&assert_prelude.contents);
+        used_preludes.push((assert_prelude.name.clone(), assert_prelude.origin));
         if let Some(prelude) = required_sta_prelude {
             source.push_str(&prelude.contents);
             used_preludes.push((prelude.name.clone(), prelude.origin));
@@ -2532,15 +2523,6 @@ pub fn materialize_test(
                     wasm_aot_split_test_typed_array_dispatcher(case, prelude)
                 {
                     source.push_str(&split_prelude);
-                    used_preludes.push((prelude.name.clone(), prelude.origin));
-                    continue;
-                }
-            }
-            if include == "propertyHelper.js" {
-                if let Some(compact_prelude) =
-                    wasm_aot_compact_typed_array_property_prelude(case, prelude)
-                {
-                    source.push_str(compact_prelude);
                     used_preludes.push((prelude.name.clone(), prelude.origin));
                     continue;
                 }
@@ -2615,11 +2597,14 @@ const WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE: &str =
 
 const TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0x09d1_0132_16fd_f211;
 
+#[cfg(test)]
 const PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x59f3_3074_36d5_4a9a;
 
-const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0xe031_f51e_e105_1baa;
+#[cfg(test)]
+const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
 
-const LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x0e4b_e9a3_8035_4fea;
+#[cfg(test)]
+const LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A: u64 = PROPERTY_HELPER_PRELUDE_FNV1A;
 
 const COMPARE_ARRAY_PRELUDE_FNV1A: u64 = 0x5bb6_1296_deec_6e91;
 
@@ -2627,17 +2612,11 @@ const DETACH_ARRAY_BUFFER_PRELUDE_FNV1A: u64 = 0xb288_4dc7_609b_1d2a;
 
 const IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0x5815_595f_f0a9_9c34;
 
-const LOCAL_IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0xc91f_a7a5_609a_e8f8;
+const LOCAL_IS_CONSTRUCTOR_PRELUDE_FNV1A: u64 = 0x8380_3414_fa56_4722;
 
 const RESIZABLE_ARRAY_BUFFER_UTILS_PRELUDE_FNV1A: u64 = 0x6466_6602_9ee8_9d5d;
 
 const NANS_PRELUDE_FNV1A: u64 = 0x0d04_c822_7a03_ff80;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TypedArrayLiteralAssertMode {
-    Full,
-    Omit,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TypedArrayLiteralFactoryMode {
@@ -2648,9 +2627,7 @@ enum TypedArrayLiteralFactoryMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TypedArrayLiteralHelperPlan {
-    assert_mode: TypedArrayLiteralAssertMode,
     factory_mode: TypedArrayLiteralFactoryMode,
-    uses_property_helper: bool,
 }
 
 // These are FNV-1a fingerprints of path, ordered include names, and original
@@ -3232,14 +3209,6 @@ fn typed_array_literal_helper_plan(case: &TestCase) -> Option<TypedArrayLiteralH
             "this-is-not-typedarray-instance.js",
         ]
         .contains(&file);
-    let uses_property_helper =
-        !file.contains('/') && ["length.js", "name.js", "prop-desc.js"].contains(&file);
-    let source = case.original_source.as_ref();
-    let assert_mode = if uses_property_helper && !source.contains("assert.") {
-        TypedArrayLiteralAssertMode::Omit
-    } else {
-        TypedArrayLiteralAssertMode::Full
-    };
     let factory_mode = if !case
         .includes
         .iter()
@@ -3252,11 +3221,7 @@ fn typed_array_literal_helper_plan(case: &TestCase) -> Option<TypedArrayLiteralH
         TypedArrayLiteralFactoryMode::FullVendored
     };
 
-    Some(TypedArrayLiteralHelperPlan {
-        assert_mode,
-        factory_mode,
-        uses_property_helper,
-    })
+    Some(TypedArrayLiteralHelperPlan { factory_mode })
 }
 
 fn prelude_matches_fingerprint(
@@ -3276,19 +3241,6 @@ fn typed_array_literal_include_matches_contract(include: &str, prelude: &Prelude
             PreludeOrigin::VendoredHarness,
             TEST_TYPED_ARRAY_PRELUDE_FNV1A,
         ),
-        "propertyHelper.js" => {
-            prelude_matches_fingerprint(
-                prelude,
-                include,
-                PreludeOrigin::VendoredHarness,
-                PROPERTY_HELPER_PRELUDE_FNV1A,
-            ) || prelude_matches_fingerprint(
-                prelude,
-                include,
-                PreludeOrigin::LocalMerged,
-                LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A,
-            )
-        }
         "compareArray.js" => prelude_matches_fingerprint(
             prelude,
             include,
@@ -3330,26 +3282,6 @@ fn typed_array_literal_include_matches_contract(include: &str, prelude: &Prelude
     }
 }
 
-fn typed_array_literal_assert_omission_is_safe(
-    case: &TestCase,
-    preludes: &PreludeStore,
-    assert_prelude: &PreludeEntry,
-) -> bool {
-    if !prelude_matches_fingerprint(
-        assert_prelude,
-        "assert.js",
-        PreludeOrigin::LocalMerged,
-        LOCAL_ASSERT_PRELUDE_FNV1A,
-    ) {
-        return false;
-    }
-    case.includes.iter().all(|include| {
-        preludes
-            .get(include)
-            .is_some_and(|prelude| typed_array_literal_include_matches_contract(include, prelude))
-    })
-}
-
 fn resizable_array_buffer_helper_can_use_static_subclasses(
     case: &TestCase,
     prelude: &PreludeEntry,
@@ -3362,69 +3294,6 @@ fn resizable_array_buffer_helper_can_use_static_subclasses(
     ) && RESIZABLE_ARRAY_BUFFER_CASE_CONTRACTS_FNV1A
         .binary_search(&test_case_contract_fingerprint(case))
         .is_ok()
-}
-
-const WASM_AOT_VERIFY_PROPERTY_PRELUDE: &str = r#"
-function verifyProperty(object, name, expectedDescriptor) {
-  var actualDescriptor = Object.getOwnPropertyDescriptor(object, name);
-  if (actualDescriptor === undefined) throw "missing property descriptor";
-  if ("value" in expectedDescriptor) {
-    if (actualDescriptor.value !== expectedDescriptor.value) throw "unexpected property value";
-    if (object[name] !== expectedDescriptor.value) throw "unexpected property access value";
-  }
-  if ("writable" in expectedDescriptor) {
-    if (actualDescriptor.writable !== expectedDescriptor.writable) throw "unexpected writability";
-    var originalValue = object[name];
-    var writeSucceeded = false;
-    try {
-      object[name] = "__lila_writable_check__";
-      writeSucceeded = object[name] !== originalValue;
-    } catch (writeError) {
-      if (!(writeError instanceof TypeError)) throw writeError;
-      writeSucceeded = false;
-    }
-    if (writeSucceeded) object[name] = originalValue;
-    if (writeSucceeded !== expectedDescriptor.writable) {
-      throw "writability does not match assignment";
-    }
-  }
-  if ("enumerable" in expectedDescriptor) {
-    if (actualDescriptor.enumerable !== expectedDescriptor.enumerable) {
-      throw "unexpected enumerability";
-    }
-    var observedEnumerable = false;
-    for (var key in object) {
-      if (key === name) observedEnumerable = true;
-    }
-    if (observedEnumerable !== expectedDescriptor.enumerable) {
-      throw "enumerability does not match iteration";
-    }
-  }
-  if ("configurable" in expectedDescriptor) {
-    if (actualDescriptor.configurable !== expectedDescriptor.configurable) {
-      throw "unexpected configurability";
-    }
-    delete object[name];
-    var deleted = Object.getOwnPropertyDescriptor(object, name) === undefined;
-    if (deleted !== expectedDescriptor.configurable) {
-      throw "configurability does not match deletion";
-    }
-  }
-  return true;
-}
-"#;
-
-fn wasm_aot_compact_typed_array_property_prelude(
-    case: &TestCase,
-    prelude: &PreludeEntry,
-) -> Option<&'static str> {
-    let plan = typed_array_literal_helper_plan(case)?;
-    if !plan.uses_property_helper
-        || !typed_array_literal_include_matches_contract("propertyHelper.js", prelude)
-    {
-        return None;
-    }
-    Some(WASM_AOT_VERIFY_PROPERTY_PRELUDE)
 }
 
 fn wasm_aot_intrinsic_test_typed_array_prelude(
@@ -15092,6 +14961,57 @@ mod tests {
     const SPEC_EXEC_HARNESS: &str = include_str!("../assets/local-harness/spec-exec.js");
     const WASM_AOT_HARNESS: &str = include_str!("../assets/local-harness/wasm-aot.js");
 
+    fn async_done_preludes() -> PreludeStore {
+        let mut store = fixture_preludes();
+        store.insert(
+            "doneprintHandle.js".to_string(),
+            r#"
+function $DONE(error) {
+  if (error) {
+    print('Test262:AsyncTestFailure:Test262Error: ' + String(error));
+  } else {
+    print('Test262:AsyncTestComplete');
+  }
+}
+"#
+            .to_string(),
+            PreludeOrigin::VendoredHarness,
+        );
+        store
+    }
+
+    fn unique_temp_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "lila-test262-{label}-{}-{nanos}",
+            std::process::id()
+        ))
+    }
+
+    fn copy_dir_all(from: &Path, to: &Path) {
+        fs::create_dir_all(to).expect("target dir should create");
+        for entry in fs::read_dir(from)
+            .expect("source dir should read")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("source entries should iterate")
+        {
+            let source = entry.path();
+            let target = to.join(entry.file_name());
+            if entry
+                .file_type()
+                .expect("entry file type should read")
+                .is_dir()
+            {
+                copy_dir_all(&source, &target);
+            } else {
+                fs::copy(&source, &target).expect("file copy should succeed");
+            }
+        }
+    }
+
     #[test]
     fn aggregate_progress_derives_completion_from_validated_node_counts() {
         let expected_node_ids = ["built-ins", "language"]
@@ -15591,98 +15511,6 @@ mod tests {
         let mut cases = Vec::new();
         collect(&test_root, &test_root, &mut cases);
         cases
-    }
-
-    fn javascript_function<'a>(source: &'a str, signature: &str) -> &'a str {
-        let start = source
-            .find(signature)
-            .unwrap_or_else(|| panic!("missing JavaScript function {signature}"));
-        let bytes = source.as_bytes();
-        let mut idx = start
-            + source[start..]
-                .find('{')
-                .expect("JavaScript function should have a body");
-        let mut depth = 0;
-        while idx < bytes.len() {
-            match bytes[idx] {
-                b'\'' | b'"' => {
-                    let quote = bytes[idx];
-                    idx += 1;
-                    while idx < bytes.len() {
-                        if bytes[idx] == b'\\' {
-                            idx = (idx + 2).min(bytes.len());
-                        } else if bytes[idx] == quote {
-                            idx += 1;
-                            break;
-                        } else {
-                            idx += 1;
-                        }
-                    }
-                    continue;
-                }
-                b'{' => depth += 1,
-                b'}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return &source[start..=idx];
-                    }
-                }
-                _ => {}
-            }
-            idx += 1;
-        }
-        panic!("unterminated JavaScript function {signature}");
-    }
-
-    fn async_done_preludes() -> PreludeStore {
-        let mut store = fixture_preludes();
-        store.insert(
-            "doneprintHandle.js".to_string(),
-            r#"
-function $DONE(error) {
-  if (error) {
-    print('Test262:AsyncTestFailure:Test262Error: ' + String(error));
-  } else {
-    print('Test262:AsyncTestComplete');
-  }
-}
-"#
-            .to_string(),
-            PreludeOrigin::VendoredHarness,
-        );
-        store
-    }
-
-    fn unique_temp_path(label: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be after unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "lila-test262-{label}-{}-{nanos}",
-            std::process::id()
-        ))
-    }
-
-    fn copy_dir_all(from: &Path, to: &Path) {
-        fs::create_dir_all(to).expect("target dir should create");
-        for entry in fs::read_dir(from)
-            .expect("source dir should read")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("source entries should iterate")
-        {
-            let source = entry.path();
-            let target = to.join(entry.file_name());
-            if entry
-                .file_type()
-                .expect("entry file type should read")
-                .is_dir()
-            {
-                copy_dir_all(&source, &target);
-            } else {
-                fs::copy(&source, &target).expect("file copy should succeed");
-            }
-        }
     }
 
     #[test]
@@ -16371,8 +16199,8 @@ function $DONE(error) {
         assert_eq!(WASM_AOT_HOST_PRELUDE.len(), 2_247);
         assert_eq!(fnv1a(WASM_AOT_HOST_PRELUDE), 0x09be_b318_81da_e05a);
         assert_eq!(sta, sta_preamble);
-        assert_eq!(sta.len(), 210);
-        assert_eq!(fnv1a(&sta), 0x4b49_70aa_bc56_726d);
+        assert_eq!(sta.len(), 720);
+        assert_eq!(fnv1a(&sta), 0xbda4_7f3d_1dd0_dad8);
         assert!(!WASM_AOT_HOST_PRELUDE.contains("///"));
         assert!(!WASM_AOT_HARNESS.contains("var $262 ="));
         assert!(!WASM_AOT_HARNESS.contains("__lilaAgentStart"));
@@ -16916,59 +16744,32 @@ function $DONE(error) {
     }
 
     #[test]
-    fn pinned_local_assertion_materialization_is_full_or_explicitly_omitted() {
+    fn pinned_local_assertion_materialization_preserves_the_complete_prelude() {
         let test_root = repo_root().join("test262/vendor/test262/test");
         let mut cases = Vec::new();
         scan_tests(&test_root, &test_root, None, false, &mut cases)
             .expect("the pinned Test262 suite should scan");
         let preludes = real_wasm_aot_preludes();
-        let full_assert = preludes
-            .get("assert.js")
-            .expect("the Wasm-AOT profile should contain assert.js");
-        let mut omitted_paths = BTreeSet::new();
-        let mut omitted_executions = 0usize;
-
+        let full_assert = preludes.get("assert.js").expect("assertion prelude");
         for case in &cases {
-            let materialized = materialize_test(case, &preludes)
-                .unwrap_or_else(|error| panic!("{}: {error}", case.execution_id()));
-            let uses_local_assert = materialized
-                .used_preludes
-                .iter()
-                .any(|(name, origin)| name == "assert.js" && *origin == PreludeOrigin::LocalMerged);
-            if uses_local_assert {
-                assert!(
-                    materialized.source.contains(&full_assert.contents),
-                    "{} must materialize the complete LocalMerged assert.js body",
-                    case.execution_id()
-                );
-                continue;
-            }
             if case.execution_mode().is_raw() || rewrite_wasm_aot_self_contained(case).is_some() {
                 continue;
             }
-
-            let plan = typed_array_literal_helper_plan(case).unwrap_or_else(|| {
-                panic!(
-                    "{} omits assert.js without a typed-array literal contract",
-                    case.execution_id()
-                )
-            });
-            assert_eq!(
-                plan.assert_mode,
-                TypedArrayLiteralAssertMode::Omit,
-                "{}",
+            let materialized = materialize_test(case, &preludes)
+                .unwrap_or_else(|error| panic!("{}: {error}", case.execution_id()));
+            assert!(
+                materialized.used_preludes.iter().any(|(name, origin)| {
+                    name == "assert.js" && *origin == PreludeOrigin::LocalMerged
+                }),
+                "{} must retain assert.js",
                 case.execution_id()
             );
             assert!(
-                typed_array_literal_assert_omission_is_safe(case, &preludes, full_assert),
-                "{}",
+                materialized.source.contains(&full_assert.contents),
+                "{} must retain the complete assertion source",
                 case.execution_id()
             );
-            omitted_paths.insert(case.path().to_string());
-            omitted_executions += 1;
         }
-
-        assert_eq!((omitted_paths.len(), omitted_executions), (23, 46));
     }
 
     #[cfg(feature = "spec-exec-oracle")]
@@ -18073,6 +17874,9 @@ print('Test262:AsyncTestComplete');
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let local_harness_section = |name: &str| {
             let contents = WASM_AOT_HARNESS
                 .split("///")
@@ -18189,6 +17993,7 @@ print('Test262:AsyncTestComplete');
                     local_materialized.used_preludes,
                     vec![
                         ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                         ("propertyHelper.js".to_string(), PreludeOrigin::LocalMerged),
                     ],
                     "{}",
@@ -18197,8 +18002,8 @@ print('Test262:AsyncTestComplete');
                 assert_eq!(
                     local_materialized.source.as_bytes(),
                     format!(
-                        "{strict_prefix}{}{}{original_source}",
-                        local_assert.contents, local_property.contents
+                        "{strict_prefix}{}{}{}{original_source}",
+                        local_assert.contents, local_sta.contents, local_property.contents
                     )
                     .as_bytes(),
                     "{}",
@@ -18254,6 +18059,9 @@ print('Test262:AsyncTestComplete');
     #[test]
     fn retired_t15_flat_map_staging_materializes_all_pinned_sources() {
         let preludes = real_wasm_aot_preludes();
+        let local_sta = preludes
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let test_root = repo_root().join("test262/vendor/test262/test");
         let assert_prelude = preludes
             .get("assert.js")
@@ -18286,12 +18094,18 @@ print('Test262:AsyncTestComplete');
 
             assert_eq!(
                 materialized.used_preludes,
-                vec![("assert.js".to_string(), PreludeOrigin::LocalMerged)],
+                vec![
+                    ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged)
+                ],
                 "{path}",
             );
             assert_eq!(
                 materialized.source,
-                format!("{}{original_source}", assert_prelude.contents),
+                format!(
+                    "{}{}{original_source}",
+                    assert_prelude.contents, local_sta.contents
+                ),
                 "{path}",
             );
         }
@@ -18453,6 +18267,9 @@ print('Test262:AsyncTestComplete');
                     expected_local_source.push_str(&active_host);
                 }
                 expected_local_source.push_str(&local_assert.contents);
+                if !requires_active_host {
+                    expected_local_source.push_str(&local_sta.contents);
+                }
                 let expected_local_preludes = if requires_active_host {
                     expected_local_source.push_str(&local_sta.contents);
                     vec![
@@ -18463,13 +18280,17 @@ print('Test262:AsyncTestComplete');
                     expected_local_source.push_str(&local_compare_array.contents);
                     vec![
                         ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                         (
                             "compareArray.js".to_string(),
                             PreludeOrigin::VendoredHarness,
                         ),
                     ]
                 } else {
-                    vec![("assert.js".to_string(), PreludeOrigin::LocalMerged)]
+                    vec![
+                        ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
+                    ]
                 };
                 expected_local_source.push_str(&original_source);
                 assert_eq!(
@@ -18703,40 +18524,34 @@ print('Test262:AsyncTestComplete');
     }
 
     #[test]
-    fn wasm_aot_compare_array_harness_shares_one_comparison_loop() {
+    fn wasm_aot_assertion_and_error_sections_are_identical_to_pinned_upstream() {
         let preludes = wasm_aot_host_preludes();
-        let assert_prelude = preludes
-            .get("assert.js")
-            .expect("wasm-aot assertion prelude should exist");
-        let source = assert_prelude.contents.as_str();
-
-        let comparison = javascript_function(source, "function __lilaCompareArrayMismatchIndex(");
-        assert!(comparison.contains("while (index < actual.length)"));
-        assert!(comparison.contains("__lilaAssertIsSameValue(actual[index], expected[index])"));
-
-        let assertion = javascript_function(source, "function __lilaAssertCompareArray(");
-        assert!(assertion.contains("__lilaCompareArrayMismatchIndex(actual, expected)"));
-        assert!(!assertion.contains("while ("));
-
-        let predicate = javascript_function(source, "function compareArray(");
-        assert!(predicate.contains("__lilaCompareArrayMismatchIndex(actual, expected) === -1"));
-        assert!(!predicate.contains("while ("));
+        let harness = repo_root().join("test262/vendor/test262/harness");
+        for (name, upstream_name) in [
+            ("assert.js", "assert.js"),
+            ("sta.js", "sta.js"),
+            ("sta-preamble.js", "sta.js"),
+        ] {
+            let upstream = fs::read_to_string(harness.join(upstream_name)).expect("pinned harness");
+            let local = preludes.get(name).expect("embedded named section");
+            assert_eq!(local.contents, format!("{upstream}\n"), "{name}");
+        }
     }
 
     #[test]
-    fn wasm_aot_property_harness_uses_same_value_for_nan_and_signed_zero() {
-        let same_value = javascript_function(WASM_AOT_HARNESS, "function __lilaAssertIsSameValue(");
-        assert!(same_value.contains("a !== 0 || 1 / a === 1 / b"));
-        assert!(same_value.contains("a !== a && b !== b"));
-        assert!(WASM_AOT_HARNESS.contains("__lilaAssertIsSameValue(actual, expected)"));
-        assert!(
-            WASM_AOT_HARNESS.contains("__lilaAssertIsSameValue(actual[index], expected[index])")
+    fn wasm_aot_property_section_is_identical_to_pinned_upstream() {
+        let preludes = wasm_aot_host_preludes();
+        let upstream = fs::read_to_string(
+            repo_root().join("test262/vendor/test262/harness/propertyHelper.js"),
+        )
+        .expect("pinned property helper");
+        assert_eq!(
+            preludes
+                .get("propertyHelper.js")
+                .expect("property helper")
+                .contents,
+            format!("{upstream}\n")
         );
-
-        let verify_property = javascript_function(WASM_AOT_HARNESS, "function verifyProperty(");
-        assert!(verify_property.contains("__lilaAssertIsSameValue(originalDesc.value, desc.value)"));
-        assert!(verify_property.contains("__lilaAssertIsSameValue(obj[name], desc.value)"));
-        assert!(!verify_property.contains("originalDesc.value !== desc.value"));
     }
 
     #[test]
@@ -18830,7 +18645,7 @@ print('Test262:AsyncTestComplete');
             TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A
         );
 
-        let mut assert_counts = [0usize; 2];
+        let mut assert_count = 0usize;
         let mut factory_counts = [0usize; 3];
         let mut property_helper_count = 0;
         let mut deprecated_compare_array_count = 0;
@@ -18838,16 +18653,14 @@ print('Test262:AsyncTestComplete');
         for case in &cases {
             let plan = typed_array_literal_helper_plan(case)
                 .unwrap_or_else(|| panic!("missing exact helper contract for {}", case.path));
-            match plan.assert_mode {
-                TypedArrayLiteralAssertMode::Full => assert_counts[0] += 1,
-                TypedArrayLiteralAssertMode::Omit => assert_counts[1] += 1,
-            }
+            assert_count += 1;
+            let uses_property_helper = case.includes.iter().any(|name| name == "propertyHelper.js");
             match plan.factory_mode {
                 TypedArrayLiteralFactoryMode::None => factory_counts[0] += 1,
                 TypedArrayLiteralFactoryMode::Intrinsic => factory_counts[1] += 1,
                 TypedArrayLiteralFactoryMode::FullVendored => factory_counts[2] += 1,
             }
-            property_helper_count += usize::from(plan.uses_property_helper);
+            property_helper_count += usize::from(uses_property_helper);
 
             let materialized =
                 materialize_test(case, &store).expect("vendored case should materialize");
@@ -18863,46 +18676,27 @@ print('Test262:AsyncTestComplete');
                 case.path
             );
 
-            match plan.assert_mode {
-                TypedArrayLiteralAssertMode::Full => assert!(
-                    materialized
-                        .source
-                        .contains("function __lilaAssertUnsupported"),
-                    "{} should retain the full assertion prelude",
-                    case.path
-                ),
-                TypedArrayLiteralAssertMode::Omit => {
-                    assert!(
-                        !materialized
-                            .used_preludes
-                            .iter()
-                            .any(|(name, _)| name == "assert.js"),
-                        "{} should omit its unused assertion prelude",
-                        case.path
-                    );
-                    assert!(
-                        !materialized
-                            .source
-                            .contains("function __lilaAssertToString"),
-                        "{} should not materialize assertion code",
-                        case.path
-                    );
-                }
-            }
-
-            if plan.uses_property_helper {
+            assert!(
+                materialized
+                    .source
+                    .contains(&store.get("assert.js").unwrap().contents),
+                "{} must retain the full assertion prelude",
+                case.path
+            );
+            assert!(
+                materialized
+                    .used_preludes
+                    .iter()
+                    .any(|(name, _)| name == "assert.js"),
+                "{} must record assert.js",
+                case.path
+            );
+            if uses_property_helper {
                 assert!(
                     materialized
                         .source
-                        .contains("function verifyProperty(object, name, expectedDescriptor)"),
-                    "{} should use the behaviorally strong property verifier",
-                    case.path
-                );
-                assert!(
-                    !materialized
-                        .source
-                        .contains("function verifyProperty(obj, name, desc)"),
-                    "{} should not use the narrowed local verifier",
+                        .contains(&store.get("propertyHelper.js").unwrap().contents),
+                    "{} must retain every upstream property check",
                     case.path
                 );
             }
@@ -19027,11 +18821,11 @@ print('Test262:AsyncTestComplete');
             }
         }
 
-        assert_eq!(assert_counts, [296, 23]);
+        assert_eq!(assert_count, 319);
         assert_eq!(factory_counts, [29, 72, 218]);
         assert_eq!(property_helper_count, 27);
         assert_eq!(deprecated_compare_array_count, 67);
-        assert_eq!(representative_source_bytes, (3_099, 19_629));
+        assert_eq!(representative_source_bytes, (18_595, 22_144));
     }
 
     #[test]
@@ -19062,35 +18856,31 @@ print('Test262:AsyncTestComplete');
     }
 
     #[test]
-    fn compact_property_probe_rethrows_a_non_type_error() {
-        let mut case = synthetic_case("harness/property-helper-rethrows.js");
-        case.original_source = Arc::from(format!(
-            r#"{WASM_AOT_VERIFY_PROPERTY_PRELUDE}
+    fn pinned_property_probe_reports_a_non_type_error_as_test262_error() {
+        let mut case = synthetic_case("harness/property-helper-error.js");
+        case.includes.push("propertyHelper.js".to_string());
+        case.original_source = Arc::from(
+            r#"
 var setterError = new RangeError("setter failed");
-var target = {{ value: 1 }};
-var object = new Proxy(target, {{
-  set: function() {{ throw setterError; }}
-}});
+var target = { value: 1 };
+var object = new Proxy(target, { set: function() { throw setterError; } });
 var observedError;
-try {{
-  verifyProperty(object, "value", {{ writable: true }});
-}} catch (error) {{
-  observedError = error;
-}}
-if (observedError !== setterError) throw new Error("setter error was not rethrown");
-"#
-        ));
-
+try { verifyProperty(object, "value", { writable: true }); }
+catch (error) { observedError = error; }
+if (!(observedError instanceof Test262Error)) throw new Error("wrong error constructor");
+if (observedError.message !== "Expected TypeError, got RangeError: setter failed")
+  throw new Error("wrong property probe diagnostic");
+"#,
+        );
         let result = run_one_case(
             &case,
-            &fixture_preludes(),
+            &real_wasm_aot_preludes(),
             60_000,
             ExecutionBackend::WasmAot,
         );
-
         assert!(
             matches!(result.status, TestStatus::Passed),
-            "non-TypeError should escape the compact property probe: {:?}",
+            "{:?}",
             result.status
         );
     }
@@ -19137,10 +18927,10 @@ if (observedError !== setterError) throw new Error("setter error was not rethrow
             .expect("changed property helper should materialize safely");
         assert!(materialized
             .source
-            .contains("function verifyProperty(obj, name, desc)"));
+            .contains("function verifyProperty(obj, name, desc, options)"));
         assert!(materialized
             .source
-            .contains("function __lilaAssertUnsupported"));
+            .contains("assert._formatIdentityFreeValue = function"));
         assert!(!materialized
             .source
             .contains("function verifyProperty(object, name, expectedDescriptor)"));
@@ -19170,7 +18960,7 @@ if (observedError !== setterError) throw new Error("setter error was not rethrow
             .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
         assert!(materialized
             .source
-            .contains("function __lilaAssertUnsupported"));
+            .contains("assert._formatIdentityFreeValue = function"));
 
         let mut changed_detach_store = store.clone();
         let mut changed_detach = changed_detach_store
@@ -19188,7 +18978,7 @@ if (observedError !== setterError) throw new Error("setter error was not rethrow
         assert!(materialized.source.contains("// changed"));
         assert!(materialized
             .source
-            .contains("function __lilaAssertUnsupported"));
+            .contains("assert._formatIdentityFreeValue = function"));
 
         let mut changed_assert_store = store.clone();
         let mut changed_assert = changed_assert_store
@@ -19234,7 +19024,7 @@ if (observedError !== setterError) throw new Error("setter error was not rethrow
             .contains("Deprecated now that compareArray is defined in assert.js."));
         assert!(materialized
             .source
-            .contains("function __lilaAssertUnsupported"));
+            .contains("assert._formatIdentityFreeValue = function"));
 
         let resizable_case = cases
             .iter()
@@ -19319,6 +19109,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let test_root = repo_root.join("test262/vendor/test262/test");
         let harness_root = repo_root.join("test262/vendor/test262/harness");
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let local_harness_section = |name: &str| {
             let contents = WASM_AOT_HARNESS
                 .split("///")
@@ -19677,9 +19470,14 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
                         panic!("local {} should materialize: {error}", case.execution_id())
                     });
-                let mut expected_local_preludes =
-                    vec![("assert.js".to_string(), PreludeOrigin::LocalMerged)];
-                let mut expected_local_source = format!("{strict_prefix}{}", local_assert.contents);
+                let mut expected_local_preludes = vec![
+                    ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
+                ];
+                let mut expected_local_source = format!(
+                    "{strict_prefix}{}{}",
+                    local_assert.contents, local_sta.contents
+                );
                 if uses_compare_array {
                     expected_local_preludes.push((
                         "compareArray.js".to_string(),
@@ -19980,13 +19778,13 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             },
         ];
         const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const LOCAL_ASSERT_BYTES: usize = 2_590;
-        const LOCAL_STA_BYTES: usize = 210;
+        const LOCAL_ASSERT_BYTES: usize = 4_595;
+        const LOCAL_STA_BYTES: usize = 720;
         const VENDORED_ASSERT_BYTES: usize = 4_595;
         const VENDORED_STA_BYTES: usize = 720;
-        const LOCAL_PROPERTY_HELPER_BYTES: usize = 4_870;
+        const LOCAL_PROPERTY_HELPER_BYTES: usize = 12_073;
         const VENDORED_PROPERTY_HELPER_BYTES: usize = 12_073;
-        const LOCAL_IS_CONSTRUCTOR_BYTES: usize = 42;
+        const LOCAL_IS_CONSTRUCTOR_BYTES: usize = 41;
         const VENDORED_IS_CONSTRUCTOR_BYTES: usize = 545;
         const STATIC_RESIZABLE_ARRAY_BUFFER_BYTES: usize = 3_682;
         const STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A: u64 = 0xa692_1818_39bc_0bb1;
@@ -20070,8 +19868,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
         for (name, expected_bytes, expected_fingerprint) in [
             ("assert.js", LOCAL_ASSERT_BYTES, LOCAL_ASSERT_PRELUDE_FNV1A),
-            ("sta.js", LOCAL_STA_BYTES, 0x4b49_70aa_bc56_726d),
-            ("sta-preamble.js", LOCAL_STA_BYTES, 0x4b49_70aa_bc56_726d),
+            ("sta.js", LOCAL_STA_BYTES, 0xbda4_7f3d_1dd0_dad8),
+            ("sta-preamble.js", LOCAL_STA_BYTES, 0xbda4_7f3d_1dd0_dad8),
             (
                 "propertyHelper.js",
                 LOCAL_PROPERTY_HELPER_BYTES,
@@ -20395,8 +20193,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     property_helper_execution_count += usize::from(uses_property_helper);
                     is_constructor_execution_count += usize::from(uses_is_constructor);
                     host_execution_count += usize::from(requires_host);
-                    local_sta_preamble_execution_count +=
-                        usize::from(needs_test262_error && !requires_host);
+                    local_sta_preamble_execution_count += usize::from(!requires_host);
                     static_resizable_execution_count += usize::from(uses_static_resizable_helper);
                     resizable_admission_execution_count += usize::from(has_resizable_admission);
 
@@ -20419,15 +20216,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             "{store_name} {}",
                             case.execution_id()
                         );
-                        let property_helper = store.get("propertyHelper.js").unwrap_or_else(|| {
-                            panic!("{store_name} store should contain propertyHelper.js")
-                        });
-                        assert_eq!(
-                            wasm_aot_compact_typed_array_property_prelude(case, property_helper),
-                            None,
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
+
                         let resizable_helper = store
                             .get("resizableArrayBufferUtils.js")
                             .unwrap_or_else(|| {
@@ -20490,12 +20279,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             Some(store.get("sta.js").unwrap_or_else(|| {
                                 panic!("{store_name} store should contain sta.js")
                             }))
-                        } else if needs_test262_error {
+                        } else {
                             Some(store.get("sta-preamble.js").unwrap_or_else(|| {
                                 panic!("local store should contain sta-preamble.js")
                             }))
-                        } else {
-                            None
                         };
                         if let Some(sta_prelude) = sta_prelude {
                             expected_source.push_str(&sta_prelude.contents);
@@ -20669,7 +20456,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(property_helper_execution_count, 18);
         assert_eq!(is_constructor_execution_count, 6);
         assert_eq!(host_execution_count, 36);
-        assert_eq!(local_sta_preamble_execution_count, 38);
+        assert_eq!(local_sta_preamble_execution_count, 224);
         assert_eq!(static_resizable_execution_count, 22);
         assert_eq!(resizable_admission_execution_count, 44);
         assert_eq!(
@@ -20685,6 +20472,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     #[test]
     fn typed_array_species_cases_preserve_pinned_sources_and_full_helpers() {
         let store = real_wasm_aot_preludes();
+        let local_sta = store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let repo_root = repo_root();
         let local_harness_section = |name: &str| {
             let contents = WASM_AOT_HARNESS
@@ -20752,6 +20542,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 (
                     vec![
                         ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                         ("propertyHelper.js".to_string(), PreludeOrigin::LocalMerged),
                         (
                             "testTypedArray.js".to_string(),
@@ -20759,8 +20550,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         ),
                     ],
                     format!(
-                        "{}{}{}{}",
+                        "{}{}{}{}{}",
                         assert_helper.contents,
+                        local_sta.contents,
                         property_helper.contents,
                         test_typed_array.contents,
                         case.original_source
@@ -20770,14 +20562,18 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 (
                     vec![
                         ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                         (
                             "testTypedArray.js".to_string(),
                             PreludeOrigin::VendoredHarness,
                         ),
                     ],
                     format!(
-                        "{}{}{}",
-                        assert_helper.contents, test_typed_array.contents, case.original_source
+                        "{}{}{}{}",
+                        assert_helper.contents,
+                        local_sta.contents,
+                        test_typed_array.contents,
+                        case.original_source
                     ),
                 )
             };
@@ -21077,16 +20873,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         assert!(
                             wasm_aot_split_test_typed_array_dispatcher(&case, test_typed_array)
                                 .is_none(),
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-
-                        let property_helper = store.get("propertyHelper.js").unwrap_or_else(|| {
-                            panic!("{store_name} store should contain propertyHelper.js")
-                        });
-                        assert_eq!(
-                            wasm_aot_compact_typed_array_property_prelude(&case, property_helper),
-                            None,
                             "{store_name} {}",
                             case.execution_id()
                         );
@@ -22303,8 +22089,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         "{path}"
                     );
                     static_resizable_execution_count += usize::from(uses_static_resizable_helper);
-                    local_sta_preamble_execution_count +=
-                        usize::from(needs_test262_error && !requires_host);
+                    local_sta_preamble_execution_count += usize::from(!requires_host);
 
                     for (store_name, store) in
                         [("local", &local_store), ("vendored", &vendored_store)]
@@ -22344,12 +22129,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         let property_helper = store.get("propertyHelper.js").unwrap_or_else(|| {
                             panic!("{store_name} store should contain propertyHelper.js")
                         });
-                        assert_eq!(
-                            wasm_aot_compact_typed_array_property_prelude(case, property_helper),
-                            None,
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
+
                         if store_name == "vendored" && uses_property_helper {
                             assert_eq!(
                                 property_helper.contents.len(),
@@ -22393,12 +22173,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             Some(store.get("sta.js").unwrap_or_else(|| {
                                 panic!("{store_name} store should contain sta.js")
                             }))
-                        } else if needs_test262_error {
+                        } else {
                             Some(store.get("sta-preamble.js").unwrap_or_else(|| {
                                 panic!("local store should contain sta-preamble.js")
                             }))
-                        } else {
-                            None
                         };
                         if let Some(sta_prelude) = sta_prelude {
                             expected_source.push_str(&sta_prelude.contents);
@@ -22505,7 +22283,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(property_helper_execution_count, 6);
         assert_eq!(test262_error_execution_count, 24);
         assert_eq!(host_execution_count, 28);
-        assert_eq!(local_sta_preamble_execution_count, 20);
+        assert_eq!(local_sta_preamble_execution_count, 154);
         assert_eq!(static_resizable_execution_count, 8);
     }
 
@@ -23731,6 +23509,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let test_root = repo_root.join("test262/vendor/test262/test");
         let harness_root = repo_root.join("test262/vendor/test262/harness");
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let local_harness_section = |name: &str| {
             let contents = WASM_AOT_HARNESS
                 .split("///")
@@ -23888,11 +23669,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                 let mut local_source = format!(
-                    "{strict_prefix}{}{}",
-                    local_assert.contents, local_test_typed_array.contents
+                    "{strict_prefix}{}{}{}",
+                    local_assert.contents, local_sta.contents, local_test_typed_array.contents
                 );
                 let mut local_origins = vec![
                     ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                     (
                         "testTypedArray.js".to_string(),
                         PreludeOrigin::VendoredHarness,
@@ -23973,6 +23755,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     #[test]
     fn typed_array_buffer_defined_length_preserves_pinned_source_and_full_helper() {
         let store = real_wasm_aot_preludes();
+        let local_sta = store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let repo_root = repo_root();
         let path = "built-ins/TypedArrayConstructors/ctors/buffer-arg/defined-length.js";
         let source_path = repo_root.join("test262/vendor/test262/test").join(path);
@@ -24003,6 +23788,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             materialized.used_preludes,
             vec![
                 ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                 (
                     "testTypedArray.js".to_string(),
                     PreludeOrigin::VendoredHarness,
@@ -24012,8 +23798,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(
             materialized.source,
             format!(
-                "{}{}{}",
-                assert_prelude.contents, test_typed_array.contents, case.original_source
+                "{}{}{}{}",
+                assert_prelude.contents,
+                local_sta.contents,
+                test_typed_array.contents,
+                case.original_source
             )
         );
     }
@@ -24021,6 +23810,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     #[test]
     fn arraybuffer_isview_cases_preserve_pinned_sources_and_full_typed_array_helper() {
         let store = real_wasm_aot_preludes();
+        let local_sta = store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
         let assert_prelude = store
@@ -24060,6 +23852,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 materialized.used_preludes,
                 vec![
                     ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                     (
                         "testTypedArray.js".to_string(),
                         PreludeOrigin::VendoredHarness,
@@ -24070,8 +23863,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             assert_eq!(
                 materialized.source,
                 format!(
-                    "{}{}{}",
-                    assert_prelude.contents, test_typed_array.contents, case.original_source
+                    "{}{}{}{}",
+                    assert_prelude.contents,
+                    local_sta.contents,
+                    test_typed_array.contents,
+                    case.original_source
                 ),
                 "{path}",
             );
@@ -24781,6 +24577,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     #[test]
     fn date_set_utc_month_arg_order_preserves_pinned_source_and_preludes() {
         let preludes = real_wasm_aot_preludes();
+        let local_sta = preludes
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let path = "built-ins/Date/prototype/setUTCMonth/arg-coercion-order.js";
         let source_path = repo_root().join("test262/vendor/test262/test").join(path);
         let original_source = fs::read_to_string(&source_path)
@@ -24804,6 +24603,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             materialized.used_preludes,
             vec![
                 ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                 (
                     "compareArray.js".to_string(),
                     PreludeOrigin::VendoredHarness,
@@ -24813,8 +24613,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(
             materialized.source,
             format!(
-                "{}{}{}",
-                assert_prelude.contents, compare_array_prelude.contents, original_source
+                "{}{}{}{}",
+                assert_prelude.contents,
+                local_sta.contents,
+                compare_array_prelude.contents,
+                original_source
             ),
         );
     }
@@ -24904,6 +24707,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     #[test]
     fn proxy_create_target_cases_preserve_pinned_sources_and_helpers() {
         let preludes = real_wasm_aot_preludes();
+        let sta_prelude = preludes
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let test_root = repo_root().join("test262/vendor/test262/test");
         let assert_prelude = preludes
             .get("assert.js")
@@ -24915,10 +24721,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(assert_prelude.origin, PreludeOrigin::LocalMerged);
         assert_eq!(is_constructor_prelude.origin, PreludeOrigin::LocalMerged);
 
-        let full_assert_prefix = assert_prelude.contents.clone();
+        let full_assert_prefix = format!("{}{}", assert_prelude.contents, sta_prelude.contents);
         let full_assert_and_constructor_prefix = format!(
-            "{}{}",
-            assert_prelude.contents, is_constructor_prelude.contents
+            "{}{}{}",
+            assert_prelude.contents, sta_prelude.contents, is_constructor_prelude.contents
         );
 
         for (path, expected_includes, expected_prefix) in [
@@ -25638,6 +25444,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
     #[test]
     fn array_prototype_method_metadata_cases_preserve_pinned_sources_and_full_property_helpers() {
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
         let local_harness_section = |name: &str| {
@@ -25723,6 +25532,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     local_materialized.used_preludes,
                     vec![
                         ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                         ("propertyHelper.js".to_string(), PreludeOrigin::LocalMerged),
                     ],
                     "{path}"
@@ -25730,8 +25540,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 assert_eq!(
                     local_materialized.source,
                     format!(
-                        "{}{}{}",
-                        local_assert.contents, local_property.contents, case.original_source
+                        "{}{}{}{}",
+                        local_assert.contents,
+                        local_sta.contents,
+                        local_property.contents,
+                        case.original_source
                     ),
                     "{path}"
                 );
@@ -26967,13 +26780,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 assert_eq!(wasm_aot_unsupported_feature(case), None, "{path}");
                 assert!(rewrite_wasm_aot_self_contained(case).is_none(), "{path}");
 
+                assert_eq!(
+                    case_needs_test262_error_prelude(case),
+                    local_needs_sta_preamble
+                );
                 for (store_name, store, sta_name, needs_sta_prelude) in [
-                    (
-                        "local",
-                        &local_store,
-                        "sta-preamble.js",
-                        local_needs_sta_preamble,
-                    ),
+                    ("local", &local_store, "sta-preamble.js", true),
                     ("vendored", &vendored_store, "sta.js", true),
                 ] {
                     let assert_prelude = store
@@ -26999,21 +26811,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         "{store_name} {}",
                         case.execution_id()
                     );
-                    if case
-                        .includes
-                        .iter()
-                        .any(|include| include == "propertyHelper.js")
-                    {
-                        let property_helper = store.get("propertyHelper.js").unwrap_or_else(|| {
-                            panic!("{store_name} store should contain propertyHelper.js")
-                        });
-                        assert!(
-                            wasm_aot_compact_typed_array_property_prelude(case, property_helper)
-                                .is_none(),
-                            "{store_name} {}",
-                            case.execution_id()
-                        );
-                    }
 
                     let materialized = materialize_test(case, store).unwrap_or_else(|error| {
                         panic!(
@@ -27434,16 +27231,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     | EverySomePreludeCohort::EveryNoTestTypedArray => None,
                     EverySomePreludeCohort::SomeSplitTestTypedArray => {
                         Some(TypedArrayLiteralHelperPlan {
-                            assert_mode: TypedArrayLiteralAssertMode::Full,
                             factory_mode: TypedArrayLiteralFactoryMode::FullVendored,
-                            uses_property_helper: false,
                         })
                     }
                     EverySomePreludeCohort::SomeNoTestTypedArray => {
                         Some(TypedArrayLiteralHelperPlan {
-                            assert_mode: TypedArrayLiteralAssertMode::Full,
                             factory_mode: TypedArrayLiteralFactoryMode::None,
-                            uses_property_helper: false,
                         })
                     }
                 };
@@ -27457,13 +27250,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     contract.cohort == EverySomePreludeCohort::SomeSplitTestTypedArray;
 
                 for (store_name, store, sta_name) in [
-                    (
-                        "local",
-                        &local_store,
-                        contract
-                            .local_needs_sta_preamble
-                            .then_some("sta-preamble.js"),
-                    ),
+                    ("local", &local_store, Some("sta-preamble.js")),
                     ("vendored", &vendored_store, Some("sta.js")),
                 ] {
                     let assert_prelude = store
@@ -27471,9 +27258,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         .unwrap_or_else(|| panic!("{store_name} store should contain assert.js"));
                     let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
                         panic!("{store_name} store should contain testTypedArray.js")
-                    });
-                    let property_helper = store.get("propertyHelper.js").unwrap_or_else(|| {
-                        panic!("{store_name} store should contain propertyHelper.js")
                     });
                     assert!(
                         wasm_aot_intrinsic_test_typed_array_prelude(&case, test_typed_array)
@@ -27493,12 +27277,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     } else {
                         assert_eq!(split_prelude, None, "{store_name} {}", case.execution_id());
                     }
-                    assert!(
-                        wasm_aot_compact_typed_array_property_prelude(&case, property_helper)
-                            .is_none(),
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
 
                     let mut expected_source = String::new();
                     if case.execution_mode() == TestExecutionMode::StrictScript {
@@ -27805,7 +27583,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut without_test_typed_array_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
         let mut full_physical_count = 0;
         let mut without_test_typed_array_physical_count = 0;
-        let mut local_sta_preamble_physical_count = 0;
+        let mut test262_error_physical_count = 0;
         let mut static_resizable_physical_count = 0;
         let mut include_distribution = [0usize; 5];
         let mut execution_count = 0;
@@ -27911,7 +27689,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     fnv1a_extend(without_test_typed_array_cohort_fingerprint, &[u8::MAX]);
                 LiteralHelperCohort::NoTestTypedArray
             };
-            local_sta_preamble_physical_count += usize::from(needs_local_sta_preamble);
+            test262_error_physical_count += usize::from(needs_local_sta_preamble);
             static_resizable_physical_count += usize::from(uses_static_resizable_helper);
             let include_distribution_index = match (
                 uses_test_typed_array,
@@ -27929,14 +27707,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             include_distribution[include_distribution_index] += 1;
 
             let expected_plan = TypedArrayLiteralHelperPlan {
-                assert_mode: TypedArrayLiteralAssertMode::Full,
                 factory_mode: match cohort {
                     LiteralHelperCohort::FullVendoredSplit => {
                         TypedArrayLiteralFactoryMode::FullVendored
                     }
                     LiteralHelperCohort::NoTestTypedArray => TypedArrayLiteralFactoryMode::None,
                 },
-                uses_property_helper: false,
             };
             assert_eq!(
                 typed_array_literal_helper_plan(&first),
@@ -27976,12 +27752,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 );
 
                 for (store_index, store_name, store, sta_name) in [
-                    (
-                        0,
-                        "local",
-                        &local_store,
-                        needs_local_sta_preamble.then_some("sta-preamble.js"),
-                    ),
+                    (0, "local", &local_store, Some("sta-preamble.js")),
                     (1, "vendored", &vendored_store, Some("sta.js")),
                 ] {
                     let assert_prelude = store
@@ -27989,9 +27760,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         .unwrap_or_else(|| panic!("{store_name} store should contain assert.js"));
                     let test_typed_array = store.get("testTypedArray.js").unwrap_or_else(|| {
                         panic!("{store_name} store should contain testTypedArray.js")
-                    });
-                    let property_helper = store.get("propertyHelper.js").unwrap_or_else(|| {
-                        panic!("{store_name} store should contain propertyHelper.js")
                     });
                     assert_eq!(
                         wasm_aot_intrinsic_test_typed_array_prelude(&case, test_typed_array),
@@ -28012,12 +27780,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             assert_eq!(split_prelude, None, "{store_name} {}", case.execution_id())
                         }
                     }
-                    assert_eq!(
-                        wasm_aot_compact_typed_array_property_prelude(&case, property_helper),
-                        None,
-                        "{store_name} {}",
-                        case.execution_id()
-                    );
+
                     let resizable_helper = store
                         .get("resizableArrayBufferUtils.js")
                         .unwrap_or_else(|| {
@@ -28197,7 +27960,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             (
                 full_physical_count,
                 without_test_typed_array_physical_count,
-                local_sta_preamble_physical_count,
+                test262_error_physical_count,
                 static_resizable_physical_count,
             ),
             (18, 23, 14, 21)
@@ -28208,7 +27971,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(full_materialization_counts, [36, 36]);
         assert_eq!(without_test_typed_array_materialization_counts, [46, 46]);
         assert_eq!(assert_provenance_counts, [82, 82]);
-        assert_eq!(sta_provenance_counts, [28, 82]);
+        assert_eq!(sta_provenance_counts, [82, 82]);
         assert_eq!(split_test_typed_array_provenance_counts, [36, 36]);
         assert_eq!(compare_array_provenance_counts, [42, 42]);
         assert_eq!(static_resizable_materialization_counts, [42, 42]);
@@ -28353,6 +28116,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             materialized.used_preludes,
             vec![
                 ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                 (
                     "compareArray.js".to_string(),
                     PreludeOrigin::VendoredHarness,
@@ -28411,6 +28175,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 materialized.used_preludes,
                 vec![
                     ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                     (
                         "compareArray.js".to_string(),
                         PreludeOrigin::VendoredHarness,
@@ -28751,6 +28516,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let local_harness_section = |name: &str| {
             let contents = WASM_AOT_HARNESS
                 .split("///")
@@ -28898,9 +28666,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
                 assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
-                let mut local_prelude_source = local_assert.contents.clone();
-                let mut local_provenance =
-                    vec![("assert.js".to_string(), PreludeOrigin::LocalMerged)];
+                let mut local_prelude_source =
+                    format!("{}{}", local_assert.contents, local_sta.contents);
+                let mut local_provenance = vec![
+                    ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
+                ];
                 if !expected_includes.is_empty() {
                     local_prelude_source.push_str(&local_property.contents);
                     local_provenance
@@ -29131,6 +28902,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     #[test]
     fn arraybuffer_metadata_cases_preserve_pinned_sources_and_full_property_helpers() {
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let repo_root = repo_root();
         let local_harness_section = |name: &str| {
             let contents = WASM_AOT_HARNESS
@@ -29209,6 +28983,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 local_materialized.used_preludes,
                 vec![
                     ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                     ("propertyHelper.js".to_string(), PreludeOrigin::LocalMerged,),
                 ],
                 "{path}"
@@ -29216,8 +28991,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             assert_eq!(
                 local_materialized.source,
                 format!(
-                    "{}{}{}",
-                    local_assert.contents, local_property.contents, case.original_source
+                    "{}{}{}{}",
+                    local_assert.contents,
+                    local_sta.contents,
+                    local_property.contents,
+                    case.original_source
                 ),
                 "{path}"
             );
@@ -29305,6 +29083,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let test_root = repo_root.join("test262/vendor/test262/test");
         let harness_root = repo_root.join("test262/vendor/test262/harness");
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let local_harness_section = |name: &str| {
             let contents = WASM_AOT_HARNESS
                 .split("///")
@@ -29413,8 +29194,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
                 assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
-                let mut local_source = format!("{strict_prefix}{}", local_assert.contents);
-                let mut local_origins = vec![("assert.js".to_string(), PreludeOrigin::LocalMerged)];
+                let mut local_source = format!(
+                    "{strict_prefix}{}{}",
+                    local_assert.contents, local_sta.contents
+                );
+                let mut local_origins = vec![
+                    ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
+                ];
                 for include in declared_includes {
                     let prelude = local_store
                         .get(*include)
@@ -29528,7 +29315,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xee6a_4c00_72e7_748b,
             0xfd94_0c3e_42b0_0d77,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0x4b49_70aa_bc56_726d;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
         const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
         const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
 
@@ -29732,20 +29519,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             } else {
                 &[]
             };
-            let uses_local_sta_preamble = matches!(
-                normalized_file.as_str(),
-                "newtarget-undefined-throws.js"
-                    | "buffer-not-object-throws.js"
-                    | "buffer-does-not-have-arraybuffer-data-throws.js"
-                    | "return-abrupt-tonumber-byteoffset.js"
-                    | "return-abrupt-tonumber-bytelength.js"
-            );
             if uses_property_helper {
                 local_materialization_group_counts[2] += 1;
-            } else if uses_local_sta_preamble {
-                local_materialization_group_counts[1] += 1;
             } else {
-                local_materialization_group_counts[0] += 1;
+                local_materialization_group_counts[1] += 1;
             }
 
             for case in cases {
@@ -29777,11 +29554,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 let mut expected_local_source = strict_prefix.to_string();
                 expected_local_source.push_str(&local_assert.contents);
                 expected_local_preludes.push(("assert.js".to_string(), PreludeOrigin::LocalMerged));
-                if uses_local_sta_preamble {
-                    expected_local_source.push_str(&local_sta.contents);
-                    expected_local_preludes
-                        .push(("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged));
-                }
+                expected_local_source.push_str(&local_sta.contents);
+                expected_local_preludes
+                    .push(("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged));
                 if uses_property_helper {
                     expected_local_source.push_str(&local_property.contents);
                     expected_local_preludes
@@ -29841,7 +29616,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             }
         }
 
-        assert_eq!(local_materialization_group_counts, [32, 9, 2]);
+        assert_eq!(local_materialization_group_counts, [0, 41, 2]);
         case_fingerprints.sort_unstable();
         assert_eq!(case_fingerprints.as_slice(), CASE_CONTRACTS_FNV1A);
     }
@@ -29893,6 +29668,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     #[test]
     fn dataview_accessor_wrong_receiver_cases_preserve_pinned_sources_and_assert_prelude() {
         let store = real_wasm_aot_preludes();
+        let local_sta = store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let test_root = repo_root().join("test262/vendor/test262/test");
         let assert_prelude = store
             .get("assert.js")
@@ -29921,12 +29699,18 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
 
                 assert_eq!(
                     materialized.used_preludes,
-                    vec![("assert.js".to_string(), PreludeOrigin::LocalMerged)],
+                    vec![
+                        ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged)
+                    ],
                     "{path}",
                 );
                 assert_eq!(
                     materialized.source,
-                    format!("{}{}", assert_prelude.contents, case.original_source),
+                    format!(
+                        "{}{}{}",
+                        assert_prelude.contents, local_sta.contents, case.original_source
+                    ),
                     "{path}",
                 );
             }
@@ -29936,6 +29720,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     #[test]
     fn dataview_method_metadata_cases_preserve_pinned_sources_and_full_property_helpers() {
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
         let local_harness_section = |name: &str| {
@@ -30027,6 +29814,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     local_materialized.used_preludes,
                     vec![
                         ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                         ("propertyHelper.js".to_string(), PreludeOrigin::LocalMerged),
                     ],
                     "{path}"
@@ -30034,8 +29822,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 assert_eq!(
                     local_materialized.source,
                     format!(
-                        "{}{}{}",
-                        local_assert.contents, local_property.contents, case.original_source
+                        "{}{}{}{}",
+                        local_assert.contents,
+                        local_sta.contents,
+                        local_property.contents,
+                        case.original_source
                     ),
                     "{path}"
                 );
@@ -30131,6 +29922,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let test_root = repo_root.join("test262/vendor/test262/test");
         let harness_root = repo_root.join("test262/vendor/test262/harness");
         let local_store = real_wasm_aot_preludes();
+        let local_sta = local_store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let local_harness_section = |name: &str| {
             let contents = WASM_AOT_HARNESS
                 .split("///")
@@ -30327,13 +30121,20 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     });
                 assert_eq!(
                     local_materialized.used_preludes,
-                    vec![("assert.js".to_string(), PreludeOrigin::LocalMerged)],
+                    vec![
+                        ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged)
+                    ],
                     "{}",
                     case.execution_id()
                 );
                 assert_eq!(
                     local_materialized.source.as_bytes(),
-                    format!("{strict_prefix}{}{original_source}", local_assert.contents).as_bytes(),
+                    format!(
+                        "{strict_prefix}{}{}{original_source}",
+                        local_assert.contents, local_sta.contents
+                    )
+                    .as_bytes(),
                     "{}",
                     case.execution_id()
                 );
@@ -30434,7 +30235,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xf572_aff0_e3c7_72ec,
             0xfdc9_8bc6_edcd_5f52,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0x4b49_70aa_bc56_726d;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
         const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
         const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
 
@@ -30599,7 +30400,6 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .iter()
             .map(|feature| (*feature).to_string())
             .collect();
-            let uses_sta_preamble = suffix != "index-is-out-of-range.js";
 
             for case in cases {
                 let strict_prefix = match case.execution_mode() {
@@ -30626,14 +30426,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     materialize_test(&case, &local_store).unwrap_or_else(|error| {
                         panic!("local {} should materialize: {error}", case.execution_id())
                     });
-                let expected_local_preludes = if uses_sta_preamble {
-                    vec![
-                        ("assert.js".to_string(), PreludeOrigin::LocalMerged),
-                        ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
-                    ]
-                } else {
-                    vec![("assert.js".to_string(), PreludeOrigin::LocalMerged)]
-                };
+                let expected_local_preludes = vec![
+                    ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
+                ];
                 assert_eq!(
                     local_materialized.used_preludes,
                     expected_local_preludes,
@@ -30642,9 +30438,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 );
                 let mut expected_local_source = strict_prefix.to_string();
                 expected_local_source.push_str(&local_assert.contents);
-                if uses_sta_preamble {
-                    expected_local_source.push_str(&local_sta.contents);
-                }
+                expected_local_source.push_str(&local_sta.contents);
                 expected_local_source.push_str(&original_source);
                 assert_eq!(
                     local_materialized.source.as_bytes(),
@@ -30735,6 +30529,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     #[test]
     fn dataview_numeric_set_conversion_cases_preserve_pinned_sources_and_helpers() {
         let store = real_wasm_aot_preludes();
+        let local_sta = store
+            .get("sta-preamble.js")
+            .expect("local Test262Error preamble should exist");
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
         let assert_prelude = store
@@ -30788,6 +30585,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 materialized.used_preludes,
                 vec![
                     ("assert.js".to_string(), PreludeOrigin::LocalMerged),
+                    ("sta-preamble.js".to_string(), PreludeOrigin::LocalMerged),
                     (
                         "byteConversionValues.js".to_string(),
                         PreludeOrigin::VendoredHarness,
@@ -30798,8 +30596,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             assert_eq!(
                 materialized.source,
                 format!(
-                    "{}{}{}",
-                    assert_prelude.contents, conversion_prelude.contents, case.original_source
+                    "{}{}{}{}",
+                    assert_prelude.contents,
+                    local_sta.contents,
+                    conversion_prelude.contents,
+                    case.original_source
                 ),
                 "{path}",
             );
@@ -30851,7 +30652,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xe316_5e75_7875_0a86,
             0xf34c_6487_a9cd_b66c,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0x4b49_70aa_bc56_726d;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
         const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
         const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
 

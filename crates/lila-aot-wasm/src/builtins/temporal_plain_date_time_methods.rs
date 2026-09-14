@@ -1045,7 +1045,7 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             field_locals[0],
@@ -1466,7 +1466,7 @@ impl<'a> FunctionBuilder<'a> {
         // bag actually supplied. `present_locals[0]` is therefore still 0 for
         // an era-only bag, so the era/year agreement check cannot fire against
         // a year the caller never wrote.
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             field_locals[0],

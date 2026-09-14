@@ -228,3 +228,33 @@ outer() === 'changed1' && new Throwing().update(false) === 'private1';
 "#,
     );
 }
+
+#[test]
+fn property_update_closures_capture_computed_targets_and_lexical_super() {
+    assert_private_update(
+        r#"
+function make() {
+  const base = {value: 1};
+  const key = 'value';
+  return () => base[key]++;
+}
+var next = make();
+if (next() !== 1 || next() !== 2) throw 'computed update capture';
+class Base {
+  get value() { return this.count; }
+  set value(value) { this.count = value; }
+}
+class Counter extends Base {
+  constructor() { super(); this.count = 4; }
+  next() { return () => super.value++; }
+}
+var counter = new Counter(), advance = counter.next(), other = {count: 30};
+if (advance.call(other) !== 4 || counter.count !== 5 || other.count !== 30) throw 'lexical super capture';
+function invalidUpdate(callback) { return () => callback()++; }
+var calls = 0, rejected = false;
+var invalid = invalidUpdate(() => { calls++; return 0; });
+try { invalid(); } catch (error) { rejected = error instanceof ReferenceError; }
+rejected && calls === 1;
+"#,
+    );
+}

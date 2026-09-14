@@ -616,6 +616,7 @@ impl<'a> FunctionBuilder<'a> {
                         let date_builtin = Self::temporal_plain_date_time_date_accessor(builtin);
                         self.emit_temporal_plain_date_numeric_field(
                             date_builtin,
+                            calendar_payload_local,
                             field_locals[0],
                             field_locals[1],
                             field_locals[2],
@@ -632,6 +633,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 self.release_temp_local(value_local);
             }
+        }
+
+        if matches!(
+            builtin,
+            StandardBuiltinId::TemporalPlainDateTimePrototypeWeekOfYearGetter
+                | StandardBuiltinId::TemporalPlainDateTimePrototypeYearOfWeekGetter
+        ) {
+            self.emit_temporal_calendar_week_result(calendar_payload_local, function);
         }
 
         self.release_temporal_plain_date_time_field_locals(field_locals);

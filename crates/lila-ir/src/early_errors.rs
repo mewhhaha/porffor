@@ -18,7 +18,8 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 expr_contains_this_before_super(operand, state);
             }
         }
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+        ExprIr::ImportMeta { .. } => {}
+        ExprIr::ModuleNamespace { exports, .. } => expr_contains_this_before_super(exports, state),
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {

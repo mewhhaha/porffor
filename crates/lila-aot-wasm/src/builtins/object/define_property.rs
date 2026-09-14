@@ -1405,6 +1405,58 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
+        self.emit_is_module_namespace_i32(target_payload_local, target_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let namespace_descriptor = WasmPartialDescriptor {
+            value: Presence::Runtime {
+                present: value_present_local,
+                value: TaggedLocals::new(value_payload_local, value_tag_local),
+            },
+            writable: Presence::Runtime {
+                present: writable_present_local,
+                value: writable_payload_local,
+            },
+            get: Presence::Runtime {
+                present: getter_present_local,
+                value: TaggedLocals::new(getter_payload_local, getter_tag_local),
+            },
+            set: Presence::Runtime {
+                present: setter_present_local,
+                value: TaggedLocals::new(setter_payload_local, setter_tag_local),
+            },
+            enumerable: Presence::Runtime {
+                present: enumerable_present_local,
+                value: enumerable_payload_local,
+            },
+            configurable: Presence::Runtime {
+                present: configurable_present_local,
+                value: configurable_payload_local,
+            },
+        };
+        self.emit_namespace_define_own_property(
+            target_payload_local,
+            key_string_local,
+            &namespace_descriptor,
+            array_named_define_success_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(array_named_define_success_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Cannot redefine module namespace property",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(target_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(target_tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         self.emit_proxy_define_property_trap_result(
             TaggedLocals::new(proxy_traversal_payload_local, proxy_traversal_tag_local),
             proxy_handled_local,

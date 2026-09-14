@@ -8,6 +8,7 @@ use crate::operations::BigIntNumberPolicy;
 
 #[derive(Clone, Copy)]
 enum ZonedDateTimeCalendarField {
+    Year,
     DayOfWeek,
     DayOfYear,
     WeekOfYear,
@@ -21,6 +22,7 @@ enum ZonedDateTimeCalendarField {
 impl ZonedDateTimeCalendarField {
     const fn date_accessor(self) -> StandardBuiltinId {
         match self {
+            Self::Year => StandardBuiltinId::TemporalPlainDatePrototypeYearGetter,
             Self::DayOfWeek => StandardBuiltinId::TemporalPlainDatePrototypeDayOfWeekGetter,
             Self::DayOfYear => StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter,
             Self::WeekOfYear => StandardBuiltinId::TemporalPlainDatePrototypeWeekOfYearGetter,
@@ -1231,7 +1233,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             year_local,
@@ -3120,8 +3122,13 @@ impl<'a> FunctionBuilder<'a> {
             }
 
             ZonedDateTimeField::Year => {
-                function.instruction(&Instruction::LocalGet(year_payload_local));
-                ZdtFieldResult::NumberOnStack
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::Year,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
             }
             ZonedDateTimeField::Month => {
                 function.instruction(&Instruction::LocalGet(month_payload_local));
@@ -3257,6 +3264,13 @@ impl<'a> FunctionBuilder<'a> {
             self.reserve_temp_local(),
         ];
         let value_local = self.reserve_temp_local();
+        let calendar_payload_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+            calendar_payload_local,
+            function,
+        );
         for (payload_local, local) in date_payload_locals.into_iter().zip(date_locals) {
             function.instruction(&Instruction::LocalGet(payload_local));
             function.instruction(&Instruction::F64ReinterpretI64);
@@ -3269,6 +3283,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(date_locals[1]));
         self.emit_temporal_plain_date_numeric_field(
             field.date_accessor(),
+            calendar_payload_local,
             date_locals[0],
             date_locals[1],
             date_locals[2],
@@ -3285,24 +3300,9 @@ impl<'a> FunctionBuilder<'a> {
             field,
             ZonedDateTimeCalendarField::WeekOfYear | ZonedDateTimeCalendarField::YearOfWeek
         ) {
-            self.load_i64_to_local_from_offset(
-                record_local,
-                HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
-                value_local,
-                function,
-            );
-            // Calendar canonicalization stores these interned payloads. Gregory
-            // has no single week-year convention; ISO defines ISOWeekOfYear.
-            function.instruction(&Instruction::LocalGet(value_local));
-            function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
-            function.instruction(&Instruction::I64Ne);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(self.result_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-            function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            function.instruction(&Instruction::End);
+            self.emit_temporal_calendar_week_result(calendar_payload_local, function);
         }
+        self.release_temp_local(calendar_payload_local);
         self.release_temp_local(value_local);
         for local in date_locals.into_iter().rev() {
             self.release_temp_local(local);

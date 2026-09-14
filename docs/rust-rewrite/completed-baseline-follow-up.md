@@ -53,15 +53,60 @@ be reported as current compiler failures or passes.
   reference and numeric-update operations preserve Number/BigInt results,
   brand checks and abrupt completions.
 
+## Namespace, enumeration, calendar and harness batch
+
+- Namespace construction uses trusted linker metadata and explicit IR. Runtime
+  internal methods read live export bindings and return data descriptors,
+  including TDZ errors and deferred evaluation triggers. See
+  [the namespace contract](contracts/module-namespace-internal-methods.md).
+  Distinct eager/deferred identities and the deferred module activation lifecycle
+  still require linker work; this batch does not claim the whole module family.
+- `for-in` enumerates each prototype level lazily, observes current descriptors,
+  and retains visited string names, including non-enumerable shadowing names.
+  All assignment-head forms share that algorithm and preserve completion values.
+  See [the enumeration contract](contracts/for-in-enumeration.md).
+- Buddhist calendar arithmetic projects calendar years to ISO storage and back
+  through a typed calendar definition. Gregorian-family non-ISO week getters
+  return undefined. The [calendar note](temporal-buddhist-calendar.md)
+  lists the remaining calendar and ZonedDateTime operations.
+- The embedded assertion, Test262Error and property-helper sections retain the
+  pinned Test262 semantics, including error object identity, observable property
+  checks and restoration. Weakened assertion omission and property-helper
+  compaction are removed.
+- Reverse RegExp matching admits the start/end anchors already implemented by
+  the matcher. Nested lookarounds and backreferences remain separate gaps.
+- Private update dependency scanning records lexical `this` and computed target
+  captures. With statements normalize empty body completions to undefined.
+  Parser diagnostic spans use typed lexer positions, including all ECMAScript
+  line terminators, instead of parsing formatted error messages.
+
 ## Verification in progress
 
-The three focused NUL grammar tests pass for Script and Module parse goals.
-The compiler and native regression checkpoint for the complete first batch
-is pending. No generated full-suite status numbers have been changed.
+The first batch is frozen at `dc5180db9cd2f9fe179f219d0ce2d3fd8d2f6136`.
+Its paired replay passes all 50 initial executions: 44 Bug-to-Success repairs
+and six retained Success controls, with zero timeouts. Compiler binary SHA-256:
+`37b24ea9a2bf2ecd0a9ff25708a308752173ee75a729e57e4d1d05cee495e5fe`.
+The workspace all-targets release check passes. All six BigInt and six naming
+native tests pass. The separate 74-case replay completes with 69 Success and
+five Bug, repairing 68 historical crashes and one missing implementation on
+current main. Those five newly unblocked With tests expose oversized emitted
+functions; they remain failures until the compiler-size cause is repaired.
+Across both paired cohorts that is 119/124 Success, 113 repaired current-main
+failures, six retained passing controls and zero timeouts. The full IR suite
+passes all 1,126 tests. The backend suite reports 431 passed and four failed;
+three failures share the naming-string seed placement error and the fourth is
+the assignment planner test measuring an unrelated object initializer. Both
+corrections are written for the second checkpoint.
 
-The wider main replay has also reproduced module namespace, dynamic import,
-Temporal calendar, Intl service, `for-in` and suspension failures. Module
-namespaces need exotic internal methods rather than observable export getter
-properties. Temporal currently supports ISO and Gregorian calendar arithmetic;
-adding further calendar identifiers alone would give incorrect results.
-These are continuing implementation work, not resolved by the first batch.
+Verification found a private arrow-capture bug, a NUL diagnostic-span bug, a
+tagged-template fixture escape error and stale structural test markers. The
+second batch includes those corrections. After the span correction, all 164
+frontend unit tests and four NUL integration tests pass. Its other native and
+IR checks remain pending. A 769-execution main reference cohort covers the
+second batch's affected families, including historical passing controls.
+
+Evidence is under `target/failure-review/completed-baseline-20260914`.
+`batch1-candidate-initial-main-audit.json` records the verified 50-case result;
+`batch1-test-verdicts.json` retains every first-batch test failure and completed
+stage. The original baseline, frozen compiler inputs and failed launch logs
+are retained. No generated full-suite status numbers have been changed.

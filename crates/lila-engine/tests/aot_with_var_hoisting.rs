@@ -186,11 +186,41 @@ selected === 0 && later === 7 && trace.join(',') === 'rhs,set:5,test';
 #[test]
 fn with_var_initializers_keep_empty_declaration_completion() {
     assert_completion(
-        "23; with ({ selected: 1 }) { var selected = 7; }",
+        "with ({ selected: 1 }) { 23; var selected = 7; }",
         "number(23)",
     );
     assert_completion(
-        "23; with ({ selected: 1 }) { var selected = 7, later = 9; }",
+        "with ({ selected: 1 }) { 23; var selected = 7, later = 9; }",
         "number(23)",
     );
+}
+
+#[test]
+fn an_empty_with_completion_does_not_reuse_the_outer_statement_value() {
+    assert_completion("23; with ({}) {}", "undefined");
+    assert_completion("23; with ({}) { var declared = 7; }", "undefined");
+}
+
+#[test]
+fn with_break_and_continue_preserve_only_values_produced_inside_the_body() {
+    for (source, expected) in [
+        (
+            "1; do { 2; with ({}) { 3; break; } 4; } while (false);",
+            "number(3)",
+        ),
+        (
+            "5; do { 6; with ({}) { break; } 7; } while (false);",
+            "undefined",
+        ),
+        (
+            "8; do { 9; with ({}) { 10; continue; } 11; } while (false);",
+            "number(10)",
+        ),
+        (
+            "12; do { 13; with ({}) { continue; } 14; } while (false);",
+            "undefined",
+        ),
+    ] {
+        assert_completion(source, expected);
+    }
 }

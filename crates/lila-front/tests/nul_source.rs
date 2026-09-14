@@ -1,4 +1,4 @@
-use lila_front::{parse, ParseCode, ParseOptions};
+use lila_front::{parse, ParseCode, ParseOptions, SourceSpan};
 
 #[test]
 fn literal_and_comment_nuls_are_accepted_in_both_parse_goals() {
@@ -32,6 +32,25 @@ fn a_nul_in_a_literal_or_comment_does_not_hide_later_invalid_syntax() {
     for source in ["'\0'; let = ;", "`\0`; let = ;", "/*\0*/ let = ;"] {
         for options in [ParseOptions::script(), ParseOptions::module()] {
             assert!(parse(source, options).is_err(), "{source:?}");
+        }
+    }
+}
+
+#[test]
+fn invalid_nul_spans_follow_lexer_positions_after_unicode_and_line_terminators() {
+    for separator in ["", "\n", "\r", "\r\n", "\u{2028}", "\u{2029}"] {
+        let source = format!("'😀\0';{separator}\0");
+        let start = source.rfind('\0').unwrap();
+        for options in [ParseOptions::script(), ParseOptions::module()] {
+            let error = parse(&source, options).expect_err("the second NUL is not in a literal");
+            assert_eq!(
+                error.diagnostic().span,
+                Some(SourceSpan {
+                    start,
+                    end: start + 1
+                }),
+                "{source:?}"
+            );
         }
     }
 }

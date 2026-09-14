@@ -75,6 +75,9 @@ impl<'a> ScriptLowerer<'a> {
                     name: object_name,
                     init: object_value,
                 },
+                // With supplies undefined for an empty body completion,
+                // including break/continue, rather than the outer list value.
+                StatementIr::Expression(TypedExpr::undefined()),
                 lowered.0,
             ],
             result_kind: lowered.1,

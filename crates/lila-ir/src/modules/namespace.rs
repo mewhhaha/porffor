@@ -18,8 +18,8 @@
 //!   string `"Module"` ([`ModuleNamespaceIr::TO_STRING_TAG`]);
 //! * every export is a writable, enumerable, non-configurable *data* property
 //!   whose value is read through the exporter's binding at access time, so the
-//!   binding is live, while `[[Set]]`, `[[Delete]]` and `[[DefineOwnProperty]]`
-//!   all fail;
+//!   binding is live. Writes and deletion fail; compatible property definitions
+//!   succeed without changing the binding;
 //! * `[[OwnPropertyKeys]]` is [`ModuleNamespaceIr::exports`] in UTF-16
 //!   code-unit order, then `@@toStringTag`.
 //!
@@ -42,66 +42,16 @@
 //! as one. Reintroducing it as a `String` field beside a `MergedName` is the
 //! mistake this arrangement exists to prevent.
 //!
-//! # How one is actually materialized
+//! The linker emits private export-reader closures ahead of module evaluation.
+//! Exact trusted initializer spans carry their meaning through the merged Script
+//! into `ExprIr::ModuleNamespace`; user source cannot request this constructor.
+//! The backend stores those closures in a private export table on the canonical
+//! object representation. They are internal live-binding readers, not property
+//! accessors. Eager and deferred namespaces share this representation; deferred
+//! internal methods first invoke the module's existing evaluation thunk.
 //!
-//! [`link`] merges a graph on *source text*: every unit's body is concatenated,
-//! in evaluation order, into one Script that the ordinary single-script pipeline
-//! lowers, and a cross-module read is a read of the exporter's own binding in
-//! the one merged top-level scope. A namespace object is materialized the same
-//! way — as generated Script text ([`ModuleNamespaceIr::source`],
-//! [`namespace_prelude_source`]) placed ahead of every unit body:
-//!
-//! ```text
-//! const $m0$namespace = Object.create(null);
-//! Object.defineProperty($m0$namespace, "value", { get: () => value, enumerable: true, configurable: false });
-//! Object.defineProperty($m0$namespace, Symbol.toStringTag, { value: "Module", writable: false, enumerable: false, configurable: false });
-//! Object.preventExtensions($m0$namespace);
-//! const ns = $m0$namespace;
-//! ```
-//!
-//! [`link`]: super::link
-//!
-//! Every property is an accessor rather than a data property, and that is the
-//! one deliberate deviation from 10.4.6: a namespace property is *both* a data
-//! property and live, which no ordinary JavaScript object can be. Liveness is
-//! the defining behaviour of a namespace binding, so it wins, and the cost is
-//! that `Object.getOwnPropertyDescriptor(ns, "value")` reports `get`/`set`
-//! instead of `value`/`writable`. Closing that gap needs a real exotic object in
-//! the backend — see `lila-aot-wasm::modules::emit_module_namespace`, which
-//! is where that would live and why it is still a stub.
-//!
-//! Everything else 10.4.6 asks for survives the translation:
-//!
-//! | invariant | how |
-//! | --- | --- |
-//! | `[[GetPrototypeOf]]` is `null` | `Object.create(null)` |
-//! | `[[IsExtensible]]` is `false` | `Object.preventExtensions` |
-//! | `[[Set]]` fails | accessor with no setter (a `TypeError` in strict code, and module code is always strict) |
-//! | `[[Delete]]` fails | `configurable: false` |
-//! | `[[DefineOwnProperty]]` fails | `configurable: false` on a non-extensible object |
-//! | key order | properties are defined in [`ModuleNamespaceIr::exports`] order, which is already UTF-16 code-unit order, and `@@toStringTag` is defined last |
-//! | live reads | the getter body names the exporter's binding, which the merged scope holds exactly once |
-//! | identity | one `const` per module |
-//!
-//! Because the getter bodies are *deferred*, the whole prelude can be emitted
-//! before any unit body: no export has to be initialized yet, and a namespace
-//! whose export is another module's namespace (`export * as inner from "m"`)
-//! needs no ordering between the two declarations either.
-//!
-//! # Deferred namespaces and module source objects
-//!
-//! Two of the three module request phases are materialized here as well:
-//!
-//! * `import defer * as ns from "m"` gives `m` a *Deferred Module Namespace*
-//!   (the deferred [`ModuleMaterializationModeIr`] case). Its getters route
-//!   through the thunk [`deferred_body_source`] wraps `m`'s body in, so the
-//!   first read of any export is what evaluates `m`. lila triggers evaluation
-//!   on `[[Get]]` of an export only; the proposal also triggers it from
-//!   `[[HasProperty]]`, `[[OwnPropertyKeys]]` and friends, which an accessor
-//!   cannot observe.
-//! * `import source src from "m"` gives `m` a module source object
-//!   ([`module_source_object_source`]) and nothing else: `m` is resolved, loaded
-//!   and parsed, but never instantiated and never evaluated.
+//! Module source objects are separate: their modules are resolved and parsed,
+//! but never instantiated or evaluated.
 
 use crate::*;
 
@@ -325,24 +275,18 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<MergedNa
     }
 }
 
-/// Merged-script statements that build one namespace object.
-///
-/// Property definition order is `exports` order, which `ensure_namespace`
-/// already sorted into UTF-16 code-unit order, and `@@toStringTag` is defined
-/// last, so `[[OwnPropertyKeys]]` comes out right without the backend sorting
-/// anything. `Object.preventExtensions` runs after every definition because a
-/// non-extensible object refuses new properties.
+/// Private closure table recognized only through linker-owned source spans.
 fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, String> {
-    let binding = namespace.cell.as_str();
     let defer_evaluate = MergedName::minted(namespace.module, UnitCellRole::DeferEvaluate);
-    let mut text = String::new();
-
-    text.push_str("const ");
-    text.push_str(binding);
-    text.push_str(" = ");
-    text.push_str(OBJECT_NAME);
-    text.push_str(".create(null);\n");
-
+    let mut text = format!("const {} = [", namespace.cell.as_str());
+    match namespace.mode {
+        ModuleMaterializationModeIr::Eager => text.push_str("void 0"),
+        ModuleMaterializationModeIr::Deferred => {
+            text.push_str("() => ");
+            text.push_str(defer_evaluate.as_str());
+            text.push_str("()");
+        }
+    }
     for export in &namespace.exports {
         let reference = namespace_target_reference(&export.target).ok_or_else(|| {
             format!(
@@ -350,69 +294,20 @@ fn namespace_object_source(namespace: &ModuleNamespaceIr) -> Result<String, Stri
                 export.export_name.as_str()
             )
         })?;
-        text.push_str(OBJECT_NAME);
-        text.push_str(".defineProperty(");
-        text.push_str(binding);
         text.push_str(", ");
         push_js_string_literal(&mut text, export.export_name.as_str());
-        // An accessor, not a data property: see the module docs. No setter, so
-        // `[[Set]]` throws in the strict code every module unit is.
-        //
-        // This is a legal **three-key partial** descriptor — an inhabitant of
-        // 6.2.6.5 ToPropertyDescriptor's *domain*, not of 6.2.6.4's four-key
-        // codomain. The `AccessorSide` typestate is what makes `value` and
-        // `writable` unspellable here, which is 6.2.6.5 step 9 as a compile
-        // error rather than as an emitted TypeError.
-        let mut getter = String::from("() => ");
+        text.push_str(", () => ");
         match namespace.mode {
-            ModuleMaterializationModeIr::Eager => getter.push_str(reference.as_str()),
+            ModuleMaterializationModeIr::Eager => text.push_str(reference.as_str()),
             ModuleMaterializationModeIr::Deferred => {
-                // A deferred module's bindings live in its thunk's scope, not
-                // in the merged one, so the getter goes through the export
-                // table the thunk publishes — and calling the thunk is what
-                // makes the first read of any export evaluate the module.
-                getter.push_str(defer_evaluate.as_str());
-                getter.push_str("()[");
-                push_js_string_literal(&mut getter, export.export_name.as_str());
-                getter.push_str("]()");
+                text.push_str(defer_evaluate.as_str());
+                text.push_str("()[");
+                push_js_string_literal(&mut text, export.export_name.as_str());
+                text.push_str("]()");
             }
         }
-        text.push_str(", ");
-        text.push_str(
-            &DescriptorSourceText::accessor()
-                .get(getter)
-                .enumerable()
-                .non_configurable()
-                .render(),
-        );
-        text.push_str(");\n");
     }
-
-    text.push_str(OBJECT_NAME);
-    text.push_str(".defineProperty(");
-    text.push_str(binding);
-    text.push_str(", ");
-    text.push_str(SYMBOL_NAME);
-    text.push_str(".toStringTag, ");
-    // A **complete** descriptor (10.1.6.3 step 3's "fully populated"). The
-    // three flags are not spelled out: they are 6.2.6.6's own defaults, and the
-    // four keys and their order come from `CompleteDescriptor::keys()`, so
-    // there is no list of key strings here to misspell.
-    let mut to_string_tag = String::new();
-    push_js_string_literal(&mut to_string_tag, ModuleNamespaceIr::TO_STRING_TAG);
-    text.push_str(
-        &DescriptorSourceText::data()
-            .value(to_string_tag)
-            .complete()
-            .render(),
-    );
-    text.push_str(");\n");
-
-    text.push_str(OBJECT_NAME);
-    text.push_str(".preventExtensions(");
-    text.push_str(binding);
-    text.push_str(");\n");
-
+    text.push_str("];\n");
     Ok(text)
 }
 
@@ -499,23 +394,42 @@ pub fn namespace_prelude_source(graph: &ModuleGraphIr) -> Result<String, Vec<IrD
     }
 }
 
-/// Reports every unit that shadows a global the generated namespace source
-/// spells.
-///
-/// `Object` and `Symbol` are ordinary global bindings, so a unit that declares
-/// either at top level shadows it for the whole merged scope — and, for
-/// `let`/`const`/`class`, poisons it with a TDZ that no placement of the prelude
-/// can dodge.
-///
-/// Premise **P1** of
-/// `docs/rust-rewrite/contracts/environment-record-tdz.md`. The comment above
-/// describes the correct 16.1.7 step 17 behaviour, and as of the binding
-/// lifecycle retrofit the compiler actually produces that TDZ at module top
-/// level for the first time. **Do not remove this bail-out on that basis
-/// alone.** Removing it additionally requires premise **P2** — a merged-scope
-/// `Object` whose `lila-aot-wasm` `BindingStorage` lands on `Fixed` or
-/// `Dynamic` gets no runtime uninitialized check at all, so the emitted program
-/// would read a zero tag, which is `ValueKind::Undefined`.
+/// Source-phase objects and renamed-binding aliases still use generated global
+/// operations. Namespace construction itself has no observable global dependency.
+fn namespace_prelude_uses_global(graph: &ModuleGraphIr, name: &str) -> bool {
+    let source_objects = !graph.dynamic_source_modules().is_empty()
+        || graph.materialized_units().any(|(_, _, unit)| {
+            unit.record
+                .import_entries
+                .iter()
+                .any(|entry| entry.request.phase() == ImportPhaseIr::Source)
+        });
+    let renamed_bindings = graph.materialized_units().any(|(_, _, unit)| {
+        unit.record
+            .import_entries
+            .iter()
+            .zip(&unit.resolved_imports)
+            .any(|(entry, resolved)| {
+                entry.request.phase() != ImportPhaseIr::Source
+                    && matches!(
+                        resolved,
+                        ResolvedBindingIr::Resolved {
+                            binding: ModuleBindingNameIr::Name(_),
+                            ..
+                        }
+                    )
+                    && namespace_target_reference(resolved)
+                        .is_some_and(|reference| reference != unit.record.merged(&entry.local_name))
+            })
+    });
+    match name {
+        OBJECT_NAME => source_objects || renamed_bindings,
+        SYMBOL_NAME => source_objects,
+        GLOBAL_THIS_NAME => renamed_bindings,
+        _ => false,
+    }
+}
+
 fn report_shadowed_namespace_globals(graph: &ModuleGraphIr, diagnostics: &mut Vec<IrDiagnostic>) {
     for (_, mode, unit) in graph.materialized_units() {
         match mode {
@@ -533,13 +447,13 @@ fn report_shadowed_namespace_globals(graph: &ModuleGraphIr, diagnostics: &mut Ve
             // The merged spelling, because that is the name the prelude's own
             // `Object.` / `Symbol.` reads would resolve against.
             let merged = unit.record.merged(&shadowed.name);
-            if !shadows_prelude_global(merged.as_str()) {
+            if !namespace_prelude_uses_global(graph, merged.as_str()) {
                 continue;
             }
             diagnostics.push(namespace_unsupported(
                 unit.record.key.as_str(),
                 &format!(
-                    "namespace objects are built from `{}`, which this module shadows at top level",
+                    "module prelude uses `{}`, which this module shadows at top level",
                     merged.as_str()
                 ),
             ));
@@ -607,21 +521,11 @@ fn collect_namespace_aliases(
                     key,
                     &format!("namespace binding `{local}` is not spellable"),
                 ));
-            } else if shadows_prelude_global(local) {
-                // The same hazard `report_shadowed_namespace_globals` catches
-                // for ordinary declarations, which it cannot see here: an
-                // import binding is `ModuleBindingKindIr::Import`, so that
-                // filter skips it, yet a namespace alias is emitted as a real
-                // `const` in the merged scope. `const Object = ...` would put
-                // `Object` in TDZ for the whole script, and the prelude's very
-                // first statement is `Object.create(null)`.
-                //
-                // Premise **P1**, as above: gated on **P2** before removal. See
-                // `docs/rust-rewrite/contracts/environment-record-tdz.md`.
+            } else if namespace_prelude_uses_global(graph, local) {
                 diagnostics.push(namespace_unsupported(
                     key,
                     &format!(
-                        "namespace objects are built from `{local}`, which this module binds as a namespace alias"
+                        "module prelude uses `{local}`, which this module binds as a namespace alias"
                     ),
                 ));
             } else if let Some(previous) = owners.insert(merged.clone(), key) {
@@ -1160,34 +1064,21 @@ mod tests {
             .clone()
     }
 
-    /// The object is created with a null prototype and sealed against new
-    /// properties, and `preventExtensions` runs *after* every definition — the
-    /// other order would make every `defineProperty` fail.
     #[test]
-    fn namespace_source_creates_a_null_prototype_non_extensible_object() {
+    fn namespace_source_carries_private_live_readers_for_the_linker() {
         let mut graph = graph_of(&[("m", "export const value = 41;")]);
         ensure_namespace(&mut graph, 0).expect("entry materializes");
-        let source = source_of(&graph, 0);
         let binding = MergedName::minted(0, UnitCellRole::Namespace);
-        let binding = binding.as_str();
-
-        assert!(
-            source.starts_with(&format!("const {binding} = Object.create(null);\n")),
-            "got {source}"
-        );
-        let prevent = source
-            .find("Object.preventExtensions(")
-            .expect("extensions are prevented");
-        let last_define = source
-            .rfind("Object.defineProperty(")
-            .expect("properties are defined");
-        assert!(
-            last_define < prevent,
-            "preventExtensions must run last: {source}"
+        assert_eq!(
+            source_of(&graph, 0),
+            format!(
+                "const {} = [void 0, \"value\", () => value];\n",
+                binding.as_str()
+            )
         );
     }
 
-    /// The getter names the *exporter's own* binding, which is what makes the
+    /// The reader names the *exporter's own* binding, which is what makes the
     /// read live. The per-unit-environment name (`$m0$value`) belongs to a
     /// different, not-yet-built backend and must not leak into the merged
     /// source — and no longer can, since nothing mints one.
@@ -1197,7 +1088,7 @@ mod tests {
         ensure_namespace(&mut graph, 0).expect("entry materializes");
         let source = source_of(&graph, 0);
 
-        assert!(source.contains("get: () => value,"), "got {source}");
+        assert!(source.contains("() => value"), "got {source}");
         // The per-unit-environment cell name (`$m0$value`) must not appear. It
         // no longer *can*: nothing in the crate produces such a name since
         // `ModuleGraphIr::cell_name` was deleted. This assertion is the
@@ -1214,34 +1105,23 @@ mod tests {
 
     /// `export { a as b }` is the case the direct-import path cannot link, and
     /// the namespace path gets it right for free: the *key* is the export name
-    /// and the *getter* names the local one.
+    /// and the *reader* names the local one.
     #[test]
     fn namespace_source_separates_the_export_name_from_the_local_name() {
         let mut graph = graph_of(&[("m", "const a = 1;\nexport { a as b };")]);
         ensure_namespace(&mut graph, 0).expect("entry materializes");
         let source = source_of(&graph, 0);
-        assert!(source.contains("\"b\", { get: () => a,"), "got {source}");
+        assert!(source.contains("\"b\", () => a"), "got {source}");
     }
 
-    /// `@@toStringTag` is defined last, so it follows every string key in
-    /// `[[OwnPropertyKeys]]`, and it is non-writable / non-enumerable /
-    /// non-configurable.
     #[test]
-    fn namespace_source_defines_to_string_tag_last_and_locked_down() {
-        let mut graph = graph_of(&[("m", "export const value = 1;")]);
+    fn an_empty_namespace_still_has_a_constructor_table() {
+        let mut graph = graph_of(&[("m", "export {};")]);
         ensure_namespace(&mut graph, 0).expect("entry materializes");
-        let source = source_of(&graph, 0);
-
-        let tag = source
-            .find("Symbol.toStringTag")
-            .expect("toStringTag is defined");
-        let value_key = source.find("\"value\"").expect("value is defined");
-        assert!(value_key < tag, "string keys come first: {source}");
-        assert!(
-            source.contains(
-                "Symbol.toStringTag, { value: \"Module\", writable: false, enumerable: false, configurable: false });"
-            ),
-            "got {source}"
+        let binding = MergedName::minted(0, UnitCellRole::Namespace);
+        assert_eq!(
+            source_of(&graph, 0),
+            format!("const {} = [void 0];\n", binding.as_str())
         );
     }
 
@@ -1312,7 +1192,7 @@ mod tests {
         let source = namespace_object_source(&namespace).expect("`*default*` has a merged name");
         assert!(
             source.contains(&format!(
-                "get: () => {}",
+                "() => {}",
                 LocalName::AnonymousDefault.merged_in(2).as_str()
             )),
             "got {source}"
@@ -1344,10 +1224,10 @@ mod tests {
         let binding = MergedName::minted(0, UnitCellRole::Namespace);
         let binding = binding.as_str();
         assert!(
-            prelude.contains(&format!("const {binding} = Object.create(null);")),
+            prelude.contains(&format!("const {binding} = [void 0,")),
             "got {prelude}"
         );
-        assert!(prelude.contains("get: () => value,"), "got {prelude}");
+        assert!(prelude.contains("() => value"), "got {prelude}");
         // The alias comes after the object it names.
         let object = prelude.find(&format!("const {binding} =")).expect("object");
         let alias = prelude
@@ -1372,54 +1252,52 @@ mod tests {
         );
     }
 
-    /// The prelude spells `Object`, so a unit that shadows it at top level would
-    /// silently break every namespace in the graph.
     #[test]
-    fn shadowing_object_is_reported_rather_than_mislinked() {
-        let graph = linked_graph(
-            &[
-                ("a", "export const value = 41;"),
-                (
-                    "c",
-                    "import * as ns from \"./a.mjs\";\nconst Object = 1;\nprint(ns.value);",
-                ),
-            ],
-            vec![(1, request_key("./a.mjs"), 0)],
-        );
-        let diagnostics = namespace_prelude_source(&graph).expect_err("shadowing must be reported");
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("shadows at top level")),
-            "got {diagnostics:?}"
-        );
+    fn namespace_construction_does_not_depend_on_shadowed_globals() {
+        for name in ["Object", "Symbol", "globalThis"] {
+            let source =
+                format!("import * as ns from './a.mjs'; const {name} = 1; print(ns.value);");
+            let graph = linked_graph(
+                &[("a", "export const value = 41;"), ("c", &source)],
+                vec![(1, request_key("./a.mjs"), 0)],
+            );
+            namespace_prelude_source(&graph).expect("namespace uses trusted construction");
+        }
     }
 
-    /// The same hazard through the one door `report_shadowed_namespace_globals`
-    /// cannot see: it filters out `ModuleBindingKindIr::Import` bindings, and a
-    /// namespace import is one — yet its alias is emitted as a real `const` in
-    /// the merged scope, so `import * as Object` shadows `Object` just as hard
-    /// as `const Object = 1` does.
     #[test]
-    fn a_namespace_alias_named_object_is_reported_rather_than_mislinked() {
-        let graph = linked_graph(
-            &[
-                ("a", "export const value = 41;"),
-                (
-                    "c",
-                    "import * as Object from \"./a.mjs\";\nprint(Object.value);",
-                ),
-            ],
-            vec![(1, request_key("./a.mjs"), 0)],
-        );
-        let diagnostics =
-            namespace_prelude_source(&graph).expect_err("a shadowing alias must be reported");
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("binds as a namespace alias")),
-            "got {diagnostics:?}"
-        );
+    fn namespace_aliases_may_use_global_constructor_names() {
+        for name in ["Object", "Symbol", "globalThis"] {
+            let source = format!("import * as {name} from './a.mjs'; print({name}.value);");
+            let graph = linked_graph(
+                &[("a", "export const value = 41;"), ("c", &source)],
+                vec![(1, request_key("./a.mjs"), 0)],
+            );
+            let prelude = namespace_prelude_source(&graph)
+                .expect("namespace alias is ordinary lexical binding");
+            let binding = MergedName::minted(0, UnitCellRole::Namespace);
+            assert!(prelude.contains(&format!("const {name} = {};", binding.as_str())));
+        }
+    }
+
+    #[test]
+    fn source_phase_prelude_still_reports_the_globals_it_uses() {
+        for declaration in ["const Object = 1;", "const Symbol = 1;"] {
+            let source =
+                format!("import source src from './a.mjs'; {declaration} print(typeof src);");
+            let graph = linked_graph(
+                &[("a", "export const value = 41;"), ("c", &source)],
+                vec![(1, request_key("./a.mjs"), 0)],
+            );
+            let diagnostics =
+                namespace_prelude_source(&graph).expect_err("source prelude uses globals");
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains("module prelude uses")),
+                "{diagnostics:?}"
+            );
+        }
     }
 
     /// A namespace alias is a fresh `const` in the merged scope rather than a
@@ -1467,12 +1345,12 @@ mod tests {
         );
     }
 
-    /// A deferred namespace's getter cannot name the exporter's binding — it is
+    /// A deferred namespace's reader cannot name the exporter's binding — it is
     /// in the thunk's scope, not the merged one — so it reads through the export
     /// table the thunk publishes, and calling the thunk is what evaluates the
     /// module.
     #[test]
-    fn a_deferred_namespace_getter_goes_through_the_thunk() {
+    fn a_deferred_namespace_reader_goes_through_the_thunk() {
         let graph = linked_graph(
             &[
                 ("a", "export const value = 41;"),
@@ -1495,13 +1373,13 @@ mod tests {
         );
         assert!(
             prelude.contains(&format!(
-                "get: () => {}()[\"value\"]()",
+                "() => {}()[\"value\"]()",
                 MergedName::minted(0, UnitCellRole::DeferEvaluate).as_str()
             )),
             "got {prelude}"
         );
         // The eager form would have named the exporter's binding directly.
-        assert!(!prelude.contains("get: () => value,"), "got {prelude}");
+        assert!(!prelude.contains("() => value"), "got {prelude}");
     }
 
     /// The thunk publishes its export table *before* running the body, so a
@@ -1509,7 +1387,7 @@ mod tests {
     /// computed so that an export named `__proto__` defines a property instead
     /// of setting the prototype.
     #[test]
-    fn a_deferred_body_publishes_capturing_accessors_before_it_runs() {
+    fn a_deferred_body_publishes_capturing_readers_before_it_runs() {
         let graph = linked_graph(
             &[
                 ("a", "export const value = 41;"),
@@ -1601,7 +1479,7 @@ mod tests {
         let prelude = namespace_prelude_source(&graph).expect("prelude should build");
         assert!(
             prelude.contains(&format!(
-                "\"inner\", {{ get: () => {},",
+                "\"inner\", () => {}",
                 MergedName::minted(0, UnitCellRole::Namespace).as_str()
             )),
             "got {prelude}"

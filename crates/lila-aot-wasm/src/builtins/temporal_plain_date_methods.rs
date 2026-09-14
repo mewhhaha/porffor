@@ -8,7 +8,9 @@ use super::temporal_options::{
     ShowCalendarName, StringValuedOption, TemporalConversionOverflowOptions, TemporalOverflow,
     TemporalRoundingMode, TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
 };
-use super::temporal_plain_date::{TemporalEraLocals, TemporalResolvedYear};
+use super::temporal_plain_date::{
+    TemporalEraLocals, TemporalResolvedIsoYear, TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
+};
 use super::temporal_plain_date_time_methods::{
     TemporalPlainArithmeticOperation, TemporalPlainDifferenceOperation,
 };
@@ -21,13 +23,6 @@ pub(super) enum TemporalDateFieldReadMode {
     MonthDayConversion,
     MonthDayWith,
 }
-
-/// `ISO_REFERENCE_YEAR`, the year every `Temporal.PlainMonthDay` stores. 1972
-/// is a leap year, so `--02-29` is representable and `toPlainMonthDay` needs no
-/// range check of its own. `temporal_plain_month_day.rs` names the same value
-/// for its own constructors; it is private there, and this file must not edit
-/// a sibling module.
-const TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR: i64 = 1972;
 
 impl<'a> FunctionBuilder<'a> {
     /// `GetOptionsObject` followed by a single string-valued option lookup.
@@ -161,7 +156,7 @@ impl<'a> FunctionBuilder<'a> {
     /// preparation. Month-code suitability remains in the resolve step,
     /// after the observable `GetTemporalOverflowOption`. Era and
     /// calendar-specific resolution remains in
-    /// `emit_temporal_resolve_era_to_year` and the two callers' resolve steps.
+    /// `emit_temporal_resolve_era_to_iso_year` and the two callers' resolve steps.
     ///
     /// The era slots are reserved *before* this emitter's own scratch locals
     /// and handed back to the caller, because `reserve_temp_local` is a strict
@@ -322,15 +317,15 @@ impl<'a> FunctionBuilder<'a> {
     /// `from/calendarresolvefields-error-ordering.js` asserts exactly that
     /// split.
     ///
-    /// The year arrives as a [`TemporalResolvedYear`] rather than as a bare
+    /// The year arrives as a [`TemporalResolvedIsoYear`] rather than as a bare
     /// `(year, year-present)` pair, so a bag path that never ran
-    /// [`FunctionBuilder::emit_temporal_resolve_era_to_year`] cannot reach here
+    /// [`FunctionBuilder::emit_temporal_resolve_era_to_iso_year`] cannot reach here
     /// — it would answer "fields require year" for a perfectly good
     /// `{ era, eraYear }` bag, which is the exact defect this replaces.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_plain_date_resolve_fields(
         &mut self,
-        resolved_year: &TemporalResolvedYear,
+        resolved_year: &TemporalResolvedIsoYear,
         month_local: u32,
         month_present_local: u32,
         month_code_payload_local: u32,
@@ -617,7 +612,7 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             year_local,
@@ -1068,7 +1063,7 @@ impl<'a> FunctionBuilder<'a> {
 
         // Era resolution runs before the receiver merge, so `{ era, eraYear }`
         // *excludes* the receiver's year rather than being checked against it.
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             new_year_local,
@@ -2324,7 +2319,7 @@ impl<'a> FunctionBuilder<'a> {
                 // 1972 is a leap year, so every month-day the receiver can hold
                 // is representable and no range check is needed.
                 function.instruction(&Instruction::I64Const(
-                    TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
+                    TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
                 ));
                 function.instruction(&Instruction::LocalSet(year_local));
             }

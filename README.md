@@ -107,10 +107,13 @@ and private numeric-update gaps. These counts are separate from full-suite statu
 
 The [completed-baseline follow-up](docs/rust-rewrite/completed-baseline-follow-up.md)
 tracks all 14,402 failures from the completed historical sweep against merged
-main. Its first batch adds exact BigInt relational coercion, property-derived
-function names, `with` variable initialization, grammar-valid literal NULs and
-private numeric updates. Verification is in progress; these changes do not
-update the generated full-suite conformance status.
+main. The first paired cohorts pass 119/124 executions, repairing 113 failures
+and retaining six passing controls; five compiler-size failures remain. Further
+work covers namespace internal methods,
+`for-in` enumeration, pinned harness semantics, and
+[Buddhist calendar arithmetic](docs/rust-rewrite/temporal-buddhist-calendar.md).
+Verification of that batch and the wider replay is in progress; these counts
+do not update the generated full-suite conformance status.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for

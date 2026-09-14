@@ -89,9 +89,11 @@
 //! * two units that declare the same top-level name, which the merged scope
 //!   cannot hold side by side without a renaming pass over the unit bodies.
 //!
-//! Namespace objects, `import.meta` and dynamic `import()` *are* linked, all
-//! three as generated Script text rather than as backend nodes:
-//! `modules::namespace` owns the namespace objects, `modules::record` owns the
+//! Namespace objects, `import.meta` and dynamic `import()` are linked through
+//! generated Script text and trusted compiler metadata. Namespace initializer
+//! spans lower to explicit constructor IR with private live-binding readers;
+//! ordinary source arrays never receive namespace semantics.
+//! `modules::namespace` owns that prelude, `modules::record` owns the
 //! `import.meta` objects and the body rewrite that reaches them, and
 //! `modules::dynamic` owns the `import()` dispatchers. Each reports its own
 //! remaining gaps through [`check_linkable`]'s companions rather than through a
@@ -161,7 +163,7 @@ pub fn evaluation_components(graph: &ModuleGraphIr) -> Vec<Vec<ModuleUnitId>> {
 #[derive(Debug)]
 pub(crate) struct LinkedScriptSource {
     pub(crate) source: SourceUnit,
-    pub(crate) default_export_definitions: super::DefaultExportDefinitions,
+    pub(crate) definitions: super::LinkedScriptDefinitions,
 }
 
 /// Script-goal source text for the whole linked graph, or the reasons it could
@@ -189,13 +191,17 @@ pub(crate) fn linked_script_source(
     // Everything below the `"use strict"` prologue, so that an asynchronous
     // graph can be wrapped whole. See `wrap_async_body`.
     let mut text = String::new();
+    let mut definitions = super::LinkedScriptDefinitions::default();
 
     // Namespace objects come first. Their getters are deferred, so nothing they
     // name has to be initialized yet, and the `import * as ns` aliases they
     // declare are object references rather than shares of an exporter cell, so
     // copying one loses no liveness.
     match namespace_prelude_source(graph) {
-        Ok(prelude) => text.push_str(&prelude),
+        Ok(prelude) => {
+            definitions.record_namespaces(&prelude, graph);
+            text.push_str(&prelude);
+        }
         Err(mut errors) => {
             diagnostics.append(&mut errors);
             return Err(diagnostics);
@@ -226,7 +232,6 @@ pub(crate) fn linked_script_source(
         text.push('\n');
     }
 
-    let mut default_export_definitions = super::DefaultExportDefinitions::default();
     let mut position = 0usize;
     // The Script entry of a script graph, kept aside: it is emitted after the
     // wrapper that holds every module, not inside it.
@@ -271,7 +276,7 @@ pub(crate) fn linked_script_source(
         let rewritten = rewrite_import_meta(&unit.source_text, &unit.record)
             .map_err(|error| error.reason)
             .and_then(|rewritten| {
-                super::DefaultExportDefinitions::rewrite_body(&rewritten, default_export)
+                super::LinkedScriptDefinitions::rewrite_body(&rewritten, default_export)
             })
             .and_then(|stripped| graph.rewrite_dynamic_import_calls(unit_id, &stripped))
             // `import defer`: the body becomes a thunk the namespace calls.
@@ -292,7 +297,7 @@ pub(crate) fn linked_script_source(
                 if position > 0 {
                     text.push_str("\n;\n");
                 }
-                if let Err(reason) = default_export_definitions.record_body(
+                if let Err(reason) = definitions.record_body(
                     &body,
                     unit_id,
                     mode,
@@ -326,24 +331,23 @@ pub(crate) fn linked_script_source(
                  `await`",
             )]);
         }
-        wrap_script_graph_modules(graph, &text, &mut default_export_definitions)
-            + &script_entry_body
+        wrap_script_graph_modules(graph, &text, &mut definitions) + &script_entry_body
     } else {
         // 16.2.1.6.1: module code is always strict. The prologue stays outside
         // any wrapper so it is still the merged script's first Directive
         // Prologue item.
         let mut source_text = String::from("\"use strict\";\n");
         if asynchronous {
-            source_text.push_str(&wrap_async_body(&text, &mut default_export_definitions));
+            source_text.push_str(&wrap_async_body(&text, &mut definitions));
         } else {
             source_text.push_str(&text);
         }
-        default_export_definitions.prepend("\"use strict\";\n");
+        definitions.prepend("\"use strict\";\n");
         source_text
     };
 
     Ok(LinkedScriptSource {
-        default_export_definitions,
+        definitions,
         source: SourceUnit {
             goal: ParseGoal::Script,
             filename: sources
@@ -386,7 +390,7 @@ pub(crate) fn linked_script_source(
 fn wrap_script_graph_modules(
     graph: &ModuleGraphIr,
     modules: &str,
-    names: &mut super::DefaultExportDefinitions,
+    names: &mut super::LinkedScriptDefinitions,
 ) -> String {
     let exports = graph.script_entry_dispatcher_exports();
     if exports.is_empty() && modules.trim().is_empty() {
@@ -450,7 +454,7 @@ fn wrap_script_graph_modules(
 /// `lower_module_graph` has to report it for a synchronous one. `var`
 /// declarations likewise become function-scoped, which is the module
 /// environment's behaviour rather than the merged script's.
-fn wrap_async_body(body: &str, names: &mut super::DefaultExportDefinitions) -> String {
+fn wrap_async_body(body: &str, names: &mut super::LinkedScriptDefinitions) -> String {
     // `void` because the call's value is the module's `[[TopLevelCapability]]`
     // promise, and an `ExpressionStatement` yielding it would make that promise
     // the merged script's completion value. A module evaluates to no value.
@@ -1242,7 +1246,7 @@ mod tests {
             linked
                 .source
                 .source_text
-                .contains(&format!("const {cell} = Object.create(null);")),
+                .contains(&format!("const {cell} = [void 0,")),
             "got {}",
             linked.source.source_text
         );
@@ -1308,7 +1312,7 @@ mod tests {
             linked
                 .source
                 .source_text
-                .contains(&format!("get: () => {evaluate}()[\"value\"]()")),
+                .contains(&format!("() => {evaluate}()[\"value\"]()")),
             "got {}",
             linked.source.source_text
         );

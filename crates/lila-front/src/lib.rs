@@ -492,9 +492,9 @@ fn parse_with_boundary<T>(
     match panic::catch_unwind(AssertUnwindSafe(operation)) {
         Ok(Ok(parsed)) => Ok(parsed),
         Ok(Err(err)) => {
+            let span = parse_error_span(source_text, &err);
             let err = err.to_string();
             let message = format!("parse error: {err}");
-            let span = parse_error_span_from_message(source_text, &err);
             // `&err` is Boa's bare message. Classify before adding presentation
             // context so the taxonomy depends only on the parser's wording.
             if let Some(code) = classify_parse_failure(&err) {
@@ -518,17 +518,25 @@ enum ParsedAst {
     Module(Module),
 }
 
-fn parse_error_span_from_message(source_text: &str, message: &str) -> Option<SourceSpan> {
-    let (_, after_colon) = message.split_once(" at line ")?;
-    let (line_text, after_line) = after_colon.split_once(", col ")?;
-    let line = line_text.parse::<usize>().ok()?;
-    let col_text = after_line
-        .split(|ch: char| !ch.is_ascii_digit())
-        .next()
-        .unwrap_or_default();
-    let col = col_text.parse::<usize>().ok()?;
-
-    let start = byte_offset_for_line_col(source_text, line, col)?;
+fn parse_error_span(source_text: &str, error: &boa_parser::Error) -> Option<SourceSpan> {
+    let position = match error {
+        boa_parser::Error::Expected { span, .. } | boa_parser::Error::Unexpected { span, .. } => {
+            span.start()
+        }
+        boa_parser::Error::General { position, .. }
+        | boa_parser::Error::Lex {
+            err: boa_parser::lexer::Error::Syntax(_, position),
+        } => *position,
+        boa_parser::Error::AbruptEnd
+        | boa_parser::Error::Lex {
+            err: boa_parser::lexer::Error::IO(_),
+        } => return None,
+    };
+    let start = byte_offset_for_line_col(
+        source_text,
+        position.line_number() as usize,
+        position.column_number() as usize,
+    )?;
     let width = source_text[start..]
         .chars()
         .next()
@@ -541,45 +549,24 @@ fn parse_error_span_from_message(source_text: &str, message: &str) -> Option<Sou
 }
 
 fn byte_offset_for_line_col(source_text: &str, line: usize, col: usize) -> Option<usize> {
-    let target_line = line.checked_sub(1)?;
-    let target_col = col.checked_sub(1)?;
-    let mut current_line = 0usize;
-    let mut line_start = 0usize;
-
-    for (idx, ch) in source_text.char_indices() {
-        if current_line == target_line {
-            let mut col_count = 0usize;
-            for (relative_idx, _) in source_text[line_start..].char_indices() {
-                if col_count == target_col {
-                    return Some(line_start + relative_idx);
+    let mut characters = source_text.char_indices().peekable();
+    let (mut current_line, mut current_col) = (1, 1);
+    while let Some((offset, character)) = characters.next() {
+        if (current_line, current_col) == (line, col) {
+            return Some(offset);
+        }
+        match character {
+            '\r' | '\n' | '\u{2028}' | '\u{2029}' => {
+                if character == '\r' && characters.peek().is_some_and(|(_, next)| *next == '\n') {
+                    characters.next();
                 }
-                col_count += 1;
+                current_line += 1;
+                current_col = 1;
             }
-            return if col_count == target_col {
-                Some(source_text.len())
-            } else {
-                None
-            };
-        }
-        if ch == '\n' {
-            current_line += 1;
-            line_start = idx + ch.len_utf8();
+            _ => current_col += 1,
         }
     }
-
-    if current_line == target_line {
-        let mut col_count = 0usize;
-        for (relative_idx, _) in source_text[line_start..].char_indices() {
-            if col_count == target_col {
-                return Some(line_start + relative_idx);
-            }
-            col_count += 1;
-        }
-        if col_count == target_col {
-            return Some(source_text.len());
-        }
-    }
-    None
+    ((current_line, current_col) == (line, col)).then_some(source_text.len())
 }
 
 fn parser_abort_message(payload: &Box<dyn core::any::Any + Send>) -> String {

@@ -1615,6 +1615,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
+        // Between UTF-16 surrogates, the byte cursor still points at the scalar's start.
+        function.instruction(&Instruction::LocalGet(match_on_low_surrogate));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(input_offset));
         function.instruction(&Instruction::LocalGet(match_byte));

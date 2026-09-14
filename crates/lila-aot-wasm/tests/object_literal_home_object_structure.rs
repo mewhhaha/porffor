@@ -2,6 +2,8 @@ const FUNCTION_PROTOCOL_SOURCE: &str = include_str!("../../lila-ir/src/function_
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const FUNCTION_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/function_definition.rs");
 const LOWERING_HELPERS_SOURCE: &str = include_str!("../../lila-ir/src/lowering_helpers.rs");
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
@@ -232,7 +234,7 @@ fn super_references_carry_receiver_and_parameter_initializers_gain_context_first
     assert!(read_write.contains("receiver: Box::new(receiver)"));
 
     let function_lowering = bounded(
-        LOWERING_SOURCE,
+        FUNCTION_LOWERING_SOURCE,
         "        let lexical_derived_activation =",
         "        if let Some(self_binding_name) = function.self_binding_name.as_ref() {",
     );
@@ -311,7 +313,7 @@ fn durable_fixture_and_exact_current_failure_inventory_bound_the_claim() {
         "The existing Wasm binary reports `0/10`",
         "unsupported in lila wasm-aot first slice: object literal method",
         "Generator, async, and async-generator object methods remain explicit protocol",
-        "nested arrows using an enclosing object method's `super`",
+        "Nested arrows using an enclosing object method's\n`super`",
         "keys share the closed IR carrier",
     ] {
         assert!(
@@ -329,7 +331,7 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
     let request = bounded(
         OBJECTS_SOURCE,
         "struct ObjectMethodHomeObjectMaterialization<'a> {",
-        "impl PrivateElementEntryLocals {",
+        "/// Wasm blocks opened by the **runtime** strictness guard",
     );
     for marker in [
         "method: &'a ObjectMethodFunctionIr",
@@ -454,9 +456,11 @@ fn super_emission_preserves_receiver_base_and_rhs_order() {
     );
     for marker in [
         "receiver: &TypedExpr",
-        "compile_super_property_key_expression_to_locals",
+        "compile_raw_property_key_expression_to_locals",
         "self.compile_expr_to_locals(\n            receiver,",
         "self.emit_load_super_base(",
+        "self.emit_throw_if_null_super_base(",
+        "self.emit_value_to_property_key_locals(",
         "self.emit_object_read_with_key_tag(",
         "receiver_payload_local",
         "receiver_tag_local",
@@ -466,16 +470,26 @@ fn super_emission_preserves_receiver_base_and_rhs_order() {
     assert_before(
         read,
         "self.compile_expr_to_locals(\n            receiver,",
-        "compile_super_property_key_expression_to_locals",
+        "compile_raw_property_key_expression_to_locals",
     );
     assert_before(
         read,
-        "compile_super_property_key_expression_to_locals",
+        "compile_raw_property_key_expression_to_locals",
         "self.emit_load_super_base(",
     );
     assert_before(
         read,
         "self.emit_load_super_base(",
+        "self.emit_throw_if_null_super_base(",
+    );
+    assert_before(
+        read,
+        "self.emit_throw_if_null_super_base(",
+        "self.emit_value_to_property_key_locals(",
+    );
+    assert_before(
+        read,
+        "self.emit_value_to_property_key_locals(",
         "self.emit_object_read_with_key_tag(",
     );
 
@@ -490,7 +504,7 @@ fn super_emission_preserves_receiver_base_and_rhs_order() {
         "strictness: Strictness",
         "let key_local = self.reserve_temp_local()",
         "self.compile_expr_to_locals(\n            receiver,",
-        "self.compile_super_property_key_expression_to_locals(",
+        "self.compile_raw_property_key_expression_to_locals(",
         "self.emit_load_super_base(",
         "self.compile_expr_to_locals(value, payload_local, tag_local, function)?",
         "self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?",
@@ -507,11 +521,11 @@ fn super_emission_preserves_receiver_base_and_rhs_order() {
     assert_before(
         write,
         "self.compile_expr_to_locals(\n            receiver,",
-        "self.compile_super_property_key_expression_to_locals(",
+        "self.compile_raw_property_key_expression_to_locals(",
     );
     assert_before(
         write,
-        "self.compile_super_property_key_expression_to_locals(",
+        "self.compile_raw_property_key_expression_to_locals(",
         "self.emit_load_super_base(",
     );
     assert_before(

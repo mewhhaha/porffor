@@ -1,4 +1,7 @@
 use super::*;
+use crate::control_flow::{
+    FOR_IN_ENUMERATOR_TEMP_LOCALS, FOR_IN_INTERNAL_METHOD_TEMP_LOCALS, FOR_IN_INTRINSICS,
+};
 use crate::operations::NUMBER_REMAINDER_TEMP_LOCALS;
 use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr};
 use lila_ir::{
@@ -638,7 +641,20 @@ mod tests {
         const DEPTH: usize = 186;
 
         let script = lower_script("\"use strict\"; let target = {}; target.p ||= 0;");
-        let single = count_block_temp_locals(&script.body);
+        let assignment = script
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Expression(expr)
+                    if matches!(expr.expr, ExprIr::OrdinaryPropertyLogicalAssignment(_)) =>
+                {
+                    Some(expr)
+                }
+                _ => None,
+            })
+            .expect("strict logical property assignment");
+        let single = count_expr_temp_locals(assignment);
         assert_eq!(
             single,
             ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS
@@ -777,12 +793,47 @@ mod tests {
                 body: Box::new(body),
                 lexical_environment: None,
             });
-        let expected = DEPTH * 12 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS;
+        let expected = DEPTH * FOR_IN_ENUMERATOR_TEMP_LOCALS
+            + FOR_IN_INTERNAL_METHOD_TEMP_LOCALS.max(2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS);
         assert!(
             expected > 2048,
             "regression must cross the local-count floor",
         );
         assert_eq!(count_statement_temp_locals(&statement), expected);
+    }
+
+    #[test]
+    fn for_in_roots_internal_methods_and_primitive_prototype_installers() {
+        for (source, constructor) in [
+            (
+                "for (var key in 7) {}",
+                StandardBuiltinId::NumberConstructor,
+            ),
+            (
+                "for (var key in false) {}",
+                StandardBuiltinId::BooleanConstructor,
+            ),
+            (
+                "for (var key in 7n) {}",
+                StandardBuiltinId::BigIntConstructor,
+            ),
+            (
+                "for (var key in 'text') {}",
+                StandardBuiltinId::StringConstructor,
+            ),
+            (
+                "for (var key in Symbol()) {}",
+                StandardBuiltinId::SymbolConstructor,
+            ),
+        ] {
+            let script = lower_script(source);
+            for builtin in FOR_IN_INTRINSICS.into_iter().chain([constructor]) {
+                assert!(
+                    script_references_standard_builtin(&script, builtin),
+                    "missing {builtin:?} dependency for {source}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1497,8 +1548,9 @@ mod tests {
     }
 
     #[test]
-    fn object_entries_and_values_root_reflective_property_operations() {
+    fn enumerable_own_properties_root_reflective_property_operations() {
         for enumerable_own_properties_builtin in [
+            StandardBuiltinId::ObjectKeys,
             StandardBuiltinId::ObjectEntries,
             StandardBuiltinId::ObjectValues,
         ] {
@@ -2275,6 +2327,7 @@ impl RuntimeBootstrapPlan {
         if matches!(
             builtin,
             StandardBuiltinId::ObjectAssign
+                | StandardBuiltinId::ObjectKeys
                 | StandardBuiltinId::ObjectEntries
                 | StandardBuiltinId::ObjectGetOwnPropertyDescriptors
                 | StandardBuiltinId::ObjectValues
@@ -3915,7 +3968,8 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         ExprIr::EnvironmentIdentifier(_) => true,
         // Module top-level `this` is `undefined`, and neither a namespace
         // object nor `import.meta` can reach the global object.
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
+        ExprIr::ImportMeta { .. } => false,
+        ExprIr::ModuleNamespace { exports, .. } => expr_exposes_global_object(exports),
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {
@@ -4437,7 +4491,10 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 collect_expr_global_property_names(operand, names);
             }
         }
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+        ExprIr::ImportMeta { .. } => {}
+        ExprIr::ModuleNamespace { exports, .. } => {
+            collect_expr_global_property_names(exports, names)
+        }
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {
@@ -5207,6 +5264,20 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
         } => {
             expr_references_function(iterable, target)
                 || statement_references_function(body, target)
+                || FOR_IN_INTRINSICS
+                    .iter()
+                    .any(|builtin| builtin.function_id() == *target)
+                || [
+                    (ValueKind::Number, StandardBuiltinId::NumberConstructor),
+                    (ValueKind::String, StandardBuiltinId::StringConstructor),
+                    (ValueKind::Boolean, StandardBuiltinId::BooleanConstructor),
+                    (ValueKind::Symbol, StandardBuiltinId::SymbolConstructor),
+                    (ValueKind::BigInt, StandardBuiltinId::BigIntConstructor),
+                ]
+                .iter()
+                .any(|(kind, builtin)| {
+                    iterable.possible_kinds.contains(*kind) && builtin.function_id() == *target
+                })
         }
         StatementIr::Switch {
             discriminant,
@@ -5701,7 +5772,8 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     .operands()
                     .any(|operand| expr_references_function(operand, target))
         }
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => false,
+        ExprIr::ImportMeta { .. } => false,
+        ExprIr::ModuleNamespace { exports, .. } => expr_references_function(exports, target),
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {
@@ -8065,15 +8137,13 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             }
         },
         StatementIr::ForInArray { target, body, .. }
-        | StatementIr::ForInObject { target, body, .. } => {
-            12 + count_expr_temp_locals(target)
-                .max(count_statement_temp_locals(body))
-                .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
-        }
-        StatementIr::ForInString { target, body, .. } => {
-            10 + count_expr_temp_locals(target)
-                .max(count_statement_temp_locals(body))
-                .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+        | StatementIr::ForInObject { target, body, .. }
+        | StatementIr::ForInString { target, body, .. } => {
+            FOR_IN_ENUMERATOR_TEMP_LOCALS
+                + (2 + count_expr_temp_locals(target))
+                    .max(count_statement_temp_locals(body))
+                    .max(FOR_IN_INTERNAL_METHOD_TEMP_LOCALS)
+                    .max(2 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
         }
         StatementIr::Switch {
             discriminant,
@@ -8413,7 +8483,8 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 } => (4 + operands).max(64),
             }
         }
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => 2,
+        ExprIr::ImportMeta { .. } => 2,
+        ExprIr::ModuleNamespace { exports, .. } => count_expr_temp_locals(exports) + 64,
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {

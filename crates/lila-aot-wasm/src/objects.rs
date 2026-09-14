@@ -18,6 +18,10 @@ use lila_ir::property_descriptor::{
 };
 
 mod has_property;
+mod module_namespace;
+
+use module_namespace::NamespaceBindingRead;
+pub(crate) use module_namespace::NamespaceOwnKeys;
 mod private_elements;
 mod set_path_realm;
 
@@ -507,6 +511,7 @@ macro_rules! object_internal_method_branches {
 
 object_internal_method_branches!(
     Proxy,
+    Namespace,
     IntegerIndexed,
     Array,
     Arguments,
@@ -514,7 +519,9 @@ object_internal_method_branches!(
     Ordinary,
 );
 
-/// A value-free `[[GetOwnProperty]]` result carried in Wasm locals.
+/// A value-free projection of `[[GetOwnProperty]]` carried in Wasm locals.
+/// Namespace descriptors still read their live binding before discarding its
+/// value, so a projection cannot bypass module TDZ.
 ///
 /// Presence is deliberately independent of the stored descriptor word. The
 /// all-false data descriptor has word zero, so using that word as an absence
@@ -10139,6 +10146,37 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::LocalSet(handled_local));
                     function.instruction(&Instruction::End);
                 }
+                ObjectInternalMethodBranch::Namespace => {
+                    self.emit_is_module_namespace_i32(
+                        target_payload_local,
+                        target_tag_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::I64Const(1));
+                    function.instruction(&Instruction::LocalSet(handled_local));
+                    self.emit_namespace_property(
+                        target_payload_local,
+                        key_payload_local,
+                        NamespaceBindingRead::Value,
+                        fact.present,
+                        fact.descriptor,
+                        TaggedLocals::new(value_payload_local, value_tag_local),
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        value_payload_local,
+                        value_tag_local,
+                        function,
+                    )?;
+                    if let Some(value) = projection.data_value() {
+                        function.instruction(&Instruction::LocalGet(value_payload_local));
+                        function.instruction(&Instruction::LocalSet(value.0.payload));
+                        function.instruction(&Instruction::LocalGet(value_tag_local));
+                        function.instruction(&Instruction::LocalSet(value.0.tag));
+                    }
+                    function.instruction(&Instruction::End);
+                }
                 ObjectInternalMethodBranch::IntegerIndexed => {
                     function.instruction(&Instruction::LocalGet(handled_local));
                     function.instruction(&Instruction::I64Eqz);
@@ -10950,824 +10988,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_proxy_empty_own_keys_invariant_check(
-        &mut self,
-        target_payload_local: u32,
-        target_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let buffer_local = self.reserve_temp_local();
-        let len_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let descriptor_kind_local = self.reserve_temp_local();
-        let cap_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_PTR_OFFSET,
-            buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_LEN_OFFSET,
-            len_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_CAP_OFFSET,
-            cap_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-
-        function.instruction(&Instruction::LocalGet(buffer_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        self.load_i64_to_local_from_offset(
-            entry_local,
-            HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET,
-            descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-        ));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(cap_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap result omitted target property",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(cap_local);
-        self.release_temp_local(descriptor_kind_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(len_local);
-        self.release_temp_local(buffer_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_proxy_object_keys_from_own_keys_result(
-        &mut self,
-        target: ProxyTargetLocals,
-        handler: ProxyHandlerLocals,
-        own_keys_result: ProxyOwnKeysTrapResultLocals,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let target_payload_local = target.0.payload;
-        let target_tag_local = target.0.tag;
-        let handler_payload_local = handler.0.payload;
-        let handler_tag_local = handler.0.tag;
-        let own_keys_payload_local = own_keys_result.0.payload;
-        let own_keys_tag_local = own_keys_result.0.tag;
-        let list_len_local = self.reserve_temp_local();
-        let snapshot_payload_local = self.reserve_temp_local();
-        let result_payload_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let write_index_local = self.reserve_temp_local();
-        let key_payload_local = self.reserve_temp_local();
-        let key_tag_local = self.reserve_temp_local();
-        let index_number_payload_local = self.reserve_temp_local();
-        let index_key_payload_local = self.reserve_temp_local();
-        let trap_payload_local = self.reserve_temp_local();
-        let trap_tag_local = self.reserve_temp_local();
-        let desc_payload_local = self.reserve_temp_local();
-        let desc_tag_local = self.reserve_temp_local();
-        let enumerable_present_local = self.reserve_temp_local();
-        let enumerable_payload_local = self.reserve_temp_local();
-        let enumerable_tag_local = self.reserve_temp_local();
-        let target_buffer_local = self.reserve_temp_local();
-        let target_len_local = self.reserve_temp_local();
-        let target_index_local = self.reserve_temp_local();
-        let target_entry_local = self.reserve_temp_local();
-        let target_entry_key_local = self.reserve_temp_local();
-        let target_descriptor_kind_local = self.reserve_temp_local();
-        let duplicate_index_local = self.reserve_temp_local();
-        let duplicate_key_payload_local = self.reserve_temp_local();
-        let duplicate_key_tag_local = self.reserve_temp_local();
-        let target_cap_local = self.reserve_temp_local();
-        let target_entry_key_tag_local = self.reserve_temp_local();
-        let invariant_found_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(list_len_local));
-        function.instruction(&Instruction::LocalGet(own_keys_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            own_keys_payload_local,
-            HEAP_LEN_OFFSET,
-            list_len_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.emit_is_heap_object_like_tag_i32(own_keys_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::LocalSet(index_key_payload_local));
-        self.emit_object_read(
-            own_keys_payload_local,
-            own_keys_tag_local,
-            own_keys_payload_local,
-            own_keys_tag_local,
-            index_key_payload_local,
-            key_payload_local,
-            key_tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            key_payload_local,
-            key_tag_local,
-            function,
-        )?;
-        self.emit_to_length_i64_from_value_locals(
-            key_tag_local,
-            key_payload_local,
-            list_len_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(list_len_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_proxy_empty_own_keys_invariant_check(
-            target_payload_local,
-            target_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-
-        self.emit_alloc_array_payload_with_length(
-            list_len_local,
-            snapshot_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(list_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(own_keys_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_read(
-            own_keys_payload_local,
-            index_local,
-            key_payload_local,
-            key_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(index_number_payload_local));
-        self.emit_number_to_string_payload(index_number_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(index_key_payload_local));
-        self.emit_object_read(
-            own_keys_payload_local,
-            own_keys_tag_local,
-            own_keys_payload_local,
-            own_keys_tag_local,
-            index_key_payload_local,
-            key_payload_local,
-            key_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(duplicate_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(duplicate_index_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_array_read(
-            snapshot_payload_local,
-            duplicate_index_local,
-            duplicate_key_payload_local,
-            duplicate_key_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(duplicate_key_tag_local));
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_payload_equality_i32(
-            duplicate_key_payload_local,
-            key_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(duplicate_key_payload_local));
-        function.instruction(&Instruction::LocalGet(key_payload_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(duplicate_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(duplicate_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_array_write(
-            snapshot_payload_local,
-            index_local,
-            key_payload_local,
-            key_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_PTR_OFFSET,
-            target_buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_LEN_OFFSET,
-            target_len_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_CAP_OFFSET,
-            target_cap_local,
-            function,
-        );
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(target_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::LocalGet(target_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(target_buffer_local));
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(target_entry_local));
-        self.load_i64_to_local_from_offset(
-            target_entry_local,
-            HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET,
-            target_descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(target_descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_DESCRIPTOR_CONFIGURABLE as i64,
-        ));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(target_cap_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            target_entry_local,
-            HEAP_OBJECT_KEY_OFFSET,
-            target_entry_key_local,
-            function,
-        );
-        self.emit_property_key_tag_from_payload(
-            target_entry_key_local,
-            target_entry_key_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(invariant_found_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(duplicate_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(duplicate_index_local));
-        function.instruction(&Instruction::LocalGet(list_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_array_read(
-            snapshot_payload_local,
-            duplicate_index_local,
-            duplicate_key_payload_local,
-            duplicate_key_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(duplicate_key_tag_local));
-        function.instruction(&Instruction::LocalGet(target_entry_key_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(target_entry_key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_payload_equality_i32(
-            duplicate_key_payload_local,
-            target_entry_key_local,
-            function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invariant_found_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(duplicate_key_payload_local));
-        self.emit_property_key_payload_to_value_payload(target_entry_key_local, function);
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invariant_found_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(duplicate_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(duplicate_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(invariant_found_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap result omitted target property",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(target_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(target_cap_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(duplicate_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(duplicate_index_local));
-        function.instruction(&Instruction::LocalGet(list_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_array_read(
-            snapshot_payload_local,
-            duplicate_index_local,
-            duplicate_key_payload_local,
-            duplicate_key_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(invariant_found_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(target_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::LocalGet(target_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(target_buffer_local));
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(target_entry_local));
-        self.load_i64_to_local_from_offset(
-            target_entry_local,
-            HEAP_OBJECT_KEY_OFFSET,
-            target_entry_key_local,
-            function,
-        );
-        self.emit_property_key_tag_from_payload(
-            target_entry_key_local,
-            target_entry_key_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(duplicate_key_tag_local));
-        function.instruction(&Instruction::LocalGet(target_entry_key_tag_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(duplicate_key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_string_payload_equality_i32(
-            duplicate_key_payload_local,
-            target_entry_key_local,
-            function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invariant_found_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(duplicate_key_payload_local));
-        self.emit_property_key_payload_to_value_payload(target_entry_key_local, function);
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(invariant_found_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(target_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(invariant_found_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy ownKeys trap result omitted target property",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(duplicate_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(duplicate_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.emit_alloc_array_payload_with_length(list_len_local, result_payload_local, function)?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(write_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(list_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_array_read(
-            snapshot_payload_local,
-            index_local,
-            key_payload_local,
-            key_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("getOwnPropertyDescriptor"),
-        ));
-        function.instruction(&Instruction::LocalSet(index_key_payload_local));
-        self.emit_object_read(
-            handler_payload_local,
-            handler_tag_local,
-            handler_payload_local,
-            handler_tag_local,
-            index_key_payload_local,
-            trap_payload_local,
-            trap_tag_local,
-            function,
-        )?;
-        self.emit_is_callable_i32(trap_tag_local, trap_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            trap_payload_local,
-            trap_tag_local,
-            handler_payload_local,
-            handler_tag_local,
-            &[
-                (target_payload_local, target_tag_local),
-                (key_payload_local, key_tag_local),
-            ],
-            desc_payload_local,
-            desc_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_PTR_OFFSET,
-            target_buffer_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            target_payload_local,
-            HEAP_LEN_OFFSET,
-            target_len_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(target_index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::LocalGet(target_len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(target_buffer_local));
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::I64Const(HEAP_OBJECT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(target_entry_local));
-        self.load_i64_to_local_from_offset(
-            target_entry_local,
-            HEAP_OBJECT_KEY_OFFSET,
-            target_entry_key_local,
-            function,
-        );
-        self.emit_string_payload_equality_i32(target_entry_key_local, key_payload_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            target_entry_local,
-            HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET,
-            target_descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(target_descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ENUMERABLE as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_write(
-            result_payload_local,
-            write_index_local,
-            key_payload_local,
-            key_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(write_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(write_index_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(target_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(target_index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(desc_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(desc_tag_local));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Proxy getOwnPropertyDescriptor trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(desc_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("enumerable")));
-        function.instruction(&Instruction::LocalSet(index_key_payload_local));
-        self.emit_object_own_data_field_read(
-            desc_payload_local,
-            desc_tag_local,
-            index_key_payload_local,
-            enumerable_present_local,
-            enumerable_payload_local,
-            enumerable_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(enumerable_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        self.compile_truthy_tagged_i32(enumerable_tag_local, enumerable_payload_local, function)?;
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_write(
-            result_payload_local,
-            write_index_local,
-            key_payload_local,
-            key_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(write_index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(write_index_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.store_i64_local_at_offset(
-            result_payload_local,
-            HEAP_LEN_OFFSET,
-            write_index_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(result_payload_local));
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.emit_return_current_completion(function);
-
-        self.release_temp_local(invariant_found_local);
-        self.release_temp_local(target_entry_key_tag_local);
-        self.release_temp_local(target_cap_local);
-        self.release_temp_local(duplicate_key_tag_local);
-        self.release_temp_local(duplicate_key_payload_local);
-        self.release_temp_local(duplicate_index_local);
-        self.release_temp_local(target_descriptor_kind_local);
-        self.release_temp_local(target_entry_key_local);
-        self.release_temp_local(target_entry_local);
-        self.release_temp_local(target_index_local);
-        self.release_temp_local(target_len_local);
-        self.release_temp_local(target_buffer_local);
-        self.release_temp_local(enumerable_tag_local);
-        self.release_temp_local(enumerable_payload_local);
-        self.release_temp_local(enumerable_present_local);
-        self.release_temp_local(desc_tag_local);
-        self.release_temp_local(desc_payload_local);
-        self.release_temp_local(trap_tag_local);
-        self.release_temp_local(trap_payload_local);
-        self.release_temp_local(index_key_payload_local);
-        self.release_temp_local(index_number_payload_local);
-        self.release_temp_local(key_tag_local);
-        self.release_temp_local(key_payload_local);
-        self.release_temp_local(write_index_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(result_payload_local);
-        self.release_temp_local(snapshot_payload_local);
-        self.release_temp_local(list_len_local);
-        Ok(())
-    }
-
     pub(crate) fn emit_proxy_own_keys_trap_result(
         &mut self,
         object: TaggedLocals,
@@ -12100,6 +11320,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_local));
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        self.emit_is_module_namespace_i32(target_payload_local, target_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_own_keys_invariants(
+            target_payload_local,
+            snapshot_payload_local,
+            list_len_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(target_tag_local));
@@ -12532,6 +11764,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::End);
 
         self.release_temp_local(expected_key_tag_local);
@@ -13536,6 +12770,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::BrIf(1));
+
+        self.emit_is_module_namespace_i32(current_local, current_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_property(
+            current_local,
+            key_local,
+            NamespaceBindingRead::Value,
+            own_found_local,
+            descriptor_kind_local,
+            TaggedLocals::new(payload_local, tag_local),
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(found_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
 
         // Integer-indexed [[Get]] owns canonical numeric keys even when the
         // element is absent. Such a miss must stop this prototype walk.
@@ -16168,6 +15418,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Block(BlockType::Empty));
+        self.emit_is_module_namespace_i32(object_local, object_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_set_rejection(function)?;
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::LocalGet(object_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -16586,6 +15842,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(prototype_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::BrIf(1));
+
+        self.emit_is_module_namespace_i32(prototype_local, prototype_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_set_rejection(function)?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(prototype_proxy_set_handled_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
 
         self.emit_typed_array_canonical_numeric_index_i32(
             prototype_local,
@@ -17149,6 +16413,45 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_is_heap_object_like_tag_i32(receiver_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(0));
+
+        self.emit_is_module_namespace_i32(receiver_payload_local, receiver_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_property(
+            receiver_payload_local,
+            key_local,
+            NamespaceBindingRead::Value,
+            found_local,
+            descriptor_kind_local,
+            TaggedLocals::new(descriptor_value_payload_local, descriptor_value_tag_local),
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            descriptor_value_payload_local,
+            descriptor_value_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(DescriptorMask::WRITABLE.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_tagged_payload_same_value_i32(
+            descriptor_value_tag_local,
+            descriptor_value_payload_local,
+            value_tag_local,
+            value_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
 
         self.emit_typed_array_canonical_numeric_index_i32(
             receiver_payload_local,
@@ -18017,6 +17320,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::BrIf(1));
 
+        self.emit_is_module_namespace_i32(current_payload_local, current_tag_local, function);
+        function.instruction(&Instruction::BrIf(1));
+
         self.emit_typed_array_canonical_numeric_index_i32(
             current_payload_local,
             current_tag_local,
@@ -18599,6 +17905,28 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
+        self.emit_is_module_namespace_i32(current_payload_local, current_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_property(
+            current_payload_local,
+            key_local,
+            NamespaceBindingRead::Presence,
+            result_local,
+            internal_key_local,
+            TaggedLocals::new(trap_result_payload_local, trap_result_tag_local),
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(
+            trap_result_payload_local,
+            trap_result_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(result_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(current_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
