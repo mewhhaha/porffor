@@ -107,6 +107,45 @@ be reported as current compiler failures or passes.
 
 ## Verification in progress
 
+The fourth frozen checkpoint is
+`3e5d3cd4bebdccb8109a4715a5a499b632b2177e`, with compiler SHA-256
+`166bd3c42b2196f8ba6f3da37ec8dcc748f47249ed87ac774d9d19d3272662b0`.
+Its workspace release check and immutable CLI/test build completed. The paired
+five-case With replay now passes all five executions, repairing five crashes on
+merged main with zero timeouts. The separate admitted-source cohort passes
+11/11: two function-coercion repairs and nine retained main passes, also without
+timeouts. These are scoped results, not a new full-suite status.
+
+Its eight case-folding IR tests, seven case-folding native tests and six reverse
+backreference native tests pass. All twelve With binding, nine Zoned field
+replacement and seventeen namespace native tests pass, including the previously
+failing realm, diagnostic-pool and deferred-completion paths.
+The function-coercion suite passes seven and
+fails three: array-element abrupt identity, Number conversion of an object that
+produces BigInt, and two paths in the foreign-realm fixture. Focused diagnostics
+confirm those causes; fixes and regression checks remain in progress. Four of
+five for-of completion tests pass; the fifth used an incorrect conditional
+continue expectation. IfStatement applies UpdateEmpty with undefined, whereas
+a bare continue retains the preceding expression value. The next fixture tests
+both cases. Every frozen failed verdict is retained.
+
+The third lookaround replay completes with 144/162 Success and zero timeouts.
+Its 160 audited main comparisons contain 40 repairs, 102 retained passes and 18
+remaining failures; two passing executions await the other reference audit.
+The third full IR suite completes with 1,124 passed and four failed. Two stale
+loop expectations are corrected in checkpoint four; two module tests require
+updated deferred-namespace identity and explicit graph reachability. The next
+module fixtures retain the source linker's explicit unsupported collision
+boundary for distinct namespace cells; they do not classify valid module scopes
+as syntax or link errors.
+The third checkpoint's full backend suite passes all 439 tests.
+
+The next implementation batch covers word boundaries, whitespace in both matcher
+directions, Number-only bitwise code size and dedicated TypedArray fill semantics.
+Each new family includes native tests and a complete pinned source cohort where
+available. The reviewed fill path includes immutable backing-buffer rejection
+before coercion. Compilation and candidate replay for this batch remain pending.
+
 The next repair batch replaces Function-specific string/number conversion
 bypasses with the existing ToPrimitive operation, preserving observable hooks,
 conversion order, abrupt values and the executing realm. Reverse RegExp

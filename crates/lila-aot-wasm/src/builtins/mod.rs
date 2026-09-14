@@ -86,6 +86,7 @@ mod temporal_zoned_date_time_format;
 mod temporal_zoned_date_time_methods;
 mod temporal_zoned_date_time_round;
 mod temporal_zoned_date_time_with;
+mod typed_array_fill;
 mod uint8array_base64_decode;
 mod uint8array_base64_encode;
 mod uint8array_codecs;

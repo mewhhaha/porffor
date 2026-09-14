@@ -1331,7 +1331,7 @@ impl<'a> FunctionBuilder<'a> {
 
         let fill_meta = self
             .functions
-            .get(&StandardBuiltinId::ArrayPrototypeFill.function_id())
+            .get(&StandardBuiltinId::TypedArrayPrototypeFill.function_id())
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.fill`",

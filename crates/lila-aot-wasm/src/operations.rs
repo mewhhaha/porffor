@@ -4096,11 +4096,7 @@ impl<'a> FunctionBuilder<'a> {
         expr: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if expr.kind == ValueKind::Number
-            && expr.possible_kinds.is_singleton()
-            && expr.possible_kinds.contains(ValueKind::Number)
-            && !expr_result_tag_is_runtime_dynamic(&expr.expr)
-        {
+        if expr_has_static_number_payload(expr) {
             self.compile_expr_payload(expr, function)?;
             return Ok(());
         }
@@ -4125,11 +4121,7 @@ impl<'a> FunctionBuilder<'a> {
         expr: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if expr.kind == ValueKind::Number
-            && expr.possible_kinds.is_singleton()
-            && expr.possible_kinds.contains(ValueKind::Number)
-            && !expr_result_tag_is_runtime_dynamic(&expr.expr)
-        {
+        if expr_has_static_number_payload(expr) {
             self.compile_expr_payload(expr, function)?;
             return Ok(());
         }
@@ -4173,53 +4165,57 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_expr_to_locals(lhs, lhs_payload_local, lhs_tag_local, function)?;
         self.compile_expr_to_locals(rhs, rhs_payload_local, rhs_tag_local, function)?;
 
-        self.emit_value_to_numeric_locals(lhs_payload_local, lhs_tag_local, function)?;
-        self.emit_value_to_numeric_locals(rhs_payload_local, rhs_tag_local, function)?;
+        let number_operands =
+            expr_has_static_number_payload(lhs) && expr_has_static_number_payload(rhs);
+        if !number_operands {
+            self.emit_value_to_numeric_locals(lhs_payload_local, lhs_tag_local, function)?;
+            self.emit_value_to_numeric_locals(rhs_payload_local, rhs_tag_local, function)?;
 
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::I32Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Cannot mix BigInt and other types",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        function.instruction(&Instruction::End);
-
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        self.open_frame(ControlFrameKind::If, function);
-        match op.bigint_op() {
-            Some(bigint_op) => self.emit_bigint_binary_op_to_locals(
-                BigIntHelperOp::from_bitwise(bigint_op),
-                lhs_payload_local,
-                lhs_tag_local,
-                rhs_payload_local,
-                rhs_tag_local,
+            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+            self.emit_is_bigint_tag_i32(rhs_tag_local, function);
+            function.instruction(&Instruction::I32Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error(
+                TYPE_ERROR_NAME,
+                "Cannot mix BigInt and other types",
                 payload_local,
                 tag_local,
                 function,
-            )?,
-            None => {
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "BigInts do not support unsigned right shift",
+            )?;
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
+            function.instruction(&Instruction::End);
+
+            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+            self.open_frame(ControlFrameKind::If, function);
+            match op.bigint_op() {
+                Some(bigint_op) => self.emit_bigint_binary_op_to_locals(
+                    BigIntHelperOp::from_bitwise(bigint_op),
+                    lhs_payload_local,
+                    lhs_tag_local,
+                    rhs_payload_local,
+                    rhs_tag_local,
                     payload_local,
                     tag_local,
                     function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    payload_local,
-                    tag_local,
-                    function,
-                )?;
+                )?,
+                None => {
+                    self.emit_throw_runtime_error(
+                        TYPE_ERROR_NAME,
+                        "BigInts do not support unsigned right shift",
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                    self.emit_propagate_throw_from_locals_if_needed(
+                        payload_local,
+                        tag_local,
+                        function,
+                    )?;
+                }
             }
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::Else);
         }
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Else);
 
         self.emit_to_uint32_i64_from_number_payload(lhs_payload_local, lhs_payload_local, function);
         self.emit_to_uint32_i64_from_number_payload(rhs_payload_local, rhs_payload_local, function);
@@ -4254,7 +4250,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
+        if !number_operands {
+            function.instruction(&Instruction::End);
+        }
 
         self.release_temp_local(rhs_tag_local);
         self.release_temp_local(rhs_payload_local);
@@ -8329,7 +8327,8 @@ impl<'a> FunctionBuilder<'a> {
 
     // Array element conversion knows the receiver is callable. Entering the
     // generic tagged emitter here would recursively emit the array branch while
-    // compiling ToPrimitive itself. Keep the pending completion owned here.
+    // compiling ToPrimitive itself. Return a hook throw before the array join
+    // loop can concatenate its payload or replace its tag with String.
     pub(crate) fn emit_function_to_string_payload(
         &mut self,
         input_payload_local: u32,
@@ -8346,8 +8345,18 @@ impl<'a> FunctionBuilder<'a> {
             &ConversionErrorRealmSource::CurrentExecutionContext,
             function,
         )?;
-        PendingToPrimitiveCompletion::new(payload_local, tag_local)
-            .emit_string_payload(self, function)?;
+        PendingToPrimitiveCompletion::new(payload_local, tag_local).route(
+            self,
+            ToPrimitiveAbruptRoute::ReturnCurrentFunction,
+            function,
+        )?;
+        self.emit_primitive_to_string_payload_with_error_realm(
+            payload_local,
+            tag_local,
+            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
+            &ConversionErrorRealmSource::CurrentExecutionContext,
+            function,
+        )?;
         self.release_temp_local(tag_local);
         self.release_temp_local(payload_local);
         Ok(())

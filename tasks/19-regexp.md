@@ -184,13 +184,15 @@ The ordered matcher result writer now consumes one private, non-capability
 independent raw found word and status. Its sole exhaustive projection admits
 only `(1, Complete)`, `(0, Complete)` and `(0, Failed(reason))`, so a found
 failure or an arbitrary found ABI word cannot compile. The Rust-lexical guard
-pins the exact 50 producers—one match, three normal misses, 44 corrupt-program
-failures and two resource failures—together with the attribute-free domain and
-sole consuming writer. This is source-equivalent ABI hardening and adds no
-runtime or conformance claim. The focused structure target passes `4/4`, and
-the neighboring nullable-quantifier matcher-frame target passes `5/5`; its
-focused CLI witness passes `1/1`. Test262, golden and broad workspace
-verification remain deferred. The boundary is recorded in
+pins the exact 56 producers—one match, three normal misses, 50 corrupt-program
+failures and two resource failures—across the matcher and its child modules,
+together with the attribute-free domain and sole consuming writer. The original
+source-equivalent ABI hardening added no runtime or conformance claim; its
+focused structure target passed `4/4`, the neighboring nullable-quantifier
+matcher-frame target passed `5/5`, and its CLI witness passed `1/1`. Test262,
+golden and broad workspace verification were deferred for that invariant-only
+batch. The current producer census must be rechecked when matcher source
+changes, separately from behavior verification. The boundary is recorded in
 [`regexp-matcher-result-domain.md`](../docs/rust-rewrite/contracts/regexp-matcher-result-domain.md).
 
 This closes the raw status/current scratch-failure seam only. There is still no

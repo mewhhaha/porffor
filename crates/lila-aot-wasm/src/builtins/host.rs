@@ -2688,7 +2688,7 @@ impl<'a> FunctionBuilder<'a> {
             (
                 "fill",
                 self.functions
-                    .get(&StandardBuiltinId::ArrayPrototypeFill.function_id())
+                    .get(&StandardBuiltinId::TypedArrayPrototypeFill.function_id())
                     .cloned()
                     .ok_or_else(|| {
                         EmitError::unsupported(
@@ -6525,6 +6525,12 @@ impl<'a> FunctionBuilder<'a> {
             number_constructor_local,
             function,
         )?;
+        self.store_i64_local_at_offset(
+            number_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            number_constructor_local,
+            function,
+        );
         self.store_i64_local_at_offset(
             number_constructor_local,
             HEAP_FUNCTION_REALM_NUMBER_PROTOTYPE_OFFSET,

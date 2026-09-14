@@ -46,6 +46,11 @@ pub const REGEXP_OPCODE_NAMED_BACKREFERENCE: u64 = 12;
 pub const REGEXP_OPCODE_NEGATIVE_ASCII_CLASS: u64 = 13;
 /// Match the numbered capture stored in `operand0`.
 pub const REGEXP_OPCODE_NUMBERED_BACKREFERENCE: u64 = 14;
+/// Numbered-backreference operand1 bit proving the capture cannot be empty.
+/// Named backreferences reserve this bit.
+pub const REGEXP_BACKREFERENCE_NONEMPTY: u64 = 1;
+/// Backreference operand1 bit for the resolved ignoreCase modifier at the reference.
+pub const REGEXP_BACKREFERENCE_IGNORE_CASE: u64 = 2;
 /// Assert that the current position is the start of the input or a line.
 pub const REGEXP_OPCODE_ASSERT_START: u64 = 17;
 /// Assert that the current position is the end of the input or a line.
@@ -65,6 +70,10 @@ pub const REGEXP_OPCODE_PROGRESS_SPLIT: u64 = 23;
 /// Complete one nullable optional iteration. `operand0` names its paired
 /// progress split and `operand1` is the continuation for a changed input index.
 pub const REGEXP_OPCODE_PROGRESS_CHECK: u64 = 24;
+/// Assert whether the adjacent input characters have different word membership.
+/// `operand0` selects the WordCharacters range slice; `operand1` packs its count
+/// in bits 1 and above and the assertion polarity in bit 0.
+pub const REGEXP_OPCODE_WORD_BOUNDARY: u64 = 25;
 
 /// The encoded width of one code-point range-pool entry in bytes.
 pub const REGEXP_RANGE_ENTRY_WIDTH: usize = 8;
@@ -225,27 +234,27 @@ impl RegExpInstruction {
         }
     }
 
-    pub const fn named_backreference(name_id: u32) -> Self {
+    pub const fn named_backreference(name_id: u32, folding: CaseFolding) -> Self {
         Self {
             opcode: REGEXP_OPCODE_NAMED_BACKREFERENCE,
             operand0: name_id as u64,
-            operand1: 0,
+            operand1: folding.backreference_operand(),
         }
     }
 
-    pub const fn numbered_backreference(capture_id: u32) -> Self {
+    pub const fn numbered_backreference(capture_id: u32, folding: CaseFolding) -> Self {
         Self {
             opcode: REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
             operand0: capture_id as u64,
-            operand1: 0,
+            operand1: folding.backreference_operand(),
         }
     }
 
-    pub const fn nonempty_numbered_backreference(capture_id: u32) -> Self {
+    pub const fn nonempty_numbered_backreference(capture_id: u32, folding: CaseFolding) -> Self {
         Self {
             opcode: REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
             operand0: capture_id as u64,
-            operand1: 1,
+            operand1: REGEXP_BACKREFERENCE_NONEMPTY | folding.backreference_operand(),
         }
     }
 
@@ -297,6 +306,18 @@ impl RegExpInstruction {
             opcode: REGEXP_OPCODE_LOOKAROUND_FAILURE,
             operand0: after_pc as u64,
             operand1: polarity.operand_bit() | (parent_direction.operand_bit() << 1),
+        }
+    }
+
+    const fn word_boundary(
+        first_entry: u32,
+        entry_count: u32,
+        polarity: WordBoundaryPolarity,
+    ) -> Self {
+        Self {
+            opcode: REGEXP_OPCODE_WORD_BOUNDARY,
+            operand0: first_entry as u64,
+            operand1: ((entry_count as u64) << 1) | polarity.operand_bit(),
         }
     }
 
@@ -959,6 +980,21 @@ enum ParsedTermAtom {
     LegacyUtf16Pair(LegacyUtf16Pair),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WordBoundaryPolarity {
+    Boundary,
+    NonBoundary,
+}
+
+impl WordBoundaryPolarity {
+    const fn operand_bit(self) -> u64 {
+        match self {
+            Self::Boundary => 0,
+            Self::NonBoundary => 1,
+        }
+    }
+}
+
 /// Whether a lookaround succeeds when its body matches or fails.
 enum LookaroundPolarity {
     Positive,
@@ -998,10 +1034,12 @@ enum ParsedAtom {
     NamedBackreference {
         name: String,
         offset: usize,
+        folding: CaseFolding,
     },
     NumberedBackreference {
         capture_id: u32,
         nullable: bool,
+        folding: CaseFolding,
     },
     Lookaround {
         polarity: LookaroundPolarity,
@@ -1300,8 +1338,10 @@ impl PatternParser<'_> {
                 ParsedTermAtom::Ordinary(ParsedAtom::NumberedBackreference {
                     capture_id,
                     nullable: _,
+                    folding,
                 }) => ParsedTermAtom::Ordinary(ParsedAtom::NumberedBackreference {
                     capture_id,
+                    folding,
                     nullable: self
                         .capture_nullability
                         .get(&capture_id)
@@ -1356,7 +1396,9 @@ impl PatternParser<'_> {
             && matches!(
                 atom,
                 ParsedTermAtom::Ordinary(ParsedAtom::Instruction(RegExpInstruction {
-                    opcode: REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END,
+                    opcode: REGEXP_OPCODE_ASSERT_START
+                        | REGEXP_OPCODE_ASSERT_END
+                        | REGEXP_OPCODE_WORD_BOUNDARY,
                     ..
                 }))
             )
@@ -1364,7 +1406,7 @@ impl PatternParser<'_> {
             return Err(RegExpCompileError::invalid_syntax(
                 SyntaxRule::QuantifierWithoutAtom,
                 quantifier_offset,
-                "an input boundary assertion cannot be quantified",
+                "a boundary assertion cannot be quantified",
             ));
         }
         Ok(match atom {
@@ -1538,9 +1580,26 @@ fn parse_instruction_atom(
         return Ok(ParsedTermAtom::Ordinary(ParsedAtom::NamedBackreference {
             name,
             offset: atom_offset,
+            folding: CaseFolding::from_flags(modifiers.ignore_case, unicode_mode),
         }));
     }
     if byte == b'\\' {
+        if let Some(marker @ (b'b' | b'B')) = bytes.get(atom_offset + 1) {
+            let polarity = match marker {
+                b'b' => WordBoundaryPolarity::Boundary,
+                b'B' => WordBoundaryPolarity::NonBoundary,
+                _ => unreachable!("word-boundary syntax has two polarity markers"),
+            };
+            let ranges = case_close_ranges(
+                REGEXP_WORD_RANGES,
+                CaseFolding::from_flags(modifiers.ignore_case, unicode_mode),
+            );
+            let (first_entry, entry_count) = pool.intern(&ranges, atom_offset)?;
+            *offset += 2;
+            return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
+                RegExpInstruction::word_boundary(first_entry, entry_count, polarity),
+            )));
+        }
         if matches!(bytes.get(atom_offset + 1), Some(b'1'..=b'9')) {
             let mut end = atom_offset + 1;
             let mut capture_id = Some(0_u32);
@@ -1555,6 +1614,7 @@ fn parse_instruction_atom(
                     ParsedAtom::NumberedBackreference {
                         capture_id,
                         nullable: true,
+                        folding: CaseFolding::from_flags(modifiers.ignore_case, unicode_mode),
                     },
                 ));
             }
@@ -1742,7 +1802,7 @@ fn atom_nullable(atom: &ParsedAtom) -> bool {
     match atom {
         ParsedAtom::Instruction(instruction) => matches!(
             instruction.opcode,
-            REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END
+            REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END | REGEXP_OPCODE_WORD_BOUNDARY
         ),
         ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => body
             .iter()
@@ -1768,9 +1828,12 @@ fn lookbehind_body_supported(alternatives: &[Vec<ParsedTerm>]) -> bool {
                     | REGEXP_OPCODE_UNICODE_PROPERTY
                     | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
                     | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
+                    | REGEXP_OPCODE_WHITESPACE
+                    | REGEXP_OPCODE_NOT_WHITESPACE
                     | REGEXP_OPCODE_DOT
                     | REGEXP_OPCODE_ASSERT_START
                     | REGEXP_OPCODE_ASSERT_END
+                    | REGEXP_OPCODE_WORD_BOUNDARY
             ),
             ParsedAtom::Capture { body, .. } | ParsedAtom::NonCapture { body, .. } => {
                 lookbehind_body_supported(body)
@@ -1844,7 +1907,7 @@ fn validate_named_backreferences(
             | ParsedAtom::Lookaround { body, .. } => {
                 validate_named_backreferences(body, named_groups)?;
             }
-            ParsedAtom::NamedBackreference { name, offset } => {
+            ParsedAtom::NamedBackreference { name, offset, .. } => {
                 if !named_groups.iter().any(|group| group.name == *name) {
                     return Err(RegExpCompileError::invalid_syntax(
                         SyntaxRule::UnknownGroupName,
@@ -2641,14 +2704,42 @@ fn script_ranges(value: &str, extensions: bool) -> Option<Vec<(u32, u32)>> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CaseFolding {
+/// ECMAScript Canonicalize domain shared by character sets and backreferences.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CaseFolding {
     Sensitive,
     Legacy,
     Unicode,
 }
 
 impl CaseFolding {
+    const fn backreference_operand(self) -> u64 {
+        match self {
+            Self::Sensitive => 0,
+            Self::Legacy | Self::Unicode => REGEXP_BACKREFERENCE_IGNORE_CASE,
+        }
+    }
+
+    /// Sorted nonidentity `(character, canonical_character)` mappings.
+    /// Legacy characters are UTF-16 units; Unicode characters are code points.
+    pub fn mappings(self) -> &'static [(u32, u32)] {
+        static LEGACY: OnceLock<Vec<(u32, u32)>> = OnceLock::new();
+        static UNICODE: OnceLock<Vec<(u32, u32)>> = OnceLock::new();
+        let mappings = match self {
+            Self::Sensitive => return &[],
+            Self::Legacy => &LEGACY,
+            Self::Unicode => &UNICODE,
+        };
+        mappings.get_or_init(|| {
+            (0..=char::MAX as u32)
+                .filter_map(|character| {
+                    let canonical = self.canonicalize(character);
+                    (canonical != character).then_some((character, canonical))
+                })
+                .collect()
+        })
+    }
+
     fn from_flags(ignore_case: bool, unicode_mode: RegExpUnicodeMode) -> Self {
         if !ignore_case {
             Self::Sensitive
@@ -2699,14 +2790,11 @@ fn case_fold_classes(folding: CaseFolding) -> &'static [Vec<u32>] {
     };
     classes.get_or_init(|| {
         let mut groups: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        for code_point in 0..=char::MAX as u32 {
-            let key = folding.canonicalize(code_point);
-            if key != code_point {
-                groups
-                    .entry(key)
-                    .or_insert_with(|| vec![key])
-                    .push(code_point);
-            }
+        for &(code_point, key) in folding.mappings() {
+            groups
+                .entry(key)
+                .or_insert_with(|| vec![key])
+                .push(code_point);
         }
         groups.into_values().collect()
     })
@@ -4861,7 +4949,11 @@ impl<'a> ProgramLowerer<'a> {
                 }
                 self.alternatives(body)
             }
-            ParsedAtom::NamedBackreference { name, offset } => {
+            ParsedAtom::NamedBackreference {
+                name,
+                offset,
+                folding,
+            } => {
                 let name_id = self
                     .named_groups
                     .iter()
@@ -4873,15 +4965,19 @@ impl<'a> ProgramLowerer<'a> {
                             format!("unknown named backreference `{name}`"),
                         )
                     })?;
-                self.push(RegExpInstruction::named_backreference(name_id as u32))
+                self.push(RegExpInstruction::named_backreference(
+                    name_id as u32,
+                    *folding,
+                ))
             }
             ParsedAtom::NumberedBackreference {
                 capture_id,
                 nullable,
+                folding,
             } => self.push(if *nullable {
-                RegExpInstruction::numbered_backreference(*capture_id)
+                RegExpInstruction::numbered_backreference(*capture_id, *folding)
             } else {
-                RegExpInstruction::nonempty_numbered_backreference(*capture_id)
+                RegExpInstruction::nonempty_numbered_backreference(*capture_id, *folding)
             }),
             ParsedAtom::Lookaround {
                 polarity,
@@ -5471,9 +5567,9 @@ mod tests {
     #[test]
     fn numbered_escape_uses_an_existing_capture_before_legacy_octal() {
         let program = compile(r"(.)\1");
-        assert!(program
-            .instructions
-            .contains(&RegExpInstruction::nonempty_numbered_backreference(1)));
+        assert!(program.instructions.contains(
+            &RegExpInstruction::nonempty_numbered_backreference(1, CaseFolding::Sensitive)
+        ));
         assert!(!program
             .instructions
             .contains(&RegExpInstruction::literal_ascii(1)));
@@ -5482,9 +5578,9 @@ mod tests {
     #[test]
     fn nonempty_capture_backreference_allows_unbounded_quantification() {
         let program = compile(r"^(a+)\1*,\1+$");
-        assert!(program
-            .instructions
-            .contains(&RegExpInstruction::nonempty_numbered_backreference(1)));
+        assert!(program.instructions.contains(
+            &RegExpInstruction::nonempty_numbered_backreference(1, CaseFolding::Sensitive)
+        ));
     }
 
     #[test]
@@ -5499,7 +5595,7 @@ mod tests {
         let forward = compile(r"\1(b)");
         assert_eq!(
             forward.instructions[0],
-            RegExpInstruction::numbered_backreference(1)
+            RegExpInstruction::numbered_backreference(1, CaseFolding::Sensitive)
         );
 
         for pattern in [
@@ -6854,7 +6950,7 @@ mod tests {
         let forward = compile(r"\k<x>(?<x>a)");
         assert_eq!(
             forward.instructions[0],
-            RegExpInstruction::named_backreference(0)
+            RegExpInstruction::named_backreference(0, CaseFolding::Sensitive)
         );
         let repeated = compile(r"(?:(?:(?<x>a)|(?<x>b)|c)\k<x>){2}");
         assert_eq!(repeated.capture_count, 2);
@@ -6915,7 +7011,7 @@ mod tests {
         assert_eq!(non_unicode.named_groups[0].name, "π");
         assert_eq!(
             non_unicode.instructions[4],
-            RegExpInstruction::named_backreference(0)
+            RegExpInstruction::named_backreference(0, CaseFolding::Sensitive)
         );
 
         let unicode_sets = RegExpProgram::compile(r"(?<\u03C0>a)\k<\u{03C0}>", "v").unwrap();

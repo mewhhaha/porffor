@@ -655,6 +655,8 @@ pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_TO_STRING_FUNCTION_ID: &str =
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_AT_FUNCTION_ID: &str = "$builtin.TypedArray.prototype.at";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_COPY_WITHIN_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.copyWithin";
+pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_FILL_FUNCTION_ID: &str =
+    "$builtin.TypedArray.prototype.fill";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_INCLUDES_FUNCTION_ID: &str =
     "$builtin.TypedArray.prototype.includes";
 pub const BUILTIN_TYPED_ARRAY_PROTOTYPE_INDEX_OF_FUNCTION_ID: &str =

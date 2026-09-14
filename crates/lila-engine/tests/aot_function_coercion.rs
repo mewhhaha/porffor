@@ -242,8 +242,83 @@ var converted = String([element, element]);
 var marker = Symbol('array element');
 element[Symbol.toPrimitive] = function() { throw marker; };
 var caught;
-try { String([element]); } catch (error) { caught = error; }
+function later() {}
+later[Symbol.toPrimitive] = function() { trace += 'later'; return 'later'; };
+try { String([element, later]); } catch (error) { caught = error; }
 converted === 'converted,converted' && trace === 'ee' && caught === marker;
+"#,
+    );
+}
+
+#[test]
+fn number_preserves_constructor_bigint_conversion_after_function_hooks() {
+    assert_function_coercion(
+        r#"
+var conversions = 0;
+function value() {}
+value[Symbol.toPrimitive] = function(hint) {
+  if (hint !== 'number' || this !== value) throw 'conversion context';
+  conversions++;
+  return 9223372036854775808n;
+};
+var constructor = Number;
+var direct = Number(value);
+var indirect = constructor(value);
+var boxed = new Number(value);
+var object = { [Symbol.toPrimitive]() { return 42n; } };
+var objectNumber = Number(object);
+var rejected = false;
+try { +value; } catch (error) { rejected = error instanceof TypeError; }
+direct === 9223372036854775808 && indirect === direct && boxed.valueOf() === direct &&
+objectNumber === 42 && rejected && conversions === 4;
+"#,
+    );
+}
+
+#[test]
+fn foreign_number_constructor_owns_generated_errors_and_preserves_hook_throws() {
+    assert_function_coercion(
+        r#"
+var other = __lilaCreateRealm().global;
+function nonprimitive() {}
+nonprimitive[Symbol.toPrimitive] = function() { return nonprimitive; };
+var rejected = 0;
+try { other.Number(nonprimitive); }
+catch (error) { if (Object.getPrototypeOf(error) === other.TypeError.prototype) rejected++; }
+try { other.Number(Symbol('number')); }
+catch (error) { if (Object.getPrototypeOf(error) === other.TypeError.prototype) rejected++; }
+var marker = Symbol('hook');
+function throwing() {}
+throwing[Symbol.toPrimitive] = function() { throw marker; };
+var caught;
+try { other.Number(throwing); } catch (error) { caught = error; }
+function bigint() {}
+bigint[Symbol.toPrimitive] = function() { return 42n; };
+rejected === 2 && caught === marker && other.Number(bigint) === 42;
+"#,
+    );
+}
+
+#[test]
+fn revoked_prototype_reads_reject_in_the_conversion_execution_realm() {
+    assert_function_coercion(
+        r#"
+var other = __lilaCreateRealm().global;
+var revoked = Proxy.revocable({}, {});
+revoked.revoke();
+function value() {}
+Object.setPrototypeOf(value, revoked.proxy);
+var object = Object.create(revoked.proxy);
+var rejected = 0;
+try { other.String.prototype.slice.call(value); }
+catch (error) { if (Object.getPrototypeOf(error) === other.TypeError.prototype) rejected++; }
+try { other.Number(value); }
+catch (error) { if (Object.getPrototypeOf(error) === other.TypeError.prototype) rejected++; }
+try { other.String.prototype.slice.call(object); }
+catch (error) { if (Object.getPrototypeOf(error) === other.TypeError.prototype) rejected++; }
+try { value[Symbol.toPrimitive]; }
+catch (error) { if (Object.getPrototypeOf(error) === TypeError.prototype) rejected++; }
+rejected === 4;
 "#,
     );
 }

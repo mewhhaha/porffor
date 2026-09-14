@@ -2425,6 +2425,7 @@ impl<'a> ScriptLowerer<'a> {
             ("keys", StandardBuiltinId::TypedArrayPrototypeKeys),
             ("entries", StandardBuiltinId::TypedArrayPrototypeEntries),
             ("toString", StandardBuiltinId::TypedArrayPrototypeToString),
+            ("fill", StandardBuiltinId::TypedArrayPrototypeFill),
             ("join", StandardBuiltinId::TypedArrayPrototypeJoin),
             ("set", StandardBuiltinId::TypedArrayPrototypeSet),
             ("reverse", StandardBuiltinId::TypedArrayPrototypeReverse),
@@ -5266,7 +5267,8 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::TypedArrayPrototypeReverse
+            StandardBuiltinId::TypedArrayPrototypeFill
+            | StandardBuiltinId::TypedArrayPrototypeReverse
             | StandardBuiltinId::TypedArrayPrototypeCopyWithin
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeSubarray

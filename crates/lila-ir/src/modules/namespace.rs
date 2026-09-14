@@ -1317,28 +1317,99 @@ mod tests {
         }
     }
 
-    /// A namespace alias is a fresh `const` in the merged scope rather than a
-    /// shared exporter cell, so two units cannot both spell one.
     #[test]
-    fn two_units_binding_the_same_namespace_local_are_reported() {
+    fn reachable_namespace_aliases_for_the_same_cell_are_coalesced() {
         let graph = linked_graph(
             &[
                 ("a", "export const value = 41;"),
-                ("b", "import * as ns from \"./a.mjs\";\nprint(ns.value);"),
-                ("c", "import * as ns from \"./a.mjs\";\nprint(ns.value);"),
+                ("b", "import * as ns from './a.mjs'; print(ns.value);"),
+                (
+                    "c",
+                    "import './b.mjs'; import * as ns from './a.mjs'; print(ns.value);",
+                ),
             ],
             vec![
                 (1, request_key("./a.mjs"), 0),
                 (2, request_key("./a.mjs"), 0),
+                (2, request_key("./b.mjs"), 1),
             ],
         );
-        let diagnostics = namespace_prelude_source(&graph).expect_err("collision must be reported");
+        assert_eq!(
+            graph.materialization_mode(1),
+            Some(ModuleMaterializationModeIr::Eager),
+            "both importers must contribute aliases"
+        );
+        let prelude = namespace_prelude_source(&graph).expect("same namespace cell is shared");
+        let namespace = MergedName::minted(0, UnitCellRole::Namespace);
+        assert_eq!(
+            prelude
+                .matches(&format!("const ns = {};", namespace.as_str()))
+                .count(),
+            1,
+            "the shared alias must be emitted once: {prelude}"
+        );
+    }
+
+    // This graph is valid ECMAScript. The current source-text linker cannot
+    // represent its distinct bindings in one merged scope, so this tests an
+    // explicit implementation limitation rather than a language rejection.
+    #[test]
+    fn merged_source_guard_reports_distinct_namespace_cells_sharing_a_local_name() {
+        let graph = linked_graph(
+            &[
+                ("a", "export const value = 41;"),
+                ("other", "export const different = 42;"),
+                ("b", "import * as ns from './a.mjs'; print(ns.value);"),
+                (
+                    "c",
+                    "import './b.mjs'; import * as ns from './other.mjs'; print(ns.different);",
+                ),
+            ],
+            vec![
+                (2, request_key("./a.mjs"), 0),
+                (3, request_key("./other.mjs"), 1),
+                (3, request_key("./b.mjs"), 2),
+            ],
+        );
+        assert_eq!(
+            graph.materialization_mode(2),
+            Some(ModuleMaterializationModeIr::Eager),
+            "the conflicting importer must be reachable"
+        );
+        let diagnostics = namespace_prelude_source(&graph)
+            .expect_err("merged scope cannot separate distinct cells");
+        assert!(diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.kind() == IrDiagnosticKind::Unsupported));
         assert!(
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("already bound by module")),
             "got {diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn unreachable_namespace_importers_do_not_contribute_aliases() {
+        let graph = linked_graph(
+            &[
+                ("a", "export const value = 41;"),
+                (
+                    "b",
+                    "import * as unreachable from './a.mjs'; print(unreachable.value);",
+                ),
+                ("c", "import * as ns from './a.mjs'; print(ns.value);"),
+            ],
+            vec![
+                (1, request_key("./a.mjs"), 0),
+                (2, request_key("./a.mjs"), 0),
+            ],
+        );
+        assert!(graph.materialization_mode(1).is_none());
+        let prelude = namespace_prelude_source(&graph).expect("only reachable aliases materialize");
+        let namespace = MergedName::minted(0, UnitCellRole::Namespace);
+        assert!(prelude.contains(&format!("const ns = {};", namespace.as_str())));
+        assert!(!prelude.contains("const unreachable ="), "got {prelude}");
     }
 
     /// A namespace alias also cannot collide with a name another unit declares

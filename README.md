@@ -108,7 +108,9 @@ and private numeric-update gaps. These counts are separate from full-suite statu
 The [completed-baseline follow-up](docs/rust-rewrite/completed-baseline-follow-up.md)
 tracks all 14,402 failures from the completed historical sweep against merged
 main. The first paired cohorts pass 119/124 executions, repairing 113 failures
-and retaining six passing controls; five compiler-size failures remain. Further
+and retaining six passing controls. The fourth checkpoint separately repairs
+all five remaining compiler-size cases and two function-coercion cases, retaining
+nine passing controls in the latter cohort. Further
 work covers namespace internal methods,
 `for-in` enumeration, pinned harness semantics, and
 [Buddhist calendar arithmetic](docs/rust-rewrite/temporal-buddhist-calendar.md).
@@ -119,6 +121,12 @@ Follow-up repairs cover observable function coercion, reverse RegExp
 backreferences and [case folding](docs/rust-rewrite/regexp-case-folding.md),
 shared dynamic property writes, cross-realm Proxy read errors, for-of head
 completion, and retained deferred-module failures.
+The next batch adds [word boundaries and reverse whitespace](crates/lila-aot-wasm/docs/regexp-word-boundary.md),
+[case-insensitive backreference comparison](crates/lila-aot-wasm/docs/regexp-backreference-folding.md),
+correct forward non-whitespace movement across UTF-16 surrogate pairs,
+[bounded numeric bitwise emission](crates/lila-aot-wasm/docs/numeric-bitwise-emission.md),
+and a dedicated [TypedArray fill operation](docs/rust-rewrite/contracts/typed-array-fill-buffer-witness.md)
+with single value conversion, ordered buffer validation and immutable-buffer rejection.
 Verification and the wider replay remain in progress; these counts do not
 update the generated full-suite conformance status.
 

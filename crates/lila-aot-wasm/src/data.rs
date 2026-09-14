@@ -8,11 +8,13 @@ use icu_normalizer::{
 use icu_properties::{props, CodePointSetData};
 use lila_ir::ArrayAccumulationElementIr;
 use lila_ir::{
-    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
-    ResumableLoopIterationEnvironmentIr, StaticRegExpCompilation, TemplateObjectIr,
-    BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
-    REALM_EVAL_SCRIPT_METHOD_NAME, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
-    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
+    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCaseFolding,
+    RegExpCompileErrorKind, RegExpProgram, ResumableLoopIterationEnvironmentIr,
+    StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REALM_EVAL_SCRIPT_METHOD_NAME,
+    REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_OPCODE_ACCEPT,
+    REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
+    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_NAMED_BACKREFERENCE,
     REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
     REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT,
@@ -463,6 +465,13 @@ enum CandidateOutcome {
     Unsupported,
 }
 
+/// Eight-byte rows contain a source code point and its canonical code point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RegExpCaseFoldingTable {
+    pub(crate) ptr: u32,
+    pub(crate) count: u32,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct StringPool {
     pub(crate) bytes: Vec<u8>,
@@ -491,6 +500,8 @@ pub(crate) struct StringPool {
     runtime_regexp_argument_literals: BTreeSet<String>,
     regexp_programs: BTreeMap<RegExpProgramStaticKey, RegExpProgramRef>,
     pending_regexp_programs: Vec<(RegExpProgramStaticKey, u32, u32, u32)>,
+    needed_regexp_case_folding: BTreeSet<RegExpCaseFolding>,
+    regexp_case_folding_tables: BTreeMap<RegExpCaseFolding, RegExpCaseFoldingTable>,
     runtime_regexp_programs: Vec<(String, String, RuntimeRegExpEntry)>,
     needs_runtime_regexp_programs: bool,
     pub(crate) runtime_regexp_program_table_ptr: u32,
@@ -1591,6 +1602,8 @@ impl StringPool {
             "TypedArray.prototype.set source is too large",
             "TypedArray.prototype.reverse requires TypedArray",
             "TypedArray.prototype.copyWithin requires TypedArray",
+            "TypedArray.prototype.fill requires TypedArray",
+            "TypedArray.prototype.fill backing buffer is immutable",
             "TypedArray.prototype.sort requires TypedArray",
             "TypedArray.prototype.toReversed requires TypedArray",
             "TypedArray.prototype.toReversed has unknown element type",
@@ -2243,6 +2256,7 @@ impl StringPool {
             pool.queue_runtime_regexp_programs();
         }
         pool.append_regexp_programs();
+        pool.append_regexp_case_folding_tables();
         if compiled_standard_builtins.iter().any(|builtin| {
             matches!(
                 builtin,
@@ -4625,6 +4639,22 @@ impl StringPool {
         for group in &program.named_groups {
             self.intern_string(&group.name);
         }
+        // The program key omits flags: identical instruction streams may be
+        // shared by legacy and Unicode regexps, which need different tables.
+        if program.instructions.iter().any(|instruction| {
+            matches!(
+                instruction.opcode,
+                REGEXP_OPCODE_NAMED_BACKREFERENCE | REGEXP_OPCODE_NUMBERED_BACKREFERENCE
+            ) && instruction.operand1 & REGEXP_BACKREFERENCE_IGNORE_CASE != 0
+        }) {
+            self.needed_regexp_case_folding.insert(
+                if program.flags.unicode_mode.is_unicode_mode() {
+                    RegExpCaseFolding::Unicode
+                } else {
+                    RegExpCaseFolding::Legacy
+                },
+            );
+        }
         let key = RegExpProgramStaticKey::from_program(program);
         if self.regexp_programs.contains_key(&key)
             || self
@@ -4830,6 +4860,35 @@ impl StringPool {
                 },
             );
         }
+    }
+
+    fn append_regexp_case_folding_tables(&mut self) {
+        for folding in self.needed_regexp_case_folding.clone() {
+            if self.regexp_case_folding_tables.contains_key(&folding) {
+                continue;
+            }
+            let mappings = folding.mappings();
+            self.align_bytes(8);
+            let ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
+            for &(source, canonical) in mappings {
+                self.bytes.extend_from_slice(&source.to_le_bytes());
+                self.bytes.extend_from_slice(&canonical.to_le_bytes());
+            }
+            self.regexp_case_folding_tables.insert(
+                folding,
+                RegExpCaseFoldingTable {
+                    ptr,
+                    count: mappings.len() as u32,
+                },
+            );
+        }
+    }
+
+    pub(crate) fn regexp_case_folding_table(
+        &self,
+        folding: RegExpCaseFolding,
+    ) -> Option<RegExpCaseFoldingTable> {
+        self.regexp_case_folding_tables.get(&folding).copied()
     }
 
     fn append_named_group_table(&mut self, named_groups: &[(String, Vec<u32>)]) -> u32 {
@@ -5183,7 +5242,7 @@ fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
                 | REGEXP_OPCODE_DOT
                 | REGEXP_OPCODE_UNICODE_PROPERTY
         ) || (instruction.opcode == REGEXP_OPCODE_NUMBERED_BACKREFERENCE
-            && instruction.operand1 != 0)
+            && instruction.operand1 & REGEXP_BACKREFERENCE_NONEMPTY != 0)
     }
 
     fn visit(pc: usize, instructions: &[lila_ir::RegExpInstruction], state: &mut [u8]) -> bool {
@@ -5527,6 +5586,122 @@ mod regexp_program_validation_tests {
         assert!(!has_non_consuming_cycle(&valid_star));
         let valid_lazy_star = RegExpProgram::compile("a*?b", "").expect("lazy star should compile");
         assert!(!has_non_consuming_cycle(&valid_lazy_star));
+    }
+
+    #[test]
+    fn word_boundaries_remain_zero_width_in_program_cycle_validation() {
+        for pattern in [r"\b", r"\B"] {
+            let mut boundary = RegExpProgram::compile(pattern, "").unwrap();
+            boundary.instructions.pop();
+            boundary.instructions.push(RegExpInstruction::jump(0));
+            assert!(has_non_consuming_cycle(&boundary), "{pattern}");
+        }
+        for pattern in [r"(?:\b)*", r"(\B)+", r"(?:(\b)|x)+"] {
+            let guarded = RegExpProgram::compile(pattern, "").unwrap();
+            assert!(!has_non_consuming_cycle(&guarded), "{pattern}");
+        }
+    }
+
+    #[test]
+    fn repeatable_split_analysis_walks_through_word_boundaries() {
+        let mut boundary = RegExpProgram::compile(r"\b", "").unwrap();
+        let assertion = boundary.instructions[0];
+        let accept = *boundary.instructions.last().unwrap();
+        boundary.instructions = vec![
+            RegExpInstruction::split(1, 3),
+            assertion,
+            RegExpInstruction::jump(0),
+            accept,
+        ];
+        assert_eq!(repeatable_split_count(&boundary), 1);
+        assert!(has_non_consuming_cycle(&boundary));
+    }
+
+    #[test]
+    fn shared_programs_collect_both_case_folding_modes_before_deduplication() {
+        let legacy = RegExpProgram::compile(r"^(.)\1$", "i").unwrap();
+        let unicode = RegExpProgram::compile(r"^(.)\1$", "ui").unwrap();
+        assert_eq!(
+            RegExpProgramStaticKey::from_program(&legacy),
+            RegExpProgramStaticKey::from_program(&unicode)
+        );
+        for append_between in [false, true] {
+            for (first, second) in [(&legacy, &unicode), (&unicode, &legacy)] {
+                let mut pool = StringPool::default();
+                pool.queue_regexp_program(first);
+                if append_between {
+                    pool.append_regexp_programs();
+                }
+                pool.queue_regexp_program(second);
+                pool.append_regexp_programs();
+                pool.append_regexp_case_folding_tables();
+                assert_eq!(
+                    pool.regexp_program(first).ptr,
+                    pool.regexp_program(second).ptr
+                );
+                assert_eq!(pool.regexp_case_folding_tables.len(), 2);
+                for folding in [RegExpCaseFolding::Legacy, RegExpCaseFolding::Unicode] {
+                    let table = pool
+                        .regexp_case_folding_table(folding)
+                        .expect("required mapping table");
+                    assert_eq!(table.ptr % 8, 0);
+                    assert_eq!(table.count as usize, folding.mappings().len());
+                    let start = (table.ptr - STATIC_DATA_OFFSET) as usize;
+                    let rows = pool.bytes[start..start + table.count as usize * 8]
+                        .chunks_exact(8)
+                        .map(|row| {
+                            (
+                                u32::from_le_bytes(row[..4].try_into().unwrap()),
+                                u32::from_le_bytes(row[4..].try_into().unwrap()),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(rows, folding.mappings());
+                }
+                let bytes = pool.bytes.clone();
+                pool.append_regexp_case_folding_tables();
+                assert_eq!(pool.bytes, bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn backreference_tables_follow_scoped_references_instead_of_global_flags() {
+        let mut sensitive = StringPool::default();
+        sensitive.queue_regexp_program(&RegExpProgram::compile(r"(a)(?-i:\1)", "i").unwrap());
+        sensitive.append_regexp_case_folding_tables();
+        assert!(sensitive.regexp_case_folding_tables.is_empty());
+        let mut scoped = StringPool::default();
+        scoped.queue_regexp_program(&RegExpProgram::compile(r"(a)(?i:\1)", "u").unwrap());
+        scoped.append_regexp_case_folding_tables();
+        assert_eq!(scoped.regexp_case_folding_tables.len(), 1);
+        assert!(scoped
+            .regexp_case_folding_table(RegExpCaseFolding::Legacy)
+            .is_none());
+        assert_eq!(
+            scoped
+                .regexp_case_folding_table(RegExpCaseFolding::Unicode)
+                .unwrap()
+                .count,
+            1512
+        );
+    }
+
+    #[test]
+    fn case_folding_bit_does_not_prove_that_a_numbered_reference_consumes() {
+        let mut nullable = program(vec![
+            RegExpInstruction::numbered_backreference(1, RegExpCaseFolding::Legacy),
+            RegExpInstruction::jump(0),
+        ]);
+        nullable.capture_count = 1;
+        assert!(has_non_consuming_cycle(&nullable));
+        nullable.instructions[0] =
+            RegExpInstruction::nonempty_numbered_backreference(1, RegExpCaseFolding::Legacy);
+        assert!(!has_non_consuming_cycle(&nullable));
+        for flags in ["i", "ui", "vi"] {
+            let guarded = RegExpProgram::compile(r"(a*)\1*", flags).unwrap();
+            assert!(!has_non_consuming_cycle(&guarded));
+        }
     }
 
     #[test]

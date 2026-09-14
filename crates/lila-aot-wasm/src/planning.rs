@@ -3641,6 +3641,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TypedArrayPrototypeToStringTagGetter
             | StandardBuiltinId::TypedArrayPrototypeToString
             | StandardBuiltinId::TypedArrayPrototypeToLocaleString
+            | StandardBuiltinId::TypedArrayPrototypeFill
             | StandardBuiltinId::TypedArrayPrototypeSubarray
             | StandardBuiltinId::TypedArrayPrototypeSlice
             | StandardBuiltinId::TypedArrayPrototypeSet
@@ -5599,7 +5600,8 @@ pub(crate) fn optimized_call_method_references_function(
         return StandardBuiltinId::ArrayPrototypeSplice.function_id() == *target;
     }
     if name == "fill" {
-        return StandardBuiltinId::ArrayPrototypeFill.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeFill.function_id() == *target
+            || StandardBuiltinId::TypedArrayPrototypeFill.function_id() == *target;
     }
     if name == "sort" {
         return StandardBuiltinId::ArrayPrototypeSort.function_id() == *target;
@@ -6892,7 +6894,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::TypedArrayPrototypeToSorted => 1,
         StandardBuiltinId::TypedArrayPrototypeWith => 2,
         StandardBuiltinId::ArrayPrototypeSplice => 2,
-        StandardBuiltinId::ArrayPrototypeFill => 1,
+        StandardBuiltinId::ArrayPrototypeFill | StandardBuiltinId::TypedArrayPrototypeFill => 1,
         StandardBuiltinId::ArrayPrototypeSort => 1,
         StandardBuiltinId::ArrayPrototypePop => 0,
         StandardBuiltinId::ArrayPrototypePush => 1,
@@ -7536,6 +7538,15 @@ pub(crate) fn host_builtin_length(builtin: HostBuiltinId) -> u64 {
 
 pub(crate) fn function_param_types() -> Vec<ValType> {
     std::iter::repeat_n(ValType::I64, JS_FUNCTION_PARAM_COUNT).collect()
+}
+
+/// A singleton Number fact only owns the payload when emission cannot obtain
+/// a different runtime tag from mutable storage, a call, or object coercion.
+pub(crate) fn expr_has_static_number_payload(expr: &TypedExpr) -> bool {
+    expr.kind == ValueKind::Number
+        && expr.possible_kinds.is_singleton()
+        && expr.possible_kinds.contains(ValueKind::Number)
+        && !expr_result_tag_is_runtime_dynamic(&expr.expr)
 }
 
 /// Returns true when payload-only emission cannot reconstruct the tag from the inferred value kind.

@@ -20,8 +20,8 @@ A compile-time Unicode-version guard protects the Rust uppercase data used by
 legacy matching. This change does not upgrade the separate ICU property data.
 
 Reverse named and numbered references share the forward comparison operation.
-The matcher chooses a preceding candidate span, compares capture text in its
-original order, then commits the span's starting cursor. A mismatch or input
+The matcher traverses capture and candidate characters in the active direction,
+then commits the candidate cursor after a complete comparison. A mismatch or input
 underflow follows ordinary backtracking without changing the authoritative
 cursor. Undefined captures match empty; Unicode matching rejects candidate
 starts inside a surrogate pair while legacy matching retains code-unit
@@ -29,7 +29,9 @@ boundaries. Decimal references consume the entire decimal escape before the
 parser decides whether legacy octal grammar applies.
 
 The focused regressions are `regexp_case_folding`, `aot_regexp_case_folding`
-and `aot_regexp_backreference`. Case-insensitive backreference comparison,
-word-boundary assertions, and UnicodeSets string folding remain separate gaps.
+and `aot_regexp_backreference`. The next checkpoint adds
+[case-insensitive backreference comparison](../../crates/lila-aot-wasm/docs/regexp-backreference-folding.md)
+and [word-boundary assertions](../../crates/lila-aot-wasm/docs/regexp-word-boundary.md).
+UnicodeSets string folding remains unfinished.
 Focused native verification and the pinned-suite replay are required before
 reporting repaired execution counts.

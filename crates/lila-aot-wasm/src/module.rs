@@ -1318,6 +1318,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TypedArrayPrototypeValues
         | StandardBuiltinId::TypedArrayPrototypeKeys
         | StandardBuiltinId::TypedArrayPrototypeEntries
+        | StandardBuiltinId::TypedArrayPrototypeFill
         | StandardBuiltinId::TypedArrayPrototypeJoin
         | StandardBuiltinId::TypedArrayPrototypeToLocaleString
         | StandardBuiltinId::TypedArrayPrototypeSubarray

@@ -58,7 +58,8 @@
 //!   per module *and phase* that writes an `import()`. The objects the
 //!   dispatchers resolve with are *not* minted here: they are the ones
 //!   `modules::namespace` already emits under
-//!   `UnitCellRole::Namespace` and `UnitCellRole::ModuleSource`, which is
+//!   `UnitCellRole::Namespace`, `UnitCellRole::DeferredNamespace` and
+//!   `UnitCellRole::ModuleSource`, which is
 //!   what makes `import("./a.mjs")` and `import * as ns from "./a.mjs"` produce
 //!   the same object (16.2.1.10 caches `[[Namespace]]` per module) and
 //!   `import.source("./a.mjs")` and `import source s from "./a.mjs"` produce the
@@ -1911,7 +1912,7 @@ mod tests {
         assert!(
             prelude.contains(&format!(
                 "if (key === \"./a.mjs\" && attributeKeys.length === 0) {{ resolve({}); return; }}",
-                MergedName::minted(0, UnitCellRole::Namespace).as_str()
+                MergedName::minted(0, UnitCellRole::DeferredNamespace).as_str()
             )),
             "defer resolves with the (deferred) namespace object, got: {prelude}"
         );
@@ -1921,6 +1922,13 @@ mod tests {
                 MergedName::minted(1, UnitCellRole::ModuleSource).as_str()
             )),
             "source resolves with the module source object, got: {prelude}"
+        );
+        assert!(
+            !prelude.contains(&format!(
+                "resolve({});",
+                MergedName::minted(0, UnitCellRole::Namespace).as_str()
+            )),
+            "defer must not resolve the eager namespace identity: {prelude}"
         );
         // One dispatcher per phase: the runtime argument is only a specifier
         // string, so the two cannot share one.

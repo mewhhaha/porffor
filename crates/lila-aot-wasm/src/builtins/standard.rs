@@ -6963,6 +6963,9 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::ArrayPrototypeSplice => {
                 self.compile_array_prototype_splice_builtin(function)?;
             }
+            StandardBuiltinId::TypedArrayPrototypeFill => {
+                self.compile_typed_array_prototype_fill_builtin(function)?;
+            }
             StandardBuiltinId::ArrayPrototypeFill => {
                 self.compile_array_prototype_fill_builtin(function)?;
             }

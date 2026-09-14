@@ -164,14 +164,14 @@ fn parser_names_every_override_and_restores_outer_state_before_propagation() {
 
 #[test]
 fn ir_encoder_and_wasm_decoder_share_the_typed_operand_codes() {
-    let encoder = bounded(IR, "fn apply_modifiers(", "fn apply_ascii_ignore_case(");
+    let encoder = bounded(IR, "fn apply_modifiers(", "fn parse_escaped_atom(");
     assert!(encoder.contains("modifiers: &Modifiers"));
     let normalized_encoder = without_whitespace(encoder);
     assert!(normalized_encoder.contains(
-        "REGEXP_OPCODE_DOT=>{instruction.operand0=modifiers.dot_all.operand_code();return;}"
+        "REGEXP_OPCODE_DOT=>{instruction.operand0=modifiers.dot_all.operand_code();returnOk(());}"
     ));
     assert!(normalized_encoder.contains(
-        "REGEXP_OPCODE_ASSERT_START|REGEXP_OPCODE_ASSERT_END=>{instruction.operand0=modifiers.multiline.operand_code();return;}"
+        "REGEXP_OPCODE_ASSERT_START|REGEXP_OPCODE_ASSERT_END=>{instruction.operand0=modifiers.multiline.operand_code();returnOk(());}"
     ));
     assert_eq!(encoder.matches(".operand_code()").count(), 2);
     for forbidden in ["None => 0", "Some(true) => 1", "Some(false) => 2"] {

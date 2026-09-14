@@ -12443,8 +12443,6 @@ impl<'a> FunctionBuilder<'a> {
         let index_local = self.reserve_temp_local();
         let number_payload_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
-        let receiver_is_typed_array_local = self.reserve_temp_local();
-        let receiver_brand_local = self.reserve_temp_local();
 
         function.instruction(&Instruction::LocalGet(this_payload_local));
         function.instruction(&Instruction::LocalSet(receiver_payload_local));
@@ -12457,27 +12455,6 @@ impl<'a> FunctionBuilder<'a> {
             receiver_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(receiver_is_typed_array_local));
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            receiver_payload_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            receiver_brand_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(receiver_brand_local));
-        function.instruction(&Instruction::I64Const(
-            OBJECT_INTERNAL_BRAND_TYPED_ARRAY as i64,
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(receiver_is_typed_array_local));
-        function.instruction(&Instruction::End);
-
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_object_read(
@@ -12605,9 +12582,6 @@ impl<'a> FunctionBuilder<'a> {
             key_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(receiver_is_typed_array_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_object_write(
             receiver_payload_local,
             receiver_tag_local,
@@ -12616,15 +12590,6 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::Else);
-        self.emit_typed_array_element_write_from_locals(
-            receiver_payload_local,
-            index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::I64Const(1));
@@ -12639,8 +12604,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(receiver_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
-        self.release_temp_local(receiver_brand_local);
-        self.release_temp_local(receiver_is_typed_array_local);
         self.release_temp_local(key_local);
         self.release_temp_local(number_payload_local);
         self.release_temp_local(index_local);

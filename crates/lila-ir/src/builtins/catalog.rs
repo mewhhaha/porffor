@@ -5921,6 +5921,13 @@ standard_builtin_catalog! {
         installer: None,
         native: "toPlainDate",
     }
+    TypedArrayPrototypeFill {
+        function: FunctionOrdinal(814) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FILL_FUNCTION_ID,
+        debug: "TypedArray.prototype.fill",
+        flags: [INDEXED_RECEIVER_MUTATION, SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "fill",
+    }
 }
 
 impl StandardBuiltinId {

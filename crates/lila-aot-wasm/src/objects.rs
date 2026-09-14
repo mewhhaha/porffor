@@ -12880,6 +12880,18 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::I32And);
             function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+            function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_proxy_execution_realm_type_error(
+                "Proxy handler is null",
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
             self.load_i64_to_local_from_offset(
                 current_local,
                 HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,

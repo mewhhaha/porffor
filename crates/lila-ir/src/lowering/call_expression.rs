@@ -64,7 +64,19 @@ impl<'a> ScriptLowerer<'a> {
                         ExprIr::Number(value.to_bits()),
                     );
                 }
-                if args.len() == 1 && self.expression_cannot_be_kind(&args[0], ValueKind::BigInt) {
+                // Number accepts a BigInt produced by ToPrimitive too. Only
+                // primitive inputs can exclude that result before conversion.
+                if args.len() == 1
+                    && [
+                        ValueKind::BigInt,
+                        ValueKind::Object,
+                        ValueKind::Array,
+                        ValueKind::Arguments,
+                        ValueKind::Function,
+                    ]
+                    .into_iter()
+                    .all(|kind| self.expression_cannot_be_kind(&args[0], kind))
+                {
                     let value = self.lower_expression(&args[0]);
                     self.record_possible_to_primitive_effects(&value.value_info());
                     return TypedExpr::spec_to_number(value);

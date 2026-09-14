@@ -307,7 +307,7 @@ fn conversion_error_realm_domains_are_closed_non_capability_authorities() {
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "ConversionErrorRealmSource"),
-        27
+        28
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "CurrentFunctionRealmPrimitiveLocals",),
@@ -338,7 +338,7 @@ fn conversion_error_realm_domains_are_closed_non_capability_authorities() {
             &source_root,
             "ConversionErrorRealmSource::CurrentExecutionContext",
         ),
-        8
+        9
     );
 
     let all_source = normalize_rust(OPERATIONS_SOURCE);
@@ -639,7 +639,11 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
             "self.emit_object_to_primitive_locals_inner(",
             "ToPrimitiveHint::String,input_payload_local,OrdinaryToPrimitiveReceiverKind::Function,",
             "payload_local,tag_local,&ConversionErrorRealmSource::CurrentExecutionContext,function,)?;",
-            "PendingToPrimitiveCompletion::new(payload_local,tag_local).emit_string_payload(self,function)?;"
+            "PendingToPrimitiveCompletion::new(payload_local,tag_local).route(",
+            "self,ToPrimitiveAbruptRoute::ReturnCurrentFunction,function,)?;",
+            "self.emit_primitive_to_string_payload_with_error_realm(",
+            "payload_local,tag_local,PrimitiveToStringAbruptRoute::ReturnCurrentFunction,",
+            "&ConversionErrorRealmSource::CurrentExecutionContext,function,)?;"
         ),
         concat!(
             "self.emit_tagged_to_primitive_locals_pending(hint,input_payload_local,",

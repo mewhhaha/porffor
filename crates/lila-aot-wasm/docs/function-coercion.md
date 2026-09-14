@@ -25,10 +25,22 @@ existing Array and Arguments branches of the tagged ToPrimitive implementation;
 it does not establish their complete coercion conformance. No helper IDs,
 operation-catalog rows, source omissions, or Test262 fingerprints change.
 
-The `aot_function_coercion` native target has ten tests, including both execution
+The `aot_function_coercion` native target has thirteen tests, including both execution
 modes of the unchanged pinned slice fixture, receiver/index coercion ordering,
 BigInt policy, ArraySetLength rechecks, IteratorClose, abrupt identity, generated
 error realms, array-element conversion, and direct intrinsic source behavior. The backend's exact Realm
 source census and helper membership assertions are updated with the implementation.
 Native execution and workspace validation are required before reporting these
 regressions as repaired.
+
+`Number(value)` retains the constructor call for every object-like input because
+its conversion hook can return a BigInt. Only an already primitive, non-BigInt
+input can lower to the stricter `ToNumber` operation. Created-realm Number
+constructors carry their own function record as execution context, so errors
+created during either conversion stage belong to that realm.
+
+Array element Function conversion routes a hook's abrupt completion before
+joining its payload into the output string. It preserves the original thrown
+tag and stops later element conversions. Prototype traversal also checks for a
+revoked Proxy before reading its handler or target, using the active conversion
+realm for the resulting TypeError.

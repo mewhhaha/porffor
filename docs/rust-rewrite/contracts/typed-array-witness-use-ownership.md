@@ -1,7 +1,7 @@
 # TypedArray witness-use ownership
 
 Status: normative for the AOT TypedArray buffer-witness use boundary.
-Current owner inventory refreshed on 2026-09-12. See the
+Current owner inventory refreshed on 2026-09-14. See the
 [codec checkpoint](../uint8array-codec-baseline-follow-up.md#verification) for current verification.
 
 ## Semantic boundary
@@ -26,7 +26,7 @@ requires an explicit validation policy and an explicit result algorithm; no
 catch-all can silently inherit the behavior of an existing consumer. View
 locals remain a separate immutable description because many algorithms
 legitimately take later live integer-index observations from the same view.
-`TypedArrayViewLocals` itself is non-`Clone` and non-`Copy`: each of its 40
+`TypedArrayViewLocals` itself is non-`Clone` and non-`Copy`: each of its 41
 producers constructs one owned five-local carrier, and every live observation
 borrows that carrier. Algorithms that require multiple observations therefore
 reuse one authority by shared borrow instead of forking independent copies of
@@ -42,20 +42,27 @@ boundary, and the borrowed-validation-before-owned-result order. A lexical
 probe prevents comments, nested comments, raw identifiers and literals from
 making the census vacuous.
 
-The current inventory contains 51 view-carrier references, 40 constructors,
-two borrowed type boundaries, and 68 witness-use references. The 51 witness
-sites comprise one definition and 50 calls. The four route counts are
-`ValidatedMethodEntry 34`, `ArrayLikeLengthSnapshot 8`,
+The current inventory contains 53 view-carrier references, 41 constructors,
+two borrowed type boundaries, and 71 witness-use references. The 53 witness
+sites comprise one definition and 52 calls. The four route counts are
+`ValidatedMethodEntry 36`, `ArrayLikeLengthSnapshot 8`,
 `IntegerIndexedProperty 13`, and `Accessor 4`; these include both exhaustive
 matches inside the witness authority.
 
 The guard attributes every reference to its exact source owner: `objects.rs`,
-`builtins/{array,atomics,binary_data,iterators,mod,object,standard,uint8array_codecs}.rs`,
+`builtins/{array,atomics,binary_data,iterators,mod,object,standard,typed_array_fill,uint8array_codecs}.rs`,
 and `builtins/array/find_via_predicate.rs`. The codec contributes one owned view,
 one validated method-entry witness, and the two corresponding imports. Its
 private-state load must precede validation, and validation must precede the
 backing-pointer load. This preserves the late buffer observation after codec
 option getters without changing the earlier immutable-receiver check.
+
+The dedicated `fill` emitter contributes one owned view, two validated
+observations and its two imports. Its second observation follows value, start
+and end conversion unconditionally, including empty ranges. See the
+[fill contract](typed-array-fill-buffer-witness.md). The updated inventory
+requires the next integration checkpoint; earlier verification below predates
+this new consumer.
 
 The witness body's current fingerprint is `(8495, 0x76179fc19b197dcd)`.
 Replacing only its named `TypedArrayLengthMode::Fixed.word()` projection with

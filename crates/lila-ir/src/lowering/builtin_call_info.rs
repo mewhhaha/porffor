@@ -1004,7 +1004,8 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeConcat
             | StandardBuiltinId::ArrayPrototypeSlice
             | StandardBuiltinId::ArrayPrototypeSplice => Some(Self::unshaped_array_result_info()),
-            StandardBuiltinId::TypedArrayPrototypeReverse
+            StandardBuiltinId::TypedArrayPrototypeFill
+            | StandardBuiltinId::TypedArrayPrototypeReverse
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeSubarray
             | StandardBuiltinId::TypedArrayPrototypeSlice

@@ -40,13 +40,25 @@ fn destructuring_assignment_heads_preserve_empty_body_completion() {
 }
 
 #[test]
-fn assignment_heads_preserve_previous_iteration_value_across_continue() {
+fn if_continue_replaces_the_previous_iteration_value_with_undefined() {
     assert_completion(
         "var value; for (value of [1, 2]) { if (value === 2) continue; 23; }",
-        "number(23)",
+        "undefined",
     );
     assert_completion(
         "var target = {}; for (target.value of [1, 2]) { if (target.value === 2) continue; 23; }",
+        "undefined",
+    );
+}
+
+#[test]
+fn statement_values_flow_into_bare_continue_completion() {
+    assert_completion(
+        "var value; for (value of [1, 2]) { 23; continue; }",
+        "number(23)",
+    );
+    assert_completion(
+        "var target = {}; for (target.value of [1, 2]) { 23; continue; }",
         "number(23)",
     );
 }
