@@ -590,6 +590,7 @@ fn object_property_preserves_caller_flow(property: &ObjectPropertyIr) -> bool {
         ObjectPropertyIr::ComputedData {
             key: _key,
             value: _value,
+            name_inference: _,
         } => false,
         ObjectPropertyIr::ComputedMethod {
             key: _key,

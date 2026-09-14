@@ -242,7 +242,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                     | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                         expr_contains_this_before_super(value, state);
                     }
-                    ObjectPropertyIr::ComputedData { key, value } => {
+                    ObjectPropertyIr::ComputedData { key, value, .. } => {
                         expr_contains_this_before_super(key, state);
                         expr_contains_this_before_super(value, state);
                     }

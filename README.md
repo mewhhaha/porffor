@@ -105,6 +105,13 @@ supported SharedArrayBuffer subclasses. The `2026-09-13` audited replay passes
 include refresh commands, source provenance and the remaining module-loading
 and private numeric-update gaps. These counts are separate from full-suite status.
 
+The [completed-baseline follow-up](docs/rust-rewrite/completed-baseline-follow-up.md)
+tracks all 14,402 failures from the completed historical sweep against merged
+main. Its first batch adds exact BigInt relational coercion, property-derived
+function names, `with` variable initialization, grammar-valid literal NULs and
+private numeric updates. Verification is in progress; these changes do not
+update the generated full-suite conformance status.
+
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
 archaeology; it is not a development surface or an oracle. The Rust workspace

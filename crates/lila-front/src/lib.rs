@@ -451,13 +451,6 @@ pub fn parse(
     options: ParseOptions,
 ) -> Result<ParsedSource, ParseError> {
     let source_text = source_text.into();
-    if source_text.contains('\0') {
-        return Err(ParseError::malformed(
-            "source contains NUL byte, front-end rejects this input",
-            first_nul_span(&source_text),
-        ));
-    }
-
     let mut interner = Interner::default();
     let scope = Scope::new_global();
     let source = if let Some(filename) = &options.filename {
@@ -523,13 +516,6 @@ fn parse_with_boundary<T>(
 enum ParsedAst {
     Script(Script),
     Module(Module),
-}
-
-fn first_nul_span(source_text: &str) -> Option<SourceSpan> {
-    source_text.find('\0').map(|start| SourceSpan {
-        start,
-        end: start + 1,
-    })
 }
 
 fn parse_error_span_from_message(source_text: &str, message: &str) -> Option<SourceSpan> {
@@ -6511,9 +6497,9 @@ mod tests {
     }
 
     #[test]
-    fn nul_byte_reports_structured_malformed_diagnostic_with_span() {
+    fn nul_outside_a_literal_or_comment_reports_a_malformed_diagnostic_with_span() {
         let err = parse("let x = 0;\0", ParseOptions::script())
-            .expect_err("NUL byte should be rejected before Boa parsing");
+            .expect_err("NUL is not a valid token between statements");
         assert_eq!(
             err.diagnostic().kind(),
             ParseDiagnosticKind::MalformedJavaScript

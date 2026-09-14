@@ -11,6 +11,7 @@ impl<'a> ScriptLowerer<'a> {
         constructor: Option<&FunctionExpression>,
         elements: &[ClassElement],
         name_binding: Option<ClassNameBindingIr>,
+        inferred_name_binding: Option<String>,
     ) -> TypedExpr {
         let entry_state = self.class_evaluation_state();
         let (heritage_prefix, heritage) = match heritage {
@@ -1441,6 +1442,7 @@ impl<'a> ScriptLowerer<'a> {
             ExprIr::ClassDefinition(Box::new(ClassDefinitionIr {
                 name: display_name.map(str::to_string),
                 name_binding,
+                inferred_name_binding,
                 constructor_function_id: constructor_id,
                 explicit_constructor: constructor.is_some(),
                 heritage_kind,

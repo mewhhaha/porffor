@@ -7735,24 +7735,79 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         self.emit_is_bigint_tag_i32(lhs_tag_local, function);
         function.instruction(&Instruction::LocalGet(rhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32And);
+        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
+        function.instruction(&Instruction::LocalGet(lhs_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        let string_payload_local = self.reserve_temp_local();
+        let parsed_payload_local = self.reserve_temp_local();
+        let parsed_tag_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(rhs_payload_local));
+        function.instruction(&Instruction::LocalGet(lhs_payload_local));
+        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+        function.instruction(&Instruction::Select);
+        function.instruction(&Instruction::LocalSet(string_payload_local));
+        self.emit_string_to_bigint_locals(
+            string_payload_local,
+            parsed_payload_local,
+            parsed_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(parsed_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        // IsLessThan's undefined result makes every relational operator false,
+        // including <= and >=; it must not be negated as an ordinary false.
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::Else);
+        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_bigint_relational_i32(
+            op,
+            lhs_payload_local,
+            lhs_tag_local,
+            parsed_payload_local,
+            parsed_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        self.emit_bigint_relational_i32(
+            op,
+            parsed_payload_local,
+            parsed_tag_local,
+            rhs_payload_local,
+            rhs_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.release_temp_local(parsed_tag_local);
+        self.release_temp_local(parsed_payload_local);
+        self.release_temp_local(string_payload_local);
+        function.instruction(&Instruction::Else);
+        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_value_to_number_payload(rhs_tag_local, rhs_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(rhs_number_local));
         self.emit_bigint_number_relational_i32(
             op,
             lhs_payload_local,
             lhs_tag_local,
-            rhs_payload_local,
+            rhs_number_local,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(lhs_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
         self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_value_to_number_payload(lhs_tag_local, lhs_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(lhs_number_local));
         let reversed_op = match op {
             RelationalBinaryOp::LessThan => RelationalBinaryOp::GreaterThan,
             RelationalBinaryOp::LessThanOrEqual => RelationalBinaryOp::GreaterThanOrEqual,
@@ -7763,7 +7818,7 @@ impl<'a> FunctionBuilder<'a> {
             reversed_op,
             rhs_payload_local,
             rhs_tag_local,
-            lhs_payload_local,
+            lhs_number_local,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -7791,6 +7846,7 @@ impl<'a> FunctionBuilder<'a> {
             RelationalBinaryOp::GreaterThan => function.instruction(&Instruction::F64Gt),
             RelationalBinaryOp::GreaterThanOrEqual => function.instruction(&Instruction::F64Ge),
         };
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);

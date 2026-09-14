@@ -547,6 +547,8 @@ impl StringPool {
         for value in [
             "",
             " ",
+            "get ",
+            "set ",
             "          ",
             "\n",
             ": ",
@@ -3752,7 +3754,7 @@ impl StringPool {
                             self.intern_string(key);
                             self.collect_expr(value);
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             self.collect_expr(key);
                             self.collect_expr(value);
                         }

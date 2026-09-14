@@ -1,10 +1,11 @@
 use super::*;
 use crate::emit::ObjectReadErrorRealmSource;
+use crate::functions::FunctionNamePrefix;
 use crate::operations::BigIntNumberPolicy;
 
 use std::marker::PhantomData;
 
-use lila_ir::ObjectMethodFunctionIr;
+use lila_ir::{ComputedPropertyNameInferenceIr, ObjectMethodFunctionIr};
 
 // The Property Descriptor lattice (ECMA-262 6.2.6). Imported here rather than
 // through the crate root's `use lila_ir::{..}` list because that list is a
@@ -140,13 +141,19 @@ mod tests {
 struct ObjectMethodHomeObjectMaterialization<'a> {
     method: &'a ObjectMethodFunctionIr,
     home_object_local: u32,
+    property_key_local: u32,
 }
 
 impl<'a> ObjectMethodHomeObjectMaterialization<'a> {
-    fn new(method: &'a ObjectMethodFunctionIr, home_object_local: u32) -> Self {
+    fn new(
+        method: &'a ObjectMethodFunctionIr,
+        home_object_local: u32,
+        property_key_local: u32,
+    ) -> Self {
         Self {
             method,
             home_object_local,
+            property_key_local,
         }
     }
 }
@@ -3811,6 +3818,25 @@ impl<'a> FunctionBuilder<'a> {
             ValueKind::Object,
             function,
         );
+        let prefix = match request.method.protocol() {
+            FunctionProtocolIr::ObjectMethod(_) => FunctionNamePrefix::None,
+            FunctionProtocolIr::ObjectGetter => FunctionNamePrefix::Getter,
+            FunctionProtocolIr::ObjectSetter => FunctionNamePrefix::Setter,
+            FunctionProtocolIr::OrdinaryCallOnly
+            | FunctionProtocolIr::OrdinaryCallAndConstruct
+            | FunctionProtocolIr::Arrow
+            | FunctionProtocolIr::Generator
+            | FunctionProtocolIr::Async
+            | FunctionProtocolIr::AsyncArrow
+            | FunctionProtocolIr::AsyncGenerator
+            | FunctionProtocolIr::ClassConstructor
+            | FunctionProtocolIr::ClassMethod(_)
+            | FunctionProtocolIr::ClassGetter
+            | FunctionProtocolIr::ClassSetter => {
+                unreachable!("object method IR owns an object method protocol")
+            }
+        };
+        self.emit_set_function_name(payload_local, request.property_key_local, prefix, function)?;
         Ok(())
     }
 
@@ -4051,12 +4077,54 @@ impl<'a> FunctionBuilder<'a> {
                 | ObjectPropertyIr::ComputedData { value, .. } => {
                     let value_payload = self.reserve_temp_local();
                     let value_tag = self.reserve_temp_local();
+                    let name_inference = match property {
+                        ObjectPropertyIr::ComputedData { name_inference, .. } => name_inference,
+                        _ => &ComputedPropertyNameInferenceIr::None,
+                    };
+                    let class_key_locals = match name_inference {
+                        ComputedPropertyNameInferenceIr::Class { key_binding } => {
+                            let payload_local = self.reserve_temp_local();
+                            let tag_local = self.reserve_temp_local();
+                            self.emit_property_key_value_payload_to_local(
+                                key_local,
+                                payload_local,
+                                function,
+                            );
+                            self.emit_property_key_tag_from_payload(key_local, tag_local, function);
+                            self.push_scope();
+                            self.binding_scopes
+                                .last_mut()
+                                .expect("class key binding owns a scope")
+                                .insert(
+                                    key_binding.clone(),
+                                    BindingStorage::Dynamic {
+                                        tag_local,
+                                        payload_local,
+                                    },
+                                );
+                            Some((payload_local, tag_local))
+                        }
+                        ComputedPropertyNameInferenceIr::None
+                        | ComputedPropertyNameInferenceIr::Function => None,
+                    };
                     self.compile_expr_to_locals(value, value_payload, value_tag, function)?;
                     self.emit_propagate_throw_from_locals_if_needed(
                         value_payload,
                         value_tag,
                         function,
                     )?;
+                    match name_inference {
+                        ComputedPropertyNameInferenceIr::Function => {
+                            self.emit_set_function_name(
+                                value_payload,
+                                key_local,
+                                FunctionNamePrefix::None,
+                                function,
+                            )?;
+                        }
+                        ComputedPropertyNameInferenceIr::None
+                        | ComputedPropertyNameInferenceIr::Class { .. } => {}
+                    }
                     self.emit_object_define_enumerable_data(
                         object_local,
                         key_local,
@@ -4064,6 +4132,11 @@ impl<'a> FunctionBuilder<'a> {
                         value_tag,
                         function,
                     )?;
+                    if let Some((payload_local, tag_local)) = class_key_locals {
+                        self.pop_scope();
+                        self.release_temp_local(tag_local);
+                        self.release_temp_local(payload_local);
+                    }
                     self.release_temp_local(value_tag);
                     self.release_temp_local(value_payload);
                 }
@@ -4076,7 +4149,7 @@ impl<'a> FunctionBuilder<'a> {
                     let value_payload = self.reserve_temp_local();
                     let value_tag = self.reserve_temp_local();
                     self.emit_object_method_value_to_locals(
-                        ObjectMethodHomeObjectMaterialization::new(method, object_local),
+                        ObjectMethodHomeObjectMaterialization::new(method, object_local, key_local),
                         value_payload,
                         value_tag,
                         function,
@@ -4098,7 +4171,7 @@ impl<'a> FunctionBuilder<'a> {
                     let getter_payload = self.reserve_temp_local();
                     let getter_tag = self.reserve_temp_local();
                     self.emit_object_method_value_to_locals(
-                        ObjectMethodHomeObjectMaterialization::new(getter, object_local),
+                        ObjectMethodHomeObjectMaterialization::new(getter, object_local, key_local),
                         getter_payload,
                         getter_tag,
                         function,
@@ -4117,7 +4190,11 @@ impl<'a> FunctionBuilder<'a> {
                         let setter_payload = self.reserve_temp_local();
                         let setter_tag = self.reserve_temp_local();
                         self.emit_object_method_value_to_locals(
-                            ObjectMethodHomeObjectMaterialization::new(setter, object_local),
+                            ObjectMethodHomeObjectMaterialization::new(
+                                setter,
+                                object_local,
+                                key_local,
+                            ),
                             setter_payload,
                             setter_tag,
                             function,
@@ -4163,7 +4240,7 @@ impl<'a> FunctionBuilder<'a> {
                     let getter_payload = self.reserve_temp_local();
                     let getter_tag = self.reserve_temp_local();
                     self.emit_object_method_value_to_locals(
-                        ObjectMethodHomeObjectMaterialization::new(getter, object_local),
+                        ObjectMethodHomeObjectMaterialization::new(getter, object_local, key_local),
                         getter_payload,
                         getter_tag,
                         function,
@@ -4196,7 +4273,7 @@ impl<'a> FunctionBuilder<'a> {
                     let setter_payload = self.reserve_temp_local();
                     let setter_tag = self.reserve_temp_local();
                     self.emit_object_method_value_to_locals(
-                        ObjectMethodHomeObjectMaterialization::new(setter, object_local),
+                        ObjectMethodHomeObjectMaterialization::new(setter, object_local, key_local),
                         setter_payload,
                         setter_tag,
                         function,
@@ -4218,7 +4295,7 @@ impl<'a> FunctionBuilder<'a> {
                     let setter_payload = self.reserve_temp_local();
                     let setter_tag = self.reserve_temp_local();
                     self.emit_object_method_value_to_locals(
-                        ObjectMethodHomeObjectMaterialization::new(setter, object_local),
+                        ObjectMethodHomeObjectMaterialization::new(setter, object_local, key_local),
                         setter_payload,
                         setter_tag,
                         function,

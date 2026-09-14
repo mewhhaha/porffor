@@ -6012,7 +6012,7 @@ impl<'a> AnalysisBuilder<'a> {
                         name: function
                             .name()
                             .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
-                            .unwrap_or_else(|| "<arrow>".to_string()),
+                            .unwrap_or_default(),
                         to_string_representation: CallableToStringRepresentation::ExactSource(
                             arrow_function_source_slice(function, source_text),
                         ),

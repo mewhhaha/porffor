@@ -152,6 +152,127 @@ mod tests {
     }
 
     #[test]
+    fn nested_object_properties_retain_values_across_function_name_materialization() {
+        run_deep_planning_test(|| {
+            let mut expression = TypedExpr::undefined();
+            const DEPTH: usize = 300;
+            for _ in 0..DEPTH {
+                expression = TypedExpr::from_info(
+                    ValueInfo::new(ValueKind::Object),
+                    ExprIr::ObjectLiteral(vec![ObjectPropertyIr::Data {
+                        key: "nested".into(),
+                        value: expression,
+                        is_shorthand: false,
+                    }]),
+                );
+            }
+            assert_eq!(count_expr_temp_locals(&expression), 64 + (DEPTH - 1) * 8);
+            assert!(count_expr_temp_locals(&expression) > 2048);
+        });
+    }
+
+    #[test]
+    fn nested_relational_comparisons_retain_operands_across_coercion_and_parsing() {
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 360;
+            let dynamic = || {
+                TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Dynamic),
+                    ExprIr::Identifier("value".to_string()),
+                )
+            };
+            let mut value = dynamic();
+            for _ in 0..DEPTH {
+                value = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::CompareValue {
+                        op: RelationalBinaryOp::LessThan,
+                        lhs: Box::new(dynamic()),
+                        rhs: Box::new(value),
+                    },
+                );
+            }
+            assert_eq!(
+                count_expr_temp_locals(&value),
+                (DEPTH - 1) * 6 + 4 + RELATIONAL_COMPARISON_TEMP_LOCALS,
+            );
+            assert!(count_expr_temp_locals(&value) > 2048);
+        });
+    }
+
+    #[test]
+    fn nested_primitive_relational_conversions_retain_the_operand_pair() {
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 1030;
+            let mut value = TypedExpr::undefined();
+            for _ in 0..DEPTH {
+                value = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Boolean),
+                    ExprIr::CompareValue {
+                        op: RelationalBinaryOp::GreaterThanOrEqual,
+                        lhs: Box::new(TypedExpr::undefined()),
+                        rhs: Box::new(value),
+                    },
+                );
+            }
+            assert_eq!(count_expr_temp_locals(&value), DEPTH * 2);
+            assert!(count_expr_temp_locals(&value) > 2048);
+        });
+    }
+
+    #[test]
+    fn nested_private_references_retain_the_base_across_children_and_brand_errors() {
+        run_deep_planning_test(|| {
+            const DEPTH: usize = 1030;
+            let script = lower_script("class Counter { #value; read() { return this.#value; } }");
+            let private_name_id = script
+                .functions
+                .iter()
+                .flat_map(|function| &function.body.statements)
+                .find_map(|statement| match statement {
+                    StatementIr::Return(TypedExpr {
+                        expr:
+                            ExprIr::PrivateRead {
+                                private_name_id, ..
+                            },
+                        ..
+                    }) => Some(*private_name_id),
+                    _ => None,
+                })
+                .expect("class lowering declares one private name");
+            let mut read = TypedExpr::undefined();
+            let mut write = TypedExpr::undefined();
+            for _ in 0..DEPTH {
+                read = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Dynamic),
+                    ExprIr::PrivateRead {
+                        target: Box::new(read),
+                        private_name_id,
+                    },
+                );
+                write = TypedExpr::from_info(
+                    lila_ir::ValueInfo::new(ValueKind::Dynamic),
+                    ExprIr::PrivateWrite {
+                        target: Box::new(TypedExpr::undefined()),
+                        private_name_id,
+                        value: Box::new(write),
+                    },
+                );
+            }
+            assert_eq!(
+                count_expr_temp_locals(&read),
+                DEPTH * 2 + PRIVATE_READ_DISPATCH_TEMP_LOCALS
+            );
+            assert_eq!(
+                count_expr_temp_locals(&write),
+                DEPTH * 2 + PRIVATE_WRITE_DISPATCH_TEMP_LOCALS
+            );
+            assert!(count_expr_temp_locals(&read) > 2048);
+            assert!(count_expr_temp_locals(&write) > 2048);
+        });
+    }
+
+    #[test]
     fn heap_bigint_literals_require_the_emitted_result_tag() {
         let literal = ExprIr::BigInt(BigIntLiteralIr::from_u64_payload(1_u64 << 63));
 
@@ -3742,7 +3863,7 @@ fn object_property_exposes_global_object(property: &ObjectPropertyIr) -> bool {
         ObjectPropertyIr::Method { .. }
         | ObjectPropertyIr::Getter { .. }
         | ObjectPropertyIr::Setter { .. } => false,
-        ObjectPropertyIr::ComputedData { key, value } => {
+        ObjectPropertyIr::ComputedData { key, value, .. } => {
             expr_exposes_global_object(key) || expr_exposes_global_object(value)
         }
         ObjectPropertyIr::ComputedMethod { key, .. }
@@ -4296,7 +4417,7 @@ fn collect_object_property_global_property_names(
         ObjectPropertyIr::Method { .. }
         | ObjectPropertyIr::Getter { .. }
         | ObjectPropertyIr::Setter { .. } => {}
-        ObjectPropertyIr::ComputedData { key, value } => {
+        ObjectPropertyIr::ComputedData { key, value, .. } => {
             collect_expr_global_property_names(key, names);
             collect_expr_global_property_names(value, names);
         }
@@ -5300,7 +5421,7 @@ pub(crate) fn object_property_references_function(
                 || *target == StandardBuiltinId::ReflectOwnKeys.function_id()
                 || *target == StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id()
         }
-        ObjectPropertyIr::ComputedData { key, value } => {
+        ObjectPropertyIr::ComputedData { key, value, .. } => {
             expr_references_function(key, target) || expr_references_function(value, target)
         }
         ObjectPropertyIr::ComputedMethod { key, function }
@@ -8214,6 +8335,15 @@ const DELETE_REFERENCE_DISPATCH_TEMP_LOCALS: usize = 14 + 3 + 4 + 3 + 12 + 6;
 // operand locals and the parsed payload/tag pair.
 const STRING_TO_BIGINT_TEMP_LOCALS: usize = 23 + 7 + 5 + 4;
 const LOOSE_EQUALITY_COMPARISON_TEMP_LOCALS: usize = 1 + 3 + 2 + STRING_TO_BIGINT_TEMP_LOCALS;
+// Relational dispatch keeps two Number scratch locals, the selected string,
+// and the parsed payload/tag pair across StringToBigInt. Its string comparison
+// and outlined ToNumber phases need fewer locals.
+const RELATIONAL_COMPARISON_TEMP_LOCALS: usize = 2 + 1 + 2 + STRING_TO_BIGINT_TEMP_LOCALS;
+// Private access retains seven read or nine write locals. Private-name
+// resolution adds its class-scope cursor while constructing a missing-name
+// TypeError; brand/member lookup and outlined accessor calls are smaller.
+const PRIVATE_READ_DISPATCH_TEMP_LOCALS: usize = 7 + 1 + COERCIVE_NUMERIC_ERROR_TEMP_LOCALS;
+const PRIVATE_WRITE_DISPATCH_TEMP_LOCALS: usize = 9 + 1 + COERCIVE_NUMERIC_ERROR_TEMP_LOCALS;
 
 fn count_loose_equality_temp_locals(lhs: &TypedExpr, rhs: &TypedExpr) -> usize {
     let primitive = lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
@@ -8328,7 +8458,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                         count_expr_temp_locals(value)
                     }
                     ObjectPropertyIr::Spread { source } => count_expr_temp_locals(source).max(40),
-                    ObjectPropertyIr::ComputedData { key, value } => {
+                    ObjectPropertyIr::ComputedData { key, value, .. } => {
                         count_expr_temp_locals(key).max(count_expr_temp_locals(value))
                     }
                     ObjectPropertyIr::ComputedMethod { key, .. }
@@ -8340,10 +8470,10 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 })
                 .max()
                 .unwrap_or(0);
-            // A named getter followed by its paired setter retains both
-            // accessor values while the second HomeObject-bearing function
-            // context is materialized.
-            child.max(13)
+            // Object, key and value locals survive child evaluation. A
+            // computed anonymous class also retains its normalized name key;
+            // methods need SetFunctionName's string and descriptor locals.
+            child.saturating_add(8).max(64)
         }
         ExprIr::ArrayLiteral(elements) => {
             let child = elements
@@ -8850,8 +8980,42 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                 child
             }
         }
+        ExprIr::CompareValue { lhs, rhs, .. } => {
+            let nonthrowing_number_primitives = KindSet::PRIMITIVE_ONLY
+                .without(ValueKind::String)
+                .without(ValueKind::BigInt)
+                .without(ValueKind::Symbol);
+            if lhs
+                .possible_kinds
+                .is_subset_of(nonthrowing_number_primitives)
+                && rhs
+                    .possible_kinds
+                    .is_subset_of(nonthrowing_number_primitives)
+            {
+                [lhs, rhs]
+                    .into_iter()
+                    .map(|operand| {
+                        let direct_number = operand.kind == ValueKind::Number
+                            && operand.possible_kinds.is_singleton()
+                            && operand.possible_kinds.contains(ValueKind::Number)
+                            && !expr_result_tag_is_runtime_dynamic(&operand.expr);
+                        usize::from(!direct_number) * 2 + count_expr_temp_locals(operand)
+                    })
+                    .max()
+                    .unwrap_or(0)
+            } else {
+                let lhs_raw =
+                    usize::from(!lhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)) * 2;
+                let rhs_raw =
+                    usize::from(!rhs.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)) * 2;
+                // Four primitive operand locals survive both children. Raw
+                // operands are released after the outlined ToPrimitive phase.
+                (4 + lhs_raw + count_expr_temp_locals(lhs))
+                    .max(4 + lhs_raw + rhs_raw + count_expr_temp_locals(rhs))
+                    .max(4 + RELATIONAL_COMPARISON_TEMP_LOCALS)
+            }
+        }
         ExprIr::CompareNumber { lhs, rhs, .. }
-        | ExprIr::CompareValue { lhs, rhs, .. }
         | ExprIr::LogicalShortCircuit { lhs, rhs, .. }
         | ExprIr::In { lhs, rhs } => count_expr_temp_locals(lhs).max(count_expr_temp_locals(rhs)),
         ExprIr::BitwiseNumeric { lhs, rhs, .. } => {
@@ -9078,7 +9242,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                         .map(count_expr_temp_locals)
                         .unwrap_or(0),
                 )
-                .max(10)
+                .max(64)
         }
         ExprIr::SuperConstruct { args } => args
             .iter()
@@ -9138,10 +9302,14 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
                     .max(SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)
                     .max(REFERENCE_STRICTNESS_FLAG_LOCALS)
         }
-        ExprIr::PrivateRead { target, .. } => count_expr_temp_locals(target).max(8),
-        ExprIr::PrivateWrite { target, value, .. } => count_expr_temp_locals(target)
-            .max(count_expr_temp_locals(value))
-            .max(10),
+        ExprIr::PrivateRead { target, .. } => {
+            2 + count_expr_temp_locals(target).max(PRIVATE_READ_DISPATCH_TEMP_LOCALS)
+        }
+        ExprIr::PrivateWrite { target, value, .. } => {
+            2 + count_expr_temp_locals(target)
+                .max(count_expr_temp_locals(value))
+                .max(PRIVATE_WRITE_DISPATCH_TEMP_LOCALS)
+        }
         ExprIr::PrivateIn { rhs, .. } => count_expr_temp_locals(rhs).max(8),
         ExprIr::Arguments => 0,
         ExprIr::Undefined

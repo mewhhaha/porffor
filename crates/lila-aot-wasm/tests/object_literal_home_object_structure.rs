@@ -334,12 +334,16 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
     for marker in [
         "method: &'a ObjectMethodFunctionIr",
         "home_object_local: u32",
-        "fn new(method: &'a ObjectMethodFunctionIr, home_object_local: u32) -> Self",
+        "property_key_local: u32",
     ] {
         assert!(request.contains(marker), "missing request marker: {marker}");
     }
     assert!(!request.contains("Clone"));
     assert!(!request.contains("Copy"));
+    let compact_request: String = request.chars().filter(|ch| !ch.is_whitespace()).collect();
+    assert!(compact_request.contains(
+        "fnnew(method:&'aObjectMethodFunctionIr,home_object_local:u32,property_key_local:u32,)->Self"
+    ));
 
     let materialize = bounded(
         OBJECTS_SOURCE,
@@ -354,6 +358,8 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
         "self.store_function_home_object(",
         "request.home_object_local",
         "ValueKind::Object",
+        "self.emit_set_function_name(",
+        "request.property_key_local",
     ] {
         assert!(
             materialize.contains(marker),
@@ -364,6 +370,11 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
         materialize,
         "self.emit_function_value_payload",
         "self.store_function_home_object",
+    );
+    assert_before(
+        materialize,
+        "self.store_function_home_object",
+        "self.emit_set_function_name",
     );
 
     let literal = bounded(
@@ -420,7 +431,7 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
         "ObjectPropertyIr::Method { .. }",
         "ObjectPropertyIr::Getter { .. }",
         "ObjectPropertyIr::Setter { .. }",
-        "child.max(13)",
+        "child.saturating_add(8).max(64)",
     ] {
         assert!(planner.contains(marker), "missing planner marker: {marker}");
     }

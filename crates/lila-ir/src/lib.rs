@@ -11311,7 +11311,7 @@ target[Symbol.iterator];"#,
                         | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             has_reference_error_throw(value)
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             has_reference_error_throw(key) || has_reference_error_throw(value)
                         }
                         ObjectPropertyIr::ComputedMethod { key, .. }

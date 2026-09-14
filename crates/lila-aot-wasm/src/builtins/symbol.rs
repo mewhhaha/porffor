@@ -100,7 +100,7 @@ impl<'a> FunctionBuilder<'a> {
     /// records (small handle, high 32 bits zero) store it in the record;
     /// well-known/registered symbols carry an interned string payload whose
     /// description is that string itself.
-    fn emit_symbol_description_to_locals(
+    pub(crate) fn emit_symbol_description_to_locals(
         &mut self,
         symbol_local: u32,
         desc_payload_local: u32,

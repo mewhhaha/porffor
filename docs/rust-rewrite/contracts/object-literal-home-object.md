@@ -101,8 +101,11 @@ target and Receiver inputs; adding the field makes the existing exhaustive
 emission arms fail to compile until they consume it.
 
 The AOT consumer must materialize an `ObjectMethodFunctionIr` through a typed,
-consuming request that pairs it with the allocated object-literal local, then
-store that object in the function context before property definition. Existing
+consuming request that pairs it with the allocated object-literal local and
+evaluated property key, then store that object in the function context and set
+the function name before property definition. The name operation and computed
+anonymous-value semantics are specified in
+[`function-name-evaluation.md`](function-name-evaluation.md). Existing
 class-member HomeObject storage and super-base loading may be generalized, but
 the object-method protocol must not masquerade as `ClassMethod` or acquire
 class-only semantics.

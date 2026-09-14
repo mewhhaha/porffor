@@ -811,6 +811,13 @@ impl ObjectMethodFunctionIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComputedPropertyNameInferenceIr {
+    None,
+    Function,
+    Class { key_binding: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectPropertyIr {
     PrototypeSetter {
         value: TypedExpr,
@@ -830,6 +837,7 @@ pub enum ObjectPropertyIr {
     ComputedData {
         key: TypedExpr,
         value: TypedExpr,
+        name_inference: ComputedPropertyNameInferenceIr,
     },
     ComputedMethod {
         key: TypedExpr,
@@ -1060,6 +1068,7 @@ impl ClassPrivateEnvironmentIr {
 pub struct ClassDefinitionIr {
     pub name: Option<String>,
     pub name_binding: Option<ClassNameBindingIr>,
+    pub inferred_name_binding: Option<String>,
     pub constructor_function_id: FunctionId,
     pub explicit_constructor: bool,
     pub heritage_kind: ClassHeritageKind,
@@ -5217,7 +5226,7 @@ impl IrSummaryCounts {
                         ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             self.visit_expr(value);
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             self.visit_expr(key);
                             self.visit_expr(value);
                         }

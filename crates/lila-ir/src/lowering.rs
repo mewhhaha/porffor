@@ -39,6 +39,7 @@ mod object_environment_logical;
 mod ordinary_property_compound;
 mod ordinary_property_logical;
 mod ordinary_property_update;
+mod private_numeric_update;
 mod promise_caller_flow;
 mod property_access;
 mod proxy_traps;
@@ -4994,6 +4995,26 @@ impl<'a> ScriptLowerer<'a> {
                     );
                     statements.push(yield_statement);
                 }
+                Binding::Identifier(identifier)
+                    if !self.with_environment_chain.is_empty() && variable.init().is_some() =>
+                {
+                    if !declarators.is_empty() {
+                        statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
+                    }
+                    let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                    if !self.borrows_direct_eval_variable_environment() {
+                        statements
+                            .push(StatementIr::Var(vec![VarDeclaratorIr { name, init: None }]));
+                    }
+                    // VariableDeclaration resolves its reference before evaluating
+                    // the initializer, just as an identifier assignment does.
+                    let initializer = self.lower_assign(
+                        AssignOp::Assign,
+                        &AssignTarget::Identifier(*identifier),
+                        variable.init().expect("guarded var initializer must exist"),
+                    );
+                    statements.push(StatementIr::DeclarationEvaluation(initializer));
+                }
                 Binding::Identifier(_) => {
                     if let Some(declarator) = self.lower_var_declarator(variable) {
                         if self.borrows_direct_eval_variable_environment() {
@@ -5037,15 +5058,15 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_var_init(&mut self, declaration: &VarDeclaration) -> Option<ForInitIr> {
-        // `for (var { x } = o; …)`. `VarDeclaratorIr` is a name/initialiser
-        // pair, so a pattern head reuses the statement lowering. The `var`
-        // names are hoisted to the enclosing function either way, so the scope
-        // the statement form opens does not hide them from the loop.
-        if declaration
-            .0
-            .as_ref()
-            .iter()
-            .any(|variable| matches!(variable.binding(), Binding::Pattern(_)))
+        // Patterns and with-environment references need the statement lowering;
+        // VarDeclaratorIr can only write directly to its declared storage. The
+        // names remain hoisted to the enclosing variable environment.
+        if !self.with_environment_chain.is_empty()
+            || declaration
+                .0
+                .as_ref()
+                .iter()
+                .any(|variable| matches!(variable.binding(), Binding::Pattern(_)))
         {
             let (statement, _) = self.lower_var_statement(declaration);
             return Some(ForInitIr::Statements(vec![statement]));
@@ -6861,14 +6882,14 @@ impl<'a> ScriptLowerer<'a> {
                 self.hoist_statement(for_of.body());
             }
             Statement::Var(var) => self.hoist_var_declaration(var),
+            Statement::With(with) => self.hoist_statement(with.statement()),
             Statement::Expression(_)
             | Statement::Empty
             | Statement::Break(_)
             | Statement::Continue(_)
             | Statement::Debugger
             | Statement::Return(_)
-            | Statement::Throw(_)
-            | Statement::With(_) => {}
+            | Statement::Throw(_) => {}
         }
     }
 
@@ -8361,6 +8382,7 @@ impl<'a> ScriptLowerer<'a> {
             class.super_ref(),
             class.constructor(),
             class.elements(),
+            None,
         );
         let mut statements = std::mem::replace(&mut self.async_expression_prefix, enclosing_prefix)
             .expect("class declaration owns its evaluation prefix");
@@ -8388,6 +8410,14 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_class_expression(&mut self, class: &ClassExpression) -> TypedExpr {
+        self.lower_class_expression_with_inferred_name(class, None)
+    }
+
+    fn lower_class_expression_with_inferred_name(
+        &mut self,
+        class: &ClassExpression,
+        inferred_name_binding: Option<String>,
+    ) -> TypedExpr {
         let name = class
             .name()
             .map(|identifier| self.interner.resolve_expect(identifier.sym()).to_string());
@@ -8402,6 +8432,7 @@ impl<'a> ScriptLowerer<'a> {
             class.super_ref(),
             class.constructor(),
             class.elements(),
+            inferred_name_binding,
         )
     }
 
@@ -8440,6 +8471,7 @@ impl<'a> ScriptLowerer<'a> {
         heritage: Option<&Expression>,
         constructor: Option<&FunctionExpression>,
         elements: &[ClassElement],
+        inferred_name_binding: Option<String>,
     ) -> TypedExpr {
         let name_binding = class_name.as_ref().map(|_| {
             let environment_id = self
@@ -8490,6 +8522,7 @@ impl<'a> ScriptLowerer<'a> {
             constructor,
             elements,
             name_binding,
+            inferred_name_binding,
         );
         if has_name_binding {
             self.pop_scope();
@@ -12035,7 +12068,9 @@ impl<'a> ScriptLowerer<'a> {
                     return self.unsupported_expr("object literal shorthand");
                 }
                 PropertyDefinition::Property(PropertyName::Computed(expr), value) => {
-                    if let Some(key) = self.try_static_ordinary_property_key(expr) {
+                    let anonymous = value.is_anonymous_function_definition();
+                    let static_key = self.try_static_ordinary_property_key(expr);
+                    if let Some(key) = static_key.as_ref().filter(|_| !anonymous) {
                         self.observe_proxy_trap_value_hint(&key, value);
                         let lowered = self.lower_expression(value);
                         Self::insert_string_keyed_shape_property(
@@ -12044,39 +12079,98 @@ impl<'a> ScriptLowerer<'a> {
                             ObjectShapeProperty::Data(lowered.value_info()),
                         );
                         properties.push(ObjectPropertyIr::Data {
-                            key,
+                            key: key.clone(),
                             value: lowered,
                             is_shorthand: false,
                         });
                         continue;
                     }
                     let well_known_key = self.try_well_known_symbol_key_name(expr);
-                    let key = self.lower_expression(expr);
+                    let mut key = match &static_key {
+                        Some(key) => TypedExpr::from_info(
+                            ValueInfo::new(ValueKind::String),
+                            ExprIr::String(key.clone()),
+                        ),
+                        None => self.lower_expression(expr),
+                    };
                     if !key
                         .possible_kinds
                         .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
                     {
                         return self.unsupported_expr("computed object key");
                     }
-                    let lowered = self.lower_expression(value);
+                    let (lowered, name_inference) = if anonymous {
+                        if let Expression::ClassExpression(class) =
+                            Self::unwrap_parenthesized_expr(value)
+                        {
+                            let suspends = self.class_evaluation_state().is_some()
+                                && (contains(value, ContainsSymbol::AwaitExpression)
+                                    || contains(value, ContainsSymbol::YieldExpression));
+                            let key_binding = if suspends {
+                                let normalized = TypedExpr::spec_to_property_key(key);
+                                let binding = self.alloc_suspension_owned_binding(
+                                    "class.inferred.name.",
+                                    normalized.value_info(),
+                                );
+                                self.async_expression_prefix
+                                    .as_mut()
+                                    .expect("suspending class owns an evaluation prefix")
+                                    .push(StatementIr::Lexical {
+                                        mode: BindingMode::Let,
+                                        name: binding.clone(),
+                                        init: normalized,
+                                    });
+                                key = self.lower_identifier_name(binding.clone(), false);
+                                binding
+                            } else {
+                                self.alloc_temp_binding_name("class.inferred.name.")
+                            };
+                            let lowered = self.lower_class_expression_with_inferred_name(
+                                class,
+                                Some(key_binding.clone()),
+                            );
+                            let inference = if suspends {
+                                ComputedPropertyNameInferenceIr::None
+                            } else {
+                                ComputedPropertyNameInferenceIr::Class { key_binding }
+                            };
+                            (lowered, inference)
+                        } else {
+                            (
+                                self.lower_expression(value),
+                                ComputedPropertyNameInferenceIr::Function,
+                            )
+                        }
+                    } else {
+                        (
+                            self.lower_expression(value),
+                            ComputedPropertyNameInferenceIr::None,
+                        )
+                    };
                     // A well-known-symbol key (`{ [Symbol.toPrimitive]: fn }`) is
                     // still a computed key at runtime, but its identity is known
                     // statically. Record it in the tracked shape — under the
                     // symbol namespace, so no string-keyed read can reach it —
                     // so ToPrimitive inference sees the hook instead of
                     // concluding the object has no hooks and always stringifies.
-                    match well_known_key {
-                        Some(symbol) => {
+                    match (static_key, well_known_key) {
+                        (Some(key), _) => Self::insert_string_keyed_shape_property(
+                            &mut shape,
+                            &key,
+                            ObjectShapeProperty::Data(lowered.value_info()),
+                        ),
+                        (None, Some(symbol)) => {
                             shape.properties.insert(
                                 shape_namespace_key(symbol),
                                 ObjectShapeProperty::Data(lowered.value_info()),
                             );
                         }
-                        None => has_unknown_key |= Self::computed_key_may_be_string(&key),
+                        (None, None) => has_unknown_key |= Self::computed_key_may_be_string(&key),
                     }
                     properties.push(ObjectPropertyIr::ComputedData {
                         key,
                         value: lowered,
+                        name_inference,
                     });
                 }
                 PropertyDefinition::SpreadObject(source) => {
@@ -16209,7 +16303,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_ordinary_property_numeric_update(op, access)
             }
             PropertyAccess::Super(access) => self.lower_super_property_numeric_update(op, access),
-            PropertyAccess::Private(_) => self.unsupported_expr("private field update target"),
+            PropertyAccess::Private(access) => self.lower_private_numeric_update(op, access),
         }
     }
 
