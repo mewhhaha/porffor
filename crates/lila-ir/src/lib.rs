@@ -3163,7 +3163,7 @@ mod tests {
         let StatementIr::Block(block) = body.as_ref() else {
             panic!("expected assignment prefix block");
         };
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     value,
@@ -3275,7 +3275,7 @@ mod tests {
             };
             assert!(matches!(
                 block.statements.first(),
-                Some(StatementIr::Expression(TypedExpr {
+                Some(StatementIr::DeclarationEvaluation(TypedExpr {
                     expr: ExprIr::PrivateWrite { .. },
                     ..
                 }))
@@ -4133,7 +4133,14 @@ with ({
         let StatementIr::Block(with_scope) = &with_block[1] else {
             panic!("with lexical block should contain its body block");
         };
-        let StatementIr::Block(with_body) = &with_scope.statements[1] else {
+        assert!(matches!(
+            &with_scope.statements[1],
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::Undefined,
+                ..
+            })
+        ));
+        let StatementIr::Block(with_body) = &with_scope.statements[2] else {
             panic!("with scope should contain its statement body");
         };
         let expr = with_body
@@ -8089,7 +8096,7 @@ target[Symbol.iterator];"#,
         ));
         assert!(matches!(
             plan.before_await(),
-            [StatementIr::Expression(TypedExpr {
+            [StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::AssignIdentifier { value, .. },
                 ..
             })] if matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name())
@@ -8122,7 +8129,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("static member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::PropertyWrite {
                 target, key, value, ..
             },
@@ -8179,7 +8186,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("computed member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::PropertyWrite {
                 target, key, value, ..
             },
@@ -8229,7 +8236,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("private member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::PrivateWrite {
                     target,
@@ -8606,7 +8613,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("assignment pattern head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
@@ -10341,7 +10348,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::AssignIdentifier { name, value },
                         ..
                     })) if name == outer_storage
@@ -10386,7 +10393,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::AssignIdentifier { name, .. },
                         ..
                     })) if name == &capture.name
@@ -10427,7 +10434,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::Comma { lhs, rhs },
                         ..
                     })) if matches!(&lhs.expr, ExprIr::Identifier(name) if name == &binding.name)

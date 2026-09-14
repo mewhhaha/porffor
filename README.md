@@ -115,6 +115,10 @@ work covers namespace internal methods,
 The next checkpoint adds general RegExp lookahead, shared With binding queries,
 distinct eager/deferred namespaces, and
 [ZonedDateTime field replacement](docs/rust-rewrite/temporal-zoned-field-replacement.md).
+Follow-up repairs cover observable function coercion, reverse RegExp
+backreferences and [case folding](docs/rust-rewrite/regexp-case-folding.md),
+shared dynamic property writes, cross-realm Proxy read errors, for-of head
+completion, and retained deferred-module failures.
 Verification and the wider replay remain in progress; these counts do not
 update the generated full-suite conformance status.
 

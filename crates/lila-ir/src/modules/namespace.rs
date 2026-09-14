@@ -553,48 +553,14 @@ fn collect_namespace_aliases(
     aliases
 }
 
-/// Merged-script text for a deferred module's body: a thunk that evaluates it
-/// once, plus the export table its namespace object reads through.
+/// Merged-script text for a deferred module's body and evaluation completion.
 ///
-/// `body` is the unit's already-stripped, already-rewritten body text, exactly
-/// what an eager unit would contribute.
-///
-/// # Why the body moves into a function
-///
-/// `import defer` needs the body to run on first touch rather than in place,
-/// and JavaScript has no way to make top-level statements lazy. A function is
-/// the only construct that both delays them and keeps them in one scope.
-///
-/// The cost is that the module's top-level bindings leave the merged scope, so
-/// a namespace getter can no longer name them. The thunk therefore publishes an
-/// export table of *accessor closures* built inside its own scope, before the
-/// body runs so that a binding still in TDZ is captured rather than read:
-///
-/// ```text
-/// function $m1$defer$evaluate() {
-///   if ($m1$defer$cells !== undefined) return $m1$defer$cells;
-///   $m1$defer$cells = { __proto__: null, ["v"]: () => v };
-///   const v = 10;
-///   return $m1$defer$cells;
-/// }
-/// ```
-///
-/// Reads stay live: the closure names the binding, it does not copy it. Keys
-/// are computed (`["v"]`) rather than literal so that an export named
-/// `__proto__` defines a property instead of setting the prototype.
-///
-/// # Deviation
-///
-/// The table is published *before* the body, so a module whose body throws
-/// leaves a table of bindings in TDZ behind: the first touch propagates the
-/// error, as the spec requires, but a second touch raises a `ReferenceError`
-/// from the TDZ instead of rethrowing the original. Storing the completion
-/// would need the body inside a `try`, which would make its `let`s and `const`s
-/// block-scoped and invisible to the table.
-///
-/// # Errors
-/// Returns the reason an export cannot be named as Script text, the same way
-/// [`namespace_object_source`] does.
+/// The body keeps its own function declaration scope, including hoisted default
+/// exports. Its private readers capture that same scope before execution starts.
+/// A separate evaluator surrounds the invocation with an exception boundary, so
+/// retaining a thrown value does not move the module's lexical declarations into
+/// a catch or try block. Reentrant evaluation returns the published readers;
+/// subsequent failed evaluations rethrow the original value, including undefined.
 pub(crate) fn deferred_body_source(
     graph: &ModuleGraphIr,
     module: ModuleUnitId,
@@ -603,6 +569,10 @@ pub(crate) fn deferred_body_source(
     let cells = MergedName::minted(module, UnitCellRole::DeferCells);
     let cells = cells.as_str();
     let evaluate = MergedName::minted(module, UnitCellRole::DeferEvaluate);
+    let execute = MergedName::minted(module, UnitCellRole::DeferExecute);
+    let state = MergedName::minted(module, UnitCellRole::DeferState);
+    let error = MergedName::minted(module, UnitCellRole::DeferError);
+    let caught = MergedName::minted(module, UnitCellRole::DeferCaughtError);
     // Never `unwrap_or_default`: an empty table would compile to a namespace
     // whose every export reads `undefined` instead of saying what went wrong.
     // `collect_observed_namespaces` always builds one for a deferred module,
@@ -616,17 +586,32 @@ pub(crate) fn deferred_body_source(
             "deferred module has no namespace object to publish its exports through".to_string()
         })?;
 
-    let mut text = String::new();
-    text.push_str("function ");
-    text.push_str(evaluate.as_str());
-    text.push_str("() {\n");
-    text.push_str("if (");
-    text.push_str(cells);
-    text.push_str(" !== undefined) return ");
-    text.push_str(cells);
-    text.push_str(";\n");
-    text.push_str(cells);
-    text.push_str(" = { __proto__: null");
+    let mut text = format!(
+        "function {evaluate}() {{\n\
+         if ({state} === {errored}) throw {error};\n\
+         if ({state} !== {unstarted}) return {cells};\n\
+         {state} = {evaluating};\n\
+         try {{\n\
+         {execute}();\n\
+         {state} = {evaluated};\n\
+         return {cells};\n\
+         }} catch ({caught}) {{\n\
+         {error} = {caught};\n\
+         {state} = {errored};\n\
+         throw {caught};\n\
+         }}\n}}\n\
+         function {execute}() {{\n\
+         {cells} = {{ __proto__: null",
+        evaluate = evaluate.as_str(),
+        execute = execute.as_str(),
+        state = state.as_str(),
+        error = error.as_str(),
+        caught = caught.as_str(),
+        unstarted = DeferredEvaluationState::Unstarted.word(),
+        evaluating = DeferredEvaluationState::Evaluating.word(),
+        evaluated = DeferredEvaluationState::Evaluated.word(),
+        errored = DeferredEvaluationState::Errored.word(),
+    );
     for export in exports {
         let reference = namespace_target_reference(&export.target).ok_or_else(|| {
             format!(
@@ -641,9 +626,7 @@ pub(crate) fn deferred_body_source(
     }
     text.push_str(" };\n");
     text.push_str(body);
-    text.push_str("\n;\nreturn ");
-    text.push_str(cells);
-    text.push_str(";\n}\n");
+    text.push_str("\n;\n}\n");
     Ok(text)
 }
 
@@ -656,9 +639,31 @@ pub(crate) fn deferred_body_source(
 #[must_use]
 pub(crate) fn deferred_cells_declaration(module: ModuleUnitId) -> String {
     format!(
-        "let {};\n",
-        MergedName::minted(module, UnitCellRole::DeferCells).as_str()
+        "let {};\nlet {} = {};\nlet {};\n",
+        MergedName::minted(module, UnitCellRole::DeferCells).as_str(),
+        MergedName::minted(module, UnitCellRole::DeferState).as_str(),
+        DeferredEvaluationState::Unstarted.word(),
+        MergedName::minted(module, UnitCellRole::DeferError).as_str(),
     )
+}
+
+#[derive(Clone, Copy)]
+enum DeferredEvaluationState {
+    Unstarted,
+    Evaluating,
+    Evaluated,
+    Errored,
+}
+
+impl DeferredEvaluationState {
+    const fn word(self) -> u8 {
+        match self {
+            Self::Unstarted => 0,
+            Self::Evaluating => 1,
+            Self::Evaluated => 2,
+            Self::Errored => 3,
+        }
+    }
 }
 
 /// Merged-script statements building one module source object, and the
@@ -1415,10 +1420,24 @@ mod tests {
 
         let cells = MergedName::minted(0, UnitCellRole::DeferCells);
         let cells = cells.as_str();
-        assert!(
-            thunk.contains(&format!("if ({cells} !== undefined) return {cells};")),
-            "got {thunk}"
-        );
+        let state = MergedName::minted(0, UnitCellRole::DeferState);
+        let error = MergedName::minted(0, UnitCellRole::DeferError);
+        let failure = thunk
+            .find(&format!(
+                "if ({} === {}) throw {};",
+                state.as_str(),
+                DeferredEvaluationState::Errored.word(),
+                error.as_str(),
+            ))
+            .expect("cached failure is rethrown before returning readers");
+        let readers = thunk
+            .find(&format!(
+                "if ({} !== {}) return {cells};",
+                state.as_str(),
+                DeferredEvaluationState::Unstarted.word(),
+            ))
+            .expect("evaluating and evaluated modules reuse their readers");
+        assert!(failure < readers, "cached errors take precedence: {thunk}");
         let table = thunk
             .find("[\"value\"]: () => value")
             .expect("export table");

@@ -2280,6 +2280,9 @@ impl StringPool {
                 StandardBuiltinId::TemporalPlainDateConstructor
                     | StandardBuiltinId::TemporalPlainDateFrom
                     | StandardBuiltinId::TemporalPlainDateCompare
+                    // Zoned field replacement shares the PlainDate field
+                    // reader and resolver, including their diagnostics.
+                    | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             ) || builtin
                 .debug_name()
                 .starts_with("Temporal.PlainDate.prototype.")
@@ -5335,6 +5338,33 @@ mod runtime_error_message_pool_tests {
                     builtin.debug_name(),
                 );
             }
+        }
+    }
+
+    #[test]
+    fn zoned_field_replacement_pools_shared_date_field_diagnostics() {
+        let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
+        let script = lower(&parsed).script.expect("empty script should lower");
+        let pool = StringPool::collect(
+            &script,
+            &BTreeMap::new(),
+            &[StandardBuiltinId::TemporalZonedDateTimePrototypeWith],
+        );
+        for message in [
+            "Temporal.PlainDate monthCode must be a string",
+            "Invalid Temporal.PlainDate monthCode",
+            "Temporal.PlainDate fields require year",
+            "Temporal.PlainDate fields require day",
+            "Temporal.PlainDate fields require month or monthCode",
+            "Temporal.PlainDate month and monthCode must agree",
+            "Temporal.PlainDate month and day must be positive",
+            "Temporal.PlainDateTime fields must be finite",
+            "Temporal.PlainDateTime month and day must be positive",
+        ] {
+            let payload = pool.payload(message) as u64;
+            let offset = (payload >> 32) as usize - STATIC_DATA_OFFSET as usize;
+            let len = (payload & 0xFFFF_FFFF) as usize;
+            assert_eq!(&pool.bytes[offset..offset + len], message.as_bytes());
         }
     }
 

@@ -132,8 +132,14 @@ mod tests {
             object_read_helpers,
             vec![
                 RuntimeHelperId::ObjectRead,
+                RuntimeHelperId::ValueToString,
+                RuntimeHelperId::ValueToNumber,
+                RuntimeHelperId::ValueToNumeric,
                 RuntimeHelperId::ObjectReadProxy,
                 RuntimeHelperId::IndexedElementRead,
+                RuntimeHelperId::ValueToPrimitiveDefault,
+                RuntimeHelperId::ValueToPrimitiveNumber,
+                RuntimeHelperId::ValueToPrimitiveString,
                 RuntimeHelperId::ObjectHasProperty,
                 RuntimeHelperId::WithEnvironmentHasBinding
             ]

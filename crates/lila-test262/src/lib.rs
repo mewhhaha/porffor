@@ -17178,7 +17178,8 @@ print('Test262:AsyncTestComplete');
             (
                 "harness/wasm-async-done-runtime-capability.js",
                 "var holder = { invoke: eval }; \
-                 var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1');",
+                 var hook = new Proxy(function() {}, {}); hook(); \
+                 holder.invoke('1/*' + Math.random() + '*/');",
                 None,
                 OutcomeKind::Bug,
                 "dynamic-source",

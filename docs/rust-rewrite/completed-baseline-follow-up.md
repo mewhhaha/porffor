@@ -107,6 +107,35 @@ be reported as current compiler failures or passes.
 
 ## Verification in progress
 
+The next repair batch replaces Function-specific string/number conversion
+bypasses with the existing ToPrimitive operation, preserving observable hooks,
+conversion order, abrupt values and the executing realm. Reverse RegExp
+backreferences use the shared matcher, and character-set compilation separates
+legacy uppercase from Unicode simple folding. See the
+[case-folding note](regexp-case-folding.md) for data provenance and remaining gaps.
+Dynamic property writes reuse the existing shared Set operation instead of
+copying array dispatch into every possible With branch. Non-callable Proxy get
+traps create errors in the current execution realm. Zoned field replacement
+includes every diagnostic required by its shared PlainDate field reader.
+For-of assignment heads preserve loop completion without discarding assignment
+errors or iterator closing. Deferred evaluation retains the original abrupt
+completion for later namespace operations, while preserving the module body's
+declaration scope; see [the lifecycle boundary](deferred-module-completion.md).
+Full module allocation, indirect import cells and asynchronous dependency
+scheduling remain unfinished.
+
+The third checkpoint's focused native tests pass all nine lookaround, seven
+Buddhist calendar, nine for-in, eight private-update and twelve With-completion
+tests. Namespace tests pass twelve of thirteen; a frozen diagnostic confirms
+the remaining test needs the Test262 host policy to create its foreign realm.
+The new With binding suite passes nine of ten, exposing the Proxy get error
+realm defect, and Zoned field replacement passes six of nine, with all three
+failures caused by missing pooled diagnostics. These causes are repaired in
+source and await the next native checkpoint. Its full frontend suite passes
+164 tests; its Test262 unit suite reports 361 passed and one stale dynamic-source
+fixture failure. The fixture now uses runtime-generated source, matching the
+existing unsupported dynamic-source tests.
+
 The first batch is frozen at `dc5180db9cd2f9fe179f219d0ce2d3fd8d2f6136`.
 Its paired replay passes all 50 initial executions: 44 Bug-to-Success repairs
 and six retained Success controls, with zero timeouts. Compiler binary SHA-256:

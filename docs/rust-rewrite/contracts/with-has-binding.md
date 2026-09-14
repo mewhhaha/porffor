@@ -28,6 +28,8 @@ participate; primitive exclusions are ignored without boxing. Every getter and
 Proxy trap can throw its original value. The helper receives the trusted caller
 realm projection in ABI slot 6 and returns the standard completion tuple.
 Normal calls preserve the caller's previous StatementList value.
+Non-callable Proxy `get` traps use that same executing-realm projection,
+including transparent nested proxies and proxies found in a prototype chain.
 
 HasBinding selects the reference before an assignment RHS or selected getter
 runs. GetBindingValue and SetMutableBinding retain their independently
@@ -41,6 +43,16 @@ fallback bindings. The emitted-body regression checks the same one-versus-ten
 probe against a 45,000-byte growth ceiling. Exact admission of the five large
 baseline With fixtures remains a native validation result, not an inference
 from this bound.
+
+Nested writes also previously expanded array index and length dispatch at
+every generic property write, even though the shared object-write helper
+already owns those semantics. The generic dynamic-key path now calls that
+helper after evaluating the key and RHS. Array setters, descriptors, length
+conversion, Arguments, typed arrays, and Proxy writes retain one dispatch
+owner. An abrupt write copies the thrown value into the expression's output
+locals before propagation. A separate nested-assignment size regression guards
+the frozen 538,272-byte growth for nine extra writes; its 180,000-byte ceiling
+does not substitute for native validation of the large baseline fixtures.
 
 Validation lives in `aot_with_has_binding.rs`, the With entry IR test, the
 existing reference-plan ordering tests, the deep temporary-local planner test,

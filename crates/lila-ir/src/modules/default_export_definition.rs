@@ -94,7 +94,7 @@ impl DefaultExportDefinitions {
         };
         let span = parsed.with_compiler_session(|module_ast, interner| {
             let binding = MergedName::anonymous_default(module);
-            let deferred = MergedName::minted(module, UnitCellRole::DeferEvaluate);
+            let deferred = MergedName::minted(module, UnitCellRole::DeferExecute);
             let mut initializer = None;
             for item in module_ast.items().items() {
                 let ModuleItem::StatementListItem(statement) = item else {

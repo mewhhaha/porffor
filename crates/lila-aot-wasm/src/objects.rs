@@ -88,8 +88,14 @@ mod tests {
             object_read_helpers,
             vec![
                 RuntimeHelperId::ObjectRead,
+                RuntimeHelperId::ValueToString,
+                RuntimeHelperId::ValueToNumber,
+                RuntimeHelperId::ValueToNumeric,
                 RuntimeHelperId::ObjectReadProxy,
                 RuntimeHelperId::IndexedElementRead,
+                RuntimeHelperId::ValueToPrimitiveDefault,
+                RuntimeHelperId::ValueToPrimitiveNumber,
+                RuntimeHelperId::ValueToPrimitiveString,
                 RuntimeHelperId::ObjectHasProperty,
                 RuntimeHelperId::WithEnvironmentHasBinding
             ]
@@ -7260,7 +7266,7 @@ impl<'a> FunctionBuilder<'a> {
     /// store and an ordinary `[[Set]]`.
     ///
     /// This is the seam; the composite it guards measures 174,558 bytes per
-    /// inline copy, across 5 call sites, all in this file. Contract on both
+    /// inline copy, across 4 call sites, all in this file. Contract on both
     /// arms matches [`Self::emit_object_write`]: on a throw the thrown value is
     /// left in the result locals with `completion == Throw` for the caller's
     /// own check, and on success the caller's result locals are preserved.
@@ -7331,7 +7337,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// The outlined-versus-inline choice itself. Private, and deliberately not
-    /// the function the 5 call sites see: everything a caller is promised that
+    /// the function the 4 call sites see: everything a caller is promised that
     /// is *not* arm-specific belongs in
     /// [`Self::emit_typed_array_or_object_index_write_from_locals`] around this.
     #[allow(clippy::too_many_arguments)]
@@ -7353,7 +7359,7 @@ impl<'a> FunctionBuilder<'a> {
         // builtin, which forwards its self-backed realm environment so that e.g.
         // ArraySetLength raises its RangeError in the right Realm.
         //
-        // No standard builtin can reach this composite: all 5 call sites are in
+        // No standard builtin can reach this composite: all 4 call sites are in
         // `compile_property_write_to_locals`, which runs only from IR lowering
         // (`FunctionBuilder::compile`, used for `script.functions`), while
         // standard builtin bodies are hand-emitted by `compile_standard_builtin`
@@ -7989,96 +7995,6 @@ impl<'a> FunctionBuilder<'a> {
                 } else {
                     let key_local = self.compile_object_key_to_local(key, function)?;
                     self.compile_expr_to_locals(value, payload_local, tag_local, function)?;
-                    let set_result_local = self.reserve_temp_local();
-                    let key_tag_local = self.reserve_temp_local();
-                    let array_index_local = self.reserve_temp_local();
-                    let array_index_found_local = self.reserve_temp_local();
-                    let length_key_local = self.reserve_temp_local();
-                    let length_success_local = self.reserve_temp_local();
-                    let length_writable_present_local = self.reserve_temp_local();
-                    let length_allow_define_local = self.reserve_temp_local();
-                    let length_initial_writable_local = self.reserve_temp_local();
-                    self.emit_property_key_tag_from_payload(key_local, key_tag_local, function);
-                    function.instruction(&Instruction::LocalGet(target_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::LocalGet(key_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_known_array_index_from_property_key(
-                        key_local,
-                        array_index_local,
-                        array_index_found_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(array_index_found_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_array_assignment_write(
-                        target_local,
-                        array_index_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-                    function.instruction(&Instruction::LocalSet(length_key_local));
-                    self.emit_string_payload_equality_i32(key_local, length_key_local, function);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(length_writable_present_local));
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalSet(length_allow_define_local));
-                    self.emit_array_length_writable_i64(
-                        target_local,
-                        length_initial_writable_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(length_initial_writable_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_array_set_length_from_value(
-                        target_local,
-                        payload_local,
-                        tag_local,
-                        length_writable_present_local,
-                        length_writable_present_local,
-                        length_allow_define_local,
-                        length_success_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(length_success_local));
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::LocalGet(length_success_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_object_write_set_failure_else(
-                        "Cannot assign to array length",
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::LocalGet(key_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_known_array_index_from_property_key(
-                        key_local,
-                        array_index_local,
-                        array_index_found_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::LocalGet(array_index_found_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::If(BlockType::Empty));
                     self.emit_object_write(
                         target_local,
                         target_tag_local,
@@ -8087,67 +8003,7 @@ impl<'a> FunctionBuilder<'a> {
                         tag_local,
                         function,
                     )?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_typed_array_or_object_index_write_from_locals(
-                        target_local,
-                        target_tag_local,
-                        array_index_local,
-                        key_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::Else);
-                    self.emit_object_write(
-                        target_local,
-                        target_tag_local,
-                        key_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::Else);
-                    function.instruction(&Instruction::I64Const(1));
-                    function.instruction(&Instruction::LocalSet(set_result_local));
-                    self.emit_array_define_named_data_descriptor(
-                        target_local,
-                        key_local,
-                        payload_local,
-                        tag_local,
-                        set_result_local,
-                        set_result_local,
-                        set_result_local,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::Else);
-                    self.emit_object_write(
-                        target_local,
-                        target_tag_local,
-                        key_local,
-                        payload_local,
-                        tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                    self.release_temp_local(length_initial_writable_local);
-                    self.release_temp_local(length_allow_define_local);
-                    self.release_temp_local(length_writable_present_local);
-                    self.release_temp_local(length_success_local);
-                    self.release_temp_local(length_key_local);
-                    self.release_temp_local(array_index_found_local);
-                    self.release_temp_local(array_index_local);
-                    self.release_temp_local(key_tag_local);
-                    self.release_temp_local(set_result_local);
+                    self.emit_cohome_thrown_value_into_locals(payload_local, tag_local, function);
                     self.release_temp_local(key_local);
                 }
             }
@@ -9708,8 +9564,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_proxy_execution_realm_type_error(
             "Proxy get trap is not callable",
             self.result_local,
             self.result_tag_local,
@@ -9737,8 +9592,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_proxy_execution_realm_type_error(
             "Proxy get trap is not callable",
             self.result_local,
             self.result_tag_local,
@@ -13090,8 +12944,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I32Or);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
+            self.emit_proxy_execution_realm_type_error(
                 "Proxy get trap is not callable",
                 self.result_local,
                 self.result_tag_local,

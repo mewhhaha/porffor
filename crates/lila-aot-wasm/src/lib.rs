@@ -6043,6 +6043,43 @@ object[key];
     }
 
     #[test]
+    fn nested_with_writes_share_dynamic_property_set_dispatch() {
+        let emit_writes = |count| {
+            let writes = "destination = selected;".repeat(count);
+            emit_script(&format!(
+                "function probe(outer, inner, destination, selected) {{ \
+                 with (outer) {{ with (inner) {{ {writes} }} }} }} \
+                 probe({{}}, {{}}, 0, 1);"
+            ))
+            .expect("nested With assignments should emit")
+        };
+        let single = emit_writes(1);
+        let repeated = emit_writes(10);
+        expect_valid_module(&single, 1);
+        expect_valid_module(&repeated, 1);
+        let largest_probe = |artifact: &WasmArtifact| {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::probe#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("the probe body must be emitted")
+        };
+        let single_bytes = largest_probe(&single);
+        let repeated_bytes = largest_probe(&repeated);
+        let growth = repeated_bytes
+            .checked_sub(single_bytes)
+            .expect("additional observable assignments must not shrink the body");
+        // The frozen baseline added 538,272 bytes by copying array dispatch
+        // into each possible SetMutableBinding branch.
+        assert!(
+            growth < 180_000,
+            "nine nested With assignments added {growth} bytes ({single_bytes} -> {repeated_bytes})"
+        );
+    }
+
+    #[test]
     fn statically_nullish_computed_property_read_emits_after_throw_path() {
         let artifact = emit_script(
             r#"

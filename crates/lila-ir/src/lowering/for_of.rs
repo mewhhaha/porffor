@@ -498,14 +498,14 @@ impl<'a> ScriptLowerer<'a> {
             } else {
                 self.lower_located_identifier_assign_value(source_name.clone(), value, reference)
             };
-            vec![StatementIr::Expression(assignment)]
+            vec![StatementIr::DeclarationEvaluation(assignment)]
         } else if let Some(access) = access_initializer.as_ref() {
             let value = TypedExpr::from_info(
                 element_info.clone(),
                 ExprIr::Identifier(storage_name.clone()),
             );
             let access = access.clone();
-            vec![StatementIr::Expression(
+            vec![StatementIr::DeclarationEvaluation(
                 self.lower_property_assign_value(&access, value),
             )]
         } else if let Some(pattern) = assignment_pattern_initializer.as_ref() {
@@ -517,7 +517,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.pop_scope();
                 return ForOfLoweringIr::no_iteration();
             };
-            vec![StatementIr::Expression(assign)]
+            vec![StatementIr::DeclarationEvaluation(assign)]
         } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
             let init = TypedExpr::from_info(
                 element_info.clone(),

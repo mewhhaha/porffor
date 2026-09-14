@@ -158,6 +158,8 @@ The major interpreter is the "classical backtracking" which uses an explicit bac
 extern crate alloc;
 
 pub use crate::api::*;
+/// Unicode simple case folding, using the bundled Unicode 17 C/S mappings.
+pub use crate::unicode::fold as unicode_simple_case_fold;
 pub use crate::unicodetables::{
     UnicodeStringProperty, unicode_string_property_from_str,
     unicode_string_property_sequences,

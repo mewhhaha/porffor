@@ -30,9 +30,7 @@ fn date_time_field_read_mode_expresses_the_zoned_offset_destination() {
         [
             "Conversion,",
             "With,",
-            "ZonedWith {",
-            "offset_nanoseconds_local: u32,",
-            "},"
+            "ZonedWith { offset_nanoseconds_local: u32 },"
         ]
     );
     assert!(!declaration.contains(": bool"));

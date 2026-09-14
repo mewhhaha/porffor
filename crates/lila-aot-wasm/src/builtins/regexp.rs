@@ -135,6 +135,9 @@ impl<'a> FunctionBuilder<'a> {
         let compare_on_low_surrogate = self.reserve_temp_local();
         let capture_unit = self.reserve_temp_local();
         let compare_unit = self.reserve_temp_local();
+        let backreference_start_byte = self.reserve_temp_local();
+        let backreference_start_utf16 = self.reserve_temp_local();
+        let backreference_start_on_low_surrogate = self.reserve_temp_local();
         let reverse_mode = self.reserve_temp_local();
         let lookaround_frame_depth = self.reserve_temp_local();
         let previous_byte = self.reserve_temp_local();
@@ -1397,38 +1400,19 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        self.emit_load_string_byte(input_offset, capture_byte, byte, &mut function);
-        self.emit_decode_utf8_scalar_at_index(
+        self.emit_regexp_read_utf16_unit(
             input_offset,
-            capture_byte,
             input_len,
+            capture_byte,
+            capture_utf16,
+            capture_on_low_surrogate,
+            capture_unit,
             byte,
             codepoint,
             byte_advance,
             decode_temp,
             &mut function,
         );
-        function.instruction(&Instruction::LocalGet(capture_on_low_surrogate));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(capture_on_low_surrogate));
-        function.instruction(&Instruction::Else);
-        self.emit_increment_by_local(capture_byte, byte_advance, &mut function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        self.emit_increment_by_local(capture_byte, byte_advance, &mut function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(capture_on_low_surrogate));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(capture_utf16));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capture_utf16));
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -1438,63 +1422,108 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(compare_utf16));
         function.instruction(&Instruction::LocalGet(match_on_low_surrogate));
         function.instruction(&Instruction::LocalSet(compare_on_low_surrogate));
+        function.instruction(&Instruction::LocalGet(reverse_mode));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // Reverse matching compares the same captured sequence against the
+        // span ending at the current cursor, then continues at its start.
+        function.instruction(&Instruction::LocalGet(named_capture_end));
+        function.instruction(&Instruction::LocalGet(capture_start));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalGet(match_utf16));
+        function.instruction(&Instruction::I64GtU);
+        self.emit_regexp_backtrack_or_fail(
+            2,
+            choice_depth,
+            choice_address,
+            match_byte,
+            match_utf16,
+            pc,
+            match_on_low_surrogate,
+            capture_count,
+            frame_width,
+            capture_index,
+            capture_address,
+            &mut function,
+        );
+        function.instruction(&Instruction::LocalGet(match_utf16));
+        function.instruction(&Instruction::LocalGet(named_capture_end));
+        function.instruction(&Instruction::LocalGet(capture_start));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(backreference_start_utf16));
+        for local in [compare_byte, compare_utf16, compare_on_low_surrogate] {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(local));
+        }
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(capture_utf16));
-        function.instruction(&Instruction::LocalGet(named_capture_end));
+        function.instruction(&Instruction::LocalGet(compare_utf16));
+        function.instruction(&Instruction::LocalGet(backreference_start_utf16));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        // Decode and advance the capture cursor, retaining its current UTF-16 unit.
-        self.emit_load_string_byte(input_offset, capture_byte, byte, &mut function);
-        self.emit_decode_utf8_scalar_at_index(
+        self.emit_regexp_read_utf16_unit(
             input_offset,
-            capture_byte,
             input_len,
+            compare_byte,
+            compare_utf16,
+            compare_on_low_surrogate,
+            compare_unit,
             byte,
             codepoint,
             byte_advance,
             decode_temp,
             &mut function,
         );
-        function.instruction(&Instruction::LocalGet(capture_on_low_surrogate));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(0xd800));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capture_unit));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(capture_on_low_surrogate));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::LocalSet(capture_unit));
-        self.emit_increment_by_local(capture_byte, byte_advance, &mut function);
+        function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(0x3ff));
+        function.instruction(&Instruction::End);
+        // A Unicode-mode backreference cannot begin at the trailing half of
+        // an astral scalar. Legacy matching can begin at either code unit.
+        function.instruction(&Instruction::LocalGet(unicode));
+        function.instruction(&Instruction::LocalGet(compare_on_low_surrogate));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0xdc00));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capture_unit));
-        self.emit_increment_by_local(capture_byte, byte_advance, &mut function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(capture_on_low_surrogate));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        self.emit_regexp_backtrack_or_fail(
+            2,
+            choice_depth,
+            choice_address,
+            match_byte,
+            match_utf16,
+            pc,
+            match_on_low_surrogate,
+            capture_count,
+            frame_width,
+            capture_index,
+            capture_address,
+            &mut function,
+        );
+        function.instruction(&Instruction::LocalGet(compare_byte));
+        function.instruction(&Instruction::LocalSet(backreference_start_byte));
+        function.instruction(&Instruction::LocalGet(compare_on_low_surrogate));
+        function.instruction(&Instruction::LocalSet(backreference_start_on_low_surrogate));
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(capture_utf16));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(capture_utf16));
+        function.instruction(&Instruction::LocalGet(named_capture_end));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        self.emit_regexp_read_utf16_unit(
+            input_offset,
+            input_len,
+            capture_byte,
+            capture_utf16,
+            capture_on_low_surrogate,
+            capture_unit,
+            byte,
+            codepoint,
+            byte_advance,
+            decode_temp,
+            &mut function,
+        );
         function.instruction(&Instruction::LocalGet(compare_byte));
         function.instruction(&Instruction::LocalGet(input_len));
         function.instruction(&Instruction::I64GeU);
@@ -1512,56 +1541,19 @@ impl<'a> FunctionBuilder<'a> {
             capture_address,
             &mut function,
         );
-        self.emit_load_string_byte(input_offset, compare_byte, byte, &mut function);
-        self.emit_decode_utf8_scalar_at_index(
+        self.emit_regexp_read_utf16_unit(
             input_offset,
-            compare_byte,
             input_len,
+            compare_byte,
+            compare_utf16,
+            compare_on_low_surrogate,
+            compare_unit,
             byte,
             codepoint,
             byte_advance,
             decode_temp,
             &mut function,
         );
-        function.instruction(&Instruction::LocalGet(compare_on_low_surrogate));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(10));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(0xd800));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(compare_unit));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(compare_on_low_surrogate));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::LocalSet(compare_unit));
-        self.emit_increment_by_local(compare_byte, byte_advance, &mut function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(codepoint));
-        function.instruction(&Instruction::I64Const(0x10000));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(0x3ff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Const(0xdc00));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(compare_unit));
-        self.emit_increment_by_local(compare_byte, byte_advance, &mut function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(compare_on_low_surrogate));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(compare_utf16));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(compare_utf16));
         function.instruction(&Instruction::LocalGet(capture_unit));
         function.instruction(&Instruction::LocalGet(compare_unit));
         function.instruction(&Instruction::I64Ne);
@@ -1582,12 +1574,23 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(reverse_mode));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(compare_byte));
         function.instruction(&Instruction::LocalSet(match_byte));
         function.instruction(&Instruction::LocalGet(compare_utf16));
         function.instruction(&Instruction::LocalSet(match_utf16));
         function.instruction(&Instruction::LocalGet(compare_on_low_surrogate));
         function.instruction(&Instruction::LocalSet(match_on_low_surrogate));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(backreference_start_byte));
+        function.instruction(&Instruction::LocalSet(match_byte));
+        function.instruction(&Instruction::LocalGet(backreference_start_utf16));
+        function.instruction(&Instruction::LocalSet(match_utf16));
+        function.instruction(&Instruction::LocalGet(backreference_start_on_low_surrogate));
+        function.instruction(&Instruction::LocalSet(match_on_low_surrogate));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(pc));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
@@ -3294,6 +3297,73 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_regexp_read_utf16_unit(
+        &mut self,
+        input_offset: u32,
+        input_len: u32,
+        cursor_byte: u32,
+        cursor_utf16: u32,
+        cursor_on_low_surrogate: u32,
+        unit: u32,
+        byte: u32,
+        codepoint: u32,
+        byte_advance: u32,
+        decode_temp: u32,
+        function: &mut Function,
+    ) {
+        self.emit_load_string_byte(input_offset, cursor_byte, byte, function);
+        self.emit_decode_utf8_scalar_at_index(
+            input_offset,
+            cursor_byte,
+            input_len,
+            byte,
+            codepoint,
+            byte_advance,
+            decode_temp,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(cursor_on_low_surrogate));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(codepoint));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(codepoint));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I64Const(0xd800));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(unit));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(cursor_on_low_surrogate));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(codepoint));
+        function.instruction(&Instruction::LocalSet(unit));
+        self.emit_increment_by_local(cursor_byte, byte_advance, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(codepoint));
+        function.instruction(&Instruction::I64Const(0x10000));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(0x3ff));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0xdc00));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(unit));
+        self.emit_increment_by_local(cursor_byte, byte_advance, function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(cursor_on_low_surrogate));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(cursor_utf16));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(cursor_utf16));
     }
 
     #[allow(clippy::too_many_arguments)]

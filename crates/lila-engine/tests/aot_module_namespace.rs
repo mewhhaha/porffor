@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lila_engine::{
-    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, ObservedCompletion, RealmBuilder,
-    RunOptions,
+    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
+    ObservedCompletion, RealmBuilder, RunOptions,
 };
 
 struct NamespaceModules(PathBuf);
@@ -32,6 +32,7 @@ fn assert_namespace_modules(files: &[(&str, &str)], expected: &[&str]) {
             CompileOptions {
                 filename: Some(fixture.0.join(files[0].0).to_str().unwrap().into()),
                 module_root: Some(fixture.0.to_str().unwrap().into()),
+                host_surface_policy: HostSurfacePolicy::Test262,
                 ..CompileOptions::default()
             },
             RunOptions {
@@ -511,5 +512,139 @@ export {forwarded};
             ),
         ],
         &["7"],
+    );
+}
+
+#[test]
+fn deferred_evaluation_rethrows_the_original_completion_for_every_later_access() {
+    for thrown in ["undefined", "null", "false", "0", "Symbol('failure')", "{}"] {
+        let entry = format!(
+            r###"import defer * as ns from './dep.mjs';
+globalThis.deferredFailure = {thrown};
+globalThis.deferredRuns = 0;
+const operations = [
+  () => ns.value,
+  () => Object.getOwnPropertyDescriptor(ns, 'value'),
+  () => Object.getOwnPropertyNames(ns),
+  () => Reflect.has(ns, 'value'),
+  () => Reflect.ownKeys(ns),
+  () => ns.absent
+];
+for (const operation of operations) {{
+  let caught = false;
+  try {{ operation(); }} catch (error) {{
+    caught = true;
+    if (error !== globalThis.deferredFailure) throw 'lost module failure';
+  }}
+  if (!caught) throw 'lost abrupt completion';
+}}
+if (globalThis.deferredRuns !== 1) throw 'repeated failed evaluation';
+if (ns[Symbol.toStringTag] !== 'Deferred Module' || ns.then !== undefined)
+  throw 'non-evaluating namespace reads';
+print('original failure retained');
+"###,
+        );
+        assert_namespace_modules(
+            &[
+                ("entry.mjs", &entry),
+                (
+                    "dep.mjs",
+                    "globalThis.deferredRuns++; export const value = 42; throw globalThis.deferredFailure;",
+                ),
+            ],
+            &["original failure retained"],
+        );
+    }
+}
+
+#[test]
+fn reentrant_deferred_evaluation_reuses_readers_without_caching_a_caught_tdz() {
+    assert_namespace_modules(
+        &[
+            (
+                "entry.mjs",
+                r###"import defer * as ns from './dep.mjs';
+globalThis.deferredRuns = 0;
+globalThis.inspectDeferred = function () {
+  if (Object.getOwnPropertyNames(ns).join('|') !== 'before|later') throw 'reentrant keys';
+  if (ns.before() !== 'hoisted') throw 'reentrant function declaration';
+  let caught;
+  try { ns.later; } catch (error) { caught = error; }
+  if (!(caught instanceof ReferenceError)) throw 'reentrant lexical TDZ';
+};
+if (ns.later !== 42 || ns.later !== 42 || globalThis.deferredRuns !== 1)
+  throw 'successful evaluation was not cached';
+print('reentrant readers and declaration scope');
+"###,
+            ),
+            (
+                "dep.mjs",
+                "globalThis.deferredRuns++; globalThis.inspectDeferred(); export function before() { return 'hoisted'; } export const later = 42;",
+            ),
+        ],
+        &["reentrant readers and declaration scope"],
+    );
+}
+
+#[test]
+fn deferred_default_definitions_retain_their_names_sources_and_module_bindings() {
+    assert_namespace_modules(
+        &[
+            (
+                "entry.mjs",
+                r###"import defer * as callable from './callable.mjs';
+import defer * as constructible from './constructible.mjs';
+if (callable.default.name !== 'default' || callable.default() !== 42 ||
+    callable.default.toString() !== 'function () { return captured; }')
+  throw 'deferred anonymous function definition';
+if (constructible.default.name !== 'default' || new constructible.default().value !== 43 ||
+    constructible.default.toString() !== 'class { constructor() { this.value = captured; } }')
+  throw 'deferred anonymous class definition';
+print('deferred default definitions');
+"###,
+            ),
+            (
+                "callable.mjs",
+                "export default function () { return captured; } const captured = 42;",
+            ),
+            (
+                "constructible.mjs",
+                "export default class { constructor() { this.value = captured; } } const captured = 43;",
+            ),
+        ],
+        &["deferred default definitions"],
+    );
+}
+
+#[test]
+fn successful_deferred_evaluation_does_not_cache_later_user_getter_errors() {
+    assert_namespace_modules(
+        &[
+            (
+                "entry.mjs",
+                r###"import defer * as ns from './dep.mjs';
+globalThis.deferredRuns = 0;
+globalThis.deferredGetterRuns = 0;
+const first = {};
+const second = {};
+for (const marker of [first, second]) {
+  globalThis.deferredGetterFailure = marker;
+  let caught;
+  try { ns.value.failure; } catch (error) { caught = error; }
+  if (caught !== marker) throw 'getter completion identity';
+}
+if (globalThis.deferredRuns !== 1 || globalThis.deferredGetterRuns !== 2)
+  throw 'evaluation and getter lifecycles';
+if (Object.getOwnPropertyDescriptor(ns, 'value').value !== ns.value)
+  throw 'successful module poisoned by getter error';
+print('getter failures do not change module evaluation');
+"###,
+            ),
+            (
+                "dep.mjs",
+                "globalThis.deferredRuns++; export const value = { get failure() { globalThis.deferredGetterRuns++; throw globalThis.deferredGetterFailure; } };",
+            ),
+        ],
+        &["getter failures do not change module evaluation"],
     );
 }

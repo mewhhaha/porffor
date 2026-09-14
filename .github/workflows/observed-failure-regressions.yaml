@@ -91,7 +91,7 @@ jobs:
         run: |
           cargo test --locked -p lila-front --test nul_source
           cargo test --locked -p lila-ir --test function_names --test with_var_hoisting --test with_has_binding --test private_numeric_update
-          cargo test --locked -p lila-ir --test for_in_enumeration --test module_namespace_construction --test regexp_lookbehind_anchors --test regexp_lookaround --test regexp_lookbehind_polarity --test regexp_lookbehind_polarity_structure
+          cargo test --locked -p lila-ir --test for_in_enumeration --test module_namespace_construction --test regexp_lookbehind_anchors --test regexp_lookaround --test regexp_lookbehind_polarity --test regexp_lookbehind_polarity_structure --test regexp_case_folding
           cargo test --locked -p lila-aot-wasm --test object_literal_home_object_structure
           cargo test --locked -p lila-aot-wasm --test with_environment_identifier_call_structure --test regexp_modifier_override_structure --test temporal_plain_date_time_field_read_mode_structure --test temporal_plain_date_time_component_structure --test temporal_zoned_date_time_difference_defaults_structure
 
@@ -99,10 +99,13 @@ jobs:
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
           --test aot_bigint_relational_coercion --test aot_function_names
+          --test aot_function_coercion
           --test aot_with_var_hoisting --test aot_with_has_binding --test aot_nul_source
           --test aot_private_numeric_updates
           --test aot_for_in_enumeration --test aot_module_namespace
+          --test aot_for_of_head_completion
           --test aot_regexp_lookbehind_anchors --test aot_regexp_lookaround --test aot_temporal_buddhist_calendar
+          --test aot_regexp_backreference --test aot_regexp_case_folding
           --test aot_temporal_zoned_with
           -- --test-threads=1
 

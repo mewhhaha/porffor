@@ -135,7 +135,12 @@ fn initial_and_helper_body_sources_project_exhaustively() {
         (
             "Self::ObjectReadHelperArgument",
             concat!(
-                "RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|RuntimeHelperId::IndexedElementRead|RuntimeHelperId::ObjectHasProperty=>",
+                "RuntimeHelperId::ObjectRead|RuntimeHelperId::ObjectReadProxy|",
+                "RuntimeHelperId::IndexedElementRead|RuntimeHelperId::ObjectHasProperty|",
+                "RuntimeHelperId::WithEnvironmentHasBinding|RuntimeHelperId::ValueToString|",
+                "RuntimeHelperId::ValueToNumber|RuntimeHelperId::ValueToNumeric|",
+                "RuntimeHelperId::ValueToPrimitiveDefault|RuntimeHelperId::ValueToPrimitiveNumber|",
+                "RuntimeHelperId::ValueToPrimitiveString=>",
             ),
         ),
         (

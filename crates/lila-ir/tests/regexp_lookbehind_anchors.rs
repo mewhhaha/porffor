@@ -20,12 +20,8 @@ fn lookbehind_accepts_start_and_end_assertions_in_either_polarity() {
 }
 
 #[test]
-fn lookbehind_anchor_admission_preserves_other_capability_rejections() {
-    for pattern in [r"(?<=(?<=a)b)c", r"(a)(?<=\1)b"] {
-        let error = RegExpProgram::compile(pattern, "").expect_err(pattern);
-        assert!(
-            error.to_string().contains("unsupported matcher atom"),
-            "{error}"
-        );
+fn lookbehind_accepts_nested_assertions_and_backreferences() {
+    for pattern in [r"(?<=(?<=a)b)c", r"(a)(?<=\1)b", r"(?<=\k<x>(?<x>a))b"] {
+        RegExpProgram::compile(pattern, "").expect(pattern);
     }
 }

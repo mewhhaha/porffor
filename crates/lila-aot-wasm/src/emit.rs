@@ -356,7 +356,13 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::IndexedElementRead
             | RuntimeHelperId::ObjectHasProperty
-            | RuntimeHelperId::WithEnvironmentHasBinding => Self::ObjectReadHelperArgument,
+            | RuntimeHelperId::WithEnvironmentHasBinding
+            | RuntimeHelperId::ValueToString
+            | RuntimeHelperId::ValueToNumber
+            | RuntimeHelperId::ValueToNumeric
+            | RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -371,9 +377,6 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::StringEquality
             | RuntimeHelperId::NumberToString
             | RuntimeHelperId::StringToNumber
-            | RuntimeHelperId::ValueToString
-            | RuntimeHelperId::ValueToNumber
-            | RuntimeHelperId::ValueToNumeric
             | RuntimeHelperId::ObjectGetPrototypeOf
             | RuntimeHelperId::ObjectIsExtensible
             | RuntimeHelperId::ObjectPreventExtensions
@@ -390,9 +393,6 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::IndexedElementWrite
-            | RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::JsonStringifyValue => Self::MainRealmFallback,
         }
@@ -503,7 +503,13 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::IndexedElementRead
             | RuntimeHelperId::ObjectHasProperty
-            | RuntimeHelperId::WithEnvironmentHasBinding => Self::ObjectReadHelperArgument,
+            | RuntimeHelperId::WithEnvironmentHasBinding
+            | RuntimeHelperId::ValueToString
+            | RuntimeHelperId::ValueToNumber
+            | RuntimeHelperId::ValueToNumeric
+            | RuntimeHelperId::ValueToPrimitiveDefault
+            | RuntimeHelperId::ValueToPrimitiveNumber
+            | RuntimeHelperId::ValueToPrimitiveString => Self::ObjectReadHelperArgument,
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
@@ -518,9 +524,6 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::StringEquality
             | RuntimeHelperId::NumberToString
             | RuntimeHelperId::StringToNumber
-            | RuntimeHelperId::ValueToString
-            | RuntimeHelperId::ValueToNumber
-            | RuntimeHelperId::ValueToNumeric
             | RuntimeHelperId::ObjectGetPrototypeOf
             | RuntimeHelperId::ObjectIsExtensible
             | RuntimeHelperId::ObjectPreventExtensions
@@ -537,9 +540,6 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::TemporalCalendarIsoDateProbe
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::IndexedElementWrite
-            | RuntimeHelperId::ValueToPrimitiveDefault
-            | RuntimeHelperId::ValueToPrimitiveNumber
-            | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
@@ -5028,16 +5028,19 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Compiles the shared dynamic ToString helper (per-kind dispatch,
-    /// ToPrimitive on objects, array join, function source text — tens of KB
-    /// per inline copy, and dynamic string concatenation hits it constantly).
+    /// ToPrimitive followed by primitive string conversion). Function receivers
+    /// run their observable hooks; only Function.prototype.toString reads source.
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
-    /// 1=value tag. Params 2-6 are unused. Results are the standard four-i64
+    /// 1=value tag, 6=trusted execution-Realm context or zero. Params 2-5 are
+    /// unused. Results are the standard four-i64
     /// tuple: on normal completion the string payload is in the first slot; a
     /// ToPrimitive/Symbol throw is surfaced through the completion slots.
     fn compile_value_to_string_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ValueToString);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_value_to_string_payload(0, 1, &mut function)?;
@@ -5166,7 +5169,7 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=value payload,
     /// 1=value tag, 2=the closed conversion-error Realm ABI word, and
-    /// 6=calling function's realm environment. Params 3-5 are unused. Results
+    /// 6=trusted execution-Realm context or zero. Params 3-5 are unused. Results
     /// are the standard four-i64
     /// tuple: on normal completion the primitive `(payload, tag)` is in the
     /// first two slots; a `@@toPrimitive`/`valueOf`/`toString` throw is
@@ -5174,10 +5177,8 @@ impl<'a> FunctionBuilder<'a> {
     /// two, which is exactly what the inline composite leaves in its output
     /// locals, so the seam's callers cannot tell the difference.
     ///
-    /// Param 6 is loaded into `current_env_local` for the reason recorded on
-    /// `emit_value_to_primitive_via_helper_if_outlined`: inline, this composite
-    /// ran with the caller's environment, and `compile_value_to_numeric_helper`
-    /// already forwards param 6 into a path that now reaches this helper.
+    /// Parameter 6 preserves the Realm of hook reads/calls and generated
+    /// conversion errors without interpreting lexical environments as metadata.
     fn compile_value_to_primitive_helper(
         &mut self,
         hint: ToPrimitiveHint,

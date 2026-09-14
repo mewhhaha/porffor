@@ -219,8 +219,10 @@ realm.evalScript(`
   try { read(badHas, 3); } catch (error) { if (error instanceof TypeError) count++; }
   try { read(badGet, 3); } catch (error) { if (error instanceof TypeError) count++; }
   try { read(badBlockedGet, 3); } catch (error) { if (error instanceof TypeError) count++; }
+  try { read(new Proxy(badGet, {}), 3); } catch (error) { if (error instanceof TypeError) count++; }
+  try { read(Object.create(badGet), 3); } catch (error) { if (error instanceof TypeError) count++; }
   try { with (null) {} } catch (error) { if (error instanceof TypeError) count++; }
-  count === 4;
+  count === 6;
 `);
 "#,
     );
@@ -260,6 +262,52 @@ fn captured_with_record_keeps_the_boxed_binding_object() {
 var read;
 with ('abc') { read = function read() { return length; }; }
 read() === 3;
+"#,
+    );
+}
+
+#[test]
+fn with_dynamic_array_writes_preserve_setters_and_assignment_results() {
+    assert_with_binding(
+        r#"
+function write(scope, selected, value) { with (scope) { return selected = value; } }
+var calls = 0;
+var receiver;
+var assigned;
+Object.defineProperty(Array.prototype, 'selected', {
+  configurable: true,
+  set(value) { calls++; receiver = this; assigned = value; }
+});
+var array = [];
+var marker = {};
+var result = write(array, 1, marker);
+delete Array.prototype.selected;
+var setter = calls === 1 && receiver === array && assigned === marker
+  && result === marker && !Object.prototype.hasOwnProperty.call(array, 'selected');
+Object.defineProperty(array, 'selected', { value: 2, writable: false });
+var blocked = write(array, 1, 3) === 3 && array.selected === 2;
+var callable = function() {};
+callable.selected = 4;
+setter && blocked && write(callable, 1, 5) === 5 && callable.selected === 5;
+"#,
+    );
+}
+
+#[test]
+fn with_dynamic_array_length_writes_convert_twice_and_preserve_abrupt_values() {
+    assert_with_binding(
+        r#"
+function write(scope, length, value) { with (scope) { return length = value; } }
+var array = [1, 2, 3];
+var conversions = 0;
+var value = { valueOf() { conversions++; return 1; } };
+var result = write(array, 10, value);
+var normal = result === value && conversions === 2 && array.length === 1;
+var marker = Symbol('marker');
+var caught = false;
+try { write(array, 10, { valueOf() { throw marker; } }); }
+catch (error) { caught = error === marker; }
+normal && caught && array.length === 1;
 "#,
     );
 }

@@ -47,7 +47,8 @@ fn regexp_modifier_override_is_a_non_copyable_three_variant_abi_domain() {
         assert!(!IR.contains(&format!("impl {capability} for RegExpModifierOverride")));
     }
     assert!(!IR.contains("#[derive(Clone, Copy)]\npub enum RegExpModifierOverride"));
-    assert!(IR_LIB.contains("RegExpModifierOverride, RegExpProgram"));
+    assert!(IR_LIB.contains("RegExpModifierOverride,"));
+    assert!(IR_LIB.contains("RegExpProgram,"));
 
     let implementation = bounded(
         IR,

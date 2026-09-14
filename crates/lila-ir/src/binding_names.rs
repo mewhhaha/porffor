@@ -412,11 +412,15 @@ unit_cell_roles! {
     /// Identity-cached namespace exotic object (16.2.1.10).
     Namespace => "namespace";
     DeferredNamespace => "deferred$namespace";
-    /// `import defer` export table; `undefined` until the body has begun, which
-    /// is what [`UnitCellRole::DeferEvaluate`] tests to evaluate at most once.
+    /// `import defer` export table, published before the body executes.
     DeferCells => "defer$cells";
-    /// `import defer` evaluator thunk.
+    /// `import defer` evaluator and its retained completion.
     DeferEvaluate => "defer$evaluate";
+    DeferState => "defer$state";
+    DeferError => "defer$error";
+    DeferCaughtError => "defer$caught$error";
+    /// Separate declaration scope inside the evaluator's exception boundary.
+    DeferExecute => "defer$execute";
     /// `import source` module source object.
     ModuleSource => "source";
     /// `import.meta` object (13.3.12, 16.2.1.9).
