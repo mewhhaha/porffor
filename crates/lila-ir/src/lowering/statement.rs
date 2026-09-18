@@ -2,6 +2,9 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_statement(&mut self, statement: &Statement) -> (StatementIr, ValueKind) {
+        if let Some(boundary) = self.lower_module_instantiation_boundary(statement) {
+            return boundary;
+        }
         match statement {
             Statement::Expression(Expression::Await(await_expression))
                 if self.current_async_resume_state.is_some() =>
@@ -240,10 +243,11 @@ impl<'a> ScriptLowerer<'a> {
             // branch hoisted out here would run at the wrong time, or only
             // once for a body that runs many times.
             Statement::If(if_statement)
-                if self.head_await_is_stageable(
-                    if_statement.cond(),
-                    [Some(if_statement.body()), if_statement.else_node()],
-                ) =>
+                if self.current_generator_resume_state.is_some()
+                    && self.head_await_is_stageable(
+                        if_statement.cond(),
+                        [Some(if_statement.body()), if_statement.else_node()],
+                    ) =>
             {
                 self.lower_with_async_head_prefix(|this| this.lower_if_statement(if_statement))
             }

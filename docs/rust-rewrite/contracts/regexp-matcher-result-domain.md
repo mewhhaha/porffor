@@ -28,11 +28,11 @@ requires an explicit ABI projection before the crate compiles.
 
 ## Producer census
 
-The matcher and its child modules have exactly 56 result producers: one match,
-three normal misses, 50 corrupt-program failures and two resource-exhaustion
-failures. These are source call sites: 53 in `regexp.rs`, one in
+The matcher and its child modules have exactly 52 result producers: one match,
+three normal misses, 46 corrupt-program failures and two resource-exhaustion
+failures. These are source call sites: 49 in `regexp.rs`, one in
 `regexp/backreference.rs`, and two in `regexp/word_boundary.rs`. The
-14 eager validation failures use parameter 3 as their preserved position; the
+10 eager validation failures use parameter 3 as their preserved position; the
 remaining exits preserve the position supplied by the matcher. The private
 writer is the sole consumer.
 

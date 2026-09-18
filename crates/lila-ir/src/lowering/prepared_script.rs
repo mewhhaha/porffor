@@ -139,6 +139,62 @@ pub(super) fn compile_dynamic_script_sources(
     record_prepared_compilation_stage(program);
 }
 
+pub(super) fn compile_module_prelude(
+    program: &mut ProgramIr,
+    parsed: &ParsedScript,
+    host_surface_policy: HostSurfacePolicy,
+    allocations: &mut AnalysisAllocationState,
+) {
+    let id = allocations.allocate_static_script_id();
+    let kind = PreparedScriptKind::RealmScript;
+    let mut compiled = lower_script_program_with_allocations(
+        parsed,
+        ParseGoal::Script,
+        parsed.source_text.len(),
+        vec![LoweringStage::ParsedSource],
+        None,
+        &modules::LinkedScriptDefinitions::default(),
+        host_surface_policy,
+        allocations,
+        ScriptInstantiation::Prepared(kind.clone()),
+    );
+    if !compiled.diagnostics.is_empty() {
+        program.diagnostics.append(&mut compiled.diagnostics);
+        record_prepared_compilation_stage(program);
+        return;
+    }
+    let mut compiled = compiled.script.expect("Module prelude lowers as Script");
+    let unit = PreparedScriptUnit {
+        eval_environment: compiled.eval_environment.take(),
+        id,
+        kind,
+        strict: compiled.strict,
+        body: std::mem::replace(
+            &mut compiled.body,
+            BlockIr {
+                statements: Vec::new(),
+                result_kind: ValueKind::Undefined,
+                lexical_environment: None,
+            },
+        ),
+        owned_env_bindings: std::mem::take(&mut compiled.owned_env_bindings),
+        global_bindings: std::mem::take(&mut compiled.global_bindings),
+        declarations: std::mem::take(&mut compiled.runtime_declarations),
+        function_ids: compiled
+            .functions
+            .iter()
+            .map(|function| function.id.clone())
+            .collect(),
+    };
+    let script = program
+        .script
+        .as_mut()
+        .expect("Module graph has a lowered owner");
+    append_prepared_unit(script, compiled);
+    script.module_prelude = Some(unit);
+    record_prepared_compilation_stage(program);
+}
+
 impl ScriptLowerer<'_> {
     pub(super) fn runtime_global_declarations(
         &self,

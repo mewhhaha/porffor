@@ -16,6 +16,14 @@ now includes all 65 keyword-value aliases from pinned CLDR 47; broader Intl
 services remain open.
 Published conformance counts are unchanged.
 
+The direct Wasm `Intl.DateTimeFormat` path negotiates and renders all 77
+positional numbering systems in pinned CLDR 47 across numeric date/time fields,
+parts, ranges, fractional separators, and GMT display labels. Locale patterns
+remain `en`/`en-US`; Chinese calendars, Arabic locale defaults, named-zone
+transitions, and Date locale-method routing remain separate gaps. Verification
+of this follow-up is pending; see the
+[numbering contract](docs/rust-rewrite/aot-intl-datetime-numbering.md).
+
 The public project and all current Rust packages, commands, environment
 variables, cache paths, diagnostics and host ABI names use the Lila identity.
 The GitHub repository URL and current DNS name retain their external locators
@@ -126,6 +134,18 @@ Follow-up repairs cover observable function coercion, reverse RegExp
 backreferences and [case folding](docs/rust-rewrite/regexp-case-folding.md),
 shared dynamic property writes, cross-realm Proxy read errors, for-of head
 completion, and retained deferred-module failures.
+[Property descriptor Realm ownership](docs/rust-rewrite/property-descriptor-realm.md)
+keeps Proxy trap descriptor objects and definition errors in the executing
+method or class Realm, including foreign public-field definitions.
+[Synchronous module instantiation](docs/rust-rewrite/contracts/module-instantiation.md)
+adds private module environments, live import cells, and deferred readiness for
+synchronous Module-entry graphs, including evaluation cycles. Module aliases stay
+out of the global object, and a cycle completes or caches its error across all
+entered members. Synchronous catch and finally scopes retain ordinary
+control flow after the private instantiation boundary. Module resource admission
+still has a lowering guard to remove. Module Test262 helpers
+execute as an independent global Script;
+TLA, Script-entry and source-phase drivers still have scope and lifecycle gaps.
 The next batch adds [word boundaries and reverse whitespace](crates/lila-aot-wasm/docs/regexp-word-boundary.md),
 [case-insensitive backreference comparison](crates/lila-aot-wasm/docs/regexp-backreference-folding.md),
 correct forward non-whitespace movement across UTF-16 surrogate pairs,
@@ -151,11 +171,32 @@ stress executions with zero timeouts. These paired cohort audits were refreshed
 on 2026-09-18. The eighth checkpoint passes all five native
 [Number-to-BigInt conversion](docs/rust-rewrite/contracts/number-to-bigint.md)
 regressions, including exact large values and RangeErrors from foreign functions.
-Catch-parameter expression ownership and created-Realm Intl verification continue;
-the next checkpoint also preserves equality operand effects and reduces unused
-intrinsic receiver metadata.
-Verification and the wider replay remain in progress; these counts do not
-update the generated full-suite conformance status.
+The ninth checkpoint passes all four catch ownership IR tests, five equality
+effect tests, four intrinsic receiver tests and five canonical callable harness
+tests. Its complete callable/Set replay passes 12/12 with no timeouts, including
+both previously timed-out native-function matcher executions. Created-Realm
+Intl, Float16Array and typed-array error-Realm focused tests also pass.
+Checkpoint ten's catch/BigInt replay passes 390/390: 37 main failures repaired
+and all 353 main passes retained, with no timeouts. Its completed Intl subset
+passes 300/366 and BigInt retention passes 154/154, both without timeouts.
+Checkpoint eleven's module comparison passes 135/153, repairing 42 main
+failures and retaining all 93 main passes without timeouts. Its separate
+Locale likely-subtag cohort passes 24/24; six executions overlap the ninth
+Intl replay and repair six failures there, while eighteen have no paired claim.
+Verification and the wider replay remain in progress; these bounded counts do
+not update the generated full-suite conformance status.
+
+Array and Arguments conversions now use their live primitive-conversion hooks,
+including getter effects, abrupt completions and BigInt results. Their focused
+native verification passes 6/6 in checkpoint ten, and the saved compound-value
+regressions pass 4/4.
+
+Checkpoint twelve passes native async property assignment (10/10), module scope
+and cycles (11/11), public class fields (5/5), and property-definition Realm
+behavior (6/6), retaining the separate Reflect descriptor control (1/1).
+Its workspace release check, immutable build and oracle feature check pass.
+Broader verification remains active; module resource admission, additional
+RegExp protocol behavior and several stale structural assertions remain open.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
@@ -167,6 +208,26 @@ access from validated TypedArray entry and uses the shared element invocation
 protocol while retaining the method Realm for indexed Proxy revocation errors. See [the observable locale-string lowering notes](docs/rust-rewrite/aot-array-to-locale-string.md)
 for regression coverage and the required conformance gates. This is a focused
 implementation change, not a claim of complete ECMAScript compatibility.
+
+Plain async `if`/`else` statements now carry disjoint continuation ranges, so
+resuming an awaiting branch does not repeat its condition or enter the other
+branch. Suspended block and catch bindings reuse their existing lexical cells
+from a separate stable invocation root. The focused regression batch covers
+nested and empty branches, condition awaits, abrupt completions, independent
+invocations and captured loop cells; checkpoint ten passes 15/15. See the
+[async conditional contract](docs/rust-rewrite/contracts/plain-async-conditional-continuations.md).
+
+Already admitted plain-generator catch bodies now retain captured parameter
+and block cells across direct and delegated yields. The generator keeps its
+stable invocation environment and separately saves the active lexical chain;
+checkpoint ten passes 6/6 focused tests and all 10 catch-pattern controls. See the
+[generator catch environment contract](docs/rust-rewrite/contracts/generator-catch-environment-restoration.md).
+
+Do-while loops release their registered branch targets when the body ends,
+and labelled switches register their own break labels. This prevents stale
+labels from reaching later `finally` dispatch and preserves enclosing targets.
+Checkpoint ten passes all 14 control-flow native tests; see the
+[branch-target lifetime repair](docs/rust-rewrite/contracts/do-while-switch-target-lifetimes.md).
 
 Async-generator ordinary property assignments across `yield` and `yield*` now
 use the shared suspended Reference path. The base and raw key survive suspension;
@@ -910,7 +971,8 @@ the generated status block above, not by this task summary.
 - `crates/lila-front`: parser boundary and source-unit handling.
 - `crates/lila-ir`: spec-shaped IR, diagnostics, and lowering metadata.
 - `crates/lila-intl`: Intl data/profile/protocol domains and the first pinned,
-  host-embedded locale canonicalization provider.
+  host-embedded locale canonicalization and likely-subtag provider. `Intl.Locale`
+  supports `maximize()` and `minimize()` through the same pinned ICU4X data.
 - `crates/lila-runtime`: realms plus typed host clock, randomness, and output
   capabilities.
 - `crates/lila-aot-wasm`: primary direct JS -> Wasm backend.
@@ -6643,6 +6705,11 @@ Recent focused progress through `2026-09-01`:
   forms. Finite runtime-selected pattern/flag strings used by `RegExp`
   subclasses or `RegExp.prototype.compile` select immutable AOT programs from
   a compact static table; emitted Wasm still contains no parser or interpreter.
+  Each program is a validated immutable descriptor owning its instructions,
+  ranges, named-capture candidates and name bytes. RegExp objects and clones
+  retain one allocation handle; matcher reads use that descriptor's section
+  bounds. This is the [program boundary](docs/rust-rewrite/contracts/regexp-program-boundary.md)
+  required before adding the runtime RegExp compiler, which remains unimplemented.
   The complete `built-ins/RegExp/prototype/Symbol.replace` and
   `built-ins/String/prototype/replaceAll` Test262 leaves report `70/70` and
   `45/45` passing as of `2026-07-15`. The adjacent

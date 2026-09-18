@@ -10,11 +10,12 @@
 use super::super::*;
 use crate::functions::NewTargetPrototypeFallback;
 use crate::objects::TaggedLocals;
-use lila_intl::{IntlHostCallOutcome, IntlHostOp};
+use lila_intl::IntlHostCallOutcome;
 
 mod construction_lifecycle;
 mod extension_options;
 mod language_options;
+mod likely_subtags;
 mod provider;
 
 mod canonical_locale_tag_invocation {
@@ -2046,7 +2047,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.emit_intl_provider_canonicalize_locale_tag(tag_payload_local, function)?;
+        self.emit_intl_provider_locale_transform::<lila_intl::CanonicalizeLocale>(
+            tag_payload_local,
+            function,
+        )?;
 
         self.emit_intl_set_const(duplicate_local, 0, function);
         self.emit_intl_set_const(inner_index_local, 0, function);
@@ -2184,11 +2188,13 @@ mod intl_locale_construction_order_tests {
             .0;
         let lifecycle_source = include_str!("intl/construction_lifecycle.rs");
         let functions_source = include_str!("../functions.rs");
-        let recursive_source = format!("{production_parent}{lifecycle_source}");
+        let likely_subtags_source = include_str!("intl/likely_subtags.rs");
+        let recursive_source =
+            format!("{production_parent}{lifecycle_source}{likely_subtags_source}");
 
-        for state in [
-            ["ReservedIntl", "LocaleObjectLocal"].concat(),
-            ["InitializedIntl", "LocaleObjectLocal"].concat(),
+        for (state, expected_references) in [
+            (["ReservedIntl", "LocaleObjectLocal"].concat(), 6),
+            (["InitializedIntl", "LocaleObjectLocal"].concat(), 4),
         ] {
             let declaration = format!("pub(super) struct {state}(u32);");
             assert_eq!(recursive_source.matches(&declaration).count(), 1);
@@ -2206,7 +2212,10 @@ mod intl_locale_construction_order_tests {
                 "{state} must remain non-Copy"
             );
             assert!(!production_parent.contains(&state));
-            assert_eq!(recursive_source.matches(&state).count(), 4);
+            assert_eq!(
+                recursive_source.matches(&state).count(),
+                expected_references
+            );
         }
         assert_eq!(
             production_parent
@@ -2221,15 +2230,47 @@ mod intl_locale_construction_order_tests {
                 && (line.contains(" for ReservedIntlLocaleObjectLocal")
                     || line.contains(" for InitializedIntlLocaleObjectLocal"))
         }));
-        for transition in [
-            "emit_reserve_intl_locale_object(",
-            "emit_initialize_intl_locale_object(",
-            "emit_publish_intl_locale_object(",
+        for (transition, expected_references) in [
+            ("emit_reserve_intl_locale_object(", 2),
+            ("emit_reserve_intrinsic_intl_locale_object(", 2),
+            ("emit_initialize_intl_locale_object(", 3),
+            ("emit_publish_intl_locale_object(", 3),
         ] {
-            assert_eq!(recursive_source.matches(transition).count(), 2);
+            assert_eq!(
+                recursive_source.matches(transition).count(),
+                expected_references
+            );
         }
         assert_eq!(lifecycle_source.matches("reserved.0").count(), 1);
         assert_eq!(lifecycle_source.matches("initialized.0").count(), 2);
+        let intrinsic_reserve = lifecycle_source
+            .split_once("pub(super) fn emit_reserve_intrinsic_intl_locale_object(")
+            .expect("method intrinsic allocation must exist")
+            .1
+            .split_once("/// Consume the unreachable reserved result")
+            .expect("method intrinsic allocation must be bounded")
+            .0;
+        assert!(intrinsic_reserve.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
+        assert!(
+            intrinsic_reserve.contains("NonArrayRealmIntrinsicSlot::IntlLocalePrototype.offset()")
+        );
+        assert!(!intrinsic_reserve.contains("emit_new_target_prototype_to_locals"));
+        assert!(
+            likely_subtags_source
+                .find("emit_intl_locale_record_from_receiver")
+                .unwrap()
+                < likely_subtags_source
+                    .find("emit_intl_provider_locale_transform")
+                    .unwrap()
+        );
+        assert!(
+            likely_subtags_source
+                .find("emit_initialize_intl_locale_object")
+                .unwrap()
+                < likely_subtags_source
+                    .find("emit_publish_intl_locale_object")
+                    .unwrap()
+        );
 
         let direct_returning_constructors = functions_source
             .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
@@ -2250,7 +2291,7 @@ mod intl_locale_construction_order_tests {
             .split_once("pub(super) fn emit_reserve_intl_locale_object(")
             .expect("Locale reserve transition should exist")
             .1
-            .split_once("/// Consume the unreachable reserved result")
+            .split_once("/// Likely-subtag methods construct")
             .expect("Locale reserve transition should be bounded")
             .0;
         let initializer = lifecycle_source

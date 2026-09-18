@@ -57,7 +57,7 @@ fn ordinary_to_primitive_receiver_kind_is_closed_and_capability_free() {
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>(),
-        ["Object,", "Function,"],
+        ["Object,", "Function,", "Array,", "Arguments,"],
     );
 
     let declaration_prefix = bounded(
@@ -83,17 +83,21 @@ fn exhaustive_projection_owns_the_receiver_tag() {
     assert_eq!(implementation.matches("matchself{").count(), 1);
     assert!(implementation.contains(concat!(
         "constfnvalue_kind(&self)->ValueKind{matchself{",
-        "Self::Object=>ValueKind::Object,Self::Function=>ValueKind::Function,}}"
+        "Self::Object=>ValueKind::Object,Self::Function=>ValueKind::Function,",
+        "Self::Array=>ValueKind::Array,Self::Arguments=>ValueKind::Arguments,}}"
     )));
     assert!(!implementation.contains("_=>"));
 }
 
 #[test]
-fn only_live_object_and_tagged_function_paths_reach_the_inner_emitter() {
+fn only_live_tagged_receiver_paths_and_object_wrapper_reach_the_inner_emitter() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for removed in [
         "emit_function_to_primitive_locals",
         "emit_function_to_primitive_locals_pending",
+        "emit_array_to_string_locals",
+        "emit_array_element_to_string_payload",
+        "emit_function_to_string_payload",
     ] {
         assert_eq!(
             recursive_rust_source_count(&source_root, removed),
@@ -102,18 +106,32 @@ fn only_live_object_and_tagged_function_paths_reach_the_inner_emitter() {
         );
     }
 
+    let producers = bounded(
+        OPERATIONS_SOURCE,
+        "fn emit_tagged_to_primitive_locals_pending(",
+        "fn emit_object_to_primitive_locals_inner(",
+    );
     assert_eq!(
-        OPERATIONS_SOURCE
+        producers
             .matches("OrdinaryToPrimitiveReceiverKind::Object")
             .count(),
         2,
     );
     assert_eq!(
-        OPERATIONS_SOURCE
+        producers
             .matches("OrdinaryToPrimitiveReceiverKind::Function")
             .count(),
         1,
     );
+
+    for receiver in ["Array", "Arguments"] {
+        assert_eq!(
+            OPERATIONS_SOURCE
+                .matches(&format!("OrdinaryToPrimitiveReceiverKind::{receiver}"))
+                .count(),
+            1,
+        );
+    }
 
     let inner = normalized(bounded(
         OPERATIONS_SOURCE,
@@ -133,6 +151,8 @@ fn contract_and_task_record_the_closed_receiver_boundary() {
         assert!(evidence.contains("OrdinaryToPrimitiveReceiverKind"));
         assert!(evidence.contains("Object"));
         assert!(evidence.contains("Function"));
+        assert!(evidence.contains("Array"));
+        assert!(evidence.contains("Arguments"));
         assert!(evidence.contains("unrepresentable"));
     }
 }

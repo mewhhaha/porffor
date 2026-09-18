@@ -1112,13 +1112,19 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
-        properties.insert(
-            "toString".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::IntlLocalePrototypeToString.function_id(),
-                false,
-            )),
-        );
+        for (name, method) in [
+            ("toString", StandardBuiltinId::IntlLocalePrototypeToString),
+            ("maximize", StandardBuiltinId::IntlLocalePrototypeMaximize),
+            ("minimize", StandardBuiltinId::IntlLocalePrototypeMinimize),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    method.function_id(),
+                    false,
+                )),
+            );
+        }
         properties.insert(
             shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Intl.Locale")),
@@ -6137,6 +6143,13 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::intl_locale_instance_shape()),
                 Self::value_info_from_shape(Some(Self::intl_locale_instance_shape())),
+            ),
+            StandardBuiltinId::IntlLocalePrototypeMaximize
+            | StandardBuiltinId::IntlLocalePrototypeMinimize => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::intl_locale_instance_shape()),
+                ValueInfo::undefined(),
             ),
             StandardBuiltinId::IntlLocalePrototypeLanguageGetter
             | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter

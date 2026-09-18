@@ -28,6 +28,7 @@ impl<'a> ScriptLowerer<'a> {
             // A module unit body can throw anything; the link stage fills these
             // blocks in, and until then no unit block exists to inspect.
             StatementIr::ModuleUnitOnce { .. } => Some(ValueInfo::new(ValueKind::Dynamic)),
+            StatementIr::ModuleImportBinding(_) => None,
             StatementIr::Empty
             | StatementIr::AnnexBFunctionCopy { .. }
             | StatementIr::Debugger
@@ -133,6 +134,12 @@ impl<'a> ScriptLowerer<'a> {
                 condition,
                 then_branch,
                 else_branch,
+            }
+            | StatementIr::AsyncFunctionIf {
+                condition,
+                then_branch,
+                else_branch,
+                plan: _,
             } => {
                 let mut info = self.infer_expr_throw_info(condition);
                 info = self
@@ -459,6 +466,13 @@ impl<'a> ScriptLowerer<'a> {
         match &expr.expr {
             // `import()` rejects rather than throws, and reading `import.meta`
             // or a namespace object cannot throw.
+            ExprIr::SynchronousModuleGraph(_)
+            | ExprIr::ModuleBindingRead(_)
+            | ExprIr::ModuleEvaluate(_)
+            | ExprIr::DeferredModuleEvaluate(_) => Some(unknown_runtime_value_info()),
+            ExprIr::ModuleNamespacePublish { namespace, .. } => {
+                self.infer_expr_throw_info(namespace)
+            }
             ExprIr::DynamicImport { .. }
             | ExprIr::ImportMeta { .. }
             | ExprIr::ModuleNamespace { .. } => None,

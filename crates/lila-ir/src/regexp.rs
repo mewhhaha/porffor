@@ -972,6 +972,12 @@ enum ParsedTerm {
 }
 
 mod legacy_utf16_pair;
+mod program;
+pub use program::{
+    RegExpProgramValidationError, RegExpProgramWord, ValidatedRegExpProgram,
+    REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION, REGEXP_PROGRAM_HEADER_SIZE,
+    REGEXP_PROGRAM_MAGIC_VERSION,
+};
 
 use legacy_utf16_pair::LegacyUtf16Pair;
 

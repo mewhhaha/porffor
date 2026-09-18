@@ -333,7 +333,7 @@ pub(crate) const HEAP_PENDING_JOB_RECORD_SIZE: u64 = 56;
 pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE: u64 = 48;
 #[allow(dead_code)]
 pub(crate) const HEAP_PROMISE_CAPABILITY_RECORD_SIZE: u64 = 48;
-pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 144;
+pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 152;
 #[allow(dead_code)]
 pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE: u64 = 216;
 #[allow(dead_code)]
@@ -394,6 +394,7 @@ pub(crate) const HEAP_GENERATOR_ASSIGNMENT_TARGET_TAG_OFFSET: u64 = 208;
 pub(crate) const HEAP_GENERATOR_ASSIGNMENT_KEY_PAYLOAD_OFFSET: u64 = 216;
 pub(crate) const HEAP_GENERATOR_ASSIGNMENT_KEY_TAG_OFFSET: u64 = 224;
 pub(crate) const HEAP_GENERATOR_DELEGATE_RECORD_OFFSET: u64 = 232;
+pub(crate) const HEAP_GENERATOR_LEXICAL_ENV_OFFSET: u64 = 240;
 pub(crate) const HEAP_GENERATOR_DELEGATE_ITERATOR_PAYLOAD_OFFSET: u64 = 0;
 pub(crate) const HEAP_GENERATOR_DELEGATE_ITERATOR_TAG_OFFSET: u64 = 8;
 pub(crate) const HEAP_GENERATOR_DELEGATE_NEXT_PAYLOAD_OFFSET: u64 = 16;
@@ -508,21 +509,9 @@ pub(crate) const HEAP_DATA_VIEW_BYTE_LENGTH_OFFSET: u64 = 96;
 pub(crate) const HEAP_DATA_VIEW_LENGTH_TRACKING_OFFSET: u64 = 104;
 pub(crate) const HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET: u64 = 128;
 pub(crate) const HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET: u64 = 136;
-/// Absolute linear-memory address of an immutable, AOT-compiled RegExp program.
-/// Zero means that the object has no attached program and must use the dynamic
-/// construction/migration path.
-pub(crate) const HEAP_REGEXP_PROGRAM_PTR_OFFSET: u64 = 144;
-/// Number of fixed-width instructions in the compiled RegExp program.
-pub(crate) const HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET: u64 = 152;
-/// Number of numbered captures in the immutable AOT-compiled RegExp program.
-pub(crate) const HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET: u64 = 160;
-/// Number of ordinary and progress-split choices in the immutable program.
-pub(crate) const HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET: u64 = 168;
-/// Number of ordinary and progress-split choices in a control-flow cycle.
-pub(crate) const HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET: u64 = 176;
-/// Absolute linear-memory address of immutable named-capture metadata for the
-/// compiled RegExp program. Zero means that no named-group table is attached.
-pub(crate) const HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET: u64 = 184;
+/// Packed immutable descriptor allocation: pointer in the high word and byte
+/// length in the low word. Zero means the runtime compiler is still required.
+pub(crate) const HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET: u64 = 144;
 pub(crate) const HEAP_PTR_OFFSET: u64 = 0;
 pub(crate) const HEAP_LEN_OFFSET: u64 = 8;
 pub(crate) const HEAP_CAP_OFFSET: u64 = 16;
@@ -1405,6 +1394,7 @@ pub(crate) const HEAP_ASYNC_COMPLETED_OFFSET: u64 = 112;
 pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET: u64 = 120;
 pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 128;
 pub(crate) const HEAP_ASYNC_FUNCTION_REALM_OFFSET: u64 = 136;
+pub(crate) const HEAP_ASYNC_INVOCATION_ENV_OFFSET: u64 = 144;
 
 // The completion with which an ordinary async function resumes after Await.
 //
@@ -1434,7 +1424,20 @@ pub(crate) const ENV_SLOT_BASE_OFFSET: u64 = 48;
 pub(crate) const ENV_SLOT_SIZE: u64 = 16;
 pub(crate) const ENV_SLOT_TAG_OFFSET: u64 = 0;
 pub(crate) const ENV_SLOT_PAYLOAD_OFFSET: u64 = 8;
-pub(crate) const ENV_SLOT_UNINITIALIZED_TAG: i64 = -1;
+#[derive(Clone, Copy)]
+pub(crate) enum EnvironmentCellPrivateState {
+    Uninitialized,
+    Indirect,
+}
+impl EnvironmentCellPrivateState {
+    pub(crate) const fn tag(self) -> i64 {
+        match self {
+            Self::Uninitialized => -1,
+            Self::Indirect => -2,
+        }
+    }
+}
+pub(crate) const ENV_SLOT_UNINITIALIZED_TAG: i64 = EnvironmentCellPrivateState::Uninitialized.tag();
 pub(crate) const OBJECT_DESCRIPTOR_ACCESSOR: u64 = DescriptorBit::Accessor.word();
 pub(crate) const OBJECT_DESCRIPTOR_CONFIGURABLE: u64 = DescriptorBit::Configurable.word();
 pub(crate) const OBJECT_DESCRIPTOR_WRITABLE: u64 = DescriptorBit::Writable.word();
@@ -2255,45 +2258,86 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
     },
     HeapLayoutSlot {
         record: "regexp-object-header",
-        name: "program_ptr",
-        offset: HEAP_REGEXP_PROGRAM_PTR_OFFSET,
+        name: "program_payload",
+        offset: HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+
+pub(crate) const MODULE_ACTIVATION_OFFSET: u64 = 0;
+pub(crate) const MODULE_EVALUATOR_OFFSET: u64 = 8;
+pub(crate) const MODULE_STATE_OFFSET: u64 = 16;
+pub(crate) const MODULE_ERROR_TAG_OFFSET: u64 = 24;
+pub(crate) const MODULE_ERROR_PAYLOAD_OFFSET: u64 = 32;
+pub(crate) const MODULE_NAMESPACE_CELL_OFFSET: u64 = 40;
+pub(crate) const MODULE_DEFERRED_NAMESPACE_CELL_OFFSET: u64 = 56;
+pub(crate) const MODULE_RECORD_SIZE: u64 = 72;
+
+#[allow(dead_code)]
+pub(crate) const HEAP_MODULE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "activation",
+        offset: MODULE_ACTIVATION_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "evaluator",
+        offset: MODULE_EVALUATOR_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "state",
+        offset: MODULE_STATE_OFFSET,
         width: 8,
         pointer: false,
     },
     HeapLayoutSlot {
-        record: "regexp-object-header",
-        name: "program_instruction_count",
-        offset: HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
+        record: "module-record",
+        name: "error-tag",
+        offset: MODULE_ERROR_TAG_OFFSET,
         width: 8,
         pointer: false,
     },
     HeapLayoutSlot {
-        record: "regexp-object-header",
-        name: "program_capture_count",
-        offset: HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
+        record: "module-record",
+        name: "error-payload",
+        offset: MODULE_ERROR_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "namespace-tag",
+        offset: MODULE_NAMESPACE_CELL_OFFSET + ENV_SLOT_TAG_OFFSET,
         width: 8,
         pointer: false,
     },
     HeapLayoutSlot {
-        record: "regexp-object-header",
-        name: "program_split_count",
-        offset: HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
+        record: "module-record",
+        name: "namespace-payload",
+        offset: MODULE_NAMESPACE_CELL_OFFSET + ENV_SLOT_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "deferred-namespace-tag",
+        offset: MODULE_DEFERRED_NAMESPACE_CELL_OFFSET + ENV_SLOT_TAG_OFFSET,
         width: 8,
         pointer: false,
     },
     HeapLayoutSlot {
-        record: "regexp-object-header",
-        name: "program_repeatable_split_count",
-        offset: HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+        record: "module-record",
+        name: "deferred-namespace-payload",
+        offset: MODULE_DEFERRED_NAMESPACE_CELL_OFFSET + ENV_SLOT_PAYLOAD_OFFSET,
         width: 8,
-        pointer: false,
-    },
-    HeapLayoutSlot {
-        record: "regexp-object-header",
-        name: "named_group_table_ptr",
-        offset: HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
-        width: 8,
-        pointer: false,
+        pointer: true,
     },
 ];
 
@@ -2436,6 +2480,13 @@ pub(crate) const HEAP_GENERATOR_OBJECT_LAYOUT: &[HeapLayoutSlot] = &[
         record: "generator-object",
         name: "delegate_record",
         offset: HEAP_GENERATOR_DELEGATE_RECORD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "generator-object",
+        name: "lexical_environment",
+        offset: HEAP_GENERATOR_LEXICAL_ENV_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -2647,6 +2698,13 @@ pub(crate) const HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT: &[HeapLayoutSlot] = &[
         record: "async-function-activation",
         name: "realm",
         offset: HEAP_ASYNC_FUNCTION_REALM_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "invocation_environment",
+        offset: HEAP_ASYNC_INVOCATION_ENV_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -5636,11 +5694,11 @@ mod tests {
                 "Float16 prototype must remain a traced pointer"
             );
             assert_eq!(slot.width, 8);
-            assert_eq!(slot.end(), size);
+            assert!(slot.end() <= size);
             assert!(layout
                 .iter()
                 .filter(|other| other.offset != offset)
-                .all(|other| other.end() <= offset));
+                .all(|other| other.end() <= offset || slot.end() <= other.offset));
         }
     }
 
@@ -5892,6 +5950,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_layout(HEAP_OBJECT_HEADER_LAYOUT, HEAP_HEADER_SIZE);
         assert_layout(HEAP_GENERATOR_OBJECT_LAYOUT, HEAP_HEADER_SIZE);
+        assert_layout(HEAP_MODULE_RECORD_LAYOUT, MODULE_RECORD_SIZE);
         assert_layout(
             HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT,
             HEAP_GENERATOR_DELEGATE_RECORD_SIZE,
@@ -6095,6 +6154,7 @@ mod tests {
         let pointer_slots = HEAP_OBJECT_HEADER_LAYOUT
             .iter()
             .chain(HEAP_GENERATOR_OBJECT_LAYOUT.iter())
+            .chain(HEAP_MODULE_RECORD_LAYOUT.iter())
             .chain(HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT.iter())
             .chain(HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT.iter())
             .chain(HEAP_ASYNC_GENERATOR_ACTIVATION_LAYOUT.iter())
@@ -6672,6 +6732,26 @@ mod tests {
 
     #[test]
     fn heap_root_registry_covers_gc_safepoint_sources() {
+        assert!(HEAP_ROOT_SOURCES.contains(&HeapRootSource::ModuleRecords));
+        assert_eq!(
+            HeapRootSource::ModuleRecords.kind(),
+            HeapRootKind::PersistentNonTagged
+        );
+        assert_eq!(
+            HEAP_MODULE_RECORD_LAYOUT.last().unwrap().end(),
+            MODULE_RECORD_SIZE
+        );
+        for name in [
+            "activation",
+            "evaluator",
+            "error-payload",
+            "namespace-payload",
+            "deferred-namespace-payload",
+        ] {
+            assert!(HEAP_MODULE_RECORD_LAYOUT
+                .iter()
+                .any(|slot| slot.name == name && slot.pointer));
+        }
         assert_root_sources(HEAP_ROOT_SOURCES);
         assert!(HEAP_ROOT_SOURCES.iter().any(|source| {
             *source == HeapRootSource::ActiveFrameLocals

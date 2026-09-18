@@ -36,9 +36,11 @@ pieces:
   [constructor contract](aot-intl-locale-options.md) for validation boundaries.
 - `crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs` implements much of
   DateTimeFormat's observable option ordering and its formatter/parts/range
-  shapes, but its data surface is `en-US`, `gregory`/`iso8601`, `latn`, and
-  fixed-offset zones. Handwritten patterns and the fixed-zone catalogue are a
-  bootstrap implementation, not the final data layer.
+  shapes. Its data surface is `en`/`en-US`, `gregory`/`iso8601`, the 77
+  positional numbering systems in pinned CLDR 47, and fixed-offset zones.
+  Negotiation and every numeric display share one generated digit table; see
+  the [numbering contract](aot-intl-datetime-numbering.md). Handwritten locale
+  patterns and the fixed-zone catalogue remain a bootstrap implementation.
 
 The shared seam now exists in `crates/lila-intl`. A data
 identity fixes schema, profile, typed canonical default locale, placement,

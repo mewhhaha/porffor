@@ -1299,6 +1299,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(result_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_save_generator_suspension_environment(activation_local, function);
         self.set_completion_kind_with_aux(
             CompletionKind::Normal,
             GENERATOR_DELEGATED_RESULT_AUX_FLAG | i64::from(resume_state),

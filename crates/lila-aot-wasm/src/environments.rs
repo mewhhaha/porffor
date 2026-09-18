@@ -8,6 +8,7 @@ mod global_declaration_instantiation;
 pub(crate) mod global_environment;
 mod named_binding_mutation;
 pub(crate) mod named_environment;
+mod resumable_block;
 mod with_has_binding;
 use global_environment::GlobalBindingFailure;
 
@@ -246,6 +247,68 @@ impl<'a> FunctionBuilder<'a> {
         env_local
     }
 
+    /// CreateImportBinding stores the ultimate export cell, not its current value.
+    /// All module environments and namespace/source cells exist before this runs.
+    pub(crate) fn emit_initialize_indirect_binding(
+        &mut self,
+        local_slot: u32,
+        target_cell_address_local: u32,
+        function: &mut Function,
+    ) {
+        self.store_i64_local_at_offset(
+            self.current_env_local,
+            Self::env_slot_offset(local_slot, ENV_SLOT_PAYLOAD_OFFSET),
+            target_cell_address_local,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            self.current_env_local,
+            Self::env_slot_offset(local_slot, ENV_SLOT_TAG_OFFSET),
+            EnvironmentCellPrivateState::Indirect.tag() as u64,
+            function,
+        );
+    }
+
+    /// Resolve a value read without changing the importing cell. Module linking
+    /// resolves reexports to their ultimate cell, so indirection is exactly one hop.
+    /// The caller applies its normal TDZ abrupt completion to the returned tag.
+    pub(crate) fn emit_read_environment_cell(
+        &mut self,
+        cell_address_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) {
+        assert_ne!(cell_address_local, tag_local);
+        assert_ne!(payload_local, tag_local);
+        self.load_i64_to_local_from_offset(
+            cell_address_local,
+            ENV_SLOT_TAG_OFFSET,
+            tag_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            cell_address_local,
+            ENV_SLOT_PAYLOAD_OFFSET,
+            payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::I64Const(
+            EnvironmentCellPrivateState::Indirect.tag(),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(payload_local, ENV_SLOT_TAG_OFFSET, tag_local, function);
+        self.load_i64_to_local_from_offset(
+            payload_local,
+            ENV_SLOT_PAYLOAD_OFFSET,
+            payload_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+    }
+
     pub(crate) fn read_env_slot_to_locals(
         &mut self,
         slot: u32,
@@ -254,20 +317,13 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) {
-        let env_local = self.resolve_env_handle_local(hops, function);
-        self.load_i64_to_local_from_offset(
-            env_local,
-            Self::env_slot_offset(slot, ENV_SLOT_PAYLOAD_OFFSET),
-            payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            env_local,
-            Self::env_slot_offset(slot, ENV_SLOT_TAG_OFFSET),
-            tag_local,
-            function,
-        );
-        self.release_temp_local(env_local);
+        let cell_local = self.resolve_env_handle_local(hops, function);
+        function.instruction(&Instruction::LocalGet(cell_local));
+        function.instruction(&Instruction::I64Const(Self::env_slot_offset(slot, 0) as i64));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(cell_local));
+        self.emit_read_environment_cell(cell_local, payload_local, tag_local, function);
+        self.release_temp_local(cell_local);
     }
 
     pub(crate) fn write_env_slot_from_locals(

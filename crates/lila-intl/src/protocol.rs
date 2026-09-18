@@ -220,9 +220,9 @@ intl_operations! {
     CanonicalizeLocale {
         code: 0,
         name: "canonicalize-locale",
-        request: CanonicalizeLocaleRequest,
-        response: CanonicalizeLocaleResult,
-        error: CanonicalizeLocaleError,
+        request: LocaleTransformRequest,
+        response: LocaleTransformResult,
+        error: LocaleTransformError,
         capabilities: [IntlDataCapability::LocaleAliases],
     }
     CanonicalizeTimeZone {
@@ -233,22 +233,38 @@ intl_operations! {
         error: UnknownTimeZone,
         capabilities: [IntlDataCapability::TimeZoneTransitions],
     }
+    MaximizeLocale {
+        code: 2,
+        name: "maximize-locale",
+        request: LocaleTransformRequest,
+        response: LocaleTransformResult,
+        error: LocaleTransformError,
+        capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::LikelySubtags],
+    }
+    MinimizeLocale {
+        code: 3,
+        name: "minimize-locale",
+        request: LocaleTransformRequest,
+        response: LocaleTransformResult,
+        error: LocaleTransformError,
+        capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::LikelySubtags],
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalizeLocaleRequest {
+pub struct LocaleTransformRequest {
     locale: LocaleId,
 }
 
-impl CanonicalizeLocaleRequest {
+impl LocaleTransformRequest {
     /// Creates a request from a structurally validated locale identifier.
     ///
     /// Raw strings cannot cross the kernel boundary.
     ///
     /// ```compile_fail
-    /// use lila_intl::CanonicalizeLocaleRequest;
+    /// use lila_intl::LocaleTransformRequest;
     ///
-    /// let _ = CanonicalizeLocaleRequest::new("en-US");
+    /// let _ = LocaleTransformRequest::new("en-US");
     /// ```
     #[must_use]
     pub const fn new(locale: LocaleId) -> Self {
@@ -267,11 +283,11 @@ impl CanonicalizeLocaleRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalizeLocaleResult {
+pub struct LocaleTransformResult {
     locale: CanonicalLocaleId,
 }
 
-impl CanonicalizeLocaleResult {
+impl LocaleTransformResult {
     #[must_use]
     pub const fn new(locale: CanonicalLocaleId) -> Self {
         Self { locale }
@@ -356,15 +372,15 @@ impl fmt::Display for UnsupportedLocale {
 
 impl std::error::Error for UnsupportedLocale {}
 
-/// Provider result for locale canonicalization, separating an expected
+/// Provider failure for locale transforms, separating an expected
 /// unsupported input from corrupt/non-canonical provider output.
 #[derive(Debug)]
-pub enum CanonicalizeLocaleError {
+pub enum LocaleTransformError {
     Unsupported(UnsupportedLocale),
     InvalidProviderResult(InvalidCanonicalLocaleId),
 }
 
-impl fmt::Display for CanonicalizeLocaleError {
+impl fmt::Display for LocaleTransformError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unsupported(error) => error.fmt(f),
@@ -378,7 +394,7 @@ impl fmt::Display for CanonicalizeLocaleError {
     }
 }
 
-impl std::error::Error for CanonicalizeLocaleError {
+impl std::error::Error for LocaleTransformError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Unsupported(error) => Some(error),
@@ -387,13 +403,13 @@ impl std::error::Error for CanonicalizeLocaleError {
     }
 }
 
-impl From<UnsupportedLocale> for CanonicalizeLocaleError {
+impl From<UnsupportedLocale> for LocaleTransformError {
     fn from(error: UnsupportedLocale) -> Self {
         Self::Unsupported(error)
     }
 }
 
-impl From<InvalidCanonicalLocaleId> for CanonicalizeLocaleError {
+impl From<InvalidCanonicalLocaleId> for LocaleTransformError {
     fn from(error: InvalidCanonicalLocaleId) -> Self {
         Self::InvalidProviderResult(error)
     }
@@ -609,14 +625,14 @@ mod tests {
     impl IntlOperationProvider<CanonicalizeLocale> for FixtureProvider {
         fn execute(
             &self,
-            request: CanonicalizeLocaleRequest,
-        ) -> Result<CanonicalizeLocaleResult, CanonicalizeLocaleError> {
+            request: LocaleTransformRequest,
+        ) -> Result<LocaleTransformResult, LocaleTransformError> {
             let locale = match request.locale().as_str() {
                 "EN-us" => CanonicalLocaleId::from_data("en-US").unwrap(),
                 "iw-IL" => CanonicalLocaleId::from_data("he-IL").unwrap(),
                 _ => return Err(UnsupportedLocale::new(request.locale).into()),
             };
-            Ok(CanonicalizeLocaleResult::new(locale))
+            Ok(LocaleTransformResult::new(locale))
         }
     }
 
@@ -659,7 +675,7 @@ mod tests {
         let locale = kernel
             .operation::<CanonicalizeLocale>()
             .unwrap()
-            .execute(CanonicalizeLocaleRequest::new(
+            .execute(LocaleTransformRequest::new(
                 LocaleId::parse("iw-IL").unwrap(),
             ))
             .unwrap();
@@ -716,7 +732,11 @@ mod tests {
             Some(IntlHostOp::CanonicalizeTimeZone)
         );
         assert_eq!(IntlHostOp::from_wire(-1), None);
-        assert_eq!(IntlHostOp::from_wire(2), None);
+        assert_eq!(IntlHostOp::MaximizeLocale.wire(), 2);
+        assert_eq!(IntlHostOp::MinimizeLocale.wire(), 3);
+        assert_eq!(IntlHostOp::from_wire(2), Some(IntlHostOp::MaximizeLocale));
+        assert_eq!(IntlHostOp::from_wire(3), Some(IntlHostOp::MinimizeLocale));
+        assert_eq!(IntlHostOp::from_wire(4), None);
 
         let read = IntlHostReadSpan::new(u32::MAX, u32::MAX);
         assert_eq!(IntlHostReadSpan::from_wire(read.wire()), read);

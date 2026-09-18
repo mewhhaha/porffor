@@ -311,3 +311,63 @@ probe(trace, 1).then(() => print(trace.join("|")));
         &["get|tdz:true|dispose before|dispose after|caught:true"],
     );
 }
+
+#[test]
+fn implicit_disposal_await_restores_the_enclosing_captured_cell() {
+    assert_trace(
+        r#"
+async function probe() {
+  {
+    let value = 3;
+    const read = () => value;
+    {
+      await using resource = {
+        [Symbol.asyncDispose]() {
+          value = 7;
+          return Promise.resolve();
+        }
+      };
+      value = 5;
+    }
+    print(read() + ":" + value);
+    value = 9;
+    print(read());
+  }
+}
+probe();
+"#,
+        &["7:7", "9"],
+    );
+}
+
+#[test]
+fn implicit_iterator_awaits_restore_the_enclosing_captured_cell() {
+    assert_trace(
+        r#"
+async function probe() {
+  {
+    let value = 3;
+    const read = () => value;
+    const source = {
+      [Symbol.asyncIterator]() { return this; },
+      next() {
+        value = 5;
+        return Promise.resolve({ value: 1, done: false });
+      },
+      return() {
+        value = 7;
+        return Promise.resolve({ done: true });
+      }
+    };
+    for await (const element of source) {
+      print(read() + ":" + element);
+      break;
+    }
+    print(read() + ":" + value);
+  }
+}
+probe();
+"#,
+        &["5:1", "7:7"],
+    );
+}

@@ -1939,9 +1939,11 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ValueInfo::new(ValueKind::Undefined))
             }
             StandardBuiltinId::IntlGetCanonicalLocales => Some(ValueInfo::new(ValueKind::Array)),
-            StandardBuiltinId::IntlLocaleConstructor => Some(Self::value_info_from_shape(Some(
-                Self::intl_locale_instance_shape(),
-            ))),
+            StandardBuiltinId::IntlLocaleConstructor
+            | StandardBuiltinId::IntlLocalePrototypeMaximize
+            | StandardBuiltinId::IntlLocalePrototypeMinimize => Some(Self::value_info_from_shape(
+                Some(Self::intl_locale_instance_shape()),
+            )),
             StandardBuiltinId::IntlLocalePrototypeLanguageGetter
             | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
             | StandardBuiltinId::IntlLocalePrototypeToString => {

@@ -57,7 +57,28 @@ jobs:
           cargo test --release --locked -p lila-aot-wasm --lib constant_number_condition
           cargo test --release --locked -p lila-aot-wasm --test constant_number_condition_emission --test created_realm_intl_structure --test intl_bound_format_realm_structure --test intl_host_imports --test set_operation_domains_structure --test bigint_number_policy_structure --test strict_equality_static_kind_structure --test mixed_bigint_representation_equality_structure
           cargo test --release --locked -p lila-test262 --test wasm_aot_callable_harness -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_compound_addition_flow --test aot_compound_assignment_saved_value --test aot_constant_number_condition --test aot_set_algebra_copy_phases --test aot_intl_created_realm --test aot_intl_bound_format_realm --test aot_intl_keyword_aliases --test aot_intl_locale_host_import --test aot_intl_locale_constructor --test aot_intl_locale_options --test aot_float16_array --test aot_typed_array_byte_copy --test aot_typed_array_constructor_error_realm --test aot_regexp_legacy_pooled_class --test aot_number_to_bigint --test aot_bigint_number_conversion --test aot_catch_pattern_owners --test aot_equality_operand_effects --test aot_intrinsic_receiver_observation -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_compound_addition_flow --test aot_compound_assignment_saved_value --test aot_constant_number_condition --test aot_set_algebra_copy_phases --test aot_intl_created_realm --test aot_intl_bound_format_realm --test aot_intl_keyword_aliases --test aot_intl_locale_host_import --test aot_intl_locale_constructor --test aot_intl_locale_options --test aot_intl_locale_likely_subtags --test aot_float16_array --test aot_typed_array_byte_copy --test aot_typed_array_constructor_error_realm --test aot_regexp_legacy_pooled_class --test aot_number_to_bigint --test aot_bigint_number_conversion --test aot_catch_pattern_owners --test aot_equality_operand_effects --test aot_intrinsic_receiver_observation -- --test-threads=2
+
+      - name: Test module instantiation and suspension environments
+        run: |
+          cargo test --release --locked -p lila-ir --test async_if_continuations --test module_instantiation --test array_arguments_primitive --test module_default_export_names
+          cargo test --release --locked -p lila-engine --lib module_prelude
+          cargo test --release --locked -p lila-test262 --lib module_materialization
+          cargo test --release --locked -p lila-test262 --lib module_runner
+          cargo test --release --locked -p lila-engine --test aot_async_if --test aot_async_property_assignment --test aot_generator_catch_environment --test aot_module_instantiation --test aot_module_scope_isolation --test aot_public_class_fields --test aot_array_arguments_primitive --test aot_catch_pattern_owners --test aot_control_flow -- --test-threads=2
+
+      - name: Test Intl numbering and immutable RegExp programs
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/tests/test_generate_intl_datetime_numbering.py
+          python3 scripts/generate-intl-datetime-numbering.py --check --report crates/lila-aot-wasm/data/cldr-47-numbering/generated-report.json
+          cargo test --release --locked -p lila-engine --test aot_intl_datetime_numbering -- --test-threads=2
+          cargo test --release --locked -p lila-engine --lib regexp_program_boundary_tests -- --test-threads=2
+          cargo test --release --locked -p lila-ir --lib regexp::program::tests
+
+      - name: Test property definition Realm ownership
+        run: |
+          cargo test --release --locked -p lila-engine --test aot_define_property_realm --test reflect_descriptor_object_realm -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test to_property_descriptor_operation_evidence_structure --test reflect_descriptor_object_realm_structure
 
       - name: Execute the pinned Test262 agent regression (non-vacuous)
         shell: bash

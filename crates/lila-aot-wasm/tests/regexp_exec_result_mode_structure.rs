@@ -297,7 +297,7 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
     let consumers = bounded(
         SOURCE,
         "    fn emit_regexp_prototype_exec_from_locals(",
-        "    pub(crate) fn emit_array_to_string_locals(",
+        "    pub(crate) fn emit_concat_string_payloads_local(",
     );
     let wrapper = bounded(
         SOURCE,
@@ -312,7 +312,7 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
     let simple = bounded(
         SOURCE,
         "    fn emit_regexp_exec_simple_from_locals(",
-        "    pub(crate) fn emit_array_to_string_locals(",
+        "    pub(crate) fn emit_concat_string_payloads_local(",
     );
 
     for (function, expected_signature) in [

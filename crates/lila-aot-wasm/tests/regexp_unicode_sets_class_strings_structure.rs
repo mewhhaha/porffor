@@ -5,7 +5,7 @@ const FIXTURE: &str =
 const CLI_TEST_SOURCE: &str = include_str!("../../lila-cli/tests/cli/regexp.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/regexp.rs");
 const MATCHER_SOURCE: &str = include_str!("../src/builtins/regexp.rs");
-const DATA_SOURCE: &str = include_str!("../src/data.rs");
+const PROGRAM_SOURCE: &str = include_str!("../../lila-ir/src/regexp/program.rs");
 const TEST262_RUNNER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs");
 const SHORTCUT_ALLOWLIST: &str = include_str!("../../../test262/backlog/shortcut-allowlist.tsv");
 const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.tsv");
@@ -314,12 +314,7 @@ fn existing_aot_choices_and_shared_range_matcher_cover_both_directions() {
         assert!(frame.contains(marker), "choice frame lost {marker}");
     }
 
-    let accounting = bounded(
-        DATA_SOURCE,
-        "        let split_count = program\n",
-        "        self.pending_regexp_programs.push((",
-    );
-    assert!(accounting.contains("REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT"));
+    assert!(PROGRAM_SOURCE.contains("REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT"));
 
     assert_eq!(
         MATCHER_SOURCE

@@ -54,6 +54,7 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::ToPrimitive;
 
 mod analysis;
+mod async_if;
 /// Environment Record binding lifecycle (ECMA-262 9.1.1.1): the `Initialization`
 /// state that lives on `BindingInfo`, and the `$tdz.` name domain. See
 /// `docs/rust-rewrite/contracts/environment-record-tdz.md`.
@@ -97,6 +98,7 @@ mod source_call_flow_proof;
 mod task;
 mod well_known;
 pub(crate) use analysis::*;
+pub use async_if::AsyncFunctionIfPlanIr;
 pub(crate) use binding_lifecycle::*;
 pub use builtins::{
     CallableToStringRepresentation, HostBuiltinExposure, HostBuiltinId, HostBuiltinSurface,
@@ -125,8 +127,8 @@ pub use iterator_obligations::{
 };
 pub use lowering::{lower, lower_module_graph, lower_script_graph};
 pub use lowering::{
-    lower_module_graph_with_host_surface_policy, lower_script_graph_with_host_surface_policy,
-    lower_with_host_surface_policy,
+    lower_module_graph_with_host_surface_policy, lower_module_graph_with_prelude,
+    lower_script_graph_with_host_surface_policy, lower_with_host_surface_policy,
 };
 pub(crate) use lowering_helpers::*;
 pub use modules::{
@@ -140,6 +142,10 @@ pub use modules::{
     ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr, ModuleSourceIr, ModuleUnitId,
     ModuleUnitIr, OuterScriptModuleDependency, ResolvedBindingIr, SourceTextModuleRecordIr,
     StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
+};
+pub use modules::{
+    DeferredModuleEvaluationIr, ModuleCellIr, ModuleImportBindingIr, ModuleReadinessNodeIr,
+    SynchronousModuleActivationIr, SynchronousModuleEvaluationIr, SynchronousModuleGraphIr,
 };
 pub use operations::{
     completion_abi_slot, completion_abi_slots, find_spec_operation, spec_operation_catalog,
@@ -162,8 +168,10 @@ pub use prepared_script::{
 pub(crate) use prepared_script::{DynamicScriptSource, ScriptInstantiation};
 pub use regexp::{
     CaseFolding as RegExpCaseFolding, RegExpCompileError, RegExpCompileErrorKind, RegExpFlags,
-    RegExpInstruction, RegExpModifierOverride, RegExpNamedGroup, RegExpProgram, RegExpUnicodeMode,
+    RegExpInstruction, RegExpModifierOverride, RegExpNamedGroup, RegExpProgram,
+    RegExpProgramValidationError, RegExpProgramWord, RegExpUnicodeMode, ValidatedRegExpProgram,
     REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_INSTRUCTION_WIDTH,
+    REGEXP_MAX_INSTRUCTIONS, REGEXP_MAX_RANGE_ENTRIES, REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION,
     REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END, REGEXP_OPCODE_ASSERT_START,
     REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START, REGEXP_OPCODE_CLEAR_CAPTURE_RANGE,
     REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
@@ -173,7 +181,8 @@ pub use regexp::{
     REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
     REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
     REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
-    REGEXP_OPCODE_WORD_BOUNDARY, REGEXP_RANGE_ENTRY_WIDTH,
+    REGEXP_OPCODE_WORD_BOUNDARY, REGEXP_PROGRAM_HEADER_SIZE, REGEXP_PROGRAM_MAGIC_VERSION,
+    REGEXP_RANGE_ENTRY_WIDTH,
 };
 pub use task::{ParseTaskIdError, TaskId};
 
@@ -367,6 +376,12 @@ mod tests {
                     then_branch,
                     else_branch,
                     ..
+                }
+                | StatementIr::AsyncFunctionIf {
+                    condition: _,
+                    then_branch,
+                    else_branch,
+                    plan: _,
                 } => {
                     collect(then_branch, copies);
                     if let Some(else_branch) = else_branch {
@@ -473,6 +488,9 @@ mod tests {
                         collect(statement, names);
                     }
                 }
+                StatementIr::ModuleImportBinding(import) => {
+                    names.insert(import.name.clone());
+                }
                 StatementIr::Lexical { name, .. } => {
                     names.insert(name.clone());
                 }
@@ -494,6 +512,12 @@ mod tests {
                     then_branch,
                     else_branch,
                     ..
+                }
+                | StatementIr::AsyncFunctionIf {
+                    condition: _,
+                    then_branch,
+                    else_branch,
+                    plan: _,
                 } => {
                     collect(then_branch, names);
                     if let Some(else_branch) = else_branch {
@@ -796,6 +820,12 @@ mod tests {
                     then_branch,
                     else_branch,
                     ..
+                }
+                | StatementIr::AsyncFunctionIf {
+                    condition: _,
+                    then_branch,
+                    else_branch,
+                    plan: _,
                 } => {
                     statement_owns_binding(then_branch, name, slot)
                         || else_branch
@@ -1580,7 +1610,7 @@ mod tests {
         let program = lower_module("export const value = 1; value;");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
-        assert_eq!(script.result_kind(), ValueKind::Number);
+        assert_eq!(script.result_kind(), ValueKind::Undefined);
     }
 
     #[test]
@@ -1589,7 +1619,12 @@ mod tests {
             lower_module("const direct = () => this; const nested = () => () => this; this;");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::Expression(root_this) = script
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| !function.is_nested && function.protocol == FunctionProtocolIr::Arrow)
+            .expect("private Module lexical owner");
+        let StatementIr::Expression(root_this) = owner
             .body
             .statements
             .last()
@@ -1603,7 +1638,9 @@ mod tests {
         let arrows = script
             .functions
             .iter()
-            .filter(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .filter(|function| {
+                function.is_nested && function.protocol.flavor() == FunctionFlavor::Arrow
+            })
             .collect::<Vec<_>>();
         assert_eq!(arrows.len(), 3);
         assert_eq!(
@@ -1641,7 +1678,10 @@ mod tests {
         let arrow = script
             .functions
             .iter()
-            .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .find(|function| {
+                function.protocol.flavor() == FunctionFlavor::Arrow
+                    && function.captures_lexical_this
+            })
             .expect("lexical arrow should be lowered");
         assert!(arrow.captures_lexical_this);
         assert!(matches!(

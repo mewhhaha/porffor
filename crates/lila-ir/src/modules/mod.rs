@@ -51,6 +51,10 @@ mod namespace_definition;
 mod record;
 mod resolved_binding;
 mod source;
+mod synchronous_definition;
+mod synchronous_execution;
+mod synchronous_source;
+pub use synchronous_execution::*;
 
 pub use dynamic::*;
 pub use evaluation_mode::ModuleEvaluationModeIr;
@@ -71,3 +75,5 @@ pub(crate) use graph_build::build_graph;
 pub(crate) use link::linked_script_source;
 
 pub(crate) use namespace_definition::LinkedScriptDefinitions;
+
+pub(crate) use synchronous_definition::SynchronousModuleAnalysis;

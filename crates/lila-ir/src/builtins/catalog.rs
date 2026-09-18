@@ -3564,6 +3564,20 @@ standard_builtin_catalog! {
         installer: None,
         native: "get variants",
     }
+    IntlLocalePrototypeMaximize {
+        function: FunctionOrdinal(824) => "$builtin.Intl.Locale.prototype.maximize",
+        debug: "Intl.Locale.prototype.maximize",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "maximize",
+    }
+    IntlLocalePrototypeMinimize {
+        function: FunctionOrdinal(825) => "$builtin.Intl.Locale.prototype.minimize",
+        debug: "Intl.Locale.prototype.minimize",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "minimize",
+    }
     IntlLocalePrototypeToString {
         function: FunctionOrdinal(491) => BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID,
         debug: "Intl.Locale.prototype.toString",
@@ -6025,6 +6039,8 @@ mod tests {
             [
                 StandardBuiltinId::IntlGetCanonicalLocales,
                 StandardBuiltinId::IntlLocaleConstructor,
+                StandardBuiltinId::IntlLocalePrototypeMaximize,
+                StandardBuiltinId::IntlLocalePrototypeMinimize,
             ]
         );
     }

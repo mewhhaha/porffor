@@ -558,7 +558,7 @@ print('original failure retained');
 }
 
 #[test]
-fn reentrant_deferred_evaluation_reuses_readers_without_caching_a_caught_tdz() {
+fn reentrant_deferred_evaluation_rejects_access_without_poisoning_a_caught_error() {
     assert_namespace_modules(
         &[
             (
@@ -566,15 +566,16 @@ fn reentrant_deferred_evaluation_reuses_readers_without_caching_a_caught_tdz() {
                 r###"import defer * as ns from './dep.mjs';
 globalThis.deferredRuns = 0;
 globalThis.inspectDeferred = function () {
-  if (Object.getOwnPropertyNames(ns).join('|') !== 'before|later') throw 'reentrant keys';
-  if (ns.before() !== 'hoisted') throw 'reentrant function declaration';
-  let caught;
-  try { ns.later; } catch (error) { caught = error; }
-  if (!(caught instanceof ReferenceError)) throw 'reentrant lexical TDZ';
+  for (const read of [() => Object.getOwnPropertyNames(ns), () => ns.before(), () => ns.later]) {
+    let caught;
+    try { read(); } catch (error) { caught = error; }
+    if (!(caught instanceof TypeError)) throw 'evaluating module accepted deferred access';
+  }
+  if (ns.then !== undefined || ns[Symbol.toStringTag] !== 'Deferred Module') throw 'non-evaluating reentry';
 };
-if (ns.later !== 42 || ns.later !== 42 || globalThis.deferredRuns !== 1)
-  throw 'successful evaluation was not cached';
-print('reentrant readers and declaration scope');
+if (ns.later !== 42 || ns.later !== 42 || ns.before() !== 'hoisted' || globalThis.deferredRuns !== 1)
+  throw 'caught reentry poisoned successful evaluation';
+print('caught reentry preserves successful evaluation');
 "###,
             ),
             (
@@ -582,7 +583,7 @@ print('reentrant readers and declaration scope');
                 "globalThis.deferredRuns++; globalThis.inspectDeferred(); export function before() { return 'hoisted'; } export const later = 42;",
             ),
         ],
-        &["reentrant readers and declaration scope"],
+        &["caught reentry preserves successful evaluation"],
     );
 }
 

@@ -135,7 +135,7 @@ fn utf16_sort_key(name: &ExportName) -> Vec<u16> {
 /// be assumed. Escaping runs over UTF-16 code units and emits `\uXXXX` for
 /// everything outside printable ASCII, which keeps the generated source ASCII
 /// and is the only encoding that survives an unpaired surrogate.
-fn push_js_string_literal(out: &mut String, value: &str) {
+pub(super) fn push_js_string_literal(out: &mut String, value: &str) {
     out.push('"');
     for unit in value.encode_utf16() {
         match unit {

@@ -2047,11 +2047,20 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let realm = match &continuation {
-            AsyncAwaitContinuation::AsyncFunction => self
-                .emit_async_function_execution_realm_context_from_activation(
+            AsyncAwaitContinuation::AsyncFunction => {
+                // Implicit disposal and iterator awaits suspend the same lexical
+                // chain as an AwaitExpression. Save it at their shared boundary.
+                self.store_i64_local_at_offset(
+                    activation_local,
+                    HEAP_ASYNC_ENV_OFFSET,
+                    self.current_env_local,
+                    function,
+                );
+                self.emit_async_function_execution_realm_context_from_activation(
                     activation_local,
                     function,
-                ),
+                )
+            }
             AsyncAwaitContinuation::AsyncGeneratorBody
             | AsyncAwaitContinuation::AsyncGeneratorAwaitReturn
             | AsyncAwaitContinuation::AsyncGeneratorYield

@@ -26,6 +26,17 @@ matcher with ordered choice frames, UTF-16-visible cursors and capture
 restoration. Literal and statically resolved constructor calls can attach an
 immutable program to a RegExp object.
 
+The static serialization boundary is now `ValidatedRegExpProgram` in
+`crates/lila-ir/src/regexp/program.rs`. It rejects invalid instructions, pool
+references, named-capture maps and non-consuming cycles before exposing owned
+bytes. A versioned relative descriptor owns its instruction, range, candidate
+and UTF-8 name sections. One packed allocation handle replaces the six
+independent RegExp header slots, and the emitted matcher derives its bounds
+from the descriptor. Clone, compile, split and matchAll paths share the
+immutable allocation while preserving separate observable object state. See
+the [program-boundary contract](contracts/regexp-program-boundary.md) for the
+wire format, ownership inventory and corruption controls.
+
 This is a foundation, not the complete design:
 
 - computed patterns are served by a finite table of strings found at compile
@@ -134,12 +145,15 @@ rather than preserved as alternate semantics.
 
 ## Program and backtracking invariants
 
-The current 24-byte instruction representation may remain during migration,
-but its Rust construction becomes a closed `RegExpOp` domain with typed
-operands and a private encoder. A versioned program header carries instruction,
-capture, range, named-group and string-pool bounds. Only the compiler or a
-validator can construct `ValidatedRegExpProgram`; the matcher never consumes an
-unchecked pointer/count tuple.
+The current 24-byte instruction representation remains behind the validated
+serialization boundary. Its raw opcode and operand constructors still require
+a future closed `RegExpOp` domain; this descriptor migration does not replace
+the parser or instruction builder. A versioned program header now carries
+instruction, capture, range and named-group section extents. Only validation
+can construct `ValidatedRegExpProgram`, and the backend stores only its private
+immutable bytes. The matcher accepts one allocation handle, validates the
+header against that allocation, and never accepts independent object-owned
+pointer/count pairs or a global heap limit as section authority.
 
 The VM preserves these invariants:
 

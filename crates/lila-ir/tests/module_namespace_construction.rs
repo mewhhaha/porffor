@@ -53,6 +53,10 @@ fn binding_initializers<'a>(
     for statement in statements {
         match statement {
             StatementIr::Lexical { name, init, .. } => out.push((name, init)),
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::ModuleNamespacePublish { namespace, .. },
+                ..
+            }) => out.push(("", namespace)),
             StatementIr::Var(declarations) => {
                 for declaration in declarations {
                     if let Some(init) = &declaration.init {

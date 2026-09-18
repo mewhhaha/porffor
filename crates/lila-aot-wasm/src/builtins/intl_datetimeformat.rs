@@ -3,16 +3,15 @@
 //! Scope, stated honestly. This implements `CreateDateTimeFormat` (11.1.2) in
 //! full — every option is read, in the observable order, with the spec's
 //! validation — and `resolvedOptions` (11.4.4), `supportedLocalesOf` (11.2.2),
-//! `format` (11.4.3) and `formatToParts` (11.4.5) over a **single locale**,
-//! `en-US`, a single calendar, `gregory`, a single numbering system, `latn`,
-//! and the **fixed-offset** time zones.
+//! `format` (11.4.3) and `formatToParts` (11.4.5) using English `en`/`en-US`
+//! patterns, Gregorian calendars, CLDR 47 positional numbering systems, and
+//! the **fixed-offset** time zones.
 //!
-//! Locale negotiation therefore always resolves to `"en-US"`: `ResolveLocale`
-//! with `AvailableLocales = « "en-US" »` falls back to the default locale for
-//! every request. That is a real answer for `en`/`en-US` and an honest
-//! fallback elsewhere, which is what an implementation with no CLDR data can
-//! say. The calendars this backend has data for are `gregory`/`gregorian` and
-//! `iso8601`, which shares the proleptic Gregorian arithmetic and differs only
+//! Locale negotiation supports `en`/`en-US` and falls back to `en-US` for
+//! other requests. The CLDR digit tables supply positional number rendering,
+//! not additional locale patterns. The calendars this backend has data for are
+//! `gregory`/`gregorian` and `iso8601`, which shares the proleptic Gregorian
+//! arithmetic and differs only
 //! in having no eras.
 //!
 //! # Relevant extension keys
@@ -86,6 +85,12 @@
 //! `Jan 3 – 5, 2019` comes out as two complete sides joined by the fallback
 //! separator, which is what `intervalFormatFallback` prescribes when no
 //! interval skeleton matches.
+
+mod numbering;
+mod numbering_systems;
+
+use numbering::DtfNumberingLocals;
+use numbering_systems::{DEFAULT_NUMBERING_SYSTEM, NUMBERING_SYSTEMS};
 
 use super::super::*;
 use super::intl::{
@@ -311,17 +316,21 @@ const fn const_str_eq(left: &str, right: &str) -> bool {
     true
 }
 
-/// The `-u-nu` types this implementation answers to.
-///
-/// One row, deliberately. `arab`, `deva` and `hanidec` are *not* here because
-/// this backend has no digit tables: reporting
-/// `resolvedOptions().numberingSystem === "arab"` while `format` still emitted
-/// `0`-`9` would be a spec cheat, and a wrong answer is worse than a missing
-/// one. See the lane note for what shipping them needs.
-const INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS: &[(&str, &str)] = &[(
-    INTL_DTF_RESOLVED_NUMBERING_SYSTEM,
-    INTL_DTF_RESOLVED_NUMBERING_SYSTEM,
-)];
+/// Negotiation and rendering share the same positional digit table. Algorithmic
+/// numbering systems remain unsupported; accepting one requires its formatter.
+const INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS_TABLE: [(&str, &str); NUMBERING_SYSTEMS.len()] = {
+    let mut rows = [("", ""); NUMBERING_SYSTEMS.len()];
+    let mut index = 0;
+    while index < NUMBERING_SYSTEMS.len() {
+        let identifier = NUMBERING_SYSTEMS[index].identifier();
+        rows[index] = (identifier, identifier);
+        index += 1;
+    }
+    rows
+};
+
+const INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS: &[(&str, &str)] =
+    &INTL_DTF_ACCEPTED_NUMBERING_SYSTEMS_TABLE;
 
 /// How many values the `hourCycle` option — and therefore the `hc` keyword —
 /// has.
@@ -1273,7 +1282,7 @@ const INTL_DTF_MILLISECONDS_PER_MINUTE: f64 = 60_000.0;
 /// for every request, so `resolvedOptions().locale` is always this string.
 const INTL_DTF_RESOLVED_LOCALE: &str = "en-US";
 const INTL_DTF_RESOLVED_CALENDAR: &str = "gregory";
-const INTL_DTF_RESOLVED_NUMBERING_SYSTEM: &str = "latn";
+const INTL_DTF_RESOLVED_NUMBERING_SYSTEM: &str = DEFAULT_NUMBERING_SYSTEM.identifier();
 const INTL_DTF_RESOLVED_TIME_ZONE: &str = "UTC";
 
 /// `en` month names, index 0 = January.
@@ -2644,7 +2653,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::F64ConvertI64S);
             function.instruction(&Instruction::I64ReinterpretF64);
             function.instruction(&Instruction::LocalSet(field_local));
-            self.emit_dtf_number_string(field_local, 2, piece_local, function)?;
+            self.emit_dtf_ascii_number_string(field_local, 2, piece_local, function)?;
             self.emit_concat_string_payloads_local(dest_local, piece_local, function)?;
             function.instruction(&Instruction::LocalSet(dest_local));
         }
@@ -4516,7 +4525,7 @@ impl<'a> FunctionBuilder<'a> {
 
     /// `dest = ""` then the decimal rendering of `number`, left-padded with
     /// zeroes to `width`.
-    fn emit_dtf_number_string(
+    fn emit_dtf_ascii_number_string(
         &mut self,
         number_local: u32,
         width: u32,
@@ -4952,6 +4961,7 @@ impl<'a> FunctionBuilder<'a> {
         let zone_gmt_name_local = self.reserve_temp_local();
         let join_at_local = self.reserve_temp_local();
         let style_local = self.reserve_temp_local();
+        let numbering = self.emit_dtf_numbering_system(record_local, function);
 
         let year_local = self.reserve_temp_local();
         let month_local = self.reserve_temp_local();
@@ -5421,9 +5431,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.emit_dtf_month_number(month_local, scratch_number_local, function);
         self.emit_dtf_two_digit_width(e_month, function);
-        self.emit_dtf_number_string(scratch_number_local, 2, value_local, function)?;
+        self.emit_dtf_number_string(scratch_number_local, 2, value_local, &numbering, function)?;
         function.instruction(&Instruction::Else);
-        self.emit_dtf_number_string(scratch_number_local, 1, value_local, function)?;
+        self.emit_dtf_number_string(scratch_number_local, 1, value_local, &numbering, function)?;
         function.instruction(&Instruction::End);
         self.emit_dtf_push(&sink, "month", value_local, function)?;
         self.emit_dtf_set_const(body_last_local, 1, function);
@@ -5438,9 +5448,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         self.emit_dtf_two_digit_width(e_day, function);
-        self.emit_dtf_number_string(day_local, 2, value_local, function)?;
+        self.emit_dtf_number_string(day_local, 2, value_local, &numbering, function)?;
         function.instruction(&Instruction::Else);
-        self.emit_dtf_number_string(day_local, 1, value_local, function)?;
+        self.emit_dtf_number_string(day_local, 1, value_local, &numbering, function)?;
         function.instruction(&Instruction::End);
         self.emit_dtf_push(&sink, "day", value_local, function)?;
         self.emit_dtf_set_const(body_last_local, 2, function);
@@ -5454,7 +5464,13 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_dtf_pending(&sink, ", ", function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_dtf_year_value(e_year, display_year_local, value_local, function)?;
+        self.emit_dtf_year_value(
+            e_year,
+            display_year_local,
+            value_local,
+            &numbering,
+            function,
+        )?;
         self.emit_dtf_push(&sink, "year", value_local, function)?;
         self.emit_dtf_set_const(body_last_local, 3, function);
         function.instruction(&Instruction::End);
@@ -5513,9 +5529,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         self.emit_dtf_two_digit_width(e_day, function);
-        self.emit_dtf_number_string(day_local, 2, value_local, function)?;
+        self.emit_dtf_number_string(day_local, 2, value_local, &numbering, function)?;
         function.instruction(&Instruction::Else);
-        self.emit_dtf_number_string(day_local, 1, value_local, function)?;
+        self.emit_dtf_number_string(day_local, 1, value_local, &numbering, function)?;
         function.instruction(&Instruction::End);
         if let (Some(range), DtfSourceAttribution::Range { source_local }) = (&range, sink.source) {
             function.instruction(&Instruction::LocalGet(range.pattern));
@@ -5566,7 +5582,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        self.emit_dtf_year_value(e_year, display_year_local, value_local, function)?;
+        self.emit_dtf_year_value(
+            e_year,
+            display_year_local,
+            value_local,
+            &numbering,
+            function,
+        )?;
         self.emit_dtf_push(&sink, "year", value_local, function)?;
         self.emit_dtf_set_const(body_last_local, 3, function);
         function.instruction(&Instruction::End);
@@ -5630,6 +5652,7 @@ impl<'a> FunctionBuilder<'a> {
             hour_local,
             scratch_number_local,
             value_local,
+            &numbering,
             function,
         )?;
         self.emit_dtf_push(&sink, "hour", value_local, function)?;
@@ -5670,9 +5693,9 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Or);
             }
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_dtf_number_string(component_local, 2, value_local, function)?;
+            self.emit_dtf_number_string(component_local, 2, value_local, &numbering, function)?;
             function.instruction(&Instruction::Else);
-            self.emit_dtf_number_string(component_local, 1, value_local, function)?;
+            self.emit_dtf_number_string(component_local, 1, value_local, &numbering, function)?;
             function.instruction(&Instruction::End);
             self.emit_dtf_push(&sink, part_type, value_local, function)?;
             self.emit_dtf_set_const(time_started_local, 1, function);
@@ -5680,7 +5703,12 @@ impl<'a> FunctionBuilder<'a> {
         }
 
         self.emit_dtf_if_nonzero(e_fractional, function);
-        self.emit_dtf_pending(&sink, ".", function);
+        function.instruction(&Instruction::LocalGet(numbering.decimal_separator));
+        function.instruction(&Instruction::LocalSet(sink.pending_literal_local));
+        if let DtfSourceAttribution::Range { source_local } = sink.source {
+            function.instruction(&Instruction::LocalGet(source_local));
+            function.instruction(&Instruction::LocalSet(sink.pending_source_local));
+        }
         for (digits, divisor) in [(1_i64, 100.0_f64), (2, 10.0), (3, 1.0)] {
             self.emit_dtf_if_code_eq(e_fractional, digits, function);
             function.instruction(&Instruction::LocalGet(ms_local));
@@ -5694,6 +5722,7 @@ impl<'a> FunctionBuilder<'a> {
                 scratch_number_local,
                 digits as u32,
                 value_local,
+                &numbering,
                 function,
             )?;
             function.instruction(&Instruction::End);
@@ -5754,8 +5783,9 @@ impl<'a> FunctionBuilder<'a> {
             e_time_zone_name,
             zone_gmt_name_local,
             value_local,
+            &numbering,
             function,
-        );
+        )?;
         self.emit_dtf_push(&sink, "timeZoneName", value_local, function)?;
         function.instruction(&Instruction::End);
 
@@ -5831,6 +5861,9 @@ impl<'a> FunctionBuilder<'a> {
             day_local,
             month_local,
             year_local,
+            numbering.decimal_separator,
+            numbering.digit_utf8_width,
+            numbering.digits_offset,
             style_local,
             join_at_local,
             zone_gmt_name_local,
@@ -5881,6 +5914,7 @@ impl<'a> FunctionBuilder<'a> {
         code_local: u32,
         display_year_local: u32,
         dest_local: u32,
+        numbering: &DtfNumberingLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let scratch_local = self.reserve_temp_local();
@@ -5897,9 +5931,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Sub);
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(scratch_local));
-        self.emit_dtf_number_string(scratch_local, 2, dest_local, function)?;
+        self.emit_dtf_number_string(scratch_local, 2, dest_local, numbering, function)?;
         function.instruction(&Instruction::Else);
-        self.emit_dtf_number_string(display_year_local, 1, dest_local, function)?;
+        self.emit_dtf_number_string(display_year_local, 1, dest_local, numbering, function)?;
         function.instruction(&Instruction::End);
         self.release_temp_local(scratch_local);
         Ok(())
@@ -5915,6 +5949,7 @@ impl<'a> FunctionBuilder<'a> {
         hour_local: u32,
         scratch_local: u32,
         dest_local: u32,
+        numbering: &DtfNumberingLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(hour_local));
@@ -5960,9 +5995,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_dtf_number_string(scratch_local, 2, dest_local, function)?;
+        self.emit_dtf_number_string(scratch_local, 2, dest_local, numbering, function)?;
         function.instruction(&Instruction::Else);
-        self.emit_dtf_number_string(scratch_local, 1, dest_local, function)?;
+        self.emit_dtf_number_string(scratch_local, 1, dest_local, numbering, function)?;
         function.instruction(&Instruction::End);
         Ok(())
     }
@@ -6022,7 +6057,7 @@ impl<'a> FunctionBuilder<'a> {
     /// `constructor-options-timeZoneName-valid.js` and
     /// `format/temporal-plaindate-formatting-timezonename.js` read them back.
     ///
-    /// Every other zone uses the localized GMT name the constructor already
+    /// Every other zone starts with the ASCII GMT name the constructor
     /// rendered into [`HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET`], which doubles
     /// as the discriminator: a zero payload *is* "this zone is a named member
     /// of the UTC family". Note that this is **not** the same question as "is
@@ -6044,12 +6079,15 @@ impl<'a> FunctionBuilder<'a> {
         style_code_local: u32,
         gmt_name_local: u32,
         dest_local: u32,
+        numbering: &DtfNumberingLocals,
         function: &mut Function,
-    ) {
-        // A non-zero offset has a pre-rendered name and every style shares it.
+    ) -> Result<(), EmitError> {
+        // Fixed-zone labels share an ASCII skeleton; only their display
+        // digits are localized. The canonical identifier stays untouched.
         self.emit_dtf_if_nonzero(gmt_name_local, function);
         function.instruction(&Instruction::LocalGet(gmt_name_local));
         function.instruction(&Instruction::LocalSet(dest_local));
+        self.emit_dtf_localize_ascii_digits(dest_local, numbering, function)?;
         function.instruction(&Instruction::Else);
         for style in TimeZoneNameStyle::ALL {
             self.emit_dtf_if_code_eq(style_code_local, style.code(), function);
@@ -6057,6 +6095,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::End);
+        Ok(())
     }
 }
 
@@ -6988,6 +7027,10 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
         "0",
     ] {
         values.push(value.to_string());
+    }
+    for system in NUMBERING_SYSTEMS {
+        values.push(system.digits().to_string());
+        values.push(system.decimal_separator().to_string());
     }
     for names in [
         &INTL_DTF_MONTHS_LONG[..],

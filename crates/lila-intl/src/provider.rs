@@ -1,16 +1,18 @@
 use core::fmt;
 
-use icu_locale::LocaleCanonicalizer;
+use icu_locale::{LocaleCanonicalizer, LocaleExpander};
 
 mod keyword_aliases;
 mod language_domain;
-use language_domain::{ParsedLocale, ReservedLanguageAliasRules};
+#[cfg(test)]
+mod likely_subtags_tests;
+use language_domain::{LikelySubtags, ParsedLocale, ReservedLanguageAliasRules};
 
 use crate::{
-    CanonicalLocaleId, CanonicalizeLocale, CanonicalizeLocaleError, CanonicalizeLocaleRequest,
-    CanonicalizeLocaleResult, EmptyIntlProfile, IntlDataDigest, IntlDataIdentity,
+    CanonicalLocaleId, CanonicalizeLocale, EmptyIntlProfile, IntlDataDigest, IntlDataIdentity,
     IntlDataPlacement, IntlOperationProvider, IntlProfilePlan, IntlProvider, IntlService,
-    IntlServiceSet, InvalidCanonicalLocaleId,
+    IntlServiceSet, InvalidCanonicalLocaleId, LocaleTransformError, LocaleTransformRequest,
+    LocaleTransformResult, MaximizeLocale, MinimizeLocale,
 };
 
 /// Composite SHA-256 of the pinned ICU locale archive, CLDR BCP47 source
@@ -19,7 +21,7 @@ use crate::{
 pub const EMBEDDED_LOCALE_DATA_SHA256: IntlDataDigest =
     IntlDataDigest::from_sha256(keyword_aliases::PROVIDER_DATA_SHA256);
 
-/// Pure locale canonicalization backed by ICU4X's compiled CLDR 47 data.
+/// Pure locale canonicalization and likely subtags backed by compiled CLDR 47 data.
 ///
 /// The data is compiled into the Rust host, so its identity is `External` from
 /// the emitted Wasm artifact's point of view. This provider deliberately binds
@@ -28,6 +30,7 @@ pub const EMBEDDED_LOCALE_DATA_SHA256: IntlDataDigest =
 pub struct EmbeddedLocaleProvider {
     identity: IntlDataIdentity,
     canonicalizer: LocaleCanonicalizer,
+    expander: LocaleExpander,
     reserved_language_rules: ReservedLanguageAliasRules,
 }
 
@@ -37,6 +40,7 @@ impl EmbeddedLocaleProvider {
         Ok(Self {
             identity,
             canonicalizer: LocaleCanonicalizer::new_extended(),
+            expander: LocaleExpander::new_extended(),
             reserved_language_rules: ReservedLanguageAliasRules::from_pinned_data()
                 .map_err(EmbeddedLocaleProviderSetupError::ReservedLanguageData)?,
         })
@@ -72,12 +76,42 @@ impl IntlProvider for EmbeddedLocaleProvider {
 impl IntlOperationProvider<CanonicalizeLocale> for EmbeddedLocaleProvider {
     fn execute(
         &self,
-        request: CanonicalizeLocaleRequest,
-    ) -> Result<CanonicalizeLocaleResult, CanonicalizeLocaleError> {
+        request: LocaleTransformRequest,
+    ) -> Result<LocaleTransformResult, LocaleTransformError> {
         let input = request.into_locale();
         let parsed = ParsedLocale::parse(&input)?;
         let canonical = parsed.canonicalize(&self.canonicalizer, &self.reserved_language_rules)?;
-        Ok(CanonicalizeLocaleResult::new(canonical))
+        Ok(LocaleTransformResult::new(canonical))
+    }
+}
+
+impl IntlOperationProvider<MaximizeLocale> for EmbeddedLocaleProvider {
+    fn execute(
+        &self,
+        request: LocaleTransformRequest,
+    ) -> Result<LocaleTransformResult, LocaleTransformError> {
+        let locale = ParsedLocale::parse(&request.into_locale())?.apply_likely_subtags(
+            LikelySubtags::Maximize,
+            &self.expander,
+            &self.canonicalizer,
+            &self.reserved_language_rules,
+        )?;
+        Ok(LocaleTransformResult::new(locale))
+    }
+}
+
+impl IntlOperationProvider<MinimizeLocale> for EmbeddedLocaleProvider {
+    fn execute(
+        &self,
+        request: LocaleTransformRequest,
+    ) -> Result<LocaleTransformResult, LocaleTransformError> {
+        let locale = ParsedLocale::parse(&request.into_locale())?.apply_likely_subtags(
+            LikelySubtags::Minimize,
+            &self.expander,
+            &self.canonicalizer,
+            &self.reserved_language_rules,
+        )?;
+        Ok(LocaleTransformResult::new(locale))
     }
 }
 
@@ -114,7 +148,7 @@ impl std::error::Error for EmbeddedLocaleProviderSetupError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CanonicalizeLocaleRequest, IntlDataCapability, IntlKernel, LocaleId};
+    use crate::{IntlDataCapability, IntlKernel, LocaleId, LocaleTransformRequest};
 
     #[test]
     fn embedded_locale_provider_resolves_cldr_aliases() {
@@ -135,7 +169,7 @@ mod tests {
         let result = kernel
             .operation::<CanonicalizeLocale>()
             .expect("locale capability is present")
-            .execute(CanonicalizeLocaleRequest::new(
+            .execute(LocaleTransformRequest::new(
                 LocaleId::parse("iw-IL").expect("structurally valid locale"),
             ))
             .expect("pinned ICU4X data contains the alias");

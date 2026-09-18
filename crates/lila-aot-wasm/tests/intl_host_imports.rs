@@ -53,10 +53,13 @@ fn locale_construction_declares_its_own_provider_import() {
 
 #[test]
 fn locale_options_and_optional_imports_preserve_wasm_indices() {
-    assert_eq!(intl_import_count(
-        "var locale = new Intl.Locale('en', {calendar:'islamicc',numeric:true}); locale.calendar; Date.now(); Math.random();",
-        HostSurfacePolicy::default(),
-    ), 1);
+    assert_eq!(
+        intl_import_count(
+            "var locale = new Intl.Locale('en', {calendar:'islamicc',numeric:true}); locale.calendar; Date.now(); Math.random();",
+            HostSurfacePolicy::default(),
+        ),
+        1
+    );
 }
 
 #[test]
@@ -73,4 +76,26 @@ fn created_realm_locale_dependencies_declare_the_provider_import() {
 #[test]
 fn a_program_without_provider_callers_omits_the_intl_import() {
     assert_eq!(intl_import_count("1 + 1;", HostSurfacePolicy::default()), 0);
+}
+
+#[test]
+fn likely_subtag_methods_declare_the_provider_and_preserve_wasm_indices() {
+    assert_eq!(
+        intl_import_count(
+            "var locale = new Intl.Locale('en'); locale.maximize().minimize(); Date.now(); Math.random();",
+            HostSurfacePolicy::default(),
+        ),
+        1,
+    );
+}
+
+#[test]
+fn detached_likely_subtag_methods_retain_provider_dependencies() {
+    assert_eq!(
+        intl_import_count(
+            "var foreign = __lilaCreateRealm().global; var method = foreign.Intl.Locale.prototype.maximize; method.call(new Intl.Locale('en'));",
+            HostSurfacePolicy::Test262,
+        ),
+        1,
+    );
 }

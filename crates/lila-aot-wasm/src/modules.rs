@@ -1,9 +1,15 @@
 //! Wasm emission for ES module graphs.
 //!
 //! A module graph is linked at compile time into the single `ScriptIr` the rest
-//! of the backend emits, so most module semantics need no code here at all: a
-//! cross-module binding read is an ordinary environment-slot read of the
-//! exporter's cell, and evaluation order is fixed statically.
+//! of the backend emits. Synchronous Module-entry graphs without source-phase
+//! requests carry private activation and cell operations. `synchronous`
+//! allocates all records and generator-backed environments, installs immutable
+//! indirect imports, publishes namespaces, and evaluates dependencies in request
+//! order. Entered members of an evaluation component remain Evaluating until
+//! its first active evaluator finalizes their shared completion or error.
+//!
+//! Asynchronous, Script-entry and source-phase graphs retain the merged-scope
+//! driver and its existing evaluation guards.
 //!
 //! What does need emission is the part that is genuinely dynamic:
 //!
@@ -28,6 +34,8 @@
 //! in `objects::module_namespace`, alongside the internal methods it dispatches.
 
 use super::*;
+mod synchronous;
+pub(crate) use synchronous::synchronous_module_record_count;
 
 /// Message every unimplemented module emission reports, so a module compile
 /// fails with one recognisable diagnostic rather than a generic backend error.

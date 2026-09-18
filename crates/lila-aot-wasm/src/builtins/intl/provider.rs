@@ -1,21 +1,29 @@
 use super::*;
+use lila_intl::{
+    IntlOperation, LocaleTransformError, LocaleTransformRequest, LocaleTransformResult,
+};
 
 impl<'a> FunctionBuilder<'a> {
     /// Invoke the existing pure, pinned provider after AOT-owned validation and
-    /// coercion. This is shared by Locale construction and CanonicalizeLocaleList.
-    pub(super) fn emit_intl_provider_canonicalize_locale_tag(
+    /// coercion. The operation marker restricts this ABI to locale transforms.
+    pub(super) fn emit_intl_provider_locale_transform<O>(
         &mut self,
         tag_payload_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<(), EmitError>
+    where
+        O: IntlOperation<
+            Request = LocaleTransformRequest,
+            Response = LocaleTransformResult,
+            Error = LocaleTransformError,
+        >,
+    {
         let capacity = self.reserve_temp_local();
         let output = self.reserve_temp_local();
         let outcome = self.reserve_temp_local();
         // The first pure call determines the exact result size. No JavaScript
         // read or coercion can occur between this query and the writing call.
-        function.instruction(&Instruction::I64Const(
-            IntlHostOp::CanonicalizeLocale.wire(),
-        ));
+        function.instruction(&Instruction::I64Const(O::HOST_OP.wire()));
         function.instruction(&Instruction::LocalGet(tag_payload_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::Call(self.intl_call_import_function_index()?));
@@ -56,9 +64,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(capacity));
         self.emit_heap_alloc_from_local(capacity, function)?;
         function.instruction(&Instruction::LocalSet(output));
-        function.instruction(&Instruction::I64Const(
-            IntlHostOp::CanonicalizeLocale.wire(),
-        ));
+        function.instruction(&Instruction::I64Const(O::HOST_OP.wire()));
         function.instruction(&Instruction::LocalGet(tag_payload_local));
         self.emit_pack_string_payload(output, capacity, function);
         function.instruction(&Instruction::Call(self.intl_call_import_function_index()?));
@@ -88,7 +94,9 @@ impl<'a> FunctionBuilder<'a> {
         let canonical = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(input));
         function.instruction(&Instruction::LocalSet(canonical));
-        self.emit_intl_provider_canonicalize_locale_tag(canonical, function)?;
+        self.emit_intl_provider_locale_transform::<lila_intl::CanonicalizeLocale>(
+            canonical, function,
+        )?;
         self.emit_intl_canonicalize_locale_tag(
             CanonicalLocaleTagInvocationLocals::new(
                 CanonicalLocaleTagInputPayloadLocal::new(canonical),

@@ -184,7 +184,7 @@ The ordered matcher result writer now consumes one private, non-capability
 independent raw found word and status. Its sole exhaustive projection admits
 only `(1, Complete)`, `(0, Complete)` and `(0, Failed(reason))`, so a found
 failure or an arbitrary found ABI word cannot compile. The Rust-lexical guard
-pins the exact 56 producers—one match, three normal misses, 50 corrupt-program
+pins the exact 52 producers—one match, three normal misses, 46 corrupt-program
 failures and two resource failures—across the matcher and its child modules,
 together with the attribute-free domain and sole consuming writer. The original
 source-equivalent ABI hardening added no runtime or conformance claim; its

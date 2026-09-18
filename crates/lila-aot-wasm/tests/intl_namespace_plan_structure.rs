@@ -114,7 +114,7 @@ fn intl_namespace_plan_has_one_private_child_owner() {
 fn intl_namespace_roots_and_policy_remain_parent_owned() {
     assert_eq!(
         PLANNING_SOURCE
-            .matches("const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 23] = [")
+            .matches("const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 25] = [")
             .count(),
         1
     );
@@ -129,9 +129,19 @@ fn intl_namespace_roots_and_policy_remain_parent_owned() {
 
     let roots_and_proof = bounded(
         PLANNING_SOURCE,
-        "const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 23] = [",
+        "const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 25] = [",
         "pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};",
     );
+    for method in [
+        "StandardBuiltinId::IntlLocalePrototypeMaximize,",
+        "StandardBuiltinId::IntlLocalePrototypeMinimize,",
+    ] {
+        assert_eq!(
+            roots_and_proof.matches(method).count(),
+            1,
+            "parent must root the added Locale method exactly once: `{method}`",
+        );
+    }
     for proof in [
         "while member < INTL_NAMESPACE_CONSTRUCTORS.len()",
         "while root < INTL_NAMESPACE_ROOTS.len()",

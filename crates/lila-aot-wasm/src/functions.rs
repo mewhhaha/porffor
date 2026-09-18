@@ -5868,6 +5868,12 @@ impl<'a> FunctionBuilder<'a> {
             self.store_i64_const_at_offset(payload_local, HEAP_GENERATOR_ENV_OFFSET, 0, function);
             self.store_i64_const_at_offset(
                 payload_local,
+                HEAP_GENERATOR_LEXICAL_ENV_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
                 HEAP_GENERATOR_INITIALIZED_OFFSET,
                 0,
                 function,
@@ -6178,6 +6184,7 @@ impl<'a> FunctionBuilder<'a> {
                     ValueKind::Undefined.tag() as u64,
                 ),
                 (HEAP_ASYNC_ENV_OFFSET, 0),
+                (HEAP_ASYNC_INVOCATION_ENV_OFFSET, 0),
                 (HEAP_ASYNC_INITIALIZED_OFFSET, 0),
                 (HEAP_ASYNC_COMPLETED_OFFSET, 0),
                 (HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET, 0),
@@ -8907,8 +8914,9 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             } else {
-                self.emit_object_define_enumerable_data(
+                self.emit_define_public_class_field(
                     receiver_payload_local,
+                    receiver_tag_local,
                     key_local,
                     value_payload_local,
                     value_tag_local,

@@ -1,6 +1,21 @@
 //! Merging a linked graph into the single `ScriptIr` the backend emits.
 //!
-//! # Artifact strategy
+//! # Synchronous instantiation
+//!
+//! A Module-entry graph uses private module activations when every unit is
+//! synchronous and no request uses the source phase. That path allocates every
+//! module environment before linking import cells and constructing namespaces,
+//! then evaluates the selected module and its dependencies in request order.
+//! Static evaluation components retain Evaluating state until the first active
+//! evaluator completes the component or caches the same throw on entered members.
+//! `synchronous_source` records trusted source spans; `synchronous_definition`
+//! turns those exact AST owners into typed private operations. The existing
+//! dynamic import dispatchers retain their Promise and coercion behavior.
+//!
+//! The source-merge constraints and retained drivers described below apply to
+//! graphs outside that bounded instantiation path.
+//!
+//! # Retained artifact strategy
 //!
 //! One Wasm module per graph. Every unit of the graph contributes its body to
 //! one merged `ScriptIr`, in the evaluation order the graph fixed
@@ -36,27 +51,19 @@
 //!   strict (16.2.1.6.1 parses module code as strict regardless of its text).
 //! * Unit bodies are separated by an empty statement so that no unit's last
 //!   token can join the next unit's first token through ASI.
-//! * Module top-level `this` is `undefined`. For a flat eager synchronous
-//!   Module-entry graph, lowering retains the original goal as a closed
-//!   root-`this` binding and lowers module-root reads (including root lexical
-//!   arrows) directly to `undefined` — see [`lowering::lower_module_graph`].
-//!   Existing Script-entry module closures, deferred units and top-level-await
-//!   graphs still use their strict ordinary-function, thunk and async-function
-//!   wrappers respectively; their source-level module `this` therefore remains
-//!   an activation read whose bare strict invocation supplies `undefined`.
-//! * A graph any of whose modules has `[[HasTLA]]` has its whole body wrapped
-//!   in an immediately-invoked strict async function — see [`wrap_async_body`],
-//!   which is also where the two deviations below stop applying, because such a
-//!   body has a function scope and a `this` of its own.
+//! * Module-entry graphs use a private arrow owner, so their declarations stay
+//!   outside the global Script environment. The Module goal's root-`this`
+//!   binding supplies `undefined` through every lexical arrow, and no implicit
+//!   `arguments` binding is introduced.
+//! * A graph with `[[HasTLA]]` uses an async arrow owner instead; see
+//!   [`wrap_async_body`] for the retained asynchronous scheduling limits.
+//! * Script-entry module closures and deferred units retain their existing
+//!   strict ordinary-function wrappers.
 //!
-//! [`lowering::lower_module_graph`]: crate::lower_module_graph
-//!
-//! One deviation is knowingly left in place: a module top-level `var` belongs
-//! to the module environment (9.1.1.5), but merged Script text makes it a
-//! property of the global object. It is observable only by probing
-//! `globalThis`, the cross-unit collision check already stops two units from
-//! sharing such a name, and closing it needs the same per-unit renaming pass as
-//! the aliases below.
+//! A retained merged owner still shares one lexical environment between module
+//! units. A dependency's free name can therefore resolve to an unrelated
+//! importer's declaration. The private owner separates the global Script from
+//! the graph; it does not supply per-module scope isolation.
 //!
 //! # Renamed bindings and `export default`
 //!
@@ -73,8 +80,9 @@
 //! declaration, and [`collect_binding_aliases`] reports both rather than
 //! mislinking them: an alias is hidden by any top-level declaration of the same
 //! name anywhere in the graph, and two aliases of the same name must name the
-//! same export. It is the same class of deviation the merged script already
-//! accepts for a module top-level `var`.
+//! same export. Installing an alias also mutates the global object instead of
+//! creating an importing-module cell, so it can conflict with an earlier Script
+//! binding. The private merged owner does not repair that retained-driver gap.
 //!
 //! `export default` binds `*default*` (8.2.2), which no source text can spell,
 //! so `modules::source` rewrites the two keywords into a declaration of
@@ -84,7 +92,7 @@
 //! and `ResolveExport` already walk star paths, so the importer resolves
 //! straight through to the originating unit's cell.
 //!
-//! # What this stage does not link yet
+//! # Retained driver constraints
 //!
 //! * two units that declare the same top-level name, which the merged scope
 //!   cannot hold side by side without a renaming pass over the unit bodies.
@@ -179,6 +187,15 @@ pub(crate) fn linked_script_source(
     graph: &mut ModuleGraphIr,
 ) -> Result<LinkedScriptSource, Vec<IrDiagnostic>> {
     collect_observed_namespaces(graph);
+
+    // Eligibility uses the same complete discovered edge set as classification;
+    // artifact components have already dropped unreachable referrers here.
+    if let Some(eligible) = super::synchronous_source::SynchronousInstantiationGraph::new(
+        graph,
+        &super::dynamic::discover_components(graph),
+    ) {
+        return super::synchronous_source::linked_synchronous_source(sources, eligible);
+    }
 
     let mut diagnostics = Vec::new();
     check_linkable(graph, &mut diagnostics);
@@ -340,7 +357,7 @@ pub(crate) fn linked_script_source(
         if asynchronous {
             source_text.push_str(&wrap_async_body(&text, &mut definitions));
         } else {
-            source_text.push_str(&text);
+            source_text.push_str(&wrap_sync_body(&text, &mut definitions));
         }
         definitions.prepend("\"use strict\";\n");
         source_text
@@ -372,9 +389,8 @@ pub(crate) fn linked_script_source(
 /// * `"use strict"` inside it makes every module strict (16.2.1.6.1) without
 ///   touching the Script that follows;
 /// * a plain call gives the wrapper a `this` of `undefined`, which is module
-///   top-level `this` (16.2.1.6.2); a flat eager synchronous *module-entry*
-///   path obtains the same value from its goal-typed root binding without a
-///   new wrapper;
+///   top-level `this` (16.2.1.6.2); Module-entry wrappers instead inherit
+///   `undefined` through the Module goal's lexical root binding;
 /// * `var` and function declarations in a module body become function-scoped,
 ///   which is the module environment's behaviour rather than the global
 ///   object's.
@@ -421,9 +437,18 @@ fn wrap_script_graph_modules(
     text
 }
 
-/// Wraps the merged graph body in an immediately-invoked async function, which
+/// A private arrow keeps the retained driver's shared module declarations out
+/// of the global Script environment. It inherits the Module goal's undefined
+/// `this` and does not introduce an `arguments` or `new.target` binding.
+fn wrap_sync_body(body: &str, names: &mut super::LinkedScriptDefinitions) -> String {
+    let prefix = "void (() => {\n";
+    names.prepend(prefix);
+    format!("{prefix}{body}\n}})();\n")
+}
+
+/// Wraps the merged graph body in an immediately-invoked async arrow, which
 /// is what makes a top-level `await` legal in the Script-goal text this stage
-/// produces.
+/// produces while retaining Module lexical `this` and `arguments` semantics.
 ///
 /// # Why one wrapper for the whole graph
 ///
@@ -447,13 +472,10 @@ fn wrap_script_graph_modules(
 /// what changes is the interleaving of side effects between asynchronous
 /// *siblings*.
 ///
-/// A regular `function` rather than an arrow is deliberate. Module top-level
-/// `this` is `undefined` (16.2.1.6.2), and a strict function called with no
-/// receiver is the one construct that gives the merged Script text that value —
-/// so an asynchronous graph gets the module `this` right where
-/// `lower_module_graph` has to report it for a synchronous one. `var`
-/// declarations likewise become function-scoped, which is the module
-/// environment's behaviour rather than the merged script's.
+/// The arrow inherits `undefined` from the Module goal's lexical root binding.
+/// It introduces no implicit `arguments` binding, and its `var`, function and
+/// lexical declarations remain separate from an earlier global Script. The
+/// retained driver still shares this one environment between its module units.
 fn wrap_async_body(body: &str, names: &mut super::LinkedScriptDefinitions) -> String {
     // `void` because the call's value is the module's `[[TopLevelCapability]]`
     // promise, and an `ExpressionStatement` yielding it would make that promise
@@ -462,7 +484,7 @@ fn wrap_async_body(body: &str, names: &mut super::LinkedScriptDefinitions) -> St
     // The newline before `}` closes any unit body that ended in an expression
     // without a semicolon: ASI applies at the `}`, exactly as it already does
     // at the end of the unwrapped merged script.
-    let prefix = "void (async function () {\n";
+    let prefix = "void (async () => {\n";
     names.prepend(prefix);
     format!("{prefix}{body}\n}})();\n")
 }
@@ -771,22 +793,24 @@ mod tests {
         assert_eq!(components, vec![vec![0]]);
     }
 
-    /// A graph with no `[[HasTLA]]` module keeps the flat merged body: the
-    /// wrapper is not paid for by programs that do not need it.
     #[test]
-    fn a_synchronous_graph_is_not_wrapped() {
+    fn a_synchronous_graph_keeps_its_declarations_in_a_private_activation() {
         let sources = sources_of(&[("m", "print(1);")], 0, Vec::new());
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
-        assert!(
-            !linked.source.source_text.contains("async function"),
-            "got {}",
-            linked.source.source_text
-        );
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        assert_eq!(definitions.units.len(), 1);
+        assert_eq!(definitions.initial_evaluation, [0]);
+        assert_eq!(definitions.units[0].evaluation.module(), 0);
+        assert_eq!(definitions.units[0].evaluation.component_members(), [0]);
+        assert!(linked.source.source_text.contains("print(1);"));
     }
 
     /// Top-level `await` links instead of being reported, and the merged text
-    /// is Script-legal because the whole body became an async function.
+    /// is Script-legal because the whole body became an async arrow.
     #[test]
     fn a_top_level_await_module_is_wrapped_in_an_async_body() {
         let sources = sources_of(
@@ -802,7 +826,7 @@ mod tests {
             linked
                 .source
                 .source_text
-                .contains("void (async function () {\nconst value = await 1;"),
+                .contains("void (async () => {\nconst value = await 1;"),
             "got {}",
             linked.source.source_text
         );
@@ -848,17 +872,14 @@ mod tests {
             linked.source.source_text
         );
         assert!(
-            linked
-                .source
-                .source_text
-                .contains("void (async function () {"),
+            linked.source.source_text.contains("void (async () => {"),
             "got {}",
             linked.source.source_text
         );
     }
 
     #[test]
-    fn a_two_unit_graph_links_dependencies_first() {
+    fn a_two_unit_graph_visits_its_dependencies_through_the_entry_evaluator() {
         let sources = sources_of(
             &[
                 ("a", "export const value = 41;"),
@@ -869,34 +890,24 @@ mod tests {
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
-
         assert_eq!(linked.source.goal, ParseGoal::Script);
-        assert!(linked.source.source_text.starts_with("\"use strict\";"));
-        let exporter = linked
-            .source
-            .source_text
-            .find("const value = 41;")
-            .expect("exporter body is present");
-        let importer = linked
-            .source
-            .source_text
-            .find("print(value + 1);")
-            .expect("importer body is present");
-        assert!(
-            exporter < importer,
-            "dependency must be emitted before its importer"
-        );
-        assert!(
-            !linked.source.source_text.contains("import"),
-            "import declarations are deleted, got: {}",
-            linked.source.source_text
-        );
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        assert_eq!(definitions.initial_evaluation, [1]);
+        let entry = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 1)
+            .unwrap();
+        assert_eq!(entry.evaluation.dependencies(), [0]);
+        assert!(!linked.source.source_text.contains("import"));
     }
 
-    /// A renamed binding links as a global accessor, not as a copy: the getter
-    /// body names the *exporter's* cell, so a later write to it is observed.
+    /// A renamed import resolves to the exporter's canonical environment cell.
     #[test]
-    fn renamed_imports_link_as_live_accessors_over_the_exporter_cell() {
+    fn renamed_imports_resolve_to_private_exporter_cells() {
         let sources = sources_of(
             &[
                 ("a", "let value = 1;\nexport { value as outer };"),
@@ -907,27 +918,32 @@ mod tests {
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("alias should link");
-        assert!(
-            linked.source.source_text.contains(
-                "Object.defineProperty(globalThis, \"outer\", { get: () => value, \
-                 enumerable: false, configurable: false });"
-            ),
-            "got {}",
-            linked.source.source_text
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        let entry = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 1)
+            .unwrap();
+        assert_eq!(entry.imports.len(), 1);
+        assert_eq!(
+            namespace_target_reference(&entry.imports[0])
+                .unwrap()
+                .as_str(),
+            "value"
         );
-        // The importer's body is untouched: it still reads the name it wrote.
-        assert!(
-            linked.source.source_text.contains("print(outer);"),
-            "got {}",
-            linked.source.source_text
-        );
+        assert!(!linked
+            .source
+            .source_text
+            .contains("Object.defineProperty(globalThis"));
+        assert!(linked.source.source_text.contains("print(outer);"));
     }
 
-    /// The alias is a global property, so a top-level declaration of the same
-    /// name anywhere in the graph would hide it. That is reported, because a
-    /// silent read of the wrong module's binding is worse than a rejection.
+    /// Unrelated module declarations cannot shadow a private import cell.
     #[test]
-    fn an_alias_shadowed_by_a_top_level_declaration_is_reported() {
+    fn an_alias_is_separate_from_another_modules_top_level_declaration() {
         let sources = sources_of(
             &[
                 ("a", "export const value = 1;"),
@@ -941,20 +957,29 @@ mod tests {
             vec![(2, request_key("a"), 0), (2, request_key("c"), 1)],
         );
         let mut graph = graph_of(&sources);
-        let diagnostics =
-            linked_script_source(&sources, &mut graph).expect_err("shadowing must be reported");
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("is shadowed by a top-level")),
-            "got {diagnostics:?}"
+        let linked =
+            linked_script_source(&sources, &mut graph).expect("separate module bindings link");
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        assert_eq!(definitions.units.len(), 3);
+        let entry = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 2)
+            .unwrap();
+        assert_eq!(
+            namespace_target_reference(&entry.imports[0])
+                .unwrap()
+                .as_str(),
+            "value"
         );
     }
 
-    /// Two units that alias one local name to *different* exports cannot both
-    /// have it, and one silently winning would be a mislink.
+    /// Import-local spellings do not need to be unique across a graph.
     #[test]
-    fn two_aliases_of_one_name_naming_different_exports_are_reported() {
+    fn two_modules_can_alias_the_same_name_to_different_exports() {
         let sources = sources_of(
             &[
                 ("a", "export const first = 1;\nexport const second = 2;"),
@@ -972,21 +997,36 @@ mod tests {
             ],
         );
         let mut graph = graph_of(&sources);
-        let diagnostics =
-            linked_script_source(&sources, &mut graph).expect_err("conflict must be reported");
-        assert!(
-            diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("already names a different export")),
-            "got {diagnostics:?}"
+        let linked = linked_script_source(&sources, &mut graph).expect("private aliases link");
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        let imports = |module| {
+            &definitions
+                .units
+                .iter()
+                .find(|unit| unit.module == module)
+                .unwrap()
+                .imports
+        };
+        assert_eq!(
+            namespace_target_reference(&imports(1)[0]).unwrap().as_str(),
+            "first"
         );
+        assert_eq!(
+            namespace_target_reference(&imports(2)[0]).unwrap().as_str(),
+            "second"
+        );
+        assert!(!linked
+            .source
+            .source_text
+            .contains("Object.defineProperty(globalThis"));
     }
 
-    /// Two importers that give one export the same local name want the same
-    /// alias, so the prelude defines it once — a second `defineProperty` of a
-    /// non-configurable property would throw.
+    /// Distinct importer cells can share one ultimate export target.
     #[test]
-    fn one_alias_serves_two_importers_that_agree() {
+    fn distinct_import_cells_can_resolve_to_the_same_export() {
         let sources = sources_of(
             &[
                 ("a", "export const first = 1;"),
@@ -1005,16 +1045,27 @@ mod tests {
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("agreeing aliases link");
-        assert_eq!(
-            linked
-                .source
-                .source_text
-                .matches("Object.defineProperty(globalThis, \"z\"")
-                .count(),
-            1,
-            "got {}",
-            linked.source.source_text
-        );
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        let first = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 1)
+            .unwrap();
+        let second = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 2)
+            .unwrap();
+        assert_eq!(first.imports, second.imports);
+        assert_eq!(first.imports.len(), 1);
+        assert_eq!(linked.source.source_text.matches("const z = 0;").count(), 2);
+        assert!(!linked
+            .source
+            .source_text
+            .contains("Object.defineProperty(globalThis"));
     }
 
     /// `export default` links: the keywords become a declaration of the minted
@@ -1042,12 +1093,20 @@ mod tests {
             "got {}",
             linked.source.source_text
         );
-        assert!(
-            linked.source.source_text.contains(&format!(
-                "Object.defineProperty(globalThis, \"d\", {{ get: () => {binding},"
-            )),
-            "got {}",
-            linked.source.source_text
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        let importer = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 1)
+            .unwrap();
+        assert_eq!(
+            namespace_target_reference(&importer.imports[0])
+                .unwrap()
+                .as_str(),
+            binding
         );
     }
 
@@ -1076,13 +1135,20 @@ mod tests {
             "got {}",
             linked.source.source_text
         );
-        assert!(
-            linked.source.source_text.contains(&format!(
-                "Object.defineProperty(globalThis, \"answer\", {{ get: () => {},",
-                binding.as_str()
-            )),
-            "got {}",
-            linked.source.source_text
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        let importer = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 1)
+            .unwrap();
+        assert_eq!(
+            namespace_target_reference(&importer.imports[0])
+                .unwrap()
+                .as_str(),
+            binding.as_str()
         );
         lila_front::parse(
             linked.source.source_text,
@@ -1166,7 +1232,7 @@ mod tests {
     }
 
     #[test]
-    fn colliding_top_level_names_are_reported() {
+    fn same_spelled_top_level_names_belong_to_separate_modules() {
         let sources = sources_of(
             &[
                 ("a", "const shared = 1;\nexport { shared };"),
@@ -1176,14 +1242,11 @@ mod tests {
             Vec::new(),
         );
         let mut graph = graph_of(&sources);
-        let diagnostics =
-            linked_script_source(&sources, &mut graph).expect_err("collision must be reported");
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("both declare top-level")),
-            "got {diagnostics:?}"
-        );
+        let linked =
+            linked_script_source(&sources, &mut graph).expect("separate module declarations link");
+        assert_eq!(linked.definitions.synchronous.unwrap().units.len(), 2);
+        assert!(linked.source.source_text.contains("const shared = 1;"));
+        assert!(linked.source.source_text.contains("const shared = 2;"));
     }
 
     /// `import()` is linked, not rejected: the call site becomes a call to the
@@ -1227,10 +1290,9 @@ mod tests {
         );
     }
 
-    /// `import * as ns` is linked through the namespace prelude, and the alias
-    /// is a `const` naming the object rather than a share of an exporter cell.
+    /// Namespace imports resolve to the exporting record's private cell.
     #[test]
-    fn a_namespace_import_binds_its_local_to_the_namespace_object() {
+    fn a_namespace_import_binds_its_local_to_the_private_namespace_cell() {
         let sources = sources_of(
             &[
                 ("a", "export const value = 41;"),
@@ -1241,32 +1303,34 @@ mod tests {
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("namespace should link");
-
-        let cell = MergedName::minted(0, UnitCellRole::Namespace);
-        let cell = cell.as_str();
-        assert!(
-            linked
-                .source
-                .source_text
-                .contains(&format!("const {cell} = [void 0,")),
-            "got {}",
-            linked.source.source_text
-        );
-        assert!(
-            linked
-                .source
-                .source_text
-                .contains(&format!("const ns = {cell};")),
-            "got {}",
-            linked.source.source_text
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        let exporter = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 0)
+            .unwrap();
+        assert_eq!(exporter.namespaces.len(), 1);
+        assert_eq!(exporter.namespaces[0].0, ModuleNamespaceModeIr::Eager);
+        let importer = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 1)
+            .unwrap();
+        assert_eq!(
+            importer.imports,
+            [ResolvedBindingIr::Resolved {
+                module: 0,
+                binding: ModuleBindingNameIr::Namespace(ModuleNamespaceModeIr::Eager),
+            }]
         );
     }
 
-    /// `import defer`: the dependency's body still reaches the merged script,
-    /// but wrapped in the thunk its namespace getters call, so nothing of it
-    /// runs until an export is read.
+    /// Deferred bodies are instantiated without starting their evaluation.
     #[test]
-    fn a_deferred_dependency_body_is_emitted_as_a_thunk() {
+    fn a_deferred_dependency_has_an_activation_without_initial_evaluation() {
         let sources = sources_of(
             &[
                 ("a", "print(\"side effect\");\nexport const value = 41;"),
@@ -1279,45 +1343,24 @@ mod tests {
             vec![(1, request_key("a"), 0)],
         );
         let mut graph = graph_of(&sources);
-        assert_eq!(
-            graph.evaluation_mode(0),
-            ModuleEvaluationModeIr::Deferred,
-            "{:?}",
-            graph.evaluation_modes
-        );
+        assert_eq!(graph.evaluation_mode(0), ModuleEvaluationModeIr::Deferred);
         let linked = linked_script_source(&sources, &mut graph).expect("defer should link");
-
-        let evaluate = MergedName::minted(0, UnitCellRole::DeferEvaluate);
-        let evaluate = evaluate.as_str();
-        assert!(
-            linked.source.source_text.contains(&format!(
-                "let {};",
-                MergedName::minted(0, UnitCellRole::DeferCells).as_str()
-            )),
-            "got {}",
-            linked.source.source_text
-        );
-        // The body is inside the thunk, not at top level.
-        let thunk = linked
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        assert_eq!(definitions.initial_evaluation, [1]);
+        let deferred = definitions
+            .units
+            .iter()
+            .find(|unit| unit.module == 0)
+            .unwrap();
+        assert_eq!(deferred.namespaces[0].0, ModuleNamespaceModeIr::Deferred);
+        assert_eq!(deferred.evaluation.module(), 0);
+        assert!(linked
             .source
             .source_text
-            .find(&format!("function {evaluate}()"))
-            .expect("thunk is present");
-        let side_effect = linked
-            .source
-            .source_text
-            .find("print(\"side effect\")")
-            .expect("dependency body is present");
-        assert!(thunk < side_effect, "got {}", linked.source.source_text);
-        // And the namespace getter is what calls it.
-        assert!(
-            linked
-                .source
-                .source_text
-                .contains(&format!("() => {evaluate}()[\"value\"]()")),
-            "got {}",
-            linked.source.source_text
-        );
+            .contains("print(\"side effect\");"));
     }
 
     /// `import source`: the module is resolved, loaded, parsed and linked, and
@@ -1468,12 +1511,10 @@ mod tests {
         );
     }
 
-    /// A unit reachable only through `import()` is a separate Tarjan root and so
-    /// lands after the entry in `evaluation_order`. The entry's component must
-    /// still be emitted last, or the merged script takes the wrong completion
-    /// value and runs a dependency after its dependent.
+    /// Ordinary dynamic import retains the existing eager scheduling policy;
+    /// its roots are distinct from the entry's static evaluation traversal.
     #[test]
-    fn the_entry_component_is_emitted_last_even_with_an_import_only_target() {
+    fn the_entry_evaluation_follows_retained_eager_dynamic_import_roots() {
         let sources = sources_of(
             &[
                 ("d", "import(\"a\");\nprint(\"entry\");"),
@@ -1483,24 +1524,12 @@ mod tests {
             vec![(0, request_key("a"), 1)],
         );
         let mut graph = graph_of(&sources);
-        // The precondition this test exists for: the entry is *not* last here.
         assert_eq!(graph.evaluation_order.first().copied(), Some(0));
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
-
-        let target = linked
-            .source
-            .source_text
-            .find("print(\"target\")")
-            .expect("target body is present");
-        let entry = linked
-            .source
-            .source_text
-            .find("print(\"entry\")")
-            .expect("entry body is present");
-        assert!(
-            target < entry,
-            "the entry component must be emitted last: {}",
-            linked.source.source_text
-        );
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical module definitions");
+        assert_eq!(definitions.initial_evaluation, [1, 0]);
     }
 }

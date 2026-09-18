@@ -7,6 +7,7 @@ use crate::*;
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkedScriptDefinitions {
+    pub(super) synchronous: Option<super::synchronous_definition::SynchronousModuleDefinitions>,
     defaults: DefaultExportDefinitions,
     namespaces: BTreeMap<(boa_ast::Position, boa_ast::Position), ModuleNamespaceModeIr>,
 }
@@ -101,7 +102,15 @@ impl LinkedScriptDefinitions {
             .collect();
     }
 
-    pub(crate) fn apply<'a>(&self, script: &'a Script, analysis: &mut Analysis<'a>) {
+    pub(crate) fn apply<'a>(
+        &self,
+        script: &'a Script,
+        analysis: &mut Analysis<'a>,
+        interner: &Interner,
+    ) {
+        if let Some(synchronous) = &self.synchronous {
+            synchronous.apply(script, analysis, interner);
+        }
         self.defaults.apply(script, analysis);
         struct Initializers<'a, 'b> {
             remaining: BTreeMap<(boa_ast::Position, boa_ast::Position), ModuleNamespaceModeIr>,

@@ -22431,6 +22431,16 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
                 self.emit_intl_date_time_format_bound_format(function)?;
             }
+            StandardBuiltinId::IntlLocalePrototypeMaximize => {
+                self.emit_intl_locale_likely_subtags_builtin::<lila_intl::MaximizeLocale>(
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeMinimize => {
+                self.emit_intl_locale_likely_subtags_builtin::<lila_intl::MinimizeLocale>(
+                    function,
+                )?;
+            }
             StandardBuiltinId::IntlLocalePrototypeToString => {
                 self.emit_intl_locale_to_string_builtin(function)?;
             }
@@ -29266,15 +29276,7 @@ impl<'a> FunctionBuilder<'a> {
                 let pattern_is_regexp_local = self.reserve_temp_local();
                 let pattern_brand_local = self.reserve_temp_local();
                 let reuse_program_local = self.reserve_temp_local();
-                let program_slots = [
-                    HEAP_REGEXP_PROGRAM_PTR_OFFSET,
-                    HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
-                    HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-                    HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-                    HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
-                    HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
-                ]
-                .map(|offset| (offset, self.reserve_temp_local()));
+                let program_handle_local = self.reserve_temp_local();
                 self.emit_builtin_arg_to_locals(
                     0,
                     pattern_payload_local,
@@ -29381,14 +29383,12 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(flags_tag_local));
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::LocalSet(reuse_program_local));
-                for (offset, local) in program_slots {
-                    self.load_i64_to_local_from_offset(
-                        pattern_payload_local,
-                        offset,
-                        local,
-                        function,
-                    );
-                }
+                self.load_i64_to_local_from_offset(
+                    pattern_payload_local,
+                    HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+                    program_handle_local,
+                    function,
+                );
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::LocalGet(pattern_is_regexp_local));
@@ -29498,9 +29498,12 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                for (offset, local) in program_slots {
-                    self.store_i64_local_at_offset(object_local, offset, local, function);
-                }
+                self.store_i64_local_at_offset(
+                    object_local,
+                    HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+                    program_handle_local,
+                    function,
+                );
                 function.instruction(&Instruction::Else);
                 self.emit_runtime_regexp_program_slots(
                     object_local,
@@ -29532,9 +29535,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
-                for (_, local) in program_slots.into_iter().rev() {
-                    self.release_temp_local(local);
-                }
+                self.release_temp_local(program_handle_local);
                 self.release_temp_local(reuse_program_local);
                 self.release_temp_local(pattern_brand_local);
                 self.release_temp_local(pattern_is_regexp_local);

@@ -168,7 +168,7 @@ pub(crate) enum AsyncDisposableScopeOwnerPlan {
 
 impl FunctionPlan<'_> {
     pub(crate) fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
-        match self.protocol.execution_kind() {
+        match self.protocol.source_execution_kind() {
             FunctionExecutionKind::Ordinary => SyncDisposableScopeOwnerPlan::Immediate,
             FunctionExecutionKind::Generator => SyncDisposableScopeOwnerPlan::PlainGenerator,
             FunctionExecutionKind::Async => SyncDisposableScopeOwnerPlan::AsyncFunction,
@@ -177,7 +177,7 @@ impl FunctionPlan<'_> {
     }
 
     pub(crate) fn async_disposable_scope_owner(&self) -> AsyncDisposableScopeOwnerPlan {
-        match self.protocol.execution_kind() {
+        match self.protocol.source_execution_kind() {
             FunctionExecutionKind::Ordinary => AsyncDisposableScopeOwnerPlan::Ordinary,
             FunctionExecutionKind::Generator => AsyncDisposableScopeOwnerPlan::Generator,
             FunctionExecutionKind::Async => AsyncDisposableScopeOwnerPlan::AsyncFunction,
@@ -226,6 +226,7 @@ pub(crate) struct Analysis<'a> {
     pub(crate) annex_b_function_plans: BTreeMap<String, AnnexBFunctionPlan>,
     pub(crate) function_expr_ids: BTreeMap<String, FunctionId>,
     pub(crate) class_execution_ids: BTreeMap<String, FunctionId>,
+    pub(crate) synchronous_modules: crate::modules::SynchronousModuleAnalysis,
     pub(crate) namespace_initializers: BTreeMap<usize, ModuleNamespaceModeIr>,
     pub(crate) default_export_class_ids: BTreeSet<FunctionId>,
     pub(crate) hoisted_default_export_function_ids: BTreeSet<FunctionId>,
@@ -540,6 +541,7 @@ impl<'a> AnalysisBuilder<'a> {
             annex_b_function_plans: self.annex_b_function_plans,
             function_expr_ids: self.function_expr_ids,
             class_execution_ids: self.class_execution_ids,
+            synchronous_modules: crate::modules::SynchronousModuleAnalysis::default(),
             namespace_initializers: BTreeMap::new(),
             default_export_class_ids: BTreeSet::new(),
             hoisted_default_export_function_ids: BTreeSet::new(),

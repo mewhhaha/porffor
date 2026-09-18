@@ -348,15 +348,7 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
         .1;
     let expected_writer_tail = r#"
                 RuntimeRegExpEntry::Program(program) => {
-                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD] = program.ptr as u64;
-                    record[RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD] =
-                        program.instruction_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD] = program.capture_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD] = program.split_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD] =
-                        program.repeatable_split_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD] =
-                        program.named_group_table_ptr as u64;
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD] = program.payload();
                     RuntimeRegExpEntryKind::Program.word()
                 }
                 RuntimeRegExpEntry::Rejected => RuntimeRegExpEntryKind::Rejected.word(),

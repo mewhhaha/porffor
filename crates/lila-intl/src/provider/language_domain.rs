@@ -9,10 +9,10 @@ use core::ops::Range;
 
 use icu_locale::extensions::unicode::key;
 use icu_locale::provider::{Aliases, Baked, LanguageStrStrPair};
-use icu_locale::subtags::{Variant, Variants};
-use icu_locale::{LanguageIdentifier, Locale, LocaleCanonicalizer};
+use icu_locale::subtags::{region, script, Variant, Variants};
+use icu_locale::{LanguageIdentifier, Locale, LocaleCanonicalizer, LocaleExpander};
 
-use crate::{CanonicalLocaleId, CanonicalizeLocaleError, LocaleId, UnsupportedLocale};
+use crate::{CanonicalLocaleId, LocaleId, LocaleTransformError, UnsupportedLocale};
 
 use super::keyword_aliases::{self, TransformKeywordValues};
 
@@ -187,6 +187,11 @@ impl ReservedLanguageAliasRules {
     }
 }
 
+pub(super) enum LikelySubtags {
+    Maximize,
+    Minimize,
+}
+
 pub(super) struct ParsedLocale {
     locale: Locale,
     reserved_base_language: Option<ReservedLanguage>,
@@ -228,7 +233,58 @@ impl ParsedLocale {
         mut self,
         canonicalizer: &LocaleCanonicalizer,
         rules: &ReservedLanguageAliasRules,
-    ) -> Result<CanonicalLocaleId, CanonicalizeLocaleError> {
+    ) -> Result<CanonicalLocaleId, LocaleTransformError> {
+        self.canonicalize_components(canonicalizer, rules);
+        self.into_canonical_identifier()
+    }
+
+    pub(super) fn apply_likely_subtags(
+        mut self,
+        operation: LikelySubtags,
+        expander: &LocaleExpander,
+        canonicalizer: &LocaleCanonicalizer,
+        rules: &ReservedLanguageAliasRules,
+    ) -> Result<CanonicalLocaleId, LocaleTransformError> {
+        self.canonicalize_components(canonicalizer, rules);
+        // Reserved languages have no keys in the pinned ICU data. Their `und`
+        // parser placeholder must never infer a different language or region.
+        if self.reserved_base_language.is_none() {
+            let mut maximal = self.locale.id.clone();
+            // UTS35 Add Likely Subtags removes unknown base fields before
+            // lookup. Extension fields are outside this language identifier.
+            if maximal.script == Some(script!("Zzzz")) {
+                maximal.script = None;
+            }
+            if maximal.region == Some(region!("ZZ")) {
+                maximal.region = None;
+            }
+            expander.maximize(&mut maximal);
+            // ICU reports both already-maximal and missing-data cases as
+            // Unmodified. A successful result has all three known fields;
+            // failed lookup must retain the original canonical identifier.
+            if !maximal.language.is_unknown()
+                && maximal.script.is_some()
+                && maximal.region.is_some()
+            {
+                self.locale.id = match operation {
+                    LikelySubtags::Maximize => maximal,
+                    LikelySubtags::Minimize => {
+                        expander.minimize(&mut maximal);
+                        maximal
+                    }
+                };
+            }
+        }
+        // The methods construct a new Locale from the transformed identifier.
+        self.canonicalize_components(canonicalizer, rules);
+        self.into_canonical_identifier()
+    }
+
+    fn canonicalize_components(
+        &mut self,
+        canonicalizer: &LocaleCanonicalizer,
+        rules: &ReservedLanguageAliasRules,
+    ) {
         if self.reserved_base_language.is_some() {
             rules.canonicalize_reserved_identifier(&mut self.locale.id);
         } else {
@@ -248,6 +304,9 @@ impl ParsedLocale {
         rules.canonicalize_subdivision_keywords(&mut self.locale);
         keyword_aliases::canonicalize_unicode_keywords(&mut self.locale);
         self.transform_keyword_values.canonicalize();
+    }
+
+    fn into_canonical_identifier(self) -> Result<CanonicalLocaleId, LocaleTransformError> {
         let mut canonical = self.locale.to_string();
         self.transform_keyword_values
             .write_canonical_fields(&mut canonical);

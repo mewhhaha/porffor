@@ -1690,6 +1690,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
         | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
         | StandardBuiltinId::IntlLocalePrototypeToString
+        | StandardBuiltinId::IntlLocalePrototypeMaximize
+        | StandardBuiltinId::IntlLocalePrototypeMinimize
         | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
         | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter

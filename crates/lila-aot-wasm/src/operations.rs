@@ -98,11 +98,13 @@ impl PrimitiveToNumberThrowRouting {
 
 /// The ordinary heap-record families admitted by OrdinaryToPrimitive.
 ///
-/// Object and Function records share the observable hook algorithm. The closed
-/// receiver domain preserves their runtime tag during property reads and calls.
+/// These records share the observable hook algorithm. The closed receiver
+/// domain preserves their runtime tag during property reads and calls.
 enum OrdinaryToPrimitiveReceiverKind {
     Object,
     Function,
+    Array,
+    Arguments,
 }
 
 impl OrdinaryToPrimitiveReceiverKind {
@@ -110,6 +112,8 @@ impl OrdinaryToPrimitiveReceiverKind {
         match self {
             Self::Object => ValueKind::Object,
             Self::Function => ValueKind::Function,
+            Self::Array => ValueKind::Array,
+            Self::Arguments => ValueKind::Arguments,
         }
     }
 }
@@ -3068,18 +3072,29 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_to_string_locals(input_payload_local, payload_local, tag_local, function)?;
+        self.emit_object_to_primitive_locals_inner(
+            hint,
+            input_payload_local,
+            OrdinaryToPrimitiveReceiverKind::Array,
+            payload_local,
+            tag_local,
+            error_realm,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("[object Arguments]"),
-        ));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_to_primitive_locals_inner(
+            hint,
+            input_payload_local,
+            OrdinaryToPrimitiveReceiverKind::Arguments,
+            payload_local,
+            tag_local,
+            error_realm,
+            function,
+        )?;
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(input_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
@@ -3375,7 +3390,15 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(primitive_result_local));
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
-                if *hook_name == "toString" {
+                if *hook_name == "toString"
+                    && matches!(
+                        receiver_kind,
+                        OrdinaryToPrimitiveReceiverKind::Object
+                            | OrdinaryToPrimitiveReceiverKind::Function
+                    )
+                {
+                    // Array and Arguments records must resolve their actual
+                    // prototype methods without reading object-only offsets.
                     // OrdinaryToPrimitive: Get(O, "toString") for an ordinary object with
                     // no own (or otherwise resolvable) `toString` still resolves to the
                     // inherited Object.prototype.toString, whose call yields
@@ -8283,43 +8306,6 @@ impl<'a> FunctionBuilder<'a> {
         pending.emit_string_payload(self, function)?;
         self.release_temp_local(primitive_tag_local);
         self.release_temp_local(primitive_payload_local);
-        Ok(())
-    }
-
-    // Array element conversion knows the receiver is callable. Entering the
-    // generic tagged emitter here would recursively emit the array branch while
-    // compiling ToPrimitive itself. Return a hook throw before the array join
-    // loop can concatenate its payload or replace its tag with String.
-    pub(crate) fn emit_function_to_string_payload(
-        &mut self,
-        input_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let payload_local = self.reserve_temp_local();
-        let tag_local = self.reserve_temp_local();
-        self.emit_object_to_primitive_locals_inner(
-            ToPrimitiveHint::String,
-            input_payload_local,
-            OrdinaryToPrimitiveReceiverKind::Function,
-            payload_local,
-            tag_local,
-            &ConversionErrorRealmSource::CurrentExecutionContext,
-            function,
-        )?;
-        PendingToPrimitiveCompletion::new(payload_local, tag_local).route(
-            self,
-            ToPrimitiveAbruptRoute::ReturnCurrentFunction,
-            function,
-        )?;
-        self.emit_primitive_to_string_payload_with_error_realm(
-            payload_local,
-            tag_local,
-            PrimitiveToStringAbruptRoute::ReturnCurrentFunction,
-            &ConversionErrorRealmSource::CurrentExecutionContext,
-            function,
-        )?;
-        self.release_temp_local(tag_local);
-        self.release_temp_local(payload_local);
         Ok(())
     }
 

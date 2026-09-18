@@ -261,7 +261,7 @@ fn component_producers_and_helpers_borrow_until_release() {
 fn range_is_observed_by_shared_reference_then_consumed_for_one_reverse_release() {
     let formatter = normalized_rust(bounded(
         DTF_SOURCE,
-        "pub(crate) fn emit_intl_dtf_build_format_with_kind(",
+        "fn emit_intl_dtf_build_format_with_kind(",
         "fn emit_dtf_month_number(",
     ));
     assert_eq!(formatter.matches("match&range{").count(), 2);

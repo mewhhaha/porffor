@@ -296,9 +296,9 @@ require_fixed_string_count \
   0 \
   'statement lowering outside child module'
 check_no_inline_legacy_includes "$ir_statement_lowering"
-# Measured after formatting the extraction: 259 raw lines. The margin is for
-# maintenance of the exhaustive dispatcher, not statement implementations.
-check_raw_line_budget "$ir_statement_lowering" 300
+# Measured with private module suspension boundaries: 301 raw lines. The margin
+# is for the exhaustive dispatcher, not statement implementations.
+check_raw_line_budget "$ir_statement_lowering" 315
 # T02's for-in boundary owns the complete initializer/target/body lowering
 # family. Retired source-shape recognizers must stay absent. Only the
 # statement-facing wrapper crosses this private child boundary; environment,
@@ -619,9 +619,9 @@ require_fixed_string_count \
   0 \
   'static boolean helper copied into if-statement owner'
 check_no_inline_legacy_includes "$ir_if_statement_lowering"
-# Measured after formatting the extraction: 141 raw lines. The margin is for
-# maintenance of if-statement lowering only.
-check_raw_line_budget "$ir_if_statement_lowering" 180
+# Measured with typed plain-async branch ranges: 190 raw lines. The margin is
+# for if-statement lowering only; plan invariants remain in async_if.rs.
+check_raw_line_budget "$ir_if_statement_lowering" 210
 # T02's labelled-statement boundary owns nested label collection, target-kind
 # classification and final Labelled IR assembly. The active-label stack types
 # remain parent-owned because break/continue lowering also consumes them.
@@ -1052,10 +1052,10 @@ if grep -Eq '#\[derive\([^]]*(Clone|Copy)' "$ir_invocation_effects_lowering" \
   fail "$ir_invocation_effects_lowering must keep AccountedInvocationEffects nonduplicable"
 fi
 check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
-# Measured after TypedArray.fill, Float16Array and Intl.Locale getter entries:
-# 2,263 raw lines.
+# Measured after TypedArray.fill, Float16Array and Intl.Locale getter and
+# likely-subtag entries: 2,265 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2263
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2265
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -1141,7 +1141,7 @@ require_fixed_string_count \
   'for_finalized_body' \
   0 \
   'body-only source-call proof admission'
-for source_call_flow_variant_spec in 'StatementIr|36' 'ExprIr|84' 'SpecOperationIr|30'; do
+for source_call_flow_variant_spec in 'StatementIr|38' 'ExprIr|89' 'SpecOperationIr|30'; do
   source_call_flow_variant_domain="${source_call_flow_variant_spec%%|*}"
   expected_source_call_flow_variants="${source_call_flow_variant_spec#*|}"
   observed_source_call_flow_variants="$({
@@ -1199,9 +1199,9 @@ require_fixed_string_count \
   0 \
   'ordinary-function lowering outside child module'
 check_no_inline_legacy_includes "$ir_function_definition_lowering"
-# Measured after formatting the extraction: 721 raw lines. The margin is for
-# maintenance of this lifecycle, not unrelated lowering.
-check_raw_line_budget "$ir_function_definition_lowering" 780
+# Measured with the private ModuleActivation protocol: 789 raw lines. The
+# margin is for this function lifecycle, not unrelated lowering.
+check_raw_line_budget "$ir_function_definition_lowering" 810
 # T02's try-statement boundary owns catch-parameter environment construction,
 # resumable entry/exit planning and final TryCatch/TryFinally IR assembly. The
 # catch and finally lifecycle records are named so their generator and async
@@ -2172,6 +2172,14 @@ check_no_inline_legacy_includes "$ir_lowering"
 # former 32k-line implementation store.
 check_raw_line_budget "$ir_lowering" 21823
 
+ir_module_graph_lowering="crates/lila-ir/src/lowering/module_graph.rs"
+require_file "$ir_module_graph_lowering"
+require_module_decl "$ir_lowering" "module_graph"
+require_fixed_string_count "$ir_module_graph_lowering" 'fn lower_graph(' 1 'module graph lowering owner'
+require_fixed_string_count "$ir_lowering" 'fn lower_graph(' 0 'module graph lowering outside child module'
+# Source-goal validation, linking and independent Script prelude orchestration.
+check_raw_line_budget "$ir_module_graph_lowering" 200
+
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.
 # Keeping the invocation in a real child module preserves an ownership seam;
@@ -3115,10 +3123,14 @@ do
   if [ "$state_parent_count" -ne 0 ]; then
     fail "$wasm_intl_locale production owner must not name $lifecycle_state (found $state_parent_count)"
   fi
+  lifecycle_state_uses=4
+  if [ "$lifecycle_state" = ReservedIntlLocaleObjectLocal ]; then
+    lifecycle_state_uses=6
+  fi
   require_fixed_string_count \
     "$wasm_intl_locale_construction" \
     "$lifecycle_state" \
-    4 \
+    "$lifecycle_state_uses" \
     "$lifecycle_state child-only uses"
   require_regex_count \
     "$wasm_intl_locale_construction" \
@@ -3195,10 +3207,9 @@ intl_locale_production_lines="$(awk '/^#\[cfg\(test\)\]/ { exit } { lines += 1 }
 if [ "$intl_locale_production_lines" -gt 2226 ]; then
   fail "$wasm_intl_locale has $intl_locale_production_lines pre-test lines; expected at most 2226"
 fi
-# Measured after closing the five string-slot entries: 2,205 pre-test parent
-# lines and 117 child lines. The narrow margins are for maintenance of each
-# owner.
-check_raw_line_budget "$wasm_intl_locale_construction" 145
+# The constructor and likely-subtag methods reserve through separate prototype
+# rules, then share initialization and publication: 186 child lines.
+check_raw_line_budget "$wasm_intl_locale_construction" 195
 
 wasm_intl_date_time_format="crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs"
 wasm_intl_date_time_format_construction="crates/lila-aot-wasm/src/builtins/intl_datetimeformat/construction_lifecycle.rs"
@@ -3366,6 +3377,9 @@ done
 # Measured immediately after extraction: 7,093 parent lines and 94 child
 # lines. The narrow margins are for maintenance of each lifecycle owner.
 check_raw_line_budget "$wasm_intl_date_time_format" 7150
+require_module_decl "$wasm_intl_date_time_format" "numbering"
+require_file "crates/lila-aot-wasm/src/builtins/intl_datetimeformat/numbering.rs"
+check_raw_line_budget "crates/lila-aot-wasm/src/builtins/intl_datetimeformat/numbering.rs" 210
 check_raw_line_budget "$wasm_intl_date_time_format_construction" 130
 
 wasm_global_numeric_builtins="crates/lila-aot-wasm/src/builtins/global_numeric.rs"

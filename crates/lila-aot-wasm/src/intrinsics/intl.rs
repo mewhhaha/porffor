@@ -85,6 +85,16 @@ const LOCALE_PROTOTYPE_PROPERTIES: &[IntlIntrinsicProperty] = &[
         kind: IntlIntrinsicPropertyKind::Getter,
     },
     IntlIntrinsicProperty {
+        name: "maximize",
+        builtin: StandardBuiltinId::IntlLocalePrototypeMaximize,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "minimize",
+        builtin: StandardBuiltinId::IntlLocalePrototypeMinimize,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
         name: "toString",
         builtin: StandardBuiltinId::IntlLocalePrototypeToString,
         kind: IntlIntrinsicPropertyKind::Method,

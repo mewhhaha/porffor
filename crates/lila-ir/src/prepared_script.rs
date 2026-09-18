@@ -99,13 +99,16 @@ pub(crate) struct DynamicScriptSource {
 pub(crate) enum ScriptInstantiation {
     #[default]
     FreshEntry,
+    ModuleAfterGlobalScript,
     Prepared(PreparedScriptKind),
 }
 
 impl ScriptInstantiation {
     pub(crate) const fn has_global_variable_environment(&self, strict: bool) -> bool {
         match self {
-            Self::FreshEntry | Self::Prepared(PreparedScriptKind::RealmScript) => true,
+            Self::FreshEntry
+            | Self::ModuleAfterGlobalScript
+            | Self::Prepared(PreparedScriptKind::RealmScript) => true,
             Self::Prepared(PreparedScriptKind::IndirectEval) => !strict,
             Self::Prepared(PreparedScriptKind::DirectEval(_)) => false,
         }

@@ -26,14 +26,15 @@ canonicalization surface.
 
 ## Producers and semantics
 
-There are nine complete authority construction sites:
+There are ten complete authority construction sites:
 
 - initial `Intl.Locale` structural validation;
 - the constructor's two provider/component refresh invocations;
 - each present entry in `Intl.getCanonicalLocales`;
 - the three DateTimeFormat locale-list producers;
 - variants-option structural validation; and
-- provider-result structural component refresh.
+- provider-result structural component refresh; and
+- likely-subtag result structural component refresh.
 
 The original boundary was source-equivalent hardening. The constructor-options
 batch adds provider alias resolution before and after overrides, with separate
@@ -44,9 +45,9 @@ still prevent adjacent local-role substitutions. No new locale data is added.
 
 `intl_canonical_locale_tag_invocation_structure` uses a Rust lexical scanner
 that excludes comments and every Rust string/character literal form. It pins
-the private non-copyable role domain, recursive product-source census, all nine
+the private non-copyable role domain, recursive product-source census, all ten
 complete construction sites, both typed consumers and their single projections.
-The product census is 15 uses of the authority and each role type. Earlier
+The product census is 16 uses of the authority and each role type. Earlier
 counts omitted the independently introduced language-options producer.
 
 The public `wasm_intl_canonical_locale_tag_roles.js` fixture observes the

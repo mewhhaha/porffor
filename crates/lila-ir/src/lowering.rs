@@ -34,6 +34,12 @@ mod function_environment;
 mod if_statement;
 mod invocation_effects;
 mod labelled_statement;
+mod module_graph;
+pub use module_graph::{
+    lower_module_graph, lower_module_graph_with_host_surface_policy,
+    lower_module_graph_with_prelude, lower_script_graph,
+    lower_script_graph_with_host_surface_policy,
+};
 mod new_expression;
 mod object_environment_logical;
 mod ordinary_property_compound;
@@ -48,6 +54,7 @@ mod static_json_parse;
 mod static_string_binding_facts;
 mod super_property_mutation;
 mod switch_statement;
+mod synchronous_modules;
 mod throw_inference;
 mod try_statement;
 mod while_loop;
@@ -903,159 +910,6 @@ pub fn lower_with_host_surface_policy(
     }
 }
 
-/// Lowers an already-loaded module graph into one `ProgramIr`.
-///
-/// `lila-ir` performs no IO: the host resolves and reads every source and
-/// passes the closure in. The graph is linked at compile time and merged into
-/// the single `ScriptIr` the backend emits, while the spec records stay
-/// addressable on `ProgramIr::modules`.
-pub fn lower_module_graph(sources: &ModuleGraphSources) -> ProgramIr {
-    lower_module_graph_with_host_surface_policy(sources, HostSurfacePolicy::default())
-}
-
-pub fn lower_module_graph_with_host_surface_policy(
-    sources: &ModuleGraphSources,
-    host_surface_policy: HostSurfacePolicy,
-) -> ProgramIr {
-    lower_graph(sources, false, host_surface_policy)
-}
-
-/// Lowers a Script entry together with the modules its `import()` calls reach.
-///
-/// `import()` is legal in Script goal and names a module, so serving it needs
-/// the same compiled targets a module's `import()` needs — but the entry itself
-/// stays Script code: it is not made strict, its top-level `this` is
-/// `globalThis`, and its declarations stay in the Script's own scope. See
-/// [`ModuleGraphIr::entry_is_script`].
-///
-/// A Script that writes no `import()` has nothing to gain here and should be
-/// lowered with [`lower`].
-pub fn lower_script_graph(sources: &ModuleGraphSources) -> ProgramIr {
-    lower_script_graph_with_host_surface_policy(sources, HostSurfacePolicy::default())
-}
-
-pub fn lower_script_graph_with_host_surface_policy(
-    sources: &ModuleGraphSources,
-    host_surface_policy: HostSurfacePolicy,
-) -> ProgramIr {
-    lower_graph(sources, true, host_surface_policy)
-}
-
-fn lower_graph(
-    sources: &ModuleGraphSources,
-    entry_is_script: bool,
-    host_surface_policy: HostSurfacePolicy,
-) -> ProgramIr {
-    let goal = if entry_is_script {
-        ParseGoal::Script
-    } else {
-        ParseGoal::Module
-    };
-    let source_len = sources
-        .modules
-        .get(sources.entry as usize)
-        .map_or(0, |module| module.source_text().len());
-    let mut stages = vec![LoweringStage::ParsedSource];
-
-    let invalid_goal = sources.modules.iter().enumerate().find(|(index, source)| {
-        let expected = if *index == sources.entry as usize && entry_is_script {
-            ParseGoal::Script
-        } else {
-            ParseGoal::Module
-        };
-        source.goal() != expected
-    });
-    if let Some((index, source)) = invalid_goal {
-        let expected = if index == sources.entry as usize && entry_is_script {
-            ParseGoal::Script
-        } else {
-            ParseGoal::Module
-        };
-        stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-        let mut program = new_program(goal, source_len, stages);
-        program.diagnostics.push(IrDiagnostic::lowering(format!(
-            "module graph source {} has {:?} syntax in a {:?} slot",
-            source.key().as_str(),
-            source.goal(),
-            expected,
-        )));
-        return program;
-    }
-
-    let mut graph = match modules::build_graph(sources) {
-        Ok(graph) => graph,
-        Err(diagnostics) => {
-            stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-            let mut program = new_program(goal, source_len, stages);
-            program.diagnostics = diagnostics;
-            return program;
-        }
-    };
-    graph.entry_is_script = entry_is_script;
-    stages.push(LoweringStage::ModuleGraphLoaded);
-
-    modules::link(&mut graph);
-    stages.push(LoweringStage::ModuleGraphLinked);
-    if !graph.link_errors.is_empty() {
-        stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-        let mut program = new_program(goal, source_len, stages);
-        program.diagnostics = graph
-            .link_errors
-            .iter()
-            .map(ModuleLinkErrorIr::to_diagnostic)
-            .collect();
-        program.modules = Some(graph);
-        return program;
-    }
-
-    // The whole graph is merged into one Script-goal source, in evaluation
-    // order, and lowered once. See `modules::link` for why the merge happens on
-    // source text and what it still declines to link.
-    let linked = match modules::linked_script_source(sources, &mut graph) {
-        Ok(linked) => linked,
-        Err(diagnostics) => {
-            stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-            let mut program = new_program(goal, source_len, stages);
-            program.diagnostics = diagnostics;
-            program.modules = Some(graph);
-            return program;
-        }
-    };
-
-    let definitions = linked.definitions;
-    let linked = match lila_front::parse(
-        linked.source.source_text,
-        lila_front::ParseOptions {
-            goal: ParseGoal::Script,
-            filename: linked.source.filename,
-        },
-    ) {
-        Ok(ParsedSource::Script(linked)) => linked,
-        Ok(ParsedSource::Module(_)) => {
-            unreachable!("Script parse options cannot produce a Module parsed product")
-        }
-        Err(error) => {
-            stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-            let mut program = new_program(goal, source_len, stages);
-            program.diagnostics.push(IrDiagnostic::lowering(format!(
-                "linked module source did not parse as Script: {error}"
-            )));
-            program.modules = Some(graph);
-            return program;
-        }
-    };
-
-    lower_script_program(
-        &linked,
-        goal,
-        source_len,
-        stages,
-        Some(graph),
-        &definitions,
-        host_surface_policy,
-    )
-}
-
 fn new_program(goal: ParseGoal, source_len: usize, stages: Vec<LoweringStage>) -> ProgramIr {
     ProgramIr {
         goal,
@@ -1121,7 +975,7 @@ fn lower_script_program_with_allocations(
         let t0 = std::time::Instant::now();
         let mut analysis = AnalysisBuilder::with_allocations(*allocations, instantiation.clone())
             .finish(script, interner, script_source.source_text.as_str());
-        definitions.apply(script, &mut analysis);
+        definitions.apply(script, &mut analysis, interner);
         analysis.prepare_runtime_script_slots(script, interner);
         *allocations = analysis.allocations;
         if trace_phases {
@@ -1142,6 +996,7 @@ fn lower_script_program_with_allocations(
         }
         program.script = Some(ScriptIr {
             eval_environment: analysis.owner_eval_environment(SCRIPT_OWNER_ID),
+            module_prelude: None,
             prepared_scripts: Vec::new(),
             runtime_declarations: lowered.runtime_declarations,
             prepared_dynamic_functions: Vec::new(),
@@ -1628,7 +1483,7 @@ impl<'a> ScriptLowerer<'a> {
             .owner_plans
             .get(&current_owner_id)
             .and_then(|owner| owner.private_environment_id);
-        Self {
+        let mut lowerer = Self {
             interner,
             analysis,
             source_text,
@@ -1838,7 +1693,13 @@ impl<'a> ScriptLowerer<'a> {
             with_environment_chain: OrderedWithEnvironmentChain::default(),
             captured_binding_positions: BTreeMap::new(),
             error_proto_to_strings: 0,
+        };
+        if analysis.script_instantiation == ScriptInstantiation::ModuleAfterGlobalScript {
+            // The earlier Script can replace globals and intrinsic properties.
+            // Every analysis prepass must start from the same runtime boundary.
+            lowerer.invalidate_unknown_user_code_effect_facts();
         }
+        lowerer
     }
 
     fn lower(mut self, script: &Script) -> LoweredScript {
@@ -2337,8 +2198,10 @@ impl<'a> ScriptLowerer<'a> {
         functions.append(&mut self.generated_functions);
         let (global_bindings, restricted_global_functions) =
             self.script_global_bindings(self.analysis.script_root_functions.as_slice());
-        let rejects_fresh_entry_declarations =
-            self.analysis.script_instantiation == ScriptInstantiation::FreshEntry;
+        let rejects_fresh_entry_declarations = matches!(
+            self.analysis.script_instantiation,
+            ScriptInstantiation::FreshEntry | ScriptInstantiation::ModuleAfterGlobalScript
+        );
         for name in restricted_global_functions
             .into_iter()
             .filter(|_| rejects_fresh_entry_declarations)
@@ -6359,6 +6222,35 @@ impl<'a> ScriptLowerer<'a> {
                     // name. Every arm below either discharges it or drops it
                     // (`unsupported`), and none can discharge it twice.
                     let pending = scope.take(&name);
+                    if let Some(target) = variable
+                        .init()
+                        .and_then(|init| {
+                            self.analysis
+                                .synchronous_modules
+                                .imports
+                                .get(&(std::ptr::from_ref(init) as usize))
+                        })
+                        .cloned()
+                    {
+                        let statement = self.lower_lexical_binding_value(
+                            BindingMode::Const,
+                            name,
+                            identifier.span(),
+                            LoweredInitializer::evaluated(TypedExpr::from_info(
+                                unknown_runtime_value_info(),
+                                ExprIr::Undefined,
+                            )),
+                            pending,
+                            None,
+                        );
+                        let StatementIr::Lexical { name, .. } = statement else {
+                            panic!("module import creates one immutable lexical binding");
+                        };
+                        statements.push(StatementIr::ModuleImportBinding(
+                            crate::ModuleImportBindingIr { name, target },
+                        ));
+                        continue;
+                    }
                     if self.current_async_resume_state.is_some()
                         && matches!(variable.init(), Some(Expression::Await(_)))
                     {
@@ -7819,6 +7711,9 @@ impl<'a> ScriptLowerer<'a> {
     /// specific paths that each lower their arguments themselves, and there is
     /// no later choke point they all share.
     fn lower_expression(&mut self, expression: &Expression) -> TypedExpr {
+        if let Some(module) = self.lower_synchronous_module_expression(expression) {
+            return module;
+        }
         if let Some(pinned) = self
             .pinned_async_operands
             .get(&(std::ptr::from_ref(expression) as usize))
@@ -17075,8 +16970,27 @@ impl<'a> ScriptLowerer<'a> {
                             .possible_kinds
                             .is_subset_of(KindSet::PRIMITIVE_ONLY)
                     {
+                        let (lhs_number, lhs_bigint) = numeric_domain(Some(lhs_primitive));
+                        let (rhs_number, rhs_bigint) = numeric_domain(Some(rhs_primitive));
+                        let mut possible_kinds = KindSet::EMPTY;
+                        if lhs_number && rhs_number {
+                            possible_kinds =
+                                possible_kinds.union(KindSet::from_kind(ValueKind::Number));
+                        }
+                        if lhs_bigint && rhs_bigint {
+                            possible_kinds =
+                                possible_kinds.union(KindSet::from_kind(ValueKind::BigInt));
+                        }
+                        if possible_kinds == KindSet::EMPTY {
+                            possible_kinds = KindSet::from_kind(ValueKind::Number);
+                        }
                         return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Number),
+                            ValueInfo {
+                                kind: possible_kinds.as_value_kind(),
+                                possible_kinds,
+                                heap_shape: None,
+                                function_targets: FunctionTargetKnowledge::none(),
+                            },
                             ExprIr::CoerciveBinaryNumber {
                                 op: ArithmeticBinaryOp::Add,
                                 lhs: Box::new(lhs),
@@ -17686,8 +17600,10 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Object | ValueKind::Function => {
                     self.object_to_primitive_kinds(info.heap_shape.as_deref(), hint)?
                 }
-                ValueKind::Array => self.array_to_primitive_kinds(info.heap_shape.as_deref())?,
-                ValueKind::Arguments => KindSet::from_kind(ValueKind::String),
+                // Indexed contents do not prove a conversion result: own or
+                // inherited hooks, including Array.prototype.toString's live
+                // join lookup, can return any primitive kind.
+                ValueKind::Array | ValueKind::Arguments => KindSet::PRIMITIVE_ONLY,
                 ValueKind::Dynamic => return None,
             };
             possible_kinds = possible_kinds.union(next);
@@ -17777,45 +17693,6 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        Some(KindSet::from_kind(ValueKind::String))
-    }
-
-    fn array_to_primitive_kinds(&mut self, shape: Option<&HeapShape>) -> Option<KindSet> {
-        let Some(HeapShape::Array(shape)) = shape else {
-            return Some(KindSet::from_kind(ValueKind::String));
-        };
-        for element in &shape.elements {
-            if !element
-                .possible_kinds
-                .is_subset_of(KindSet::PRIMITIVE_OR_HEAP_COERCIBLE)
-            {
-                return None;
-            }
-            if element.possible_kinds.contains(ValueKind::Function) {
-                return None;
-            }
-            match element.kind {
-                ValueKind::Object => {
-                    self.object_to_primitive_kinds(
-                        element.heap_shape.as_deref(),
-                        ToPrimitiveHint::String,
-                    )?;
-                }
-                ValueKind::Array => {
-                    self.array_to_primitive_kinds(element.heap_shape.as_deref())?;
-                }
-                ValueKind::Arguments
-                | ValueKind::Undefined
-                | ValueKind::Null
-                | ValueKind::Boolean
-                | ValueKind::Number
-                | ValueKind::String
-                | ValueKind::Symbol
-                | ValueKind::BigInt
-                | ValueKind::Dynamic => {}
-                ValueKind::Function => return None,
-            }
-        }
         Some(KindSet::from_kind(ValueKind::String))
     }
 
@@ -20740,6 +20617,16 @@ impl<'a> ScriptLowerer<'a> {
 
     fn static_initializer_value_info(&self, expression: &Expression) -> Option<ValueInfo> {
         let expression = Self::unwrap_parenthesized_expr(expression);
+        if self
+            .analysis
+            .synchronous_modules
+            .imports
+            .contains_key(&(std::ptr::from_ref(expression) as usize))
+        {
+            // The linked source placeholder denotes an indirect live binding;
+            // its literal spelling is not a value that a closure can capture.
+            return Some(unknown_runtime_value_info());
+        }
         match expression {
             Expression::Literal(literal) => match literal.kind() {
                 LiteralKind::Num(_) | LiteralKind::Int(_) => {

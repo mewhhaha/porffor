@@ -84,6 +84,7 @@ impl ScriptLowerer<'_> {
             shape.elements.push(lowered.value_info());
             elements.push(lowered);
         }
+        let initializer_pointer = std::ptr::from_ref(array) as usize;
         let namespace = self
             .analysis
             .namespace_initializers
@@ -99,7 +100,7 @@ impl ScriptLowerer<'_> {
             ExprIr::ArrayLiteral(elements),
         );
         if let Some(mode) = namespace {
-            TypedExpr::from_info(
+            let namespace = TypedExpr::from_info(
                 ValueInfo {
                     kind: ValueKind::Object,
                     possible_kinds: KindSet::from_kind(ValueKind::Object),
@@ -110,7 +111,24 @@ impl ScriptLowerer<'_> {
                     mode,
                     exports: Box::new(array),
                 },
-            )
+            );
+            if let Some(&(module, mode)) = self
+                .analysis
+                .synchronous_modules
+                .publishers
+                .get(&initializer_pointer)
+            {
+                TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::ModuleNamespacePublish {
+                        module,
+                        mode,
+                        namespace: Box::new(namespace),
+                    },
+                )
+            } else {
+                namespace
+            }
         } else {
             array
         }

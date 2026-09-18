@@ -897,16 +897,22 @@ mod tests {
                 .count(),
             1
         );
+        let normalized_offsets = offsets
+            .chars()
+            .filter(|character| !character.is_whitespace() && !matches!(*character, '{' | '}'))
+            .collect::<String>();
         for (variant, slot) in [
             ("DisposableStack", "DISPOSABLE_STACK"),
             ("AggregateError", "AGGREGATE_ERROR"),
             ("SuppressedError", "SUPPRESSED_ERROR"),
+            ("IntlLocale", "INTL_LOCALE"),
+            ("IntlDateTimeFormat", "INTL_DATE_TIME_FORMAT"),
         ] {
             assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
             assert_eq!(
-                offsets
+                normalized_offsets
                     .matches(&format!(
-                        "Self::{variant} => HEAP_REALM_INTRINSICS_{slot}_PROTOTYPE_OFFSET"
+                        "Self::{variant}=>HEAP_REALM_INTRINSICS_{slot}_PROTOTYPE_OFFSET"
                     ))
                     .count(),
                 1
@@ -917,8 +923,8 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            12,
-            "the closed domain count must include DisposableStack, AggregateError and SuppressedError"
+            14,
+            "the closed domain count must include disposal, aggregate errors and Intl prototypes"
         );
     }
 
@@ -5632,95 +5638,57 @@ setterReceiver === receiver;
         );
     }
 
+    fn regexp_descriptor_from_pool(
+        pool: &StringPool,
+        reference: RegExpProgramRef,
+    ) -> lila_ir::ValidatedRegExpProgram {
+        let offset = (reference.payload() >> 32) as usize - STATIC_DATA_OFFSET as usize;
+        let length = reference.payload() as u32 as usize;
+        lila_ir::ValidatedRegExpProgram::from_bytes(pool.bytes[offset..offset + length].to_vec())
+            .unwrap()
+    }
+
     #[test]
     fn regexp_program_data_is_aligned_deduplicated_and_before_the_heap() {
         let artifact = emit_script("\",\"; /[a-c]/; /[a-c]/g;").expect("emit should work");
+        let program = lila_ir::RegExpProgram::compile("[a-c]", "").unwrap();
+        let encoded = lila_ir::ValidatedRegExpProgram::from_program(&program).unwrap();
         let data = data_segment_bytes(&artifact.bytes);
-        let encoded = lila_ir::RegExpProgram::compile("[a-c]", "")
-            .expect("class program should compile")
-            .encode();
         let offsets = data
-            .windows(encoded.len())
+            .windows(encoded.bytes().len())
             .enumerate()
-            .filter_map(|(offset, candidate)| (candidate == encoded).then_some(offset))
+            .filter_map(|(offset, candidate)| (candidate == encoded.bytes()).then_some(offset))
             .collect::<Vec<_>>();
-
-        assert_eq!(offsets.len(), 1, "identical programs should share one blob");
-        let program_ptr = STATIC_DATA_OFFSET as usize + offsets[0];
-        assert_eq!(program_ptr % 8, 0, "program blob must be i64-aligned");
-        assert!(
-            contains_i64_const(&artifact.bytes, program_ptr as i64),
-            "literal allocation should embed the collected program pointer"
-        );
-        assert!(
-            contains_i64_const(
-                &artifact.bytes,
-                (encoded.len() / lila_ir::REGEXP_INSTRUCTION_WIDTH) as i64,
-            ),
-            "literal allocation should embed the instruction count"
-        );
-        assert!(
-            contains_i64_const(
-                &artifact.bytes,
-                ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
-            ),
-            "appending program data must not move existing string payloads"
-        );
-        assert!(
-            global_init_i64s(&artifact.bytes).contains(&(align_heap_start(data.len()) as i64)),
-            "heap must start after the appended program data"
-        );
+        assert_eq!(offsets.len(), 1);
+        let pointer = STATIC_DATA_OFFSET as usize + offsets[0];
+        assert_eq!(pointer % 8, 0);
+        let handle = ((pointer as u64) << 32) | encoded.bytes().len() as u64;
+        assert!(contains_i64_const_store_at_offset(
+            &artifact.bytes,
+            handle as i64,
+            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET
+        ));
+        assert!(global_init_i64s(&artifact.bytes).contains(&(align_heap_start(data.len()) as i64)));
     }
 
     #[test]
-    fn regexp_static_program_refs_preserve_capture_count_metadata() {
-        let capture_program =
-            lila_ir::RegExpProgram::compile(r"(\d+)", "").expect("capture program should compile");
-        let no_capture_program = lila_ir::RegExpProgram::compile(r"\d+", "")
-            .expect("non-capture program should compile");
-        let mut pool = StringPool::default();
-
-        let capture_ref = pool.collect_regexp_program_for_test(&capture_program);
-        let no_capture_ref = pool.collect_regexp_program_for_test(&no_capture_program);
-
-        assert_eq!(capture_ref.capture_count, 1);
-        assert_eq!(no_capture_ref.capture_count, 0);
-        assert_eq!(
-            capture_ref.split_count as usize,
-            capture_program
-                .instructions
-                .iter()
-                .filter(|instruction| instruction.opcode == lila_ir::REGEXP_OPCODE_SPLIT)
-                .count()
-        );
-        assert_eq!(
-            no_capture_ref.split_count as usize,
-            no_capture_program
-                .instructions
-                .iter()
-                .filter(|instruction| instruction.opcode == lila_ir::REGEXP_OPCODE_SPLIT)
-                .count()
-        );
-        assert_eq!(capture_ref.repeatable_split_count, 1);
-        assert_eq!(no_capture_ref.repeatable_split_count, 1);
-    }
-
-    #[test]
-    fn regexp_static_program_refs_distinguish_repeatable_splits() {
-        let cases = [
-            ("a?a?", 2, 0),
-            ("a?b*", 2, 1),
-            ("(a|b)*", 2, 2),
-            (r"(?<=\w+)f", 2, 1),
-        ];
-        let mut pool = StringPool::default();
-        for (pattern, split_count, repeatable_split_count) in cases {
-            let program =
-                lila_ir::RegExpProgram::compile(pattern, "").expect("program should compile");
+    fn regexp_static_program_descriptors_preserve_capture_and_choice_metadata() {
+        use lila_ir::RegExpProgramWord as Word;
+        for (pattern, captures, splits, repeated) in [
+            ("a?a?", 0, 2, 0),
+            ("a?b*", 0, 2, 1),
+            ("(a|b)*", 1, 2, 2),
+            (r"(?<=\w+)f", 0, 2, 1),
+        ] {
+            let program = lila_ir::RegExpProgram::compile(pattern, "").unwrap();
+            let mut pool = StringPool::default();
             let reference = pool.collect_regexp_program_for_test(&program);
-            assert_eq!(reference.split_count, split_count, "{pattern}");
+            let descriptor = regexp_descriptor_from_pool(&pool, reference);
+            assert_eq!(descriptor.word(Word::CaptureCount), captures, "{pattern}");
+            assert_eq!(descriptor.word(Word::SplitCount), splits, "{pattern}");
             assert_eq!(
-                reference.repeatable_split_count, repeatable_split_count,
+                descriptor.word(Word::RepeatableSplitCount),
+                repeated,
                 "{pattern}"
             );
         }
@@ -5728,135 +5696,45 @@ setterReceiver === receiver;
 
     #[test]
     fn regexp_static_program_dedup_key_includes_capture_count() {
-        let no_capture_program =
-            lila_ir::RegExpProgram::compile("a", "").expect("program should compile");
-        let mut capture_program = no_capture_program.clone();
-        capture_program.capture_count = 1;
-        assert_eq!(no_capture_program.encode(), capture_program.encode());
-        assert_ne!(
-            RegExpProgramStaticKey::from_program(&no_capture_program),
-            RegExpProgramStaticKey::from_program(&capture_program),
-            "capture metadata must be part of static-program identity"
-        );
-
+        let original = lila_ir::RegExpProgram::compile("a", "").unwrap();
+        let mut with_capture = original.clone();
+        with_capture.capture_count = 1;
+        assert_eq!(original.encode(), with_capture.encode());
         let mut pool = StringPool::default();
-        let no_capture_ref = pool.collect_regexp_program_for_test(&no_capture_program);
-        let capture_ref = pool.collect_regexp_program_for_test(&capture_program);
-        assert_ne!(no_capture_ref.ptr, capture_ref.ptr);
-        assert_eq!(pool.bytes.len(), no_capture_program.encode().len() * 2);
-    }
-
-    #[test]
-    fn regexp_literal_initializes_capture_count_slot() {
-        let artifact = emit_script(r"/(\d+)/;").expect("emit should work");
-        assert!(
-            contains_i64_const_store_at_offset(
-                &artifact.bytes,
-                1,
-                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-            ),
-            "literal allocation should initialize the immutable capture count"
+        let first = pool.collect_regexp_program_for_test(&original);
+        let second = pool.collect_regexp_program_for_test(&with_capture);
+        assert_ne!(first.payload(), second.payload());
+        assert_eq!(
+            regexp_descriptor_from_pool(&pool, first)
+                .word(lila_ir::RegExpProgramWord::CaptureCount),
+            0
         );
-
-        let no_capture_artifact = emit_script(r"/\d+/;").expect("emit should work");
-        assert!(
-            contains_i64_const_store_at_offset(
-                &no_capture_artifact.bytes,
-                0,
-                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-            ),
-            "no-capture literal allocation should initialize capture count to zero"
+        assert_eq!(
+            regexp_descriptor_from_pool(&pool, second)
+                .word(lila_ir::RegExpProgramWord::CaptureCount),
+            1
         );
     }
 
     #[test]
-    fn regexp_literal_initializes_split_count_slot() {
-        let artifact = emit_script(r"/(a|b)/;").expect("emit should work");
-        assert!(
-            contains_i64_const_store_at_offset(
-                &artifact.bytes,
-                1,
-                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-            ),
-            "literal allocation should initialize immutable split metadata"
-        );
-
-        let no_choice_artifact = emit_script(r"/(a)/;").expect("emit should work");
-        assert!(
-            contains_i64_const_store_at_offset(
-                &no_choice_artifact.bytes,
-                0,
-                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-            ),
-            "choice-free literal allocation should initialize split metadata to zero"
-        );
-    }
-
-    #[test]
-    fn regexp_literal_initializes_repeatable_split_count_slot() {
-        let artifact = emit_script(r"/a?b*/;").expect("emit should work");
+    fn constructed_constant_regexp_installs_one_deduplicated_descriptor_handle() {
+        let artifact = emit_script(r#"/(a|b)*/; new RegExp("(a|b)*", "");"#).unwrap();
+        let program = lila_ir::RegExpProgram::compile("(a|b)*", "").unwrap();
+        let encoded = lila_ir::ValidatedRegExpProgram::from_program(&program).unwrap();
+        let data = data_segment_bytes(&artifact.bytes);
+        let positions = data
+            .windows(encoded.bytes().len())
+            .enumerate()
+            .filter_map(|(offset, candidate)| (candidate == encoded.bytes()).then_some(offset))
+            .collect::<Vec<_>>();
+        assert_eq!(positions.len(), 1);
+        let pointer = STATIC_DATA_OFFSET as u64 + positions[0] as u64;
+        let handle = (pointer << 32) | encoded.bytes().len() as u64;
         assert!(contains_i64_const_store_at_offset(
             &artifact.bytes,
-            1,
-            HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+            handle as i64,
+            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET
         ));
-
-        let no_repeat_artifact = emit_script(r"/a?a?/;").expect("emit should work");
-        assert!(contains_i64_const_store_at_offset(
-            &no_repeat_artifact.bytes,
-            0,
-            HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
-        ));
-    }
-
-    #[test]
-    fn constructed_constant_regexp_collects_deduplicated_program_and_initializes_slots() {
-        let artifact =
-            emit_script(r#"/(a|b)*/; new RegExp("(a|b)*", "");"#).expect("emit should work");
-        let program =
-            lila_ir::RegExpProgram::compile("(a|b)*", "").expect("program should compile");
-        let encoded = program.encode();
-        let data = data_segment_bytes(&artifact.bytes);
-        assert_eq!(
-            data.windows(encoded.len())
-                .filter(|candidate| *candidate == encoded)
-                .count(),
-            1,
-            "identical constructed programs should share one blob"
-        );
-        let program_ptr = STATIC_DATA_OFFSET as i64
-            + data
-                .windows(encoded.len())
-                .position(|candidate| candidate == encoded)
-                .expect("program data should be present") as i64;
-        let reference = {
-            let mut pool = StringPool::default();
-            pool.collect_regexp_program_for_test(&program)
-        };
-        for (value, offset) in [
-            (program_ptr, HEAP_REGEXP_PROGRAM_PTR_OFFSET),
-            (
-                reference.instruction_count as i64,
-                HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
-            ),
-            (
-                reference.capture_count as i64,
-                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-            ),
-            (
-                reference.split_count as i64,
-                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-            ),
-            (
-                reference.repeatable_split_count as i64,
-                HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
-            ),
-        ] {
-            assert!(
-                contains_i64_const_store_at_offset(&artifact.bytes, value, offset),
-                "constructed regexp should initialize matcher slot {offset}"
-            );
-        }
     }
 
     #[test]

@@ -2,8 +2,8 @@
 //!
 //! This crate owns the closed vocabulary shared by the data generator, Wasm
 //! emitter and runtime provider. Its first host-embedded ICU4X kernel handles
-//! locale alias canonicalization without access to parser state, JavaScript IR,
-//! Wasmtime, JavaScript objects or observable operations.
+//! locale alias canonicalization and likely subtags without access to parser
+//! state, JavaScript IR, Wasmtime, JavaScript objects or observable operations.
 
 use core::{fmt, fmt::Write as _};
 
@@ -16,12 +16,12 @@ pub use identifiers::{
     InvalidLocaleId, InvalidTimeZoneId, LocaleId, TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
 };
 pub use protocol::{
-    CanonicalizeLocale, CanonicalizeLocaleError, CanonicalizeLocaleRequest,
-    CanonicalizeLocaleResult, CanonicalizeTimeZone, CanonicalizeTimeZoneRequest,
+    CanonicalizeLocale, CanonicalizeTimeZone, CanonicalizeTimeZoneRequest,
     CanonicalizeTimeZoneResult, IntlHostCallOutcome, IntlHostOp, IntlHostReadSpan,
     IntlHostWriteSpan, IntlKernel, IntlOperation, IntlOperationHandle, IntlOperationProvider,
-    IntlProvider, IntlProviderIdentityMismatch, MissingIntlCapabilities, UnknownTimeZone,
-    UnsupportedLocale,
+    IntlProvider, IntlProviderIdentityMismatch, LocaleTransformError, LocaleTransformRequest,
+    LocaleTransformResult, MaximizeLocale, MinimizeLocale, MissingIntlCapabilities,
+    UnknownTimeZone, UnsupportedLocale,
 };
 pub use provider::{
     embedded_locale_data_identity, EmbeddedLocaleProvider, EmbeddedLocaleProviderSetupError,

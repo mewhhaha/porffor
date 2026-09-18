@@ -927,7 +927,9 @@ impl PreludeStore {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaterializedTest {
     execution_id: TestExecutionId,
+    /// Test source under its own parse goal; Module helpers live in `module_prelude`.
     pub source: String,
+    pub module_prelude: Option<String>,
     pub used_preludes: Vec<(String, PreludeOrigin)>,
     pub negative: Option<Arc<NegativeExpectation>>,
     agent_prelude: Option<String>,
@@ -2415,6 +2417,7 @@ pub fn materialize_test(
         return Ok(MaterializedTest {
             execution_id: case.execution_id.clone(),
             source: case.original_source.to_string(),
+            module_prelude: None,
             used_preludes: Vec::new(),
             negative: case.negative.clone(),
             agent_prelude: None,
@@ -2424,6 +2427,7 @@ pub fn materialize_test(
     let mut source = String::new();
     let mut used_preludes = Vec::new();
     let mut agent_prelude = None;
+    let mut module_prelude = None;
     if mode.needs_strict_directive() {
         // INTERPRETING.md requires the directive to be the initial source text.
         // It therefore precedes both harness preludes and self-contained
@@ -2571,12 +2575,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             source.push_str(&prelude.contents);
             used_preludes.push((prelude.name.clone(), prelude.origin));
         }
+        if mode.is_module() {
+            module_prelude = Some(std::mem::take(&mut source));
+        }
         source.push_str(&case.original_source);
     }
 
     Ok(MaterializedTest {
         execution_id: case.execution_id.clone(),
         source,
+        module_prelude,
         used_preludes,
         negative: case.negative.clone(),
         agent_prelude,
@@ -9856,7 +9864,8 @@ fn wasm_aot_case_should_run_before_cache_misses(case: &TestCase, preludes: &Prel
     let Ok(materialized) = materialize_test(case, preludes) else {
         return false;
     };
-    let compile_options = compile_options_for_case(case);
+    let mut compile_options = compile_options_for_case(case);
+    compile_options.module_prelude = materialized.module_prelude.clone();
     if materialized.execution_mode().is_module() {
         wasm_aot_module_is_cached(&materialized.source, &compile_options)
     } else {
@@ -10474,7 +10483,8 @@ fn run_one_case_with_wasm_aot_execution(
             RealmBuilder::new()
         };
         let engine = Engine::new(realm_builder.build());
-        let compile_options = compile_options_for_case(case);
+        let mut compile_options = compile_options_for_case(case);
+        compile_options.module_prelude = materialized.module_prelude.clone();
 
         // Parse/early-negative tests use an explicit compile path. Wasm-AOT
         // rejects a successful compile without executing user code; SpecExec
@@ -15960,6 +15970,93 @@ function $DONE(error) {
     }
 
     #[test]
+    fn module_materialization_keeps_original_source_and_global_script_helpers_separate() {
+        let mut store = fixture_preludes();
+        store.insert(
+            "moduleHelper.js".into(),
+            "function helperThis() { return this; }\n".into(),
+            PreludeOrigin::VendoredHarness,
+        );
+        let mut case = synthetic_case("language/module-code/separate-harness.js");
+        case.execution_id = TestExecutionId::new(case.path(), TestExecutionMode::Module);
+        case.original_source = Arc::from("export const value = helperThis();\r\n");
+        case.includes = vec!["moduleHelper.js".into()];
+        let materialized = materialize_test(&case, &store).expect("Module harness materializes");
+        assert_eq!(
+            materialized.source.as_bytes(),
+            case.original_source.as_bytes()
+        );
+        let prelude = materialized.module_prelude.expect("independent Script");
+        assert!(prelude.contains("function helperThis() { return this; }"));
+        assert!(!prelude.contains("export const value"));
+        assert!(!prelude.starts_with("\"use strict\";"));
+
+        case.original_source = Arc::from("return 1;\r\n");
+        case.negative = Some(Arc::new(NegativeExpectation {
+            phase: NegativePhase::Parse,
+            error_type: "SyntaxError".into(),
+        }));
+        let negative = materialize_test(&case, &store).expect("negative Module materializes");
+        assert_eq!(negative.source.as_bytes(), case.original_source.as_bytes());
+        assert!(negative.module_prelude.is_some());
+        case.execution_id = TestExecutionId::new(case.path(), TestExecutionMode::RawModule);
+        let raw = materialize_test(&case, &store).expect("raw Module materializes");
+        assert_eq!(raw.source.as_bytes(), case.original_source.as_bytes());
+        assert!(raw.module_prelude.is_none());
+        assert!(raw.used_preludes.is_empty());
+    }
+
+    #[test]
+    fn module_runner_executes_canonical_helpers_as_global_script_before_dependencies() {
+        let root = unique_temp_path("module-global-harness");
+        fs::create_dir_all(&root).expect("module fixture directory");
+        let source = r#"
+import defer * as dependency from './dependency.js';
+const helperName = 'entry';
+assert.sameValue(helperThis(), globalThis);
+assert.sameValue(this, undefined);
+assert.sameValue(dependency.value, 'global');
+assert.sameValue(helperName, 'entry');
+assert.sameValue(globalThis.helperName, undefined);
+"#;
+        fs::write(root.join("entry.js"), source).expect("entry fixture");
+        fs::write(
+            root.join("dependency.js"),
+            r#"
+const helperName = 'dependency';
+assert.sameValue(helperThis(), globalThis);
+assert.sameValue(this, undefined);
+assert.sameValue(helperName, 'dependency');
+export const value = helperRead();
+"#,
+        )
+        .expect("dependency fixture");
+        let mut store = real_wasm_aot_host_only_preludes();
+        store.insert("moduleScope.js".into(),
+            "const helperName = 'global'; function helperThis() { return this; } function helperRead() { return helperName; }\n".into(),
+            PreludeOrigin::VendoredHarness);
+        let case = TestCase {
+            execution_id: TestExecutionId::new(
+                "language/module-code/separate-harness.js",
+                TestExecutionMode::Module,
+            ),
+            source_path: root.join("entry.js"),
+            original_source: Arc::from(source),
+            flags: BTreeSet::from(["module".into()]),
+            features: BTreeSet::new(),
+            includes: vec!["moduleScope.js".into()],
+            negative: None,
+        };
+        let result = run_one_case(&case, &store, 30_000, ExecutionBackend::WasmAot);
+        fs::remove_dir_all(root).expect("remove module fixtures");
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "{:?}",
+            result.status
+        );
+    }
+
+    #[test]
     fn materialize_test_skips_repeated_declared_includes() {
         let mut store = fixture_preludes();
         store.insert(
@@ -16449,9 +16546,18 @@ function $DONE(error) {
                             .as_str()
                     })
                     .collect::<String>();
-                let expected_source = format!(
-                    "{strict_prefix}{host}{}{}{included_source}{original_source}",
+                let expected_prelude = format!(
+                    "{strict_prefix}{host}{}{}{included_source}",
                     assert_prelude.contents, sta_prelude.contents
+                );
+                let expected_source = if mode.is_module() {
+                    original_source.to_string()
+                } else {
+                    format!("{expected_prelude}{original_source}")
+                };
+                assert_eq!(
+                    materialized.module_prelude.as_deref(),
+                    mode.is_module().then_some(expected_prelude.as_str())
                 );
                 let mut expected_preludes = vec![
                     (assert_prelude.name.clone(), assert_prelude.origin),
@@ -16477,7 +16583,12 @@ function $DONE(error) {
                     case.execution_id()
                 );
                 assert_eq!(
-                    materialized.source.matches("var $262 = {").count(),
+                    materialized
+                        .module_prelude
+                        .as_deref()
+                        .unwrap_or(&materialized.source)
+                        .matches("var $262 = {")
+                        .count(),
                     1,
                     "{profile} {}",
                     case.execution_id()
@@ -16712,8 +16823,17 @@ function $DONE(error) {
                 "{} must retain assert.js",
                 case.execution_id()
             );
+            let assertion_source = if case.execution_mode().is_module() {
+                materialized
+                    .module_prelude
+                    .as_deref()
+                    .expect("Module assertions belong to the separate Script prelude")
+            } else {
+                assert!(materialized.module_prelude.is_none());
+                &materialized.source
+            };
             assert!(
-                materialized.source.contains(&full_assert.contents),
+                assertion_source.contains(&full_assert.contents),
                 "{} must retain the complete assertion source",
                 case.execution_id()
             );

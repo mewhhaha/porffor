@@ -344,8 +344,10 @@ and 103 test executables. Its workspace release all-targets check passes,
 as do all 30 source-census targets, all four Intl import emission tests,
 all 21 provider tests and all five NumberToBigInt native tests. The latter
 cover integral binary64 exponents, inline/heap boundaries, invalid values,
-coercion hooks and the defining Realm's RangeError prototype. Wider native
-verification and the 910-execution targeted replay are still in progress.
+coercion hooks and the defining Realm's RangeError prototype. Its verification
+was subsequently retired after 59 completed stages in favor of checkpoint nine.
+The partial 910-execution replay is retained without assigning outcomes to
+unfinished executions.
 
 The catch repair scans parameter expressions before entering body scope and
 keeps the two lexical environments distinct during lowering. Three initial IR
@@ -372,3 +374,150 @@ comparison for strict equality, SameValue and SameValueZero. Array and
 Arguments conversions that ignore custom coercion hooks, async branch/captured
 environment restoration, and module activation/prelude separation remain
 separate implementation work. No full-suite conformance claim is made.
+
+The ninth compiler, committed as `ec3f9cee1`, has SHA-256
+`39d387d70b4904b47163f2c0f8079356b5feb1052803bee9505e34aa9f947e51`.
+Its 3,617-entry source manifest, now including contract and task documents, has
+SHA-256 `4dec948ace727a72d240546f2a0a283ae8929152c7e9b8ccb27fffee2db897c7`.
+Workspace release all-targets checking, CLI/test builds and all 32 source
+checks pass. Focused verification passes catch ownership IR (4), equality
+effects (5), intrinsic receiver behavior (4), canonical callable harnesses (5)
+and constant numeric conditions (6). The complete callable/Set replay passes
+12/12 with zero timeouts: ten seventh-checkpoint passes retained and two former
+matcher timeouts cleared. Four callable cases overlap the completed current-main
+reference and repair four Bugs; the other eight have no main-pairing claim in
+this audit. The unchanged full validator diagnostic improves from 33.63 seconds
+to 2.72 seconds on the recorded bounded runs; this is diagnostic timing, not a
+general performance guarantee.
+
+The completed ninth catch/BigInt replay passes 388/390 with zero timeouts:
+29 main NotImplemented outcomes and six main crashes become Success, and all
+353 main successes are retained. Both remaining crashes are the two modes of
+`language/statements/try/S12.14_A9_T3.js`. Exact paired evidence is in
+`batch9-candidate-catch-and-bigint-main-audit.json`.
+
+The ninth native catch suite retains eight passes and two suspension failures;
+saved compound assignments retain three passes and the custom Array conversion
+failure. Both causes are addressed in the next source batch. The wider catch
+replay also reproduces a compiler panic when stale do-while branch targets reach
+a later finalizer; an ordinary labelled-switch probe separately reports an
+unknown label. Their target-stack lifecycle repairs keep the backend's invalid
+branch-label assertion intact.
+
+The tenth source batch integrates live Array/Arguments conversion hooks, typed
+plain-async conditional continuations, resumed async/generator lexical records,
+and private synchronous module activation records. Module harness Scripts are
+parsed and lowered separately in the same Realm, with their source included in
+the program cache key. A private lexical owner keeps retained Module drivers'
+declarations out of the global Script environment. Retained cycle/TLA/source
+drivers still have inter-module free-name capture and global import-alias gaps;
+these are documented unresolved cases, without ignored or falsely passing
+tests.
+
+The tenth frozen compiler has SHA-256
+`635d709cd09159658ea86885042a10ac5cd762a70c0874bdfdf1fe0904e8e63e`;
+its 3,684-input source manifest has SHA-256
+`9f5c09972bbe12c736f45ddc8ce5f02bafd30a49eda920d10bcaca00c6a78f68`.
+Release workspace all-targets checking, CLI/test builds and the separate
+spec-exec-oracle feature check pass. Its 38 source census stages completed
+before further edits: 37 pass, and the conversion-Realm census retains two
+stale assertions about the receiver domain and removed Function conversion
+bridge. Those assertions are updated in checkpoint eleven.
+
+Checkpoint ten passes native control flow (14), Array/Arguments coercion (6),
+saved compound values (4), async conditionals (15), generator catch environments
+(6), all catch-pattern owners (10), async for-of (4), async loop bindings (6),
+and generator loop/call-suspension controls. The original branch and captured
+cell diagnostic programs also produce their expected output. Module native
+tests report 12/14; both failures infer Number from a linker import placeholder
+inside nested closures. The next source batch makes static initializer inference
+honor the canonical indirect-import metadata and adds live-capture controls.
+An IR fixture also counts a legitimate nested driver as an outer owner, and
+the heap inventory passes zero instead of the module record size to its bounds
+check; both fixture corrections remain pending execution in checkpoint eleven.
+
+The complete tenth module replay reports 134 Success, 13 Bug and 6
+NotImplemented out of 153, with zero crashes or timeouts. Its exact current-main
+comparison repairs 39 Bugs and two NotImplemented outcomes while retaining all
+93 main successes. Two former Bugs now stop at an explicit NotImplemented
+boundary and remain unresolved. The 12 callable/Set controls also all pass.
+`batch10-candidate-modules-main-audit.json` records all paired source hashes.
+
+Ninth-checkpoint verification has finished: the frontend library passes 164/164,
+IR passes 1,131/1,131, AOT reports 450/452 and Test262 reports 358/362. The two
+AOT failures are stale prototype-slot/count assertions. The count is corrected
+in checkpoint ten; the line-wrapped prototype-arm assertion is corrected in
+checkpoint twelve. All four Test262 failures trace to the missing final section newline after
+the otherwise byte-identical pinned property helper; its canonical section
+boundary is restored in checkpoint eleven. The complete ninth Intl replay is
+300/366 and BigInt retention is 154/154, both without timeouts. The Intl failures
+include missing likely-subtag methods, runtime-generated RegExp patterns and
+DateTimeFormat capabilities; passing direct tag-validation probes do not close
+the canonical generated-pattern cases.
+
+Checkpoint eleven additionally integrates `Intl.Locale.prototype.maximize` and
+`minimize` through the pinned locale provider. Independent source review found
+and corrected missing catalog IDs and unknown `Zzzz`/`ZZ` preprocessing before
+integration. All seven native likely-subtag tests pass. Its complete pinned
+cohort passes 24/24 with zero timeouts: six executions overlap the ninth Intl
+replay and repair six Bugs, while eighteen have no paired comparison. Static versions
+of the generated RegExp reproducers pass on frozen checkpoint nine, confirming
+that runtime pattern compilation remains a separate required implementation.
+
+Checkpoint ten has completed all 137 verification stages: 126 pass and eleven
+retain failed tests. The failures cover module lowering and scope, implicit
+async suspension, and obsolete source-shape assertions. Their original verdicts
+are preserved in `batch10-verification-complete.json`. Its complete catch/BigInt
+cohort now passes 390/390, repairing all 37 current-main failures (29
+NotImplemented and eight crashes) while retaining 353 main successes. Intl
+remains 300/366; BigInt retention passes 154/154. All three completed replays
+have zero timeouts.
+
+Checkpoint eleven's compiler SHA-256 is
+`aa07baab681ae8c92f754b2603fecdc1a7f0b52f1d06ec71058df84efc792971`;
+its 3,689-input source manifest SHA-256 is
+`3dfb7df846a968ca4c688017e8e8050792c4c0e3bddee919b6d9d7da7a613af7`.
+Release all-targets checking, CLI/test builds and the separate oracle feature
+check pass. Its complete module replay reports 135 Success, 14 Bug and four
+NotImplemented across 153 executions, without crashes or timeouts: 42 repaired
+current-main failures and 93 retained main successes. All 143 verification
+stages finished: 134 pass and nine retain failed tests. Frontend passes 164/164,
+IR reports 1,133/1,134, AOT reports 451/452 and Test262 reports 363/364. The
+remaining failures cover synchronous module control flow, implicit async
+suspension and stale source-shape assertions. Their complete verdicts remain in
+`batch11-verification-complete.json` as required regressions for the next build.
+
+The twelfth source batch extends canonical module owners to ordinary and cyclic
+synchronous Module graphs. A private instantiation suspension no longer turns
+source `try`/`catch`/`finally` and resource scopes into generator control flow.
+Every plain-async Await producer saves the active lexical chain before resuming,
+including disposal and iterator awaits. Public class fields use DefineProperty
+semantics for Proxy, Array, TypedArray and namespace receivers. DateTimeFormat
+negotiates and renders the 77 pinned CLDR positional numbering systems through
+one generated table. RegExp objects retain one immutable, validated program
+descriptor rather than independently mutable code and metadata slots. These
+changes are undergoing verification; the runtime RegExp compiler, broader Intl
+capabilities and asynchronous module drivers remain open.
+
+The twelfth frozen compiler has SHA-256
+`6379fd328782ebc4a8df53516ed3156f25b19e0e34f3e93a4f913b667c293eb4`;
+its 3,710-input source manifest has SHA-256
+`a0b6f50fc63062b01656440825dc436379ec74db1419c7394d008e55a5d57c47`.
+Release checking, immutable compiler/test builds and the separate oracle feature
+check pass. All 52 source census stages finished before further changes: 45 pass
+and seven expose stale ownership/shape assertions. Those assertions remain
+recorded while their exact consumers are reviewed. The new module resource IR
+fixture reaches an older blanket admission guard; no module resource pass is
+claimed from its immediate-lifetime plan alone.
+
+Native async property assignment passes 10/10, module scope and cycles 11/11,
+public class fields 5/5, and property-definition Realm behavior 6/6. The Reflect
+descriptor control passes 1/1. The separate frozen-binary diagnostic run passes
+18/19, including the formerly skipped repeated namespace getter, both implicit
+await paths, foreign descriptor prototypes and all eight exotic error-Realm
+checks. Its remaining resource-loop probe is rejected by the same module guard.
+The descriptor corruption test passes, while the combined lifetime test reaches
+an existing matchAll capability gap when cloning a Unicode program with changed
+flags. Broader native verification and the module, Intl, RegExp and catch/BigInt
+replays remain active. These are partial checkpoint results, not a completed
+verification claim or a refreshed full Test262 status.

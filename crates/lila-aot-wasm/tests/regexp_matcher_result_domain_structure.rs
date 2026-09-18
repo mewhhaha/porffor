@@ -170,7 +170,7 @@ fn matcher_result_is_the_exact_private_no_capability_domain() {
     assert!(!matcher.contains("pubenumRegExpMatcherResult"));
     assert!(!matcher.contains("pub(crate)enumRegExpMatcherResult"));
     assert!(!matcher.contains("pub(super)enumRegExpMatcherResult"));
-    assert_eq!(matcher.matches("RegExpMatcherResult").count(), 61);
+    assert_eq!(matcher.matches("RegExpMatcherResult").count(), 57);
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn all_result_producers_name_one_legal_result_state() {
     let matcher = lexically_normalized(MATCHER);
     assert_eq!(
         matcher.matches("self.emit_regexp_match_result(").count(),
-        56
+        52
     );
     assert_eq!(matcher.matches("RegExpMatcherResult::Match,").count(), 1);
     assert_eq!(matcher.matches("RegExpMatcherResult::NoMatch,").count(), 3);
@@ -186,7 +186,7 @@ fn all_result_producers_name_one_legal_result_state() {
         matcher
             .matches("RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),")
             .count(),
-        50
+        46
     );
     assert_eq!(
         matcher
@@ -198,7 +198,7 @@ fn all_result_producers_name_one_legal_result_state() {
         matcher
             .matches("3,3,RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),")
             .count(),
-        14
+        10
     );
     assert_eq!(
         matcher
@@ -245,7 +245,7 @@ fn sole_writer_consumes_and_exhaustively_projects_the_result() {
 fn contract_and_task_record_the_exact_abi_boundary_and_nonclaims() {
     for marker in [
         "`RegExpMatcherResult::{Match, NoMatch, Failed(RegExpMatcherFailure)}`",
-        "exactly 56 result producers",
+        "exactly 52 result producers",
         "The original change was source-equivalent ABI hardening.",
         "passed `4/4`",
     ] {
@@ -253,7 +253,7 @@ fn contract_and_task_record_the_exact_abi_boundary_and_nonclaims() {
     }
     for marker in [
         "`RegExpMatcherResult::{Match, NoMatch, Failed(reason)}`",
-        "one match, three normal misses, 50 corrupt-program",
+        "one match, three normal misses, 46 corrupt-program",
         "source-equivalent ABI hardening",
         "regexp-matcher-result-domain.md",
     ] {

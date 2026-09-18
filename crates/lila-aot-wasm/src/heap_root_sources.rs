@@ -10,6 +10,7 @@ pub(crate) enum HeapRootSource {
     RealmGlobals,
     ActiveFrameLocals,
     LexicalEnvironments,
+    ModuleRecords,
     CompletionRecords,
     FunctionTable,
     HostBorrowedValues,
@@ -46,6 +47,11 @@ impl HeapRootSource {
                 name: "lexical-environments",
                 owner: "environment-chain",
                 kind: HeapRootKind::PersistentTaggedValues,
+            },
+            Self::ModuleRecords => HeapRootMetadata {
+                name: "module-records",
+                owner: "module-record-globals",
+                kind: HeapRootKind::PersistentNonTagged,
             },
             Self::CompletionRecords => HeapRootMetadata {
                 name: "completion-records",
@@ -87,6 +93,7 @@ pub(crate) const HEAP_ROOT_SOURCES: &[HeapRootSource] = &[
     HeapRootSource::RealmGlobals,
     HeapRootSource::ActiveFrameLocals,
     HeapRootSource::LexicalEnvironments,
+    HeapRootSource::ModuleRecords,
     HeapRootSource::CompletionRecords,
     HeapRootSource::FunctionTable,
     HeapRootSource::HostBorrowedValues,

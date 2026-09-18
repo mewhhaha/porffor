@@ -17,6 +17,7 @@ generated lowering use only these rows:
 | `Generator` | ordinary | generator | absent | none |
 | `Async` | ordinary | async | absent | none |
 | `AsyncArrow` | arrow | async | absent | none |
+| `ModuleActivation` | arrow | generator | absent | none |
 | `AsyncGenerator` | ordinary | async-generator | absent | none |
 | `ClassConstructor` | ordinary | ordinary | present | constructor |
 | `ClassMethod(k)` | ordinary | any execution kind `k` | absent | method |
@@ -32,6 +33,13 @@ This rejects combinations that have no ECMAScript source or compiler-generated
 meaning: constructable arrows and resumable functions, generator accessors,
 arrow class methods, non-constructable class constructors, and a class role on
 an unrelated ordinary function.
+
+A synchronous module activation is compiler-private: its arrow flavor preserves
+module lexical `this` and `arguments`, while the generator ABI owns persistent
+environment cells and one instantiation suspension. Only exact trusted linker
+positions can create this protocol; ordinary async arrows keep their source
+protocol. Neither the activation function nor its generator object escapes to
+JavaScript. See [module instantiation](module-instantiation.md).
 
 ## Boundaries that stay separate
 

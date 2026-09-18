@@ -1253,6 +1253,41 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::ModuleNamespace { mode, exports } => {
                 self.emit_module_namespace(*mode, exports, function)?;
             }
+            ExprIr::SynchronousModuleGraph(graph) => {
+                self.emit_synchronous_module_graph(graph, function)?
+            }
+            ExprIr::ModuleBindingRead(target) => {
+                self.emit_module_binding_read(
+                    target,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::ModuleEvaluate(plan) => {
+                self.emit_synchronous_module_evaluate(
+                    plan,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::DeferredModuleEvaluate(plan) => {
+                self.emit_deferred_module_evaluate(
+                    plan,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::ModuleNamespacePublish {
+                module,
+                mode,
+                namespace,
+            } => self.emit_module_namespace_publish(*module, *mode, namespace, function)?,
             ExprIr::Undefined | ExprIr::ArrayHole | ExprIr::Null => {
                 self.emit_undefined_payload(function);
             }
@@ -3135,60 +3170,13 @@ impl<'a> FunctionBuilder<'a> {
         program: Option<&RegExpProgram>,
         function: &mut Function,
     ) {
-        let (
-            program_ptr,
-            instruction_count,
-            capture_count,
-            split_count,
-            repeatable_split_count,
-            named_group_table_ptr,
-        ) = program
-            .map(|program| {
-                let reference = self.strings.regexp_program(program);
-                (
-                    reference.ptr,
-                    reference.instruction_count,
-                    reference.capture_count,
-                    reference.split_count,
-                    reference.repeatable_split_count,
-                    reference.named_group_table_ptr,
-                )
-            })
-            .unwrap_or((0, 0, 0, 0, 0, 0));
+        let payload = program
+            .map(|program| self.strings.regexp_program(program).payload())
+            .unwrap_or(0);
         self.store_i64_const_at_offset(
             object_local,
-            HEAP_REGEXP_PROGRAM_PTR_OFFSET,
-            program_ptr as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
-            instruction_count as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-            capture_count as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-            split_count as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
-            repeatable_split_count as u64,
-            function,
-        );
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
-            named_group_table_ptr as u64,
+            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+            payload,
             function,
         );
     }
@@ -3201,7 +3189,7 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Four outcomes, and every one of them is now reachable code:
     ///
-    /// * **`Program` row** — install the six program slots. Unchanged.
+    /// * **`Program` row** — install one immutable descriptor handle.
     /// * **`Rejected` row** — the compile-time RegExp compiler saw this exact
     ///   pattern and answered `InvalidSyntax`, so this is a spec SyntaxError
     ///   (`RegExpInitialize` step 3.b). Before batch 7 the row did not exist at
@@ -3216,7 +3204,7 @@ impl<'a> FunctionBuilder<'a> {
     ///   the spec accepts.
     /// * **total miss** — the pair is genuinely not in the table, i.e. the
     ///   pattern or the flags string was computed at run time and never named as
-    ///   a literal anywhere. The slots stay zeroed and the caller proceeds.
+    ///   a literal anywhere. The program handle stays zero and the caller proceeds.
     ///
     /// # Why a total miss deliberately does *not* throw
     ///
@@ -3396,45 +3384,18 @@ impl<'a> FunctionBuilder<'a> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        for (record_word, heap_offset) in [
-            (
-                RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD,
-                HEAP_REGEXP_PROGRAM_PTR_OFFSET,
-            ),
-            (
-                RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD,
-                HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
-            ),
-            (
-                RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD,
-                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-            ),
-            (
-                RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD,
-                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-            ),
-            (
-                RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD,
-                HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
-            ),
-            (
-                RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD,
-                HEAP_REGEXP_NAMED_GROUP_TABLE_PTR_OFFSET,
-            ),
-        ] {
-            function.instruction(&Instruction::LocalGet(record_ptr_local));
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I64Load(Self::memarg8(
-                runtime_regexp_record_offset(record_word),
-            )));
-            function.instruction(&Instruction::LocalSet(candidate_payload_local));
-            self.store_i64_local_at_offset(
-                object_local,
-                heap_offset,
-                candidate_payload_local,
-                function,
-            );
-        }
+        function.instruction(&Instruction::LocalGet(record_ptr_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load(Self::memarg8(
+            runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD),
+        )));
+        function.instruction(&Instruction::LocalSet(candidate_payload_local));
+        self.store_i64_local_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+            candidate_payload_local,
+            function,
+        );
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -3584,6 +3545,23 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        match &expr.expr {
+            ExprIr::ModuleBindingRead(target) => {
+                return self.emit_module_binding_read(target, payload_local, tag_local, function)
+            }
+            ExprIr::ModuleEvaluate(plan) => {
+                return self.emit_synchronous_module_evaluate(
+                    plan,
+                    payload_local,
+                    tag_local,
+                    function,
+                )
+            }
+            ExprIr::DeferredModuleEvaluate(plan) => {
+                return self.emit_deferred_module_evaluate(plan, payload_local, tag_local, function)
+            }
+            _ => {}
+        }
         if matches!(
             expr.expr,
             ExprIr::Undefined | ExprIr::ArrayHole | ExprIr::Null

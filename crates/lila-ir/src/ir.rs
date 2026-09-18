@@ -5,13 +5,14 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, ToPrimitive, Zero};
 
 use crate::{
-    ArithmeticBinaryOp, ArrayPatternProtocol, ArraySpreadProtocol, BindingMode, BitwiseBinaryOp,
-    CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
-    FunctionProtocolIr, GeneratorDelegationProtocol, HostBuiltinId, IrDiagnostic, IrDiagnosticKind,
-    IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage, NativeErrorKind,
-    NumericUpdateOp, NumericUpdateValueKind, PreparedDynamicFunction, RegExpProgram,
-    RelationalBinaryOp, SpecOperationIr, SpreadArgumentProtocol, StandardBuiltinId,
-    ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode, GLOBAL_THIS_NAME,
+    ArithmeticBinaryOp, ArrayPatternProtocol, ArraySpreadProtocol, AsyncFunctionIfPlanIr,
+    BindingMode, BitwiseBinaryOp, CallableToStringRepresentation, CompletionRecordIr,
+    EcmaLanguageType, EqualityBinaryOp, FunctionProtocolIr, GeneratorDelegationProtocol,
+    HostBuiltinId, IrDiagnostic, IrDiagnosticKind, IteratorProtocolWitness, IteratorRecordIr,
+    LogicalBinaryOp, LoweringStage, NativeErrorKind, NumericUpdateOp, NumericUpdateValueKind,
+    PreparedDynamicFunction, RegExpProgram, RelationalBinaryOp, SpecOperationIr,
+    SpreadArgumentProtocol, StandardBuiltinId, ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode,
+    GLOBAL_THIS_NAME,
 };
 use crate::{
     ImportPhaseIr, ModuleGraphIr, ModuleUnitId, PreparedScript, PreparedScriptOutcome,
@@ -704,6 +705,20 @@ pub struct AsyncTryPlanIr {
 }
 
 impl GeneratorPlanIr {
+    pub(crate) const MODULE_INSTANTIATION: GeneratorSuspensionPointIr =
+        GeneratorSuspensionPointIr {
+            suspend_state: 0,
+            resume_state: 1,
+        };
+
+    pub(crate) fn module_instantiation() -> Self {
+        Self {
+            entry_state: Self::MODULE_INSTANTIATION.suspend_state,
+            state_count: Self::MODULE_INSTANTIATION.resume_state + 1,
+            suspension_points: vec![Self::MODULE_INSTANTIATION],
+        }
+    }
+
     #[must_use]
     pub const fn without_suspensions() -> Self {
         Self {
@@ -2070,6 +2085,16 @@ pub enum ExprIr {
     ModuleNamespace {
         mode: ModuleNamespaceModeIr,
         exports: Box<TypedExpr>,
+    },
+    /// Allocate every private activation, instantiate imports/namespaces, then evaluate.
+    SynchronousModuleGraph(Box<crate::modules::SynchronousModuleGraphIr>),
+    ModuleBindingRead(crate::modules::ModuleCellIr),
+    ModuleEvaluate(crate::modules::SynchronousModuleEvaluationIr),
+    DeferredModuleEvaluate(crate::modules::DeferredModuleEvaluationIr),
+    ModuleNamespacePublish {
+        module: ModuleUnitId,
+        mode: ModuleNamespaceModeIr,
+        namespace: Box<TypedExpr>,
     },
     This,
     Arguments,
@@ -3614,6 +3639,7 @@ pub struct FunctionIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementIr {
     Empty,
+    ModuleImportBinding(crate::modules::ModuleImportBindingIr),
     ResumableClassDefinition(Box<ResumableClassDefinitionIr>),
     /// Runs module `module`'s hoist or body block exactly once.
     ///
@@ -3709,6 +3735,12 @@ pub enum StatementIr {
         condition: TypedExpr,
         then_branch: Box<StatementIr>,
         else_branch: Option<Box<StatementIr>>,
+    },
+    AsyncFunctionIf {
+        condition: TypedExpr,
+        then_branch: Box<StatementIr>,
+        else_branch: Option<Box<StatementIr>>,
+        plan: AsyncFunctionIfPlanIr,
     },
     While {
         condition: TypedExpr,
@@ -4159,6 +4191,7 @@ impl StatementIr {
             Self::Empty
             | Self::ResumableClassDefinition(_)
             | Self::ModuleUnitOnce { .. }
+            | Self::ModuleImportBinding(_)
             | Self::Lexical { .. }
             | Self::AnnexBFunctionCopy { .. }
             | Self::LexicalBlock(_)
@@ -4174,6 +4207,7 @@ impl StatementIr {
             | Self::GeneratorIf { .. }
             | Self::Block(_)
             | Self::If { .. }
+            | Self::AsyncFunctionIf { .. }
             | Self::While { .. }
             | Self::DoWhile { .. }
             | Self::For { .. }
@@ -4430,6 +4464,8 @@ impl<'a> IntoIterator for &'a GlobalBindingPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptIr {
     pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
+    /// A separate global Script evaluated before the Module graph.
+    pub module_prelude: Option<PreparedScriptUnit>,
     pub prepared_scripts: Vec<PreparedScript>,
     pub runtime_declarations: RuntimeGlobalDeclarationPlan,
     pub prepared_dynamic_functions: Vec<PreparedDynamicFunction>,
@@ -4459,12 +4495,16 @@ pub struct ScriptIr {
 
 impl ScriptIr {
     pub fn prepared_script_units(&self) -> impl Iterator<Item = &PreparedScriptUnit> {
-        self.prepared_scripts
+        self.module_prelude
             .iter()
-            .filter_map(|prepared| match &prepared.outcome {
-                PreparedScriptOutcome::Executable(unit) => Some(unit),
-                PreparedScriptOutcome::DeferredSyntaxError { .. } => None,
-            })
+            .chain(
+                self.prepared_scripts
+                    .iter()
+                    .filter_map(|prepared| match &prepared.outcome {
+                        PreparedScriptOutcome::Executable(unit) => Some(unit),
+                        PreparedScriptOutcome::DeferredSyntaxError { .. } => None,
+                    }),
+            )
     }
 
     pub fn executable_script_bodies(&self) -> impl Iterator<Item = &BlockIr> {
@@ -4835,6 +4875,7 @@ impl IrSummaryCounts {
                 | StatementIr::AsyncDisposableScope { .. }
                 | StatementIr::GeneratorLoop { .. }
                 | StatementIr::GeneratorIf { .. }
+                | StatementIr::AsyncFunctionIf { .. }
                 | StatementIr::ForOfIterator {
                     head: ForOfIteratorHeadIr::Assignment {
                         async_plan: Some(_),
@@ -4857,6 +4898,7 @@ impl IrSummaryCounts {
                 }
             }
             StatementIr::Empty | StatementIr::AnnexBFunctionCopy { .. } => {}
+            StatementIr::ModuleImportBinding(_) => {}
             StatementIr::ModuleUnitOnce { block, .. } => self.visit_block(block),
             StatementIr::Lexical { mode, init, .. } => {
                 match mode {
@@ -4932,6 +4974,12 @@ impl IrSummaryCounts {
                 condition,
                 then_branch,
                 else_branch,
+            }
+            | StatementIr::AsyncFunctionIf {
+                condition,
+                then_branch,
+                else_branch,
+                plan: _,
             } => {
                 self.ifs += 1;
                 self.visit_expr(condition);
@@ -5202,6 +5250,11 @@ impl IrSummaryCounts {
                 }
             }
             ExprIr::ImportMeta { .. } => {}
+            ExprIr::SynchronousModuleGraph(_)
+            | ExprIr::ModuleBindingRead(_)
+            | ExprIr::ModuleEvaluate(_)
+            | ExprIr::DeferredModuleEvaluate(_) => {}
+            ExprIr::ModuleNamespacePublish { namespace, .. } => self.visit_expr(namespace),
             ExprIr::ModuleNamespace { exports, .. } => self.visit_expr(exports),
             ExprIr::DynamicImport {
                 specifier, options, ..

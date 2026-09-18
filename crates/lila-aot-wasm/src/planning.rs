@@ -919,7 +919,15 @@ mod tests {
         let script = lower_script(
             "function ordinary() {} class C { instance = 1; static shared = 2; static {} method() {} }",
         );
-        let metas = build_function_metas(&script.functions, &[], &[], &[], &[], &[], 0);
+        let metas = build_function_metas(
+            &script.functions,
+            script.prepared_script_units(),
+            &[],
+            &[],
+            &[],
+            &[],
+            0,
+        );
         let meta_named = |name: &str| {
             metas
                 .values()
@@ -961,7 +969,15 @@ mod tests {
                  }
              }",
         );
-        let metas = build_function_metas(&script.functions, &[], &[], &[], &[], &[], 0);
+        let metas = build_function_metas(
+            &script.functions,
+            script.prepared_script_units(),
+            &[],
+            &[],
+            &[],
+            &[],
+            0,
+        );
         let ordinary = script
             .functions
             .iter()
@@ -1842,7 +1858,7 @@ mod tests {
 /// `require_standard_builtin` does not recurse through its own match, so a
 /// caller that needs the formatter must seed every id itself rather than
 /// relying on one id dragging in the rest.
-const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 23] = [
+const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 25] = [
     StandardBuiltinId::IntlGetCanonicalLocales,
     StandardBuiltinId::IntlLocaleConstructor,
     StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
@@ -1858,6 +1874,8 @@ const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 23] = [
     StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter,
     StandardBuiltinId::IntlLocalePrototypeVariantsGetter,
     StandardBuiltinId::IntlLocalePrototypeToString,
+    StandardBuiltinId::IntlLocalePrototypeMaximize,
+    StandardBuiltinId::IntlLocalePrototypeMinimize,
     StandardBuiltinId::IntlDateTimeFormatConstructor,
     StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
     StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
@@ -2591,6 +2609,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
             | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
             | StandardBuiltinId::IntlLocalePrototypeToString
+            | StandardBuiltinId::IntlLocalePrototypeMaximize
+            | StandardBuiltinId::IntlLocalePrototypeMinimize
             | StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
             | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
@@ -3752,6 +3772,7 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                     .flat_map(|prefix| prefix.statements())
                     .any(statement_exposes_global_object)
         }
+        StatementIr::ModuleImportBinding(_) => false,
         StatementIr::ModuleUnitOnce { block, .. } => block_exposes_global_object(block),
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
@@ -3796,6 +3817,12 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
             condition,
             then_branch,
             else_branch,
+        }
+        | StatementIr::AsyncFunctionIf {
+            condition,
+            then_branch,
+            else_branch,
+            plan: _,
         } => {
             expr_exposes_global_object(condition)
                 || statement_exposes_global_object(then_branch)
@@ -4050,6 +4077,11 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         ExprIr::EnvironmentIdentifier(_) => true,
         // Module top-level `this` is `undefined`, and neither a namespace
         // object nor `import.meta` can reach the global object.
+        ExprIr::SynchronousModuleGraph(_)
+        | ExprIr::ModuleBindingRead(_)
+        | ExprIr::ModuleEvaluate(_)
+        | ExprIr::DeferredModuleEvaluate(_) => false,
+        ExprIr::ModuleNamespacePublish { namespace, .. } => expr_exposes_global_object(namespace),
         ExprIr::ImportMeta { .. } => false,
         ExprIr::ModuleNamespace { exports, .. } => expr_exposes_global_object(exports),
         ExprIr::DynamicImport {
@@ -4272,6 +4304,7 @@ fn collect_block_global_property_names(block: &BlockIr, names: &mut BTreeSet<Str
 
 fn collect_statement_global_property_names(statement: &StatementIr, names: &mut BTreeSet<String>) {
     match statement {
+        StatementIr::ModuleImportBinding(_) => {}
         StatementIr::ResumableClassDefinition(plan) => {
             collect_expr_global_property_names(plan.expression(), names);
             for statement in plan.prefixes().flat_map(|prefix| prefix.statements()) {
@@ -4320,6 +4353,12 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
             condition,
             then_branch,
             else_branch,
+        }
+        | StatementIr::AsyncFunctionIf {
+            condition,
+            then_branch,
+            else_branch,
+            plan: _,
         } => {
             collect_expr_global_property_names(condition, names);
             collect_statement_global_property_names(then_branch, names);
@@ -4572,6 +4611,13 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
             for operand in identifier.operation.operands() {
                 collect_expr_global_property_names(operand, names);
             }
+        }
+        ExprIr::SynchronousModuleGraph(_)
+        | ExprIr::ModuleBindingRead(_)
+        | ExprIr::ModuleEvaluate(_)
+        | ExprIr::DeferredModuleEvaluate(_) => {}
+        ExprIr::ModuleNamespacePublish { namespace, .. } => {
+            collect_expr_global_property_names(namespace, names)
         }
         ExprIr::ImportMeta { .. } => {}
         ExprIr::ModuleNamespace { exports, .. } => {
@@ -5185,6 +5231,7 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                     .flat_map(|prefix| prefix.statements())
                     .any(|statement| statement_references_function(statement, target))
         }
+        StatementIr::ModuleImportBinding(_) => false,
         StatementIr::ModuleUnitOnce { block, .. } => block_references_function(block, target),
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
@@ -5243,6 +5290,12 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
             condition,
             then_branch,
             else_branch,
+        }
+        | StatementIr::AsyncFunctionIf {
+            condition,
+            then_branch,
+            else_branch,
+            plan: _,
         } => {
             expr_references_function(condition, target)
                 || statement_references_function(then_branch, target)
@@ -5855,6 +5908,20 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     .operands()
                     .any(|operand| expr_references_function(operand, target))
         }
+        ExprIr::SynchronousModuleGraph(graph) => {
+            graph
+                .activations
+                .iter()
+                .any(|activation| &activation.function == target || &activation.evaluator == target)
+                || *target == StandardBuiltinId::GeneratorPrototypeNext.function_id()
+        }
+        ExprIr::ModuleEvaluate(_) => {
+            *target == StandardBuiltinId::GeneratorPrototypeNext.function_id()
+        }
+        ExprIr::ModuleBindingRead(_) | ExprIr::DeferredModuleEvaluate(_) => false,
+        ExprIr::ModuleNamespacePublish { namespace, .. } => {
+            expr_references_function(namespace, target)
+        }
         ExprIr::ImportMeta { .. } => false,
         ExprIr::ModuleNamespace { exports, .. } => expr_references_function(exports, target),
         ExprIr::DynamicImport {
@@ -6302,6 +6369,7 @@ impl HostImportFunctionIndices {
 }
 
 pub(crate) struct FunctionMetaRegistry {
+    module_unit_guard_count: u32,
     prepared_dynamic_functions: Vec<lila_ir::PreparedDynamicFunction>,
     prepared_scripts: Vec<PreparedScript>,
     metas: BTreeMap<FunctionId, WasmFunctionMeta>,
@@ -6321,6 +6389,9 @@ pub(crate) struct FunctionMetaRegistry {
 }
 
 impl FunctionMetaRegistry {
+    pub(crate) fn module_unit_guard_count(&self) -> u32 {
+        self.module_unit_guard_count
+    }
     pub(crate) fn prepared_scripts(&self) -> &[PreparedScript] {
         &self.prepared_scripts
     }
@@ -6335,8 +6406,10 @@ impl FunctionMetaRegistry {
         host_import_function_indices: HostImportFunctionIndices,
         prepared_dynamic_functions: Vec<lila_ir::PreparedDynamicFunction>,
         prepared_scripts: Vec<PreparedScript>,
+        module_unit_guard_count: u32,
     ) -> Self {
         Self {
+            module_unit_guard_count,
             prepared_dynamic_functions,
             prepared_scripts,
             metas,
@@ -6481,9 +6554,9 @@ impl FunctionMetaRegistry {
     }
 }
 
-pub(crate) fn build_function_metas(
+pub(crate) fn build_function_metas<'a>(
     functions: &[FunctionIr],
-    prepared_scripts: &[PreparedScript],
+    prepared_units: impl Iterator<Item = &'a PreparedScriptUnit>,
     compiled_standard_builtins: &[StandardBuiltinId],
     stubbed_standard_builtins: &[StandardBuiltinId],
     compiled_host_builtins: &[HostBuiltinId],
@@ -6524,10 +6597,7 @@ pub(crate) fn build_function_metas(
         callable_index += 1;
     }
 
-    for prepared in prepared_scripts {
-        let PreparedScriptOutcome::Executable(unit) = &prepared.outcome else {
-            continue;
-        };
+    for unit in prepared_units {
         metas.insert(
             unit.id.function_id(),
             WasmFunctionMeta {
@@ -7376,7 +7446,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::IntlLocalePrototypeNumericGetter
         | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
         | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
-        | StandardBuiltinId::IntlLocalePrototypeToString => 0,
+        | StandardBuiltinId::IntlLocalePrototypeToString
+        | StandardBuiltinId::IntlLocalePrototypeMaximize
+        | StandardBuiltinId::IntlLocalePrototypeMinimize => 0,
         StandardBuiltinId::ErrorIsError => 1,
         StandardBuiltinId::SuppressedErrorConstructor => 3,
         StandardBuiltinId::AggregateErrorConstructor => 2,
@@ -7763,6 +7835,7 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             .flat_map(|prefix| prefix.statements())
             .map(count_statement_lexicals)
             .sum(),
+        StatementIr::ModuleImportBinding(_) => 2,
         StatementIr::ModuleUnitOnce { block, .. } => {
             block.statements.iter().map(count_statement_lexicals).sum()
         }
@@ -7848,6 +7921,12 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
             then_branch,
             else_branch,
             ..
+        }
+        | StatementIr::AsyncFunctionIf {
+            condition: _,
+            then_branch,
+            else_branch,
+            plan: _,
         } => {
             count_statement_lexicals(then_branch)
                 + else_branch
@@ -8006,6 +8085,7 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     .max()
                     .unwrap_or(0),
             ),
+        StatementIr::ModuleImportBinding(_) => 8,
         StatementIr::ModuleUnitOnce { block, .. } => block
             .statements
             .iter()
@@ -8115,6 +8195,12 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             condition,
             then_branch,
             else_branch,
+        }
+        | StatementIr::AsyncFunctionIf {
+            condition,
+            then_branch,
+            else_branch,
+            plan: _,
         } => count_expr_temp_locals(condition)
             .max(count_statement_temp_locals(then_branch))
             .max(
@@ -8605,6 +8691,10 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             }
         }
         ExprIr::ImportMeta { .. } => 2,
+        ExprIr::SynchronousModuleGraph(_) | ExprIr::ModuleEvaluate(_) => 256,
+        ExprIr::ModuleBindingRead(_) => 64,
+        ExprIr::DeferredModuleEvaluate(plan) => 256 + plan.readiness.len(),
+        ExprIr::ModuleNamespacePublish { namespace, .. } => 4 + count_expr_temp_locals(namespace),
         ExprIr::ModuleNamespace { exports, .. } => count_expr_temp_locals(exports) + 64,
         ExprIr::DynamicImport {
             specifier, options, ..
@@ -9594,6 +9684,7 @@ pub(crate) fn collect_hoisted_vars_statement(
         }
         // Module top-level `var`s are environment bindings of the module they
         // are written in, not hoisted vars of the merged script body.
+        StatementIr::ModuleImportBinding(_) => {}
         StatementIr::ModuleUnitOnce { .. } => {}
         StatementIr::AnnexBFunctionCopy { target, .. } => {
             let name = match target {
@@ -9619,6 +9710,12 @@ pub(crate) fn collect_hoisted_vars_statement(
             then_branch,
             else_branch,
             ..
+        }
+        | StatementIr::AsyncFunctionIf {
+            condition: _,
+            then_branch,
+            else_branch,
+            plan: _,
         } => {
             collect_hoisted_vars_statement(then_branch, names);
             if let Some(else_branch) = else_branch {

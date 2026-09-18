@@ -1,0 +1,35 @@
+{
+  "cldr_release": "47.0.0",
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "positional_numbering_systems": 77,
+  "excluded_algorithmic_numbering_systems": [
+    "armn",
+    "armnlow",
+    "cyrl",
+    "ethi",
+    "geor",
+    "grek",
+    "greklow",
+    "hanidays",
+    "hans",
+    "hansfin",
+    "hant",
+    "hantfin",
+    "hebr",
+    "jpan",
+    "jpanfin",
+    "jpanyear",
+    "roman",
+    "romanlow",
+    "taml"
+  ],
+  "locale_patterns": [
+    "en",
+    "en-US"
+  ],
+  "decimal_symbols_resolved_from": [
+    "en",
+    "root"
+  ],
+  "default_numbering_system": "latn"
+}

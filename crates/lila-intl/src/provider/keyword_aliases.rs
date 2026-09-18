@@ -172,8 +172,8 @@ fn extension_range(source: &str, singleton: u8) -> Option<Range<usize>> {
 mod tests {
     use super::*;
     use crate::{
-        CanonicalizeLocale, CanonicalizeLocaleRequest, EmbeddedLocaleProvider, IntlDataVersions,
-        IntlKernel, IntlProvider, LocaleId,
+        CanonicalizeLocale, EmbeddedLocaleProvider, IntlDataVersions, IntlKernel, IntlProvider,
+        LocaleId, LocaleTransformRequest,
     };
 
     fn canonical(source: &str) -> String {
@@ -182,7 +182,7 @@ mod tests {
         kernel
             .operation::<CanonicalizeLocale>()
             .unwrap()
-            .execute(CanonicalizeLocaleRequest::new(
+            .execute(LocaleTransformRequest::new(
                 LocaleId::parse(source).unwrap(),
             ))
             .unwrap()
@@ -290,7 +290,9 @@ mod tests {
     #[test]
     fn aliases_preserve_languages_unrelated_fields_and_private_use() {
         assert_eq!(
-            canonical("ABCDE-Armn-SU-t-abcdef-Qaai-DD-m0-names-d0-name-u-attr-ms-imperial-ca-islamicc-rg-cn11-sd-cn11-x-islamicc-true"),
+            canonical(
+                "ABCDE-Armn-SU-t-abcdef-Qaai-DD-m0-names-d0-name-u-attr-ms-imperial-ca-islamicc-rg-cn11-sd-cn11-x-islamicc-true"
+            ),
             "abcde-Armn-RU-t-abcdef-zinh-de-d0-charname-m0-prprname-u-attr-ca-islamic-civil-ms-uksystem-rg-cnbj-sd-cnbj-x-islamicc-true"
         );
         let private = "-abcdefgh".repeat(100);

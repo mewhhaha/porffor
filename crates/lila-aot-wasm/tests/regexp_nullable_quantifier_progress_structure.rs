@@ -5,6 +5,7 @@ const IR_SOURCE: &str = include_str!("../../lila-ir/src/regexp.rs");
 const IR_PUBLIC_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const MATCHER_SOURCE: &str = include_str!("../src/builtins/regexp.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
+const PROGRAM_SOURCE: &str = include_str!("../../lila-ir/src/regexp/program.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_regexp_nullable_quantifier_progress.js");
 const CLI_TEST_SOURCE: &str = include_str!("../../lila-cli/tests/cli/regexp.rs");
@@ -707,16 +708,12 @@ fn matcher_frames_preserve_ordered_backtracking_and_exact_progress_identity() {
 
 #[test]
 fn static_data_validation_counts_progress_choices_and_terminates_checks() {
-    let queue = bounded(
-        DATA_SOURCE,
-        "    fn queue_regexp_program(&mut self, program: &RegExpProgram) {",
-        "    fn queue_runtime_regexp_programs(&mut self) {",
-    );
-    assert!(queue.contains("REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT"));
-    assert!(queue.contains("repeatable_split_count(program)"));
+    assert!(DATA_SOURCE.contains("ValidatedRegExpProgram::from_program(program)"));
+    assert!(PROGRAM_SOURCE.contains("REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT"));
+    assert!(PROGRAM_SOURCE.contains("repeatable_split_count(program)"));
 
     let repeatable = bounded(
-        DATA_SOURCE,
+        PROGRAM_SOURCE,
         "fn repeatable_split_count(program: &RegExpProgram) -> u32 {",
         "fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {",
     );
@@ -730,9 +727,9 @@ fn static_data_validation_counts_progress_choices_and_terminates_checks() {
     }
 
     let cycle = bounded(
-        DATA_SOURCE,
+        PROGRAM_SOURCE,
         "fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {",
-        "#[cfg(test)]\nmod runtime_error_message_pool_tests {",
+        "#[cfg(test)]\nmod tests {",
     );
     for marker in [
         "instructions[pc].opcode == REGEXP_OPCODE_PROGRESS_CHECK",

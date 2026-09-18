@@ -1,6 +1,6 @@
 use super::super::*;
-use crate::data::REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION;
 use crate::runtime_helpers::{RegExpMatcherFailure, RegExpMatcherStatus};
+use lila_ir::REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION;
 use lila_ir::{
     RegExpCaseFolding, RegExpModifierOverride, REGEXP_BACKREFERENCE_IGNORE_CASE,
     REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT,
@@ -16,6 +16,7 @@ use lila_ir::{
 };
 
 mod backreference;
+mod program;
 mod range_search;
 mod word_boundary;
 
@@ -63,25 +64,21 @@ impl<'a> FunctionBuilder<'a> {
     /// Matching can backtrack, but the helper remains pure: it reads
     /// program/string bytes and writes only caller-provided scratch.
     ///
-    /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`] (seven i64 params, four i64
-    /// results). Param 0 packs the program pointer in its low 32 bits and the
-    /// named-group table pointer in its high 32 bits. Param 1=instruction count in the low
-    /// 32 bits and capture count in the high 32 bits, 2=input string
-    /// payload, 3=start UTF-16 index, 4=sticky in bit 0, Unicode mode in bit 1,
-    /// multiline in bit 2, dotAll in bit 3, total split count in bits 4..31,
-    /// and repeatable split count in bits
-    /// 32..63, 5=exclusive
-    /// static-data end,
-    /// 6=choice-frame scratch (packed kind/origin/fallback, byte cursor, UTF-16
-    /// cursor, low-surrogate state). Results are found, match start, match end, and
-    /// [`RegExpMatcherStatus`] in the final slot. The helper can only write a
-    /// status through `emit_regexp_match_result`, whose typed argument prevents
-    /// a new exit from inventing or reusing a raw ABI word.
+    /// Uses the shared seven-i64 helper ABI: 0=immutable program handle,
+    /// 2=input payload, 3=start UTF-16 index, 4=sticky/unicode/multiline/dotAll
+    /// bits, 6=caller-owned scratch. Params 1 and 5 are unused. The descriptor
+    /// owns all instruction, range and named-group bounds. Results are found,
+    /// match start, match end and the closed [`RegExpMatcherStatus`].
     pub(crate) fn compile_regexp_matcher_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::RegExpMatcher);
+        let layout = self.reserve_regexp_program_layout();
+        let program_valid = self.reserve_temp_local();
+        let named_candidates_end = self.reserve_temp_local();
+        let named_next_candidate = self.reserve_temp_local();
+        let named_next_name = self.reserve_temp_local();
         let input_offset = self.reserve_temp_local();
-        let program_ptr = self.reserve_temp_local();
-        let named_group_table_ptr = self.reserve_temp_local();
+        let program_ptr = layout.instructions;
+        let named_group_table_ptr = layout.named_groups;
         let input_len = self.reserve_temp_local();
         let input_utf16_len = self.reserve_temp_local();
         let candidate_byte = self.reserve_temp_local();
@@ -109,14 +106,14 @@ impl<'a> FunctionBuilder<'a> {
         let progress_frame_address = self.reserve_temp_local();
         let progress_frame_found = self.reserve_temp_local();
         let choice_limit = self.reserve_temp_local();
-        let instruction_count = self.reserve_temp_local();
-        let capture_count = self.reserve_temp_local();
+        let instruction_count = layout.instruction_count;
+        let capture_count = layout.capture_count;
         let sticky = self.reserve_temp_local();
         let unicode = self.reserve_temp_local();
         let multiline = self.reserve_temp_local();
         let dot_all = self.reserve_temp_local();
-        let split_count = self.reserve_temp_local();
-        let repeatable_split_count = self.reserve_temp_local();
+        let split_count = layout.split_count;
+        let repeatable_split_count = layout.repeatable_split_count;
         let frame_width = self.reserve_temp_local();
         let capture_index = self.reserve_temp_local();
         let capture_address = self.reserve_temp_local();
@@ -127,7 +124,6 @@ impl<'a> FunctionBuilder<'a> {
         let named_record_ptr = self.reserve_temp_local();
         let named_candidate_ptr = self.reserve_temp_local();
         let named_candidate_count = self.reserve_temp_local();
-        let named_aggregate_count = self.reserve_temp_local();
         let named_candidate_id = self.reserve_temp_local();
         let named_selected_count = self.reserve_temp_local();
         let named_candidate_start = self.reserve_temp_local();
@@ -147,7 +143,7 @@ impl<'a> FunctionBuilder<'a> {
         let reverse_mode = self.reserve_temp_local();
         let lookaround_frame_depth = self.reserve_temp_local();
         let previous_byte = self.reserve_temp_local();
-        let range_base = self.reserve_temp_local();
+        let range_base = layout.ranges;
         let range_low = self.reserve_temp_local();
         let range_high = self.reserve_temp_local();
         let range_middle = self.reserve_temp_local();
@@ -174,30 +170,19 @@ impl<'a> FunctionBuilder<'a> {
             previous_byte,
         };
 
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::I64Const(0xffff_ffff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(program_ptr));
-        function.instruction(&Instruction::LocalGet(0));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(named_group_table_ptr));
+        self.emit_regexp_program_layout(0, &layout, program_valid, &mut function);
+        function.instruction(&Instruction::LocalGet(program_valid));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_result(
+            3,
+            3,
+            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
+        function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(1));
-        function.instruction(&Instruction::I64Const(0xffff_ffff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(instruction_count));
-        // The code-point range pool is appended to the instruction stream.
-        function.instruction(&Instruction::LocalGet(program_ptr));
-        function.instruction(&Instruction::LocalGet(instruction_count));
-        function.instruction(&Instruction::I64Const(REGEXP_INSTRUCTION_WIDTH as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(range_base));
-        function.instruction(&Instruction::LocalGet(1));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(capture_count));
         function.instruction(&Instruction::LocalGet(4));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64And);
@@ -241,16 +226,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::LocalSet(dot_all));
-        function.instruction(&Instruction::LocalGet(4));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Const(0x0fff_ffff));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::LocalSet(split_count));
-        function.instruction(&Instruction::LocalGet(4));
-        function.instruction(&Instruction::I64Const(32));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(repeatable_split_count));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(reverse_mode));
         function.instruction(&Instruction::LocalGet(capture_count));
@@ -260,105 +235,39 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(frame_width));
 
-        // Validate the untrusted program span before deriving an address from
-        // its instruction count. The final capacity comparison avoids both
-        // multiplication and addition overflow.
-        function.instruction(&Instruction::LocalGet(program_ptr));
-        function.instruction(&Instruction::I64Const(STATIC_DATA_OFFSET as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::LocalGet(program_ptr));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(instruction_count));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(
-            3,
-            3,
-            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
-            &mut function,
-        );
-        function.instruction(&Instruction::Return);
-        function.instruction(&Instruction::End);
-
-        // Validate named-group metadata eagerly. Result materialization uses
-        // this table after a successful match, so it must be safe even when a
-        // NamedBackreference instruction is never reached.
+        // Named records, candidate IDs and name bytes own disjoint canonical
+        // sections inside this descriptor, including names never backreferenced.
         function.instruction(&Instruction::LocalGet(named_group_table_ptr));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(named_group_table_ptr));
-        function.instruction(&Instruction::I64Const(STATIC_DATA_OFFSET as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::LocalGet(named_group_table_ptr));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(named_group_table_ptr));
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::LocalGet(named_group_table_ptr));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(8));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(
-            3,
-            3,
-            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
-            &mut function,
-        );
-        function.instruction(&Instruction::Return);
-        function.instruction(&Instruction::End);
         for (offset, local) in [
             (0, decode_temp),
             (8, named_group_count),
             (16, named_candidate_total),
             (24, named_records_ptr),
         ] {
-            function.instruction(&Instruction::LocalGet(named_group_table_ptr));
-            function.instruction(&Instruction::I32WrapI64);
-            function.instruction(&Instruction::I64Load(Self::memarg8(offset)));
-            function.instruction(&Instruction::LocalSet(local));
+            self.load_i64_to_local_from_offset(named_group_table_ptr, offset, local, &mut function);
         }
         function.instruction(&Instruction::LocalGet(decode_temp));
         function.instruction(&Instruction::I64Const(
             REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION as i64,
         ));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(named_records_ptr));
-        function.instruction(&Instruction::I64Const(STATIC_DATA_OFFSET as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(named_records_ptr));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::LocalGet(named_group_count));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(named_records_ptr));
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(named_group_count));
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::LocalGet(named_records_ptr));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(24));
-        function.instruction(&Instruction::I64DivU);
+        function.instruction(&Instruction::LocalGet(capture_count));
         function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(named_candidate_total));
+        function.instruction(&Instruction::LocalGet(capture_count));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(named_records_ptr));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_match_result(
@@ -369,8 +278,32 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(named_aggregate_count));
+        function.instruction(&Instruction::LocalGet(named_group_table_ptr));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalTee(named_records_ptr));
+        function.instruction(&Instruction::LocalGet(named_group_count));
+        function.instruction(&Instruction::I64Const(24));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalTee(named_next_candidate));
+        function.instruction(&Instruction::LocalGet(named_candidate_total));
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalTee(named_candidates_end));
+        function.instruction(&Instruction::LocalTee(named_next_name));
+        function.instruction(&Instruction::LocalGet(layout.end));
+        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_match_result(
+            3,
+            3,
+            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
+            &mut function,
+        );
+        function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(capture_index));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -385,13 +318,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(named_record_ptr));
-        // The name payload is also consumed by result materialization. Its
-        // low word is the UTF-8 byte length and high word is the absolute
-        // static-data offset.
-        function.instruction(&Instruction::LocalGet(named_record_ptr));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
-        function.instruction(&Instruction::LocalSet(decode_temp));
+        self.load_i64_to_local_from_offset(named_record_ptr, 0, decode_temp, &mut function);
         function.instruction(&Instruction::LocalGet(decode_temp));
         function.instruction(&Instruction::I64Const(0xffff_ffff));
         function.instruction(&Instruction::I64And);
@@ -399,19 +326,21 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(decode_temp));
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::LocalGet(named_group_table_ptr));
+        function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(literal_value));
         function.instruction(&Instruction::LocalGet(byte_advance));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::LocalGet(literal_value));
-        function.instruction(&Instruction::I64Const(STATIC_DATA_OFFSET as i64));
-        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::LocalGet(named_next_name));
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(literal_value));
-        function.instruction(&Instruction::LocalGet(5));
+        function.instruction(&Instruction::LocalGet(layout.end));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(byte_advance));
-        function.instruction(&Instruction::LocalGet(5));
+        function.instruction(&Instruction::LocalGet(layout.end));
         function.instruction(&Instruction::LocalGet(literal_value));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64GtU);
@@ -425,37 +354,28 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(named_record_ptr));
-        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::LocalGet(literal_value));
+        function.instruction(&Instruction::LocalGet(byte_advance));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
-        function.instruction(&Instruction::LocalSet(named_candidate_ptr));
-        function.instruction(&Instruction::LocalGet(named_record_ptr));
-        function.instruction(&Instruction::I64Const(16));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(0)));
-        function.instruction(&Instruction::LocalSet(named_candidate_count));
+        function.instruction(&Instruction::LocalSet(named_next_name));
+        self.load_i64_to_local_from_offset(named_record_ptr, 8, named_candidate_ptr, &mut function);
+        self.load_i64_to_local_from_offset(
+            named_record_ptr,
+            16,
+            named_candidate_count,
+            &mut function,
+        );
+        function.instruction(&Instruction::LocalGet(named_candidate_ptr));
+        function.instruction(&Instruction::LocalGet(named_next_candidate));
+        function.instruction(&Instruction::LocalGet(named_group_table_ptr));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::LocalGet(named_candidate_count));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(named_candidate_ptr));
-        function.instruction(&Instruction::I64Const(STATIC_DATA_OFFSET as i64));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(named_candidate_ptr));
-        function.instruction(&Instruction::I64Const(7));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(named_candidate_ptr));
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::LocalGet(named_candidate_count));
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::LocalGet(named_candidate_ptr));
+        function.instruction(&Instruction::LocalGet(named_candidates_end));
+        function.instruction(&Instruction::LocalGet(named_next_candidate));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Const(8));
         function.instruction(&Instruction::I64DivU);
@@ -470,21 +390,14 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::Return);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(named_aggregate_count));
+        function.instruction(&Instruction::LocalGet(named_next_candidate));
+        function.instruction(&Instruction::LocalSet(named_candidate_ptr));
+        function.instruction(&Instruction::LocalGet(named_next_candidate));
         function.instruction(&Instruction::LocalGet(named_candidate_count));
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalTee(named_aggregate_count));
-        function.instruction(&Instruction::LocalGet(named_candidate_count));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(
-            3,
-            3,
-            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
-            &mut function,
-        );
-        function.instruction(&Instruction::Return);
-        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(named_next_candidate));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(named_candidate_id));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -530,58 +443,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(named_aggregate_count));
-        function.instruction(&Instruction::LocalGet(named_candidate_total));
+        function.instruction(&Instruction::LocalGet(named_next_candidate));
+        function.instruction(&Instruction::LocalGet(named_candidates_end));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(
-            3,
-            3,
-            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
-            &mut function,
-        );
-        function.instruction(&Instruction::Return);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(program_ptr));
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(
-            3,
-            3,
-            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
-            &mut function,
-        );
-        function.instruction(&Instruction::Return);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(instruction_count));
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::LocalGet(program_ptr));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(REGEXP_INSTRUCTION_WIDTH as i64));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_match_result(
-            3,
-            3,
-            RegExpMatcherResult::Failed(RegExpMatcherFailure::CorruptProgram),
-            &mut function,
-        );
-        function.instruction(&Instruction::Return);
-        function.instruction(&Instruction::End);
-
-        // Metadata is carried by the object slot and therefore treated as
-        // untrusted at this boundary too.
-        function.instruction(&Instruction::LocalGet(repeatable_split_count));
-        function.instruction(&Instruction::LocalGet(split_count));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::LocalGet(split_count));
-        function.instruction(&Instruction::LocalGet(instruction_count));
-        function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::LocalGet(named_next_name));
+        function.instruction(&Instruction::LocalGet(layout.end));
+        function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_match_result(
@@ -591,6 +458,7 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         );
         function.instruction(&Instruction::Return);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         self.emit_unpack_string_payload(2, input_offset, input_len, &mut function);
@@ -1348,6 +1216,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I64Load(Self::memarg8(0)));
+        function.instruction(&Instruction::LocalGet(named_group_table_ptr));
+        function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(named_candidate_ptr));
         function.instruction(&Instruction::LocalGet(named_record_ptr));
         function.instruction(&Instruction::I64Const(16));
@@ -1679,6 +1549,7 @@ impl<'a> FunctionBuilder<'a> {
             match_on_low_surrogate,
             unicode,
             range_base,
+            layout.range_count,
             operand0,
             operand1,
             candidate_utf16,
@@ -2564,17 +2435,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         // Reverse matching uses the same canonical range slice and membership
         // test as forward matching. Only cursor movement differs.
-        function.instruction(&Instruction::LocalGet(range_base));
         function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::LocalGet(layout.range_count));
+        function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::LocalGet(operand1));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(REGEXP_RANGE_ENTRY_WIDTH as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(5));
+        function.instruction(&Instruction::LocalGet(layout.range_count));
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_match_result(
             candidate_utf16,
@@ -2835,17 +2706,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         // The referenced slice of the range pool must stay inside static data.
-        function.instruction(&Instruction::LocalGet(range_base));
         function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::LocalGet(layout.range_count));
+        function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::LocalGet(operand1));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Const(REGEXP_RANGE_ENTRY_WIDTH as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(5));
+        function.instruction(&Instruction::LocalGet(layout.range_count));
+        function.instruction(&Instruction::LocalGet(operand0));
+        function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64GtU);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_match_result(
             candidate_utf16,

@@ -82,6 +82,7 @@ fn block_preserves_caller_flow(block: &BlockIr) -> bool {
 
 fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
     match statement {
+        StatementIr::ModuleImportBinding(_) => true,
         StatementIr::Empty => true,
         StatementIr::ModuleUnitOnce {
             module: _module,
@@ -162,6 +163,12 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             then_resume_state: _then_resume_state,
             else_resume_state: _else_resume_state,
             exit_state: _exit_state,
+        } => false,
+        StatementIr::AsyncFunctionIf {
+            condition: _condition,
+            then_branch: _then_branch,
+            else_branch: _else_branch,
+            plan: _plan,
         } => false,
         StatementIr::Block(block) => block_preserves_caller_flow(block),
         StatementIr::If {
@@ -333,6 +340,11 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             referrer: _referrer,
         } => false,
         ExprIr::ImportMeta { module: _module } => false,
+        ExprIr::SynchronousModuleGraph(_)
+        | ExprIr::ModuleBindingRead(_)
+        | ExprIr::ModuleEvaluate(_)
+        | ExprIr::DeferredModuleEvaluate(_) => false,
+        ExprIr::ModuleNamespacePublish { namespace, .. } => expr_preserves_caller_flow(namespace),
         ExprIr::ModuleNamespace { exports, .. } => expr_preserves_caller_flow(exports),
         ExprIr::ObjectLiteral(properties) => {
             properties.iter().all(object_property_preserves_caller_flow)

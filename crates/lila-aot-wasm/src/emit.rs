@@ -5,6 +5,7 @@ use lila_ir::DerivedConstructorActivationIr;
 use crate::functions::{
     emit_array_alloc_helper_function, emit_function_object_alloc_helper_function,
 };
+use crate::modules::synchronous_module_record_count;
 use crate::objects::{
     emit_object_append_accessor_property_helper_function,
     emit_object_append_data_property_helper_function, emit_plain_object_alloc_helper_function,
@@ -590,6 +591,7 @@ impl CompletionKind {
 
 pub(crate) struct FunctionBuilder<'a> {
     pub(crate) body: &'a BlockIr,
+    module_prelude_id: Option<lila_ir::StaticScriptId>,
     pub(crate) params: &'a [FunctionParamIr],
     pub(crate) owned_env_bindings: &'a [OwnedEnvBindingIr],
     eval_environment: Option<&'a lila_ir::EvalEnvironmentRoleIr>,
@@ -899,6 +901,9 @@ fn async_generator_contains_suspension(
         StatementIr::AsyncFunctionForOfIterator { .. } => {
             matches!(suspension, AsyncGeneratorSuspension::Await)
         }
+        StatementIr::AsyncFunctionIf { .. } => {
+            matches!(suspension, AsyncGeneratorSuspension::Await)
+        }
         StatementIr::GeneratorIf {
             then_before_yield,
             then_yield_statement,
@@ -1036,7 +1041,9 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             .prefixes()
             .flat_map(|prefix| prefix.statements())
             .find_map(async_generator_dispatcher_unsupported_feature),
+        StatementIr::ModuleImportBinding(_) => Some("module import binding"),
         StatementIr::ModuleUnitOnce { .. } => Some("module unit evaluation"),
+        StatementIr::AsyncFunctionIf { .. } => Some("plain async function branches"),
         StatementIr::Empty
         | StatementIr::Lexical { .. }
         | StatementIr::AnnexBFunctionCopy { .. }
@@ -1501,7 +1508,7 @@ fn emit_script_with_forced_builtins(
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
             script.functions.as_slice(),
-            &script.prepared_scripts,
+            script.prepared_script_units(),
             &compiled_standard_builtins,
             &stubbed_standard_builtins,
             &compiled_host_builtins,
@@ -1512,6 +1519,7 @@ fn emit_script_with_forced_builtins(
         host_import_function_indices,
         script.prepared_dynamic_functions.clone(),
         script.prepared_scripts.clone(),
+        module_unit_guard_count(script),
     );
     let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
     let string_pool =
@@ -1616,6 +1624,16 @@ fn emit_script_with_forced_builtins(
                 shared: false,
             },
             &ConstExpr::i32_const(0),
+        );
+    }
+    for _ in 0..synchronous_module_record_count(script) {
+        globals.global(
+            GlobalType {
+                val_type: ValType::I64,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i64_const(0),
         );
     }
     let module_sections = module_types.finalize_globals(globals);
@@ -3130,7 +3148,7 @@ impl<'a> FunctionBuilder<'a> {
         array_alloc_function_index: Option<u32>,
         module_globals: &'a FinalizedModuleGlobals,
     ) -> Self {
-        Self::new(
+        let mut builder = Self::new(
             &script.body,
             &[],
             script.owned_env_bindings.as_slice(),
@@ -3156,7 +3174,9 @@ impl<'a> FunctionBuilder<'a> {
             function_object_alloc_function_index,
             plain_object_alloc_function_index,
             array_alloc_function_index,
-        )
+        );
+        builder.module_prelude_id = script.module_prelude.as_ref().map(|unit| unit.id);
+        builder
     }
 
     fn new_prepared_script(
@@ -3453,6 +3473,7 @@ impl<'a> FunctionBuilder<'a> {
             ProxyExecutionRealmSource::for_initial_body(numeric_error_realm_source);
         Self {
             body,
+            module_prelude_id: None,
             params,
             owned_env_bindings,
             eval_environment,
@@ -4098,6 +4119,9 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             None
         };
+        if let Some(id) = self.module_prelude_id {
+            self.emit_module_prelude(id, &mut function)?;
+        }
         self.compile_block_contents(self.body, &mut function)?;
         if let Some(target) = main_job_checkpoint {
             self.completion_exit.leave_main_job_checkpoint(target);
@@ -5448,7 +5472,7 @@ impl<'a> FunctionBuilder<'a> {
         let resumable_activation = self.current_function_meta().and_then(|meta| {
             let environment_offset = match meta.protocol.execution_kind() {
                 FunctionExecutionKind::Generator => HEAP_GENERATOR_ENV_OFFSET,
-                FunctionExecutionKind::Async => HEAP_ASYNC_ENV_OFFSET,
+                FunctionExecutionKind::Async => HEAP_ASYNC_INVOCATION_ENV_OFFSET,
                 FunctionExecutionKind::AsyncGenerator => HEAP_ASYNC_GENERATOR_LEXICAL_ENV_OFFSET,
                 FunctionExecutionKind::Ordinary => return None,
             };
@@ -5641,6 +5665,23 @@ impl<'a> FunctionBuilder<'a> {
                 self.current_env_local,
                 function,
             );
+            let saved_environment_offset = match self
+                .current_function_meta()
+                .map(|meta| meta.protocol.execution_kind())
+            {
+                Some(FunctionExecutionKind::Generator) => Some(HEAP_GENERATOR_LEXICAL_ENV_OFFSET),
+                Some(FunctionExecutionKind::Async) => Some(HEAP_ASYNC_ENV_OFFSET),
+                Some(FunctionExecutionKind::Ordinary | FunctionExecutionKind::AsyncGenerator)
+                | None => None,
+            };
+            if let Some(saved_environment_offset) = saved_environment_offset {
+                self.store_i64_local_at_offset(
+                    activation_local,
+                    saved_environment_offset,
+                    self.current_env_local,
+                    function,
+                );
+            }
             function.instruction(&Instruction::End);
         }
         self.release_temp_local(parent_env_local);

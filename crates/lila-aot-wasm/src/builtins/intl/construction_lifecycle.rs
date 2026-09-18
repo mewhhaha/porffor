@@ -1,5 +1,5 @@
 use super::*;
-use crate::functions::OrdinaryDefaultPrototype;
+use crate::functions::{NonArrayRealmIntrinsicSlot, OrdinaryDefaultPrototype};
 
 /// An allocated `Intl.Locale` result that is not yet branded or initialized.
 ///
@@ -52,6 +52,72 @@ impl<'a> FunctionBuilder<'a> {
         })();
         self.release_temp_local(prototype.tag);
         self.release_temp_local(prototype.payload);
+        if let Err(error) = result {
+            self.release_temp_local(object_payload_local);
+            return Err(error);
+        }
+        Ok(ReservedIntlLocaleObjectLocal(object_payload_local))
+    }
+
+    /// Likely-subtag methods construct with the executing Realm's intrinsic
+    /// Locale constructor. Its prototype is immutable; receiver properties and
+    /// the public Intl binding do not participate in this allocation.
+    pub(super) fn emit_reserve_intrinsic_intl_locale_object(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<ReservedIntlLocaleObjectLocal, EmitError> {
+        let object_payload_local = self.reserve_temp_local();
+        let prototype_local = self.reserve_temp_local();
+        let realm_local = self.reserve_temp_local();
+        let intrinsics_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::Else);
+        self.load_i64_to_local_from_offset(
+            self.current_env_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            realm_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(realm_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsics_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(intrinsics_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        self.load_i64_to_local_from_offset(
+            intrinsics_local,
+            NonArrayRealmIntrinsicSlot::IntlLocalePrototype.offset(),
+            prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(prototype_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        let result =
+            self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function);
+        function.instruction(&Instruction::LocalSet(object_payload_local));
+        self.release_temp_local(intrinsics_local);
+        self.release_temp_local(realm_local);
+        self.release_temp_local(prototype_local);
         if let Err(error) = result {
             self.release_temp_local(object_payload_local);
             return Err(error);

@@ -3843,6 +3843,7 @@ impl<'a> FunctionBuilder<'a> {
             | FunctionProtocolIr::Async
             | FunctionProtocolIr::AsyncArrow
             | FunctionProtocolIr::AsyncGenerator
+            | FunctionProtocolIr::ModuleActivation
             | FunctionProtocolIr::ClassConstructor
             | FunctionProtocolIr::ClassMethod(_)
             | FunctionProtocolIr::ClassGetter
@@ -12078,13 +12079,33 @@ impl<'a> FunctionBuilder<'a> {
         result: TaggedLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // 6.2.6.4 FromPropertyDescriptor: an ordinary object with the standard
-        // prototype, carrying the present fields in specification order.
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
+        // Both callers are Object static builtins, whose current environment
+        // carries the executing function's Realm. Descriptor objects exposed
+        // to Proxy traps use that Realm even when the target belongs elsewhere.
+        let prototype_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        for offset in [
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+        ] {
+            self.load_i64_to_local_from_offset(prototype_local, offset, prototype_local, function);
+            function.instruction(&Instruction::LocalGet(prototype_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Unreachable);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::End);
+        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
+        self.release_temp_local(prototype_local);
         function.instruction(&Instruction::LocalSet(result.payload));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(result.tag));

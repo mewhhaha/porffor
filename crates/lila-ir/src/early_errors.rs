@@ -18,6 +18,13 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 expr_contains_this_before_super(operand, state);
             }
         }
+        ExprIr::SynchronousModuleGraph(_)
+        | ExprIr::ModuleBindingRead(_)
+        | ExprIr::ModuleEvaluate(_)
+        | ExprIr::DeferredModuleEvaluate(_) => {}
+        ExprIr::ModuleNamespacePublish { namespace, .. } => {
+            expr_contains_this_before_super(namespace, state)
+        }
         ExprIr::ImportMeta { .. } => {}
         ExprIr::ModuleNamespace { exports, .. } => expr_contains_this_before_super(exports, state),
         ExprIr::DynamicImport {
@@ -354,6 +361,7 @@ fn statement_contains_this_before_super(
                 statement_contains_this_before_super(statement, state);
             }
         }
+        StatementIr::ModuleImportBinding(_) => {}
         StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
@@ -453,6 +461,12 @@ fn statement_contains_this_before_super(
             condition,
             then_branch,
             else_branch,
+        }
+        | StatementIr::AsyncFunctionIf {
+            condition,
+            then_branch,
+            else_branch,
+            plan: _,
         } => {
             expr_contains_this_before_super(condition, state);
             statement_contains_this_before_super(then_branch, state);

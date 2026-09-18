@@ -17,12 +17,12 @@ impl FunctionBuilder<'_> {
         cursor_on_low_surrogate: u32,
         unicode: u32,
         range_base: u32,
+        range_capacity: u32,
         first_entry: u32,
         packed_count_and_polarity: u32,
         candidate_utf16: u32,
         function: &mut Function,
     ) {
-        let range_capacity = self.reserve_temp_local();
         let range_count = self.reserve_temp_local();
         let range_low = self.reserve_temp_local();
         let range_high = self.reserve_temp_local();
@@ -36,14 +36,8 @@ impl FunctionBuilder<'_> {
         let byte_advance = self.reserve_temp_local();
         let decode_temp = self.reserve_temp_local();
 
-        // The instruction-stream span was checked before range_base was formed.
-        // Bound each operand before their sum can authorize a range-pool read.
-        function.instruction(&Instruction::LocalGet(5));
-        function.instruction(&Instruction::LocalGet(range_base));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(3));
-        function.instruction(&Instruction::I64ShrU);
-        function.instruction(&Instruction::LocalSet(range_capacity));
+        // This capacity belongs to the descriptor's range section, excluding
+        // all neighboring instruction, name and unrelated allocation bytes.
         function.instruction(&Instruction::LocalGet(packed_count_and_polarity));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64ShrU);
@@ -240,6 +234,5 @@ impl FunctionBuilder<'_> {
         self.release_temp_local(range_high);
         self.release_temp_local(range_low);
         self.release_temp_local(range_count);
-        self.release_temp_local(range_capacity);
     }
 }
