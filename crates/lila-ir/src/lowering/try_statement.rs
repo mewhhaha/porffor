@@ -96,11 +96,20 @@ impl<'a> ScriptLowerer<'a> {
                     (storage_name.clone(), storage_name, Vec::new())
                 }
             };
-            let mut catch_block = self.lower_block(catch.block());
-            if !catch_prefix.is_empty() {
-                catch_prefix.append(&mut catch_block.statements);
-                catch_block.statements = catch_prefix;
-            }
+            let catch_body = self.lower_block(catch.block());
+            let catch_block = if catch_prefix.is_empty() {
+                catch_body
+            } else {
+                // BindingInitialization runs in catchEnv before the body block
+                // creates its lexical environment.
+                let result_kind = catch_body.result_kind;
+                catch_prefix.push(StatementIr::Block(catch_body));
+                BlockIr {
+                    statements: catch_prefix,
+                    result_kind,
+                    lexical_environment: None,
+                }
+            };
             self.pop_scope();
             if !uses_preplanned_resumable_states {
                 if let Some(state) = self.current_generator_resume_state.as_mut() {

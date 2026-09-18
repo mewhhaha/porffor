@@ -142,12 +142,17 @@ enum WordBoundaryPolarity",
         "let pair = LegacyUtf16Pair::from_scalar(ch)",
         "return Ok(ParsedTermAtom::LegacyUtf16Pair(pair));",
     );
+    let nullability = bounded(
+        REGEXP_SOURCE,
+        "fn term_nullable(term: &ParsedTerm) -> bool {",
+        "fn first_required_unicode_set_semantics(",
+    );
     assert_eq!(
-        REGEXP_SOURCE
+        nullability
             .matches("ParsedTerm::LegacyUtf16Pair { .. } => false,")
             .count(),
-        2,
-        "both nullability projections must keep the mandatory lead non-nullable"
+        1,
+        "the mandatory lead surrogate keeps the pair non-nullable"
     );
 }
 

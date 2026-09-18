@@ -53,11 +53,11 @@ jobs:
         run: |
           cargo test --release --locked -p lila-front --test regexp_legacy_astral_ranges
           cargo test --release --locked -p lila-intl --lib
-          cargo test --release --locked -p lila-ir --test compound_addition_flow --test compound_assignment_saved_value --test regexp_legacy_pooled_class --test intl_locale_getters --test float16_array
+          cargo test --release --locked -p lila-ir --test compound_addition_flow --test compound_assignment_saved_value --test regexp_legacy_pooled_class --test intl_locale_getters --test float16_array --test catch_pattern_owners
           cargo test --release --locked -p lila-aot-wasm --lib constant_number_condition
-          cargo test --release --locked -p lila-aot-wasm --test constant_number_condition_emission --test created_realm_intl_structure --test intl_bound_format_realm_structure --test intl_host_imports --test set_operation_domains_structure
+          cargo test --release --locked -p lila-aot-wasm --test constant_number_condition_emission --test created_realm_intl_structure --test intl_bound_format_realm_structure --test intl_host_imports --test set_operation_domains_structure --test bigint_number_policy_structure
           cargo test --release --locked -p lila-test262 --test wasm_aot_callable_harness -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_compound_addition_flow --test aot_compound_assignment_saved_value --test aot_constant_number_condition --test aot_set_algebra_copy_phases --test aot_intl_created_realm --test aot_intl_bound_format_realm --test aot_intl_keyword_aliases --test aot_intl_locale_host_import --test aot_intl_locale_constructor --test aot_intl_locale_options --test aot_float16_array --test aot_typed_array_byte_copy --test aot_typed_array_constructor_error_realm --test aot_regexp_legacy_pooled_class -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_compound_addition_flow --test aot_compound_assignment_saved_value --test aot_constant_number_condition --test aot_set_algebra_copy_phases --test aot_intl_created_realm --test aot_intl_bound_format_realm --test aot_intl_keyword_aliases --test aot_intl_locale_host_import --test aot_intl_locale_constructor --test aot_intl_locale_options --test aot_float16_array --test aot_typed_array_byte_copy --test aot_typed_array_constructor_error_realm --test aot_regexp_legacy_pooled_class --test aot_number_to_bigint --test aot_bigint_number_conversion --test aot_catch_pattern_owners -- --test-threads=2
 
       - name: Execute the pinned Test262 agent regression (non-vacuous)
         shell: bash

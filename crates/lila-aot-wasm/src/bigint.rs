@@ -13,9 +13,11 @@
 //! narrow representation stays the common case and every operation is exact
 //! regardless of magnitude.
 //!
-//! The whole state machine lives in one shared runtime helper reached with a
+//! The arithmetic state machine lives in one shared runtime helper reached with a
 //! plain `call`, rather than being inlined at every arithmetic site — inlining
 //! it would push single function bodies past Cranelift's per-function limits.
+//! NumberToBigInt reuses the same Number decoder and result packing at the
+//! builtin conversion boundary.
 
 use super::*;
 use crate::abi::COMPLETION_KIND_THROW;
@@ -41,6 +43,90 @@ const DIGIT_MASK: i64 = 0xffff_ffff;
 const MAX_BIGINT_SHIFT_DIGITS: i64 = (u32::MAX as i64 / 8) - 1;
 
 impl<'a> FunctionBuilder<'a> {
+    /// NumberToBigInt accepts every finite integral binary64 value. Decode its
+    /// exact sign and digits before choosing the existing inline or heap form.
+    pub(crate) fn emit_number_to_bigint_locals(
+        &mut self,
+        input_payload_local: u32,
+        output_payload_local: u32,
+        output_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        function.instruction(&Instruction::LocalGet(input_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(input_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "cannot convert Number to BigInt",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
+            function.instruction(&Instruction::LocalGet(input_payload_local));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
+            function.instruction(&Instruction::F64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_current_function_realm_range_error(
+                "cannot convert Number to BigInt",
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(input_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(input_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Trunc);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "cannot convert non-integer Number to BigInt",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        let sign_local = self.reserve_temp_local();
+        let digits_local = self.reserve_temp_local();
+        let digit_count_local = self.reserve_temp_local();
+        let fraction_sign_local = self.reserve_temp_local();
+        let number_class_local = self.reserve_temp_local();
+        self.emit_bigint_decode_number_operand(
+            input_payload_local,
+            sign_local,
+            digits_local,
+            digit_count_local,
+            fraction_sign_local,
+            number_class_local,
+            function,
+        )?;
+        self.emit_bigint_pack_result(
+            sign_local,
+            digits_local,
+            digit_count_local,
+            output_payload_local,
+            output_tag_local,
+            function,
+        )?;
+        self.release_temp_local(number_class_local);
+        self.release_temp_local(fraction_sign_local);
+        self.release_temp_local(digit_count_local);
+        self.release_temp_local(digits_local);
+        self.release_temp_local(sign_local);
+        Ok(())
+    }
+
     /// Calls the shared BigInt helper, storing its value in
     /// `out_payload_local`/`out_tag_local` and propagating a throw (division by
     /// zero, negative exponent) to the enclosing handler.
@@ -581,7 +667,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_bigint_pack_result(res_sign, res_ptr, res_len, &mut function)?;
+        self.emit_bigint_pack_result(
+            res_sign,
+            res_ptr,
+            res_len,
+            self.result_local,
+            self.result_tag_local,
+            &mut function,
+        )?;
         function.instruction(&Instruction::End);
 
         self.release_temp_local(number_class);
@@ -2731,6 +2824,8 @@ impl<'a> FunctionBuilder<'a> {
         sign_local: u32,
         ptr_local: u32,
         len_local: u32,
+        output_payload_local: u32,
+        output_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let low = self.reserve_temp_local();
@@ -2793,9 +2888,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(value));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::LocalSet(output_tag_local));
         function.instruction(&Instruction::Else);
 
         function.instruction(&Instruction::LocalGet(len_local));
@@ -2856,9 +2951,9 @@ impl<'a> FunctionBuilder<'a> {
         self.store_i64_local_at_offset(record, HEAP_BIGINT_LIMBS_LEN_OFFSET, limb_count, function);
         self.store_i64_local_at_offset(record, HEAP_BIGINT_LIMBS_CAP_OFFSET, limb_count, function);
         function.instruction(&Instruction::LocalGet(record));
-        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
         function.instruction(&Instruction::I64Const(HEAP_BIGINT_VALUE_TAG));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        function.instruction(&Instruction::LocalSet(output_tag_local));
         function.instruction(&Instruction::End);
 
         self.release_temp_local(bytes);

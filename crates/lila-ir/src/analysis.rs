@@ -4424,17 +4424,13 @@ impl<'a> AnalysisBuilder<'a> {
                     .expect("try block scan must restore its lexical environment cursor");
                 debug_assert_eq!(cursor, try_cursor);
                 if let Some(catch) = try_statement.catch() {
-                    let mut catch_aliases = self.scoped_capture_aliases(
-                        interner,
-                        catch.block().statement_list().statements(),
-                        capture_aliases,
-                    );
+                    let mut catch_parameter_aliases = capture_aliases.clone();
                     if let Some(bound_names) = catch
                         .parameter()
                         .and_then(|binding| supported_bound_names(interner, binding))
                     {
                         for bound in bound_names {
-                            catch_aliases.insert(
+                            catch_parameter_aliases.insert(
                                 bound.source_name.clone(),
                                 scoped_lexical_binding_storage_name(&bound.source_name, bound.span),
                             );
@@ -4480,6 +4476,22 @@ impl<'a> AnalysisBuilder<'a> {
                     }
                     self.environment_cursor_stack
                         .push(catch_parameter_cursor.clone());
+                    if let Some(Binding::Pattern(pattern)) = catch.parameter() {
+                        self.scan_pattern_expressions(
+                            owner_id,
+                            pattern,
+                            interner,
+                            source_text,
+                            self_name,
+                            &catch_parameter_aliases,
+                            refs,
+                        );
+                    }
+                    let catch_aliases = self.scoped_capture_aliases(
+                        interner,
+                        catch.block().statement_list().statements(),
+                        &catch_parameter_aliases,
+                    );
                     let catch_block_cursor = self.register_lexical_environment_with_modes(
                         owner_id,
                         EnvironmentKind::Block,

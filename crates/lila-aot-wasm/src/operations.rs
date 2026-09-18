@@ -5242,59 +5242,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         match number_policy {
             BigIntNumberPolicy::NumberToBigInt => {
-                function.instruction(&Instruction::LocalGet(input_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(input_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
-                    "cannot convert Number to BigInt",
-                    self.result_local,
-                    self.result_tag_local,
+                self.emit_number_to_bigint_locals(
+                    input_payload_local,
+                    output_payload_local,
+                    output_tag_local,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
-                    function.instruction(&Instruction::LocalGet(input_payload_local));
-                    function.instruction(&Instruction::F64ReinterpretI64);
-                    function.instruction(&Instruction::F64Const(Ieee64::from(infinite)));
-                    function.instruction(&Instruction::F64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_throw_runtime_error(
-                        RANGE_ERROR_NAME,
-                        "cannot convert Number to BigInt",
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion(function);
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::LocalGet(input_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::LocalGet(input_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::F64Trunc);
-                function.instruction(&Instruction::F64Ne);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    RANGE_ERROR_NAME,
-                    "cannot convert non-integer Number to BigInt",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(input_payload_local));
-                function.instruction(&Instruction::F64ReinterpretI64);
-                function.instruction(&Instruction::I64TruncF64S);
-                function.instruction(&Instruction::LocalSet(output_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
-                function.instruction(&Instruction::LocalSet(output_tag_local));
             }
             BigIntNumberPolicy::RejectNumber => {
                 self.emit_throw_runtime_error(

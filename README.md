@@ -139,13 +139,17 @@ Float16Array uses the shared TypedArray view and method implementation with
 preserve NaN payload bits, and constructor-owned buffers use the executing Realm.
 The sixth checkpoint passes the byte-copy (6), fill (11), backreference-folding
 (8), and numeric behavior (7) native tests. The separate pinned fill cohort
-passes 102/102 executions. Its Intl, Float16Array Realm and legacy class-range
+passes 102/102 executions: 30 repaired failures, eight successful timeout
+rechecks and 64 retained main passes. Its Intl, Float16Array Realm and legacy class-range
 failures remain recorded while the next source batch repairs their causes.
 That batch also restores the canonical callable harnesses, merges branch flow
 facts, preserves saved compound-assignment operand types, corrects Set copy
 timing, and adds pinned CLDR keyword aliases and Intl intrinsics in created
 Realms. Pure numeric IR conditions can omit unreachable branches after lowering
-and planning; the numeric stress replay remains a required check.
+and planning; the seventh checkpoint passes all 24 formerly failing numeric
+stress executions with zero timeouts. These paired cohort audits were refreshed
+on 2026-09-18. The next batch repairs [large Number-to-BigInt conversion](docs/rust-rewrite/contracts/number-to-bigint.md),
+including RangeErrors from foreign BigInt functions; its native verification is pending.
 Verification and the wider replay remain in progress; these counts do not
 update the generated full-suite conformance status.
 

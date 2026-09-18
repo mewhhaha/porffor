@@ -7402,6 +7402,12 @@ impl<'a> FunctionBuilder<'a> {
             bigint_constructor_local,
             function,
         )?;
+        self.store_i64_local_at_offset(
+            bigint_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            bigint_constructor_local,
+            function,
+        );
         self.emit_set_function_prototype_data_with_flags(
             bigint_constructor_local,
             bigint_prototype_local,

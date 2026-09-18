@@ -254,7 +254,9 @@ copies (6), fill (11), backreference folding (8), and numeric behavior (7).
 The Intl provider passes 17 unit tests. The fifth-checkpoint Test262 library
 suite passes all 362 tests, including the agent test that previously timed out.
 The fifth-checkpoint pinned fill cohort separately passes all 102 executions
-with zero timeouts; its complete current-main paired audit is still pending.
+with zero timeouts. The completed paired audit, refreshed on 2026-09-18,
+records 30 Bug-to-Success repairs, eight successful timeout rechecks and 64
+retained main passes.
 
 Sixth-checkpoint failures remain recorded in `batch6-test-verdicts.json`.
 Float16Array passes 10 tests and fails one foreign constructor error test;
@@ -292,3 +294,43 @@ partial artifacts remain intact; pending executions have no assigned result.
 Current-main reference replay continues independently. Module instantiation
 and the wider failure list remain open, and the PR stays draft until the
 requested fixes and verification are complete.
+
+## Verification resumed on 2026-09-18
+
+The seventh checkpoint is `4f67925eafdc81e7ae8e6c3c0a3c764ef636091a`.
+Its workspace all-targets release check and immutable build passed, yielding
+98 test executables and compiler SHA-256
+`66737bc66dfecd3dd77d8831081fef30869c1b050e1e7dd1795c087249193628`.
+The source manifest contains 3,023 inputs with SHA-256
+`b556dc967b1775f7e2f1a345a5105525bf252c97b1e909d7ca835306191fa1d1`.
+
+All 24 numeric shift stress executions now pass, repairing all 24 corresponding
+main failures with zero timeouts. Of the 12 RegExp cases still failing at
+checkpoint four, eight now pass: reverse backreferences, sticky matching and
+word boundaries in both modes. The four runtime-built nested-pattern cases
+remain failures. These results have complete main overlap; the broader
+3,847-execution candidate selection remains in progress.
+
+The source census completed before the eighth batch was integrated. It found
+one obsolete assertion expecting two nullability projections after one had
+been removed. The follow-up checks the single owning function directly.
+Native and broad tests continue against the frozen seventh compiler.
+
+Five additional resumable probes produce identical outcomes on checkpoints
+six and seven. Ordinary async `if/else` incorrectly skips an awaited else
+branch; four generator/async-generator shapes explicitly report unsupported
+suspension or label plans. These are existing open implementation gaps, not
+evidence of complete resumable support.
+
+The eighth batch reuses the existing exact binary64 decoder and BigInt limb
+packer for NumberToBigInt, eliminating signed-i64 overflow on valid integral
+Numbers. Its moved Number-validation errors select the executing builtin Realm,
+and created BigInt functions retain the function identity needed at that call
+boundary. Frozen sixth-compiler probes establish both defects. Native tests
+and the two pinned Number-conversion-rounding modes remain required.
+
+The fresh main-reference replay stopped after 6,916 of its 14,352 remaining
+executions and resumed from those records. The completed 530-case fill/numeric
+main cohort contains 468 Success, 54 Bug and eight timed-out Crash outcomes.
+No unexecuted case has been assigned an outcome, and these cohort results do
+not update the generated full-suite status.
