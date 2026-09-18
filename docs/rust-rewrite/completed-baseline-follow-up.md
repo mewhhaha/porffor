@@ -334,3 +334,41 @@ executions and resumed from those records. The completed 530-case fill/numeric
 main cohort contains 468 Success, 54 Bug and eight timed-out Crash outcomes.
 No unexecuted case has been assigned an outcome, and these cohort results do
 not update the generated full-suite status.
+
+The eighth compiler is frozen from the source later committed as `3578335b5`:
+compiler SHA-256
+`40c2600ddbba1383b9431538e28ebb0def64373d2d534bb14b6dfeccf0f8a17c`,
+3,026-entry source manifest SHA-256
+`de656840ad1e70d49ba6697ce5e97dfab67d659c559b3a9773db21b586d31897`,
+and 103 test executables. Its workspace release all-targets check passes,
+as do all 30 source-census targets, all four Intl import emission tests,
+all 21 provider tests and all five NumberToBigInt native tests. The latter
+cover integral binary64 exponents, inline/heap boundaries, invalid values,
+coercion hooks and the defining Realm's RangeError prototype. Wider native
+verification and the 910-execution targeted replay are still in progress.
+
+The catch repair scans parameter expressions before entering body scope and
+keeps the two lexical environments distinct during lowering. Three initial IR
+assertions used incorrect assumptions about qualified class-method names,
+materialization of uncaptured bindings, and exact-context function clones.
+Their corrected fixtures preserve explicit ownership and capture checks;
+execution of those corrections belongs to the ninth checkpoint.
+
+Seventh-checkpoint verification was retired on 2026-09-18 in favor of the
+eighth compiler. Its 55 completed stages and partial Intl replay remain
+recorded in `batch7-retirement.json`; unfinished stages are not passing results.
+Both canonical isConstructor modes and all eight Set operation regression
+executions pass. Both nativeFunctionMatcher modes time out after 360 seconds.
+Diagnostic programs containing the canonical validator and all grammar cases
+execute in milliseconds, with tens of seconds spent lowering. Intrinsic
+signature maps contained repeated copies of the global shape before observing
+a receiver. The ninth checkpoint removes those unused builtin seeds while
+retaining source-function receiver and lexical-capture metadata.
+
+An additional equality regression is present on both sixth and seventh
+compilers: `(1n >>> 0n) === 0n` skips the throwing operand because static result
+kinds differ. The ninth checkpoint evaluates operands before mismatched-tag
+comparison for strict equality, SameValue and SameValueZero. Array and
+Arguments conversions that ignore custom coercion hooks, async branch/captured
+environment restoration, and module activation/prelude separation remain
+separate implementation work. No full-suite conformance claim is made.

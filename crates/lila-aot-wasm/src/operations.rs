@@ -10694,16 +10694,7 @@ impl<'a> FunctionBuilder<'a> {
             && !rhs_tag_dynamic
             && lhs.possible_kinds.is_singleton()
             && rhs.possible_kinds.is_singleton()
-            && lhs.kind != rhs.kind
-        {
-            function.instruction(&Instruction::I32Const(0));
-            return Ok(());
-        }
-
-        if !lhs_tag_dynamic
-            && !rhs_tag_dynamic
-            && lhs.possible_kinds.is_singleton()
-            && rhs.possible_kinds.is_singleton()
+            && lhs.kind == rhs.kind
         {
             match lhs.kind {
                 ValueKind::Number => {
@@ -10814,18 +10805,6 @@ impl<'a> FunctionBuilder<'a> {
         rhs: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_tag_dynamic = expr_result_tag_is_runtime_dynamic(&lhs.expr);
-        let rhs_tag_dynamic = expr_result_tag_is_runtime_dynamic(&rhs.expr);
-        if !lhs_tag_dynamic
-            && !rhs_tag_dynamic
-            && lhs.possible_kinds.is_singleton()
-            && rhs.possible_kinds.is_singleton()
-            && lhs.kind != rhs.kind
-        {
-            function.instruction(&Instruction::I32Const(0));
-            return Ok(());
-        }
-
         let lhs_payload = self.reserve_temp_local();
         let lhs_tag = self.reserve_temp_local();
         let rhs_payload = self.reserve_temp_local();
@@ -10852,18 +10831,6 @@ impl<'a> FunctionBuilder<'a> {
         rhs: &TypedExpr,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let lhs_tag_dynamic = expr_result_tag_is_runtime_dynamic(&lhs.expr);
-        let rhs_tag_dynamic = expr_result_tag_is_runtime_dynamic(&rhs.expr);
-        if !lhs_tag_dynamic
-            && !rhs_tag_dynamic
-            && lhs.possible_kinds.is_singleton()
-            && rhs.possible_kinds.is_singleton()
-            && lhs.kind != rhs.kind
-        {
-            function.instruction(&Instruction::I32Const(0));
-            return Ok(());
-        }
-
         let lhs_payload = self.reserve_temp_local();
         let lhs_tag = self.reserve_temp_local();
         let rhs_payload = self.reserve_temp_local();

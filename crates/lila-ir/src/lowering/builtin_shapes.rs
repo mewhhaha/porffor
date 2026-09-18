@@ -4784,11 +4784,7 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    pub(super) fn standard_builtin_signature(
-        &self,
-        builtin: StandardBuiltinId,
-        current_this_info: ValueInfo,
-    ) -> FunctionSignature {
+    pub(super) fn standard_builtin_signature(builtin: StandardBuiltinId) -> FunctionSignature {
         let (return_kind, return_possible_kinds, return_shape, constructor_instance) = match builtin
         {
             StandardBuiltinId::FunctionConstructor => (
@@ -7516,7 +7512,10 @@ impl<'a> ScriptLowerer<'a> {
             return_shape: FunctionReturnShape::flow_sensitive(return_shape),
             return_targets: FunctionTargetKnowledge::unknown(),
             constructor_instance,
-            this_info: current_this_info,
+            // Intrinsics have no lexical-this captures. Until the first call
+            // observes a receiver, retaining the complete global shape here
+            // would duplicate it in every cloned builtin signature.
+            this_info: ValueInfo::undefined(),
             this_observed: false,
             source_call_flow_effects: SourceCallFlowEffects::unobserved(),
         }

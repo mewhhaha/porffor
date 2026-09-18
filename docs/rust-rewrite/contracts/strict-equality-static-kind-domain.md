@@ -27,3 +27,10 @@ domain target passes `3/3`, the exact CLI witness passes `1/1`, and the three
 pinned controls pass all `6/6` Wasm-AOT executions with every failure bucket at
 zero. The shared `cargo xc`, formatting, diff, module-boundary and task-plan
 checks are green.
+
+Static result kinds describe normal completion only. Different kinds cannot
+prove that either operand is effect-free or completes normally: for example,
+`(1n >>> 0n) === 0n` must throw before equality is considered. Strict equality,
+SameValue, and SameValueZero therefore evaluate operands left to right before
+rejecting mismatched tags. Strict equality's static payload algorithms require
+two matching singleton kinds; other pairs use tagged equality after evaluation.

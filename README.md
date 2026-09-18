@@ -148,8 +148,12 @@ timing, and adds pinned CLDR keyword aliases and Intl intrinsics in created
 Realms. Pure numeric IR conditions can omit unreachable branches after lowering
 and planning; the seventh checkpoint passes all 24 formerly failing numeric
 stress executions with zero timeouts. These paired cohort audits were refreshed
-on 2026-09-18. The next batch repairs [large Number-to-BigInt conversion](docs/rust-rewrite/contracts/number-to-bigint.md),
-including RangeErrors from foreign BigInt functions; its native verification is pending.
+on 2026-09-18. The eighth checkpoint passes all five native
+[Number-to-BigInt conversion](docs/rust-rewrite/contracts/number-to-bigint.md)
+regressions, including exact large values and RangeErrors from foreign functions.
+Catch-parameter expression ownership and created-Realm Intl verification continue;
+the next checkpoint also preserves equality operand effects and reduces unused
+intrinsic receiver metadata.
 Verification and the wider replay remain in progress; these counts do not
 update the generated full-suite conformance status.
 

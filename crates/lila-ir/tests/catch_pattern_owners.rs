@@ -1,5 +1,6 @@
 use lila_front::{parse, ParseOptions};
-use lila_ir::{lower, FunctionProtocolIr, ScriptIr, StatementIr};
+use lila_ir::{lower, FunctionExecutionKind, FunctionProtocolIr, ScriptIr, StatementIr};
+use std::collections::BTreeSet;
 
 fn lower_catch(source: &str) -> ScriptIr {
     let parsed = parse(source, ParseOptions::script()).expect("catch source parses");
@@ -19,7 +20,26 @@ fn catch_default_classes_have_constructor_and_member_owners() {
         "try { throw []; } catch ([cls = class {}, named = class Inner { static self() { return Inner; } }]) { cls; named.self(); }",
     ] {
         let script = lower_catch(source);
-        assert!(script.functions.iter().any(|function| function.name == "self"));
+        let method = script
+            .functions
+            .iter()
+            .find(|function| function.name == "Inner.self")
+            .expect("qualified class member owner");
+        assert_eq!(
+            method.protocol,
+            FunctionProtocolIr::ClassMethod(FunctionExecutionKind::Ordinary)
+        );
+        assert!(method
+            .captured_bindings
+            .iter()
+            .any(|binding| binding.source_name == "Inner"));
+        let constructors = script
+            .functions
+            .iter()
+            .filter(|function| function.protocol == FunctionProtocolIr::ClassConstructor)
+            .map(|function| function.to_string_representation.materialize())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(constructors.len(), 2);
     }
 }
 
@@ -54,7 +74,7 @@ fn catch_patterns_collect_all_callable_default_owners() {
 #[test]
 fn catch_parameter_closures_and_body_closures_capture_distinct_lexical_owners() {
     let script = lower_catch(
-        "function owner() { let value = 'outside'; try { throw []; } catch ([read = function parameterReader() { return value; }]) { let value = 'inside'; function bodyReader() { return value; } return [read, bodyReader]; } }",
+        "function owner() { let value = 'outside'; try { throw []; } catch ([parameter = 1, read = function parameterReader() { return [value, parameter]; }]) { let value = 'inside'; function bodyReader() { return value; } return [read, bodyReader]; } }",
     );
     let owner = script
         .functions
@@ -99,7 +119,19 @@ fn catch_parameter_closures_and_body_closures_capture_distinct_lexical_owners() 
     else {
         unreachable!()
     };
-    assert!(catch_parameter_environment.is_some());
+    let catch_parameter_capture = parameter_reader
+        .captured_bindings
+        .iter()
+        .find(|binding| binding.source_name == "parameter")
+        .expect("catch parameter capture");
+    assert!(catch_parameter_environment
+        .as_ref()
+        .expect("captured catch parameter needs an environment")
+        .bindings
+        .iter()
+        .any(|binding| binding.name == catch_parameter_capture.name));
+    assert_ne!(catch_parameter_capture.name, parameter_capture.name);
+    assert_ne!(catch_parameter_capture.name, body_capture.name);
     assert!(catch_block.lexical_environment.is_none());
     let StatementIr::Block(body) = catch_block
         .statements
@@ -122,7 +154,12 @@ fn computed_keys_and_nested_pattern_defaults_keep_their_execution_owners() {
     let script = lower_catch(
         "try { throw {value: {nested: []}}; } catch ({[(() => 'value')()]: {nested: [read = function* () { yield 7; }]}}) { read; }",
     );
-    assert_eq!(script.functions.len(), 2);
+    let sources = script
+        .functions
+        .iter()
+        .map(|function| function.to_string_representation.materialize())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(sources.len(), 2);
     assert!(script
         .functions
         .iter()
