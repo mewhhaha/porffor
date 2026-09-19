@@ -97,6 +97,64 @@ fn arguments_index_define_has_one_typed_validated_boundary() {
 }
 
 #[test]
+fn arguments_index_publication_preserves_presence_without_mutating_the_input_word() {
+    let store = function_source(
+        FUNCTIONS_SOURCE,
+        "pub(crate) fn emit_arguments_store_index_entry(",
+    );
+    let input = store
+        .find("Instruction::LocalGet(descriptor_kind_local)")
+        .expect("read the caller's descriptor word");
+    let presence = store
+        .find("Instruction::I64Const(ARRAY_DESCRIPTOR_OWN_PROPERTY as i64)")
+        .expect("present data descriptors must remain distinct from zero");
+    let union = presence
+        + store[presence..]
+            .find("Instruction::I64Or")
+            .expect("retain every attribute and mapping bit");
+    let descriptor_store = union
+        + store[union..]
+            .find("Instruction::I64Store(Self::memarg64(\n            HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,")
+            .expect("publish the descriptor containing the presence bit");
+    let extent_store = descriptor_store
+        + store[descriptor_store..]
+            .find("self.store_i64_local_at_offset(\n            arguments_local,\n            HEAP_LEN_OFFSET,")
+            .expect("publish the indexed extent after the entry");
+    assert!(input < presence && presence < union && union < descriptor_store);
+    assert!(descriptor_store < extent_store);
+    assert_eq!(
+        store.matches("HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET").count(),
+        1
+    );
+    assert!(!store.contains("Instruction::LocalSet(descriptor_kind_local)"));
+    assert!(!store.contains("Instruction::LocalTee(descriptor_kind_local)"));
+    assert!(!store.contains("HEAP_ARGUMENTS_LENGTH_PAYLOAD_OFFSET"));
+
+    assert_eq!(
+        DEFINE_PROPERTY_SOURCE
+            .matches("self.emit_arguments_store_index_entry(")
+            .count(),
+        3,
+        "data, accessor and generic-accessor applications share publication"
+    );
+    assert_eq!(
+        FUNCTIONS_SOURCE
+            .matches("self.emit_arguments_store_index_entry(")
+            .count(),
+        2,
+        "existing and absent receiver-side writes share publication"
+    );
+    let clear = function_source(
+        ARRAY_SOURCE,
+        "pub(crate) fn emit_store_array_descriptor_at_index(",
+    );
+    assert!(clear.contains("Instruction::I64Eqz"));
+    assert!(clear.contains("(HEAP_ARRAY_TAG_OFFSET, HEAP_ARRAY_HOLE_TAG as u64)"));
+    assert!(!clear.contains("ARRAY_DESCRIPTOR_OWN_PROPERTY"));
+    assert!(!clear.contains("emit_arguments_store_index_entry("));
+}
+
+#[test]
 fn mapped_slot_is_one_private_typed_role_across_descriptor_mutation() {
     assert_eq!(
         FUNCTIONS_SOURCE

@@ -310,10 +310,10 @@ fn retained_module_drivers_have_private_lexical_owners_outside_global_script() {
             let StatementIr::Expression(expression) = statement else {
                 return None;
             };
-            let ExprIr::Void { expr } = &expression.expr else {
+            let ExprIr::ModuleEntryEvaluation(entry) = &expression.expr else {
                 return None;
             };
-            let ExprIr::CallIndirect { callee, args, .. } = &expr.expr else {
+            let ExprIr::CallIndirect { callee, args, .. } = &entry.evaluation().expr else {
                 return None;
             };
             let ExprIr::FunctionValue(target) = &callee.expr else {
@@ -430,8 +430,11 @@ fn synchronous_cycle_plans_keep_ordered_dependencies_and_complete_components() {
             let StatementIr::Expression(expression) = statement else {
                 return None;
             };
-            let ExprIr::ModuleEvaluate(plan) = &expression.expr else {
+            let ExprIr::ModuleEntryEvaluation(entry) = &expression.expr else {
                 return None;
+            };
+            let ExprIr::ModuleEvaluate(plan) = &entry.evaluation().expr else {
+                panic!("the synchronous entry owns its actual evaluation operation");
             };
             Some(plan.module())
         })
@@ -609,4 +612,63 @@ fn synchronous_module_resources_have_no_suspension_lifetime() {
         resource_scope(&owner.body.statements),
         Some(lila_ir::SyncDisposableScopeExecutionIr::Immediate)
     ));
+}
+
+#[test]
+fn synchronous_module_resource_forms_use_the_canonical_owner_lifetime() {
+    for source in [
+        "using resource = null; print('after');",
+        "{ using resource = null; } print('after');",
+        "for (using resource = null; false;) {} print('after');",
+        "for (using resource of [null]) {} print('after');",
+        "function nested() { using resource = null; return 1; } print(nested());",
+    ] {
+        let program = module_program(&[("entry.js", source)]);
+        let script = program.script.as_ref().unwrap();
+        let activation = activation_graph(script)
+            .unwrap()
+            .activations
+            .first()
+            .unwrap();
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.id == activation.function)
+            .unwrap();
+        assert_eq!(owner.protocol, FunctionProtocolIr::ModuleActivation);
+        let plan = owner.generator_plan.as_ref().unwrap();
+        assert_eq!(plan.state_count, 2, "{source}");
+        assert_eq!(plan.suspension_points.len(), 1, "{source}");
+    }
+}
+
+#[test]
+fn retained_module_drivers_do_not_gain_resource_admission() {
+    for resource in [
+        "using resource = null;",
+        "for (using resource = null; false;) {}",
+        "for (using resource of [null]) {}",
+    ] {
+        for prefix in ["await 0;", "import source source from './source.js';"] {
+            let entry = format!("{prefix} {resource}");
+            let program = lower_module_graph(&sources(
+                &[
+                    ("entry.js", &entry),
+                    ("source.js", "export const value = 1;"),
+                ],
+                ParseGoal::Module,
+            ));
+            assert!(!program.is_wasm_supported(), "{entry}");
+            assert!(
+                program.diagnostics.iter().any(|diagnostic| diagnostic
+                    .message
+                    .contains("using declaration in a module without a canonical execution owner")),
+                "{entry}: {:?}",
+                program.diagnostics
+            );
+            if let Some(script) = program.script.as_ref() {
+                assert!(activation_graph(script).is_none());
+            }
+        }
+    }
 }

@@ -12,7 +12,7 @@
 //! date-unit differences require the same zone after reading options.
 
 use super::super::*;
-use super::temporal::TemporalZonedDateTimePlainTarget;
+use super::temporal::{TemporalEpochNanosecondsRecord, TemporalZonedDateTimePlainTarget};
 use super::temporal_difference::TemporalDifferenceContext;
 use super::temporal_options::TemporalUnit;
 use super::temporal_plain_date_time_methods::{
@@ -491,14 +491,16 @@ impl<'a> FunctionBuilder<'a> {
         let other_seconds_local = self.reserve_temp_local();
         let other_subsecond_local = self.reserve_temp_local();
         let duration_fields = self.reserve_temporal_duration_field_locals();
-        self.emit_temporal_zoned_date_time_epoch_pair(
+        self.emit_temporal_epoch_nanoseconds_pair(
             record_local,
+            TemporalEpochNanosecondsRecord::ZonedDateTime,
             seconds_local,
             subsecond_local,
             function,
         );
-        self.emit_temporal_zoned_date_time_epoch_pair(
+        self.emit_temporal_epoch_nanoseconds_pair(
             other_record_local,
+            TemporalEpochNanosecondsRecord::ZonedDateTime,
             other_seconds_local,
             other_subsecond_local,
             function,

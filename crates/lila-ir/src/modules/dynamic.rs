@@ -1,196 +1,32 @@
-//! `import()`: `ImportCall` lowering and the component registry.
+//! AOT dynamic-import request dispatch and module job continuations.
 //!
-//! No interpreter is involved and no source is parsed at runtime. Every
-//! statically discoverable `import()` target is compiled into the same
-//! artifact and registered here under the complete request its call site makes.
-//! At runtime `import(x, options)` evaluates the request, looks up that exact
-//! specifier/phase/attribute tuple, and either runs the memoised component or
-//! rejects the promise.
+//! The host loads every statically discoverable target before compilation.
+//! Runtime dispatch uses the complete specifier/phase/attribute identity; no
+//! runtime source parser or JavaScript interpreter is involved.
 //!
-//! This is why `import()` is *in* scope while `eval` is not: a specifier names
-//! a module, it is not source text, so serving it needs a loader at compile
-//! time rather than a parser at run time.
+//! Canonical synchronous Module-entry graphs use compiler-owned async
+//! dispatchers. Operands are evaluated at the user call site. The dispatcher
+//! creates its intrinsic promise before ToString and import-options reads;
+//! these coercions still run synchronously and any abrupt value rejects it.
+//! Trusted source-position metadata selects intrinsic error/descriptor/key
+//! operations, module namespace cells and canonical module evaluation.
 //!
-//! # `EvaluateImportCall` (13.3.10.1), and what happens where
+//! ContinueDynamicImport first reacts to LoadRequestedModules. An evaluation
+//! request then evaluates the module once and reacts to its completed Evaluate
+//! promise; a deferred request without asynchronous dependencies resolves in
+//! the first continuation. Await of undefined supplies these exact internal
+//! reactions without consulting mutable Promise properties. The second
+//! evaluation continuation preserves the cached abrupt value unchanged.
 //!
-//! Step 3-6 (evaluate the specifier expression, then the options expression)
-//! happen *before* the promise exists, so an abrupt completion there throws
-//! normally. [`lower_import_call`] therefore lowers both operands plainly and
-//! deliberately inserts no `ToString` coercion.
+//! Each call owns a fresh promise; module records own evaluation state and
+//! cached completion, and eager/deferred namespace identities remain distinct.
+//! Dynamic-only load/link syntax failures are emitted in the importing job.
+//! Static dependency failures still reject the entry before execution.
 //!
-//! Step 8-9 (`ToString(specifier)`, then `IfAbruptRejectPromise`) happen
-//! *after* `NewPromiseCapability`, so a `Symbol` specifier or a throwing
-//! `toString` rejects the promise instead of throwing. That distinction is the
-//! whole point of test262's `dynamic-import/catch/` subtree, and it is the
-//! backend's job: `ExprIr::DynamicImport` carries the uncoerced operand.
-//!
-//! Step 11 remains inside the same executor: validate the options object, `Get`
-//! its `with` property, enumerate own enumerable String keys, then `Get` each
-//! value exactly once and require a String. Only after those observable reads
-//! does the dispatcher sort the key/value pairs and match the component
-//! registry. Getter and Proxy failures consequently reject the already-created
-//! promise with their original thrown value.
-//!
-//! # What a memoisation cell would have to be
-//!
-//! A module evaluates at most once, but *every* `import()` call produces a
-//! fresh promise object — `always-create-new-promise.js` compares the results
-//! of two calls with the same specifier and requires them to be distinct. A
-//! future `import()` that ran its target lazily would therefore memoise the
-//! module's *evaluation completion* — the namespace object it resolved to, or
-//! the error it threw — never a promise object, and each call would allocate a
-//! new promise and settle it from that cell.
-//!
-//! `DynamicComponentIr` used to carry a `completion_cell: String` for that,
-//! filled from a name-minting function and read by nothing. It is gone. When
-//! the lazy path is built, the cell it needs is a new
-//! [`UnitCellRole`](crate::UnitCellRole) variant with an identifier-legal
-//! suffix — const assertion V3 rejects one that is not, which the deleted
-//! minter's `$m{u}$component.completion` would have failed.
-//!
-//! # How a linked graph actually serves `import()` today
-//!
-//! [`link`] merges a graph on *source text*: every unit's body is concatenated,
-//! in evaluation order, into one Script that the ordinary single-script pipeline
-//! lowers. `import()` is served the same way, one stage earlier than the IR:
-//!
-//! * [`ModuleGraphIr::dynamic_import_prelude`] emits one dispatcher function
-//!   per module *and phase* that writes an `import()`. The objects the
-//!   dispatchers resolve with are *not* minted here: they are the ones
-//!   `modules::namespace` already emits under
-//!   `UnitCellRole::Namespace`, `UnitCellRole::DeferredNamespace` and
-//!   `UnitCellRole::ModuleSource`, which is
-//!   what makes `import("./a.mjs")` and `import * as ns from "./a.mjs"` produce
-//!   the same object (16.2.1.10 caches `[[Namespace]]` per module) and
-//!   `import.source("./a.mjs")` and `import source s from "./a.mjs"` produce the
-//!   same module source object;
-//! * [`ModuleGraphIr::rewrite_dynamic_import_calls`] rewrites the head of every
-//!   `import(` call site in a unit's text — the `import` keyword, or the whole
-//!   `import.defer` / `import.source` meta-property — into that unit's
-//!   dispatcher name, so the merged script contains an ordinary call
-//!   expression and no `ImportCall` node survives to the backend;
-//! * [`ModuleGraphIr::check_dynamic_import_linkable`] reports every shape this
-//!   desugaring cannot express, so an unsupported graph fails with one honest
-//!   diagnostic instead of being mislinked.
-//!
-//! [`link`]: super::link
-//!
-//! Because the whole thing is source in, source out, it rests only on language
-//! features and intrinsics the backend already runs: `new Promise(executor)`,
-//! `Reflect.ownKeys`, `Object.getOwnPropertyDescriptor`, arrays, loops, and a
-//! template literal. Nothing here needs new Wasm emission.
-//!
-//! The generated dispatcher preserves `EvaluateImportCall`'s local ordering:
-//!
-//! ```js
-//! function $lila$module$import$1(specifier, options) {
-//!   return new Promise(function (resolve, reject) {
-//!     var key = `${specifier}`;
-//!     var attributeKeys = [], attributeValues = [];
-//!     // validate options, read options.with, enumerate/read/sort attributes
-//!     if (key === "./a.mjs" && attributeKeys.length === 0) {
-//!       resolve($m0$namespace); return;
-//!     }
-//!     reject(new TypeError("Cannot find module " + key));
-//!   });
-//! }
-//! ```
-//!
-//! # Phases (`import.defer()`, `import.source()`)
-//!
-//! All three phases of 13.3.10 are served, and the whole difference between them
-//! is *which object the dispatcher resolves with* — the call site, the promise
-//! and the `ToString` are identical:
-//!
-//! * evaluation — the target's namespace object. `classify_evaluation_modes`
-//!   marks the target `Eager`, so it has already run;
-//! * defer — the *same cell*, which for a module nothing else evaluates holds a
-//!   Deferred Module Namespace whose getters run the body on first touch, so
-//!   `import.defer("m")` neither evaluates `m` at the call nor hands back an
-//!   object that pretends it did;
-//! * source — the target's module source object. The target is loaded and
-//!   parsed but never instantiated, and `classify_evaluation_modes` emits no
-//!   body for it at all.
-//!
-//! Two dispatchers, not one, when a module writes two phases: the runtime
-//! argument is only a specifier string, so the phase written at the call site
-//! cannot be recovered from it.
-//!
-//! # `import()` in a Script
-//!
-//! `import()` is legal in Script goal — 13.3.10 takes `GetActiveScriptOrModule`,
-//! which a Script satisfies — and a Script's call names a module exactly as a
-//! module's does. `lila_ir::lower_script_graph` therefore serves it with the
-//! same machinery: the host loads the closure of the Script's `import()`
-//! specifiers, `modules::link` wraps every module of it in one immediately
-//! invoked strict function (so module code stays strict and its bindings stay
-//! out of the Script's scope), and the Script itself is emitted as itself, with
-//! only its call sites rewritten onto the dispatchers that wrapper exports. A
-//! Script that writes no `import()` never builds a graph at all.
-//!
-//! The specifier and the options expressions are evaluated by the *caller*, at
-//! the call site, before the dispatcher is entered — so an abrupt completion
-//! there throws (steps 3-6). `ToString` happens inside the executor, after the
-//! capability exists, so a `Symbol` specifier or a throwing `toString` rejects
-//! the promise instead of throwing (steps 8-9); the template literal is chosen
-//! over `String(specifier)` precisely because `String(symbol)` does *not*
-//! throw while `ToString(symbol)` does. A specifier that is not in the compiled
-//! graph reaches the final `reject`, so it is a rejected promise and never a
-//! trap — which is also what a computed specifier gets, since nothing compiled
-//! it into the artifact.
-//!
-//! A literal `with` object containing literal String values is also available
-//! during graph discovery and reaches the host in `ModuleRequestKeyIr`. A runtime
-//! options shape discovers the attribute-free request as a safe baseline; its
-//! eventual attributes still have to match an exact request already present in
-//! the compiled registry. This may compile a target the call later rejects, but
-//! it cannot make an attributed request alias the bare one, and it never loads
-//! or parses a new module at runtime.
-//!
-//! ## When the target module's body runs
-//!
-//! `scan_module_requests` reports a static `import()` specifier as a request, so
-//! the host loads an `import()` target into the graph like any other unit, and
-//! `compute_evaluation_order`'s root loop visits *every* unit — so the target's
-//! body is emitted into the merged script whether or not anything statically
-//! imports it. The consequence is that an `import()` target is evaluated
-//! **eagerly**, as part of the merged script, rather than at the call.
-//!
-//! That is a deviation from 13.3.10, and it is visible two ways: a target with a
-//! top-level side effect performs it even if the `import()` never runs, and it
-//! performs it at its place in the merged script rather than at the call. It is
-//! *not* visible through the promise, because the namespace object's getters
-//! read their bindings when a property is read — which, for the `.then` callback
-//! that reads them, is after the whole merged script has run.
-//!
-//! Tarjan's root loop starts at the entry (unit 0), so a unit reachable *only*
-//! through `import()` has no edge in `requested_modules`, becomes a separate
-//! root, and lands **after** the entry in `evaluation_order` — which would cost
-//! the merged script the entry's completion value and run an eagerly evaluated
-//! dynamic dependency after its own dependent. `modules::link::emission_order`
-//! fixes both by rotating the entry's strongly-connected component to the end.
-//!
-//! Removing the eager evaluation altogether is what `StatementIr::ModuleUnitOnce`
-//! and the memoisation cell described above exist for, and needs a pass that
-//! hoists a unit's declarations out of its body so the body can be wrapped in a
-//! guarded function without moving its bindings.
-//!
-//! ## Deviations this stage knowingly carries
-//!
-//! * The generated-source bridge currently names the mutable global
-//!   `Promise`, `TypeError`, `Reflect.ownKeys`, and
-//!   `Object.getOwnPropertyDescriptor` properties. The spec instead uses
-//!   intrinsics. Capturing those names in this source prelude is not sound:
-//!   a module may legally declare the same lexical names and put the capture
-//!   in its TDZ. This closes only when dynamic import is emitted from semantic
-//!   IR with direct intrinsic identities.
-//! * The promise is settled synchronously inside the executor rather than from
-//!   a later job. Reactions still run as microtasks, so only the interleaving of
-//!   `import()` with other already-queued jobs can observe the difference.
-//! * A target whose top-level completes abruptly aborts the whole merged script
-//!   rather than rejecting the promise (13.3.10.2 step 5), because the target's
-//!   body is inlined. `import('./throws.mjs').catch(f)` cannot catch. This is a
-//!   consequence of the eager evaluation above, not a separate defect.
+//! TLA, Script-entry and source-phase graphs retain the merged-scope driver.
+//! Its targets still evaluate eagerly and its dispatcher uses mutable global
+//! Promise/error/descriptor operations. Those capability and scheduling gaps
+//! are explicit; the synchronous driver does not admit them.
 
 use crate::*;
 
@@ -368,6 +204,73 @@ pub(crate) fn lower_import_call(
     ))
 }
 
+fn append_component_condition(text: &mut String, request: &ModuleRequestIr) {
+    text.push_str(" if (key === ");
+    text.push_str(&js_string_literal(request.specifier()));
+    text.push_str(" && attributeKeys.length === ");
+    text.push_str(&request.attributes().len().to_string());
+    for (index, attribute) in request.attributes().iter().enumerate() {
+        text.push_str(&format!(" && attributeKeys[{index}] === "));
+        text.push_str(&js_string_literal(&attribute.key));
+        text.push_str(&format!(" && attributeValues[{index}] === "));
+        text.push_str(&js_string_literal(&attribute.value));
+    }
+    text.push_str(") {");
+}
+
+fn append_import_options_validation(
+    text: &mut String,
+    execution: DynamicImportDispatcherExecution,
+) {
+    let (error_constructor, own_keys, descriptor, rejection_prefix, rejection_suffix) =
+        match execution {
+            DynamicImportDispatcherExecution::RetainedMerged => (
+                "TypeError",
+                "Reflect.ownKeys",
+                "Object.getOwnPropertyDescriptor",
+                "reject(",
+                "); return;",
+            ),
+            // Sequence callees force ordinary value lowering before invocation;
+            // eval-visible environment references must not claim private names.
+            DynamicImportDispatcherExecution::SynchronousModuleJobs => (
+                "$lila$module$TypeError",
+                "(0, $lila$module$ownKeys)",
+                "(0, $lila$module$getOwnPropertyDescriptor)",
+                "throw ",
+                ";",
+            ),
+        };
+    let reject = |message: &str| {
+        format!(
+            "{rejection_prefix}new {error_constructor}({}){rejection_suffix}",
+            js_string_literal(message)
+        )
+    };
+    let invalid_options = reject("Import options must be an object");
+    let invalid_attributes = reject("Import attributes must be an object");
+    let invalid_value = reject("Import attribute values must be strings");
+    text.push_str(&format!(r#" var attributeKeys = [], attributeValues = []; if (options !== void 0) {{
+        if (options === null || (typeof options !== "object" && typeof options !== "function")) {{ {invalid_options} }}
+        var withObject = options.with; if (withObject !== void 0) {{
+        if (withObject === null || (typeof withObject !== "object" && typeof withObject !== "function")) {{ {invalid_attributes} }}
+        var ownKeys = {own_keys}(withObject), ownKeyIndex = 0, attributeKey, attributeDescriptor, attributeValue;
+        while (ownKeyIndex < ownKeys.length) {{ attributeKey = ownKeys[ownKeyIndex];
+        if (typeof attributeKey !== "string") {{ ownKeyIndex++; continue; }}
+        attributeDescriptor = {descriptor}(withObject, attributeKey);
+        if (attributeDescriptor !== void 0 && attributeDescriptor.enumerable) {{
+        attributeValue = withObject[attributeKey]; if (typeof attributeValue !== "string") {{ {invalid_value} }}
+        attributeKeys[attributeKeys.length] = attributeKey; attributeValues[attributeValues.length] = attributeValue;
+        }} ownKeyIndex++; }}
+        var sortIndex = 1, sortKey, sortValue, insertionIndex; while (sortIndex < attributeKeys.length) {{
+        sortKey = attributeKeys[sortIndex]; sortValue = attributeValues[sortIndex]; insertionIndex = sortIndex;
+        while (insertionIndex > 0 && attributeKeys[insertionIndex - 1] > sortKey) {{
+        attributeKeys[insertionIndex] = attributeKeys[insertionIndex - 1];
+        attributeValues[insertionIndex] = attributeValues[insertionIndex - 1]; insertionIndex--; }}
+        attributeKeys[insertionIndex] = sortKey; attributeValues[insertionIndex] = sortValue; sortIndex++;
+        }} }} }}"#).replace('\n', " "));
+}
+
 /// Whether one Script's outer source directly requires a host-provided module
 /// graph.
 ///
@@ -433,6 +336,28 @@ pub fn source_writes_dynamic_import(source: &str) -> bool {
         .is_ok_and(|sites| !sites.is_empty())
 }
 
+#[derive(Clone, Copy)]
+enum DynamicImportDispatcherExecution {
+    RetainedMerged,
+    SynchronousModuleJobs,
+}
+
+pub(super) fn synchronous_evaluator_name(module: ModuleUnitId) -> String {
+    format!("{LINKER_NAME_PREFIX}evaluate${module}")
+}
+
+pub(super) fn synchronous_dispatcher_intrinsic(name: &str) -> Option<StandardBuiltinId> {
+    match name {
+        "$lila$module$TypeError" => Some(StandardBuiltinId::TypeErrorConstructor),
+        "$lila$module$SyntaxError" => Some(StandardBuiltinId::SyntaxErrorConstructor),
+        "$lila$module$ownKeys" => Some(StandardBuiltinId::ReflectOwnKeys),
+        "$lila$module$getOwnPropertyDescriptor" => {
+            Some(StandardBuiltinId::ObjectGetOwnPropertyDescriptor)
+        }
+        _ => None,
+    }
+}
+
 /// Prefix every identifier the linker synthesizes for `import()` carries.
 ///
 /// `$` is an identifier character in JavaScript, so these are ordinary names in
@@ -482,9 +407,8 @@ fn exported_dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String 
 ///
 /// This is the whole phase distinction, in one place:
 ///
-/// * evaluation — the module's namespace object, whose module has already been
-///   evaluated (`classify_evaluation_modes` marks an evaluation-phase dynamic
-///   target `Eager`);
+/// * evaluation — the module's namespace object after its evaluation
+///   continuation completes;
 /// * defer — the independent deferred namespace cell. `import.defer('m')`
 ///   and `import defer * as ns from 'm'` share this identity even when an
 ///   evaluation-phase request also evaluates the module eagerly;
@@ -531,6 +455,14 @@ impl ModuleGraphIr {
     /// specifier naming nothing in the compiled graph must do.
     #[must_use]
     pub fn dynamic_import_dispatchers(&self) -> String {
+        self.import_dispatchers(DynamicImportDispatcherExecution::RetainedMerged)
+    }
+
+    pub(super) fn synchronous_dynamic_import_prelude(&self) -> String {
+        self.import_dispatchers(DynamicImportDispatcherExecution::SynchronousModuleJobs)
+    }
+
+    fn import_dispatchers(&self, execution: DynamicImportDispatcherExecution) -> String {
         let mut text = String::new();
         for (referrer, _, unit) in self.materialized_units() {
             // One per phase the unit actually writes, so an unphased graph
@@ -545,81 +477,93 @@ impl ModuleGraphIr {
                 if !text.is_empty() {
                     text.push(' ');
                 }
-                text.push_str(&self.dispatcher_source(referrer, phase));
+                text.push_str(&self.dispatcher_source(referrer, phase, execution));
             }
         }
         text
     }
 
-    /// One dispatcher function declaration, as a single line.
-    fn dispatcher_source(&self, referrer: ModuleUnitId, phase: ImportPhaseIr) -> String {
-        let mut text = String::from("function ");
-        text.push_str(&dispatcher_name(referrer, phase));
-        // Both arguments are evaluated by the caller, before the promise
-        // exists. Every coercion and property access below is inside the
-        // executor, so an abrupt completion rejects that promise instead.
-        text.push_str("(specifier, options) { return new Promise(function (resolve, reject) {");
-        // `ToString`, not `String()`: `String(symbol)` answers
-        // `"Symbol(d)"` while `ToString(symbol)` throws, and step 8 wants
-        // the throw so that step 9 can turn it into a rejection.
-        text.push_str(" var key = `${specifier}`;");
-        // EvaluateImportCall step 11. Reflect.ownKeys obtains the key list once;
-        // the descriptor and value reads are interleaved per String key, as
-        // EnumerableOwnProperties(key+value) requires. Symbols and
-        // non-enumerable properties never reach Get, and every included value
-        // is read exactly once before the list is sorted. These loops use the
-        // backend's established while-loop path; the newer generic for-loop
-        // update form is not needed by generated linker source.
-        text.push_str(
-            " var attributeKeys = [], attributeValues = []; if (options !== void 0) { \
-             if (options === null || (typeof options !== \"object\" && typeof options !== \
-             \"function\")) { reject(new TypeError(\"Import options must be \
-             an object\")); return; } var withObject = options.with; if (withObject !== void 0) \
-             { if \
-             (withObject === null || (typeof withObject !== \"object\" && typeof withObject \
-             !== \"function\")) { reject(new TypeError(\"Import attributes \
-             must be an object\")); return; } var ownKeys = \
-             Reflect.ownKeys(withObject), ownKeyIndex = 0, \
-             attributeKey, attributeDescriptor, attributeValue; while (ownKeyIndex < \
-             ownKeys.length) { attributeKey = ownKeys[ownKeyIndex]; if (typeof attributeKey !== \
-             \"string\") { ownKeyIndex++; continue; } attributeDescriptor = \
-             Object.getOwnPropertyDescriptor(withObject, attributeKey); \
-             if (attributeDescriptor !== void 0 && attributeDescriptor.enumerable) { \
-             attributeValue = withObject[attributeKey]; if (typeof attributeValue !== \
-             \"string\") { reject(new TypeError(\"Import attribute values \
-             must be strings\")); return; } attributeKeys[attributeKeys.length] = attributeKey; \
-             attributeValues[attributeValues.length] = attributeValue; } ownKeyIndex++; } var \
-             sortIndex = 1, sortKey, sortValue, insertionIndex; while (sortIndex < \
-             attributeKeys.length) { sortKey = attributeKeys[sortIndex]; sortValue = \
-             attributeValues[sortIndex]; insertionIndex = sortIndex; while (insertionIndex > 0 && \
-             attributeKeys[insertionIndex - 1] > sortKey) { attributeKeys[insertionIndex] = \
-             attributeKeys[insertionIndex - 1]; attributeValues[insertionIndex] = \
-             attributeValues[insertionIndex - 1]; insertionIndex--; } \
-             attributeKeys[insertionIndex] = sortKey; attributeValues[insertionIndex] = \
-             sortValue; sortIndex++; } } }",
+    /// One dispatcher declaration, with no source-line displacement.
+    fn dispatcher_source(
+        &self,
+        referrer: ModuleUnitId,
+        phase: ImportPhaseIr,
+        execution: DynamicImportDispatcherExecution,
+    ) -> String {
+        let synchronous = matches!(
+            execution,
+            DynamicImportDispatcherExecution::SynchronousModuleJobs
         );
+        let mut text = String::from(if synchronous {
+            "async function "
+        } else {
+            "function "
+        });
+        text.push_str(&dispatcher_name(referrer, phase));
+        text.push_str(if synchronous {
+            "(specifier, options) {"
+        } else {
+            "(specifier, options) { return new Promise(function (resolve, reject) {"
+        });
+        // Both operands were evaluated at the call site. AsyncFunctionStart
+        // creates the intrinsic promise before this synchronous coercion.
+        text.push_str(" var key = `${specifier}`;");
+        append_import_options_validation(&mut text, execution);
         for component in self.dynamic_components().iter().filter(|component| {
             component.referrer() == referrer && component.request().phase() == phase
         }) {
-            text.push_str(" if (key === ");
-            text.push_str(&js_string_literal(component.request().specifier()));
-            text.push_str(" && attributeKeys.length === ");
-            text.push_str(&component.request().attributes().len().to_string());
-            for (index, attribute) in component.request().attributes().iter().enumerate() {
-                text.push_str(" && attributeKeys[");
-                text.push_str(&index.to_string());
-                text.push_str("] === ");
-                text.push_str(&js_string_literal(&attribute.key));
-                text.push_str(" && attributeValues[");
-                text.push_str(&index.to_string());
-                text.push_str("] === ");
-                text.push_str(&js_string_literal(&attribute.value));
+            append_component_condition(&mut text, component.request());
+            if synchronous {
+                // ContinueDynamicImport first reacts to LoadRequestedModules.
+                text.push_str(" await void 0;");
+                match phase {
+                    ImportPhaseIr::Evaluation => {
+                        // Evaluate returns a settled promise even for an abrupt
+                        // synchronous body. Its reaction is a second job; retain
+                        // the exact throw value until that continuation runs.
+                        text.push_str(" try { ");
+                        text.push_str(&synchronous_evaluator_name(component.target()));
+                        text.push_str(
+                            "; } catch (error) { await void 0; throw error; } await void 0;",
+                        );
+                    }
+                    ImportPhaseIr::Defer => {}
+                    ImportPhaseIr::Source => {
+                        unreachable!("canonical synchronous graph excludes source phase")
+                    }
+                }
+                text.push_str(" return ");
+                text.push_str(component_resolution_cell(component).as_str());
+                text.push_str("; }");
+            } else {
+                text.push_str(" resolve(");
+                text.push_str(component_resolution_cell(component).as_str());
+                text.push_str("); return; }");
             }
-            text.push_str(") { resolve(");
-            text.push_str(component_resolution_cell(component).as_str());
-            text.push_str("); return; }");
         }
-        text.push_str(" reject(new TypeError(\"Cannot find module \" + key)); }); }");
+        for rejection in self.dynamic_rejections.iter().filter(|rejection| {
+            rejection.referrer == referrer && rejection.request.phase() == phase
+        }) {
+            assert!(
+                synchronous,
+                "deferred load failures belong to canonical synchronous graphs"
+            );
+            append_component_condition(&mut text, &rejection.request);
+            match rejection.stage {
+                super::admission::DynamicModuleRejectionStage::ModuleLoad => {}
+                super::admission::DynamicModuleRejectionStage::Dependencies => {
+                    text.push_str(" await void 0;")
+                }
+            }
+            text.push_str(" throw new $lila$module$SyntaxError(");
+            text.push_str(&js_string_literal(&rejection.message));
+            text.push_str("); }");
+        }
+        text.push_str(if synchronous {
+            " throw new $lila$module$TypeError(\"Cannot find module \" + key); }"
+        } else {
+            " reject(new TypeError(\"Cannot find module \" + key)); }); }"
+        });
         text
     }
 

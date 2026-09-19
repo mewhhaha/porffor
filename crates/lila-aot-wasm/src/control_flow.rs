@@ -7791,7 +7791,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         if self.current_function_meta().is_some_and(|meta| {
             !matches!(
-                meta.protocol.execution_kind(),
+                meta.protocol.source_execution_kind(),
                 FunctionExecutionKind::Ordinary
             )
         }) {
@@ -10334,7 +10334,7 @@ impl<'a> FunctionBuilder<'a> {
         if matches!(&head, SyncForOfIteratorHead::SyncDisposable(_))
             && self.current_function_meta().is_some_and(|meta| {
                 !matches!(
-                    meta.protocol.execution_kind(),
+                    meta.protocol.source_execution_kind(),
                     FunctionExecutionKind::Ordinary
                 )
             })

@@ -125,6 +125,7 @@ rejected('array index', array, '0', {value:2});
 rejected('array accessor length', [], 'length', {get:function(){}});
 var readonly = [];
 Object.defineProperty(readonly, 'length', {writable:false});
+rejected('array index beyond readonly length', readonly, '0', {value:1});
 rejected('array length value', readonly, 'length', {value:1});
 rejected('array length writable', readonly, 'length', {writable:true});
 rejected('array length configurable', [], 'length', {configurable:true});

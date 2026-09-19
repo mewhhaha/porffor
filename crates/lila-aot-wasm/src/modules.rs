@@ -34,6 +34,7 @@
 //! in `objects::module_namespace`, alongside the internal methods it dispatches.
 
 use super::*;
+mod entry_completion;
 mod synchronous;
 pub(crate) use synchronous::synchronous_module_record_count;
 

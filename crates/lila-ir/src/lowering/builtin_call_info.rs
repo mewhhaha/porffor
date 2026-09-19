@@ -691,7 +691,9 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::unknown(),
             }),
-            StandardBuiltinId::ObjectPrototypeProtoSetter => Some(ValueInfo::undefined()),
+            StandardBuiltinId::ObjectPrototypeDefineGetter
+            | StandardBuiltinId::ObjectPrototypeDefineSetter
+            | StandardBuiltinId::ObjectPrototypeProtoSetter => Some(ValueInfo::undefined()),
             StandardBuiltinId::ObjectPrototypePropertyIsEnumerable => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
@@ -1772,7 +1774,9 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalPlainTimePrototypeRound => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalPlainTimePrototypeUntil
+            StandardBuiltinId::TemporalInstantPrototypeUntil
+            | StandardBuiltinId::TemporalInstantPrototypeSince
+            | StandardBuiltinId::TemporalPlainTimePrototypeUntil
             | StandardBuiltinId::TemporalPlainTimePrototypeSince => Some(
                 Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
             ),
@@ -1928,6 +1932,9 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
             | StandardBuiltinId::TemporalInstantFrom
             | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantPrototypeAdd
+            | StandardBuiltinId::TemporalInstantPrototypeSubtract
+            | StandardBuiltinId::TemporalInstantPrototypeRound
             | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => Some(
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),

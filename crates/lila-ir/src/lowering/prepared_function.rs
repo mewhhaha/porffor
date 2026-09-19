@@ -163,6 +163,7 @@ pub(super) fn append_prepared_unit(script: &mut ScriptIr, mut unit: ScriptIr) {
         .prepared_dynamic_functions
         .append(&mut unit.prepared_dynamic_functions);
     for builtin in unit.host_builtins {
+        script.global_bindings.require_host_global(builtin);
         if !script.host_builtins.contains(&builtin) {
             script.host_builtins.push(builtin);
         }

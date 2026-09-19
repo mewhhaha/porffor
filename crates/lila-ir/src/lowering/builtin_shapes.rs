@@ -1003,6 +1003,24 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
+        for builtin in [
+            StandardBuiltinId::TemporalInstantPrototypeAdd,
+            StandardBuiltinId::TemporalInstantPrototypeSubtract,
+            StandardBuiltinId::TemporalInstantPrototypeRound,
+            StandardBuiltinId::TemporalInstantPrototypeUntil,
+            StandardBuiltinId::TemporalInstantPrototypeSince,
+        ] {
+            properties.insert(
+                builtin
+                    .native_function_name()
+                    .expect("Instant method name")
+                    .to_owned(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    builtin.function_id(),
+                    false,
+                )),
+            );
+        }
         properties.insert(
             "equals".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
@@ -4914,7 +4932,9 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::ObjectPrototypeProtoSetter => (
+            StandardBuiltinId::ObjectPrototypeDefineGetter
+            | StandardBuiltinId::ObjectPrototypeDefineSetter
+            | StandardBuiltinId::ObjectPrototypeProtoSetter => (
                 ValueKind::Undefined,
                 KindSet::from_kind(ValueKind::Undefined),
                 None,
@@ -6085,6 +6105,9 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::TemporalInstantFrom
             | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantPrototypeAdd
+            | StandardBuiltinId::TemporalInstantPrototypeSubtract
+            | StandardBuiltinId::TemporalInstantPrototypeRound
             | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
@@ -6516,7 +6539,9 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_plain_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalPlainTimePrototypeUntil
+            StandardBuiltinId::TemporalInstantPrototypeUntil
+            | StandardBuiltinId::TemporalInstantPrototypeSince
+            | StandardBuiltinId::TemporalPlainTimePrototypeUntil
             | StandardBuiltinId::TemporalPlainTimePrototypeSince => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),

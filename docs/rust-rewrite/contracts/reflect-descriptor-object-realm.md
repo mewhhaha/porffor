@@ -42,6 +42,12 @@ descriptor object's prototype. The entry call receives the entry
 `Object.prototype`; the borrowed created-Realm method receives that Realm's
 distinct `Object.prototype`.
 
+When no callable trap receives the descriptor, Reflect removes its prototype
+before private forwarding. The object cannot have escaped on that path, so
+forwarding sees exactly the converted fields. Callable traps, including traps
+returning false or undefined, retain the original object and its Realm
+prototype. See [Reflect definition completions](../reflect-property-definition-completions.md).
+
 ## Verification and non-claims
 
 The Rust-lexical guard ignores comments, nested comments, normal/raw/byte/C

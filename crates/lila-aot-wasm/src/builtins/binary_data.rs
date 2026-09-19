@@ -1,5 +1,7 @@
 use super::super::*;
 
+mod define_property;
+
 /// Which source argument supplies an ArrayBuffer slice bound.
 ///
 /// The argument position and its missing-or-undefined default are one

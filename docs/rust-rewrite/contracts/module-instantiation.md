@@ -42,9 +42,13 @@ owner uses the generator ABI. Only trusted boundary metadata emits the fixed
 scopes cannot allocate additional resume states. Consequently, repeated catches
 and finally blocks run on every iteration and do not skip following statements.
 Resources acquired during evaluation never cross the instantiation suspension.
-The source execution plan supports that immediate lifetime, but checkpoint
-twelve still reaches the older blanket module-resource admission guard; its
-resource regressions remain failing until that guard uses canonical ownership.
+
+Statement-list, classic-for and for-of synchronous resource declarations require
+an enclosing canonical ModuleActivation owner. Nested functions retain their own
+source execution lifetime under that module owner. Classic-for and for-of heads
+still require immediate execution; statement-list scopes retain the existing
+supported resumable function lifetimes. Retained TLA/source-phase drivers have
+no canonical module owner and keep their explicit resource admission gap.
 
 A runtime module record retains its activation, evaluator, eager and deferred
 namespace cells, lifecycle state, and cached thrown value. These records are
@@ -79,11 +83,12 @@ can invoke the evaluator. Deferred-edge cycles terminate without eager body
 execution. Namespace publication and dispatcher reads use typed private cells,
 without creating source-visible namespace aliases.
 
-Existing dynamic import dispatchers retain their Promise construction,
-specifier/option evaluation, attribute matching, and rejection behavior. Their
-generated namespace reads lower to private cell operations. Ordinary dynamic
-import scheduling retains the existing eager behavior; this is not a replacement
-for the asynchronous module job scheduler.
+Canonical synchronous dynamic imports use intrinsic promises and distinct load
+and evaluation continuations. Their namespace and evaluator operands lower to
+private module operations; dynamic-only targets no longer run before the entry.
+Invalid dynamic-only dependency closures reject their importing promises, while
+static dependency errors reject compilation. See [module import jobs](module-import-jobs.md).
+TLA, Script-entry and source-phase graphs retain their separate driver.
 
 ## Independent global Script before a Module
 

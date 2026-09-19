@@ -474,6 +474,15 @@ impl<C: DescriptorCarrier> PartialDescriptor<C> {
     ///   producer receives fields from the object materialized from that
     ///   reserved descriptor witness, so the same emitted step-9 throw
     ///   dominates the Arguments `callee` dispatch.
+    /// * `lila-aot-wasm/src/builtins/object/define_property.rs`,
+    ///   `FunctionBuilder::compile_object_define_property_builtin` — its
+    ///   definition descriptor is projected from the same converted record,
+    ///   after ToBoolean, for namespace and TypedArray dispatch without
+    ///   observing input fields again.
+    /// * `lila-aot-wasm/src/builtins/reflect.rs`,
+    ///   `FunctionBuilder::compile_reflect_define_property_builtin` — the
+    ///   emitted mixed data/accessor rejection immediately dominates its
+    ///   definition descriptor, shared by namespace and TypedArray dispatch.
     ///
     /// Adding a caller without adding a line here is the defect this doc
     /// comment exists to make visible to `rg from_runtime_checked`. The

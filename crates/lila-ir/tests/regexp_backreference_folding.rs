@@ -27,7 +27,7 @@ fn each_reference_encodes_its_own_resolved_ignore_case_modifier() {
                 .iter()
                 .map(|instruction| instruction.operand1)
                 .collect::<Vec<_>>(),
-            [3, 1, 1, 3, 1]
+            [2, 0, 0, 2, 0]
         );
         let named = references(
             r"(?<a>a)(?i:\k<a>)(?-i:\k<a>)(?i:(?-i:\k<a>)\k<a>)\k<a>",
@@ -41,8 +41,8 @@ fn each_reference_encodes_its_own_resolved_ignore_case_modifier() {
             [2, 0, 0, 2, 0]
         );
     }
-    assert_eq!(references(r"(?i:(a))\1", "")[0].operand1, 1);
-    assert_eq!(references(r"(?-i:(a))\1", "i")[0].operand1, 3);
+    assert_eq!(references(r"(?i:(a))\1", "")[0].operand1, 0);
+    assert_eq!(references(r"(?-i:(a))\1", "i")[0].operand1, 2);
     assert_eq!(references(r"(?i:(?<a>a))\k<a>", "")[0].operand1, 0);
     assert_eq!(references(r"(?-i:(?<a>a))\k<a>", "i")[0].operand1, 2);
 }
@@ -58,7 +58,7 @@ fn reverse_references_retain_scoped_folding_and_numbered_nullability() {
             0
         );
         assert_eq!(references(r"(a*)\1*", flags)[0].operand1, 2);
-        assert_eq!(references(r"(a)\1*", flags)[0].operand1, 3);
+        assert_eq!(references(r"(a)\1*", flags)[0].operand1, 2);
         assert_eq!(references(r"()\1", flags)[0].operand1, 2);
     }
 }
@@ -163,7 +163,30 @@ fn scoped_folding_does_not_bypass_named_or_decimal_reference_early_errors() {
     }
     assert!(references(r"(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(?i:\10)", "u")
         .iter()
-        .any(|instruction| instruction.operand0 == 10 && instruction.operand1 == 3));
+        .any(|instruction| instruction.operand0 == 10 && instruction.operand1 == 2));
     assert!(references(r"(?i:\2)(a)", "").is_empty());
     assert_eq!(references(r"(?i:\1)(a)", "u")[0].operand0, 1);
+}
+
+#[test]
+fn references_do_not_infer_capture_participation_from_nonempty_bodies() {
+    for pattern in [
+        r"(a)?\1*",
+        r"(?:(a)|b)\1*",
+        r"(?!(a))\1*",
+        r"(a)\1*",
+        r"\1*(a)",
+    ] {
+        for flags in ["", "i", "u", "ui", "v", "vi"] {
+            let program = RegExpProgram::compile(pattern, flags).unwrap();
+            assert!(program.instructions.iter().filter(|instruction| instruction.opcode == REGEXP_OPCODE_NUMBERED_BACKREFERENCE).all(|instruction| instruction.operand1 & REGEXP_BACKREFERENCE_NONEMPTY == 0), "/{pattern}/{flags}");
+            assert!(
+                program
+                    .instructions
+                    .iter()
+                    .any(|instruction| instruction.opcode == lila_ir::REGEXP_OPCODE_PROGRESS_SPLIT),
+                "/{pattern}/{flags}"
+            );
+        }
+    }
 }

@@ -6,6 +6,7 @@ const IR_PUBLIC_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const MATCHER_SOURCE: &str = include_str!("../src/builtins/regexp.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const PROGRAM_SOURCE: &str = include_str!("../../lila-ir/src/regexp/program.rs");
+const OPCODE_SOURCE: &str = include_str!("../../lila-ir/src/regexp/opcode.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_regexp_nullable_quantifier_progress.js");
 const CLI_TEST_SOURCE: &str = include_str!("../../lila-cli/tests/cli/regexp.rs");
@@ -709,7 +710,7 @@ fn matcher_frames_preserve_ordered_backtracking_and_exact_progress_identity() {
 #[test]
 fn static_data_validation_counts_progress_choices_and_terminates_checks() {
     assert!(DATA_SOURCE.contains("ValidatedRegExpProgram::from_program(program)"));
-    assert!(PROGRAM_SOURCE.contains("REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT"));
+    assert!(PROGRAM_SOURCE.contains("is_some_and(RegExpOpcode::is_choice)"));
     assert!(PROGRAM_SOURCE.contains("repeatable_split_count(program)"));
 
     let repeatable = bounded(
@@ -718,10 +719,10 @@ fn static_data_validation_counts_progress_choices_and_terminates_checks() {
         "fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {",
     );
     for marker in [
-        "REGEXP_OPCODE_PROGRESS_SPLIT => [",
-        "valid(instruction.operand1 >> 1)",
-        "REGEXP_OPCODE_PROGRESS_CHECK => valid(instruction.operand1)",
-        "REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT",
+        "RegExpOpcode::from_word(instructions[pc].opcode)",
+        ".successors(instructions[pc], pc, instructions.len())",
+        "visited[next] = true;",
+        "stack.push(next);",
     ] {
         assert!(repeatable.contains(marker), "accounting lost {marker}");
     }
@@ -732,11 +733,23 @@ fn static_data_validation_counts_progress_choices_and_terminates_checks() {
         "#[cfg(test)]\nmod tests {",
     );
     for marker in [
-        "instructions[pc].opcode == REGEXP_OPCODE_PROGRESS_CHECK",
-        "REGEXP_OPCODE_PROGRESS_SPLIT => [",
-        "valid_target(instruction.operand1 >> 1)",
+        "while let Some((pc, edge)) = stack.last_mut()",
+        "opcode.stops_non_consuming_walk(instruction.operand1)",
+        "opcode.successors(instruction, *pc, instructions.len())[*edge]",
     ] {
         assert!(cycle.contains(marker), "cycle validation lost {marker}");
+    }
+    let facts = normalize_rust(OPCODE_SOURCE);
+    for marker in [
+        "Self::ProgressCheck=>Flow::Operand1",
+        "Self::ProgressSplit=>Flow::ProgressSplit",
+        "RegExpControlFlow::ProgressSplit=>[valid(a),valid(b>>1)]",
+        "RegExpInputProgress::Consumes|RegExpInputProgress::CheckedOptional=>true",
+    ] {
+        assert!(
+            facts.code.contains(marker),
+            "shared opcode facts lost {marker}"
+        );
     }
 }
 

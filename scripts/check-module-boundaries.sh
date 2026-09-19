@@ -1052,10 +1052,11 @@ if grep -Eq '#\[derive\([^]]*(Clone|Copy)' "$ir_invocation_effects_lowering" \
   fail "$ir_invocation_effects_lowering must keep AccountedInvocationEffects nonduplicable"
 fi
 check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
-# Measured after TypedArray.fill, Float16Array and Intl.Locale getter and
-# likely-subtag entries: 2,265 raw lines.
+# Measured after TypedArray.fill, Float16Array, Intl.Locale getter and
+# likely-subtag entries, legacy accessor definers and five Instant methods:
+# 2,272 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2265
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2272
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -1141,7 +1142,7 @@ require_fixed_string_count \
   'for_finalized_body' \
   0 \
   'body-only source-call proof admission'
-for source_call_flow_variant_spec in 'StatementIr|38' 'ExprIr|89' 'SpecOperationIr|30'; do
+for source_call_flow_variant_spec in 'StatementIr|38' 'ExprIr|90' 'SpecOperationIr|30'; do
   source_call_flow_variant_domain="${source_call_flow_variant_spec%%|*}"
   expected_source_call_flow_variants="${source_call_flow_variant_spec#*|}"
   observed_source_call_flow_variants="$({
@@ -2496,7 +2497,7 @@ require_fixed_string_count \
   'module_types.finalize_globals(globals)' \
   1 \
   'complete module global-section finalization site'
-if ! grep -Fq "Main(&'a FinalizedModuleGlobals)" crates/lila-aot-wasm/src/emit.rs \
+if ! grep -Fq "Main(&'a FinalizedModuleGlobals, PromiseRejectionPolicy)" crates/lila-aot-wasm/src/emit.rs \
   || ! grep -Fq 'module_sections.compile_main(MainFunctionCompilation::new(' crates/lila-aot-wasm/src/emit.rs \
   || ! grep -Fq 'compilation.compile_into(&self.globals, &mut code)?' "$compiled_module_package" \
   || ! grep -Fq 'code.push(EmittedFunction::new(FunctionIdentity::Main, main));' crates/lila-aot-wasm/src/emit.rs \
@@ -2917,15 +2918,19 @@ for date_local_string_call in \
   'self.emit_date_to_time_string(function)?;' \
   'self.emit_date_to_string(function)?;'
 do
-  case "$date_local_string_call" in
-    *emit_date_function_call*) expected_calls=1 ;;
-    *) expected_calls=2 ;;
-  esac
   require_fixed_string_count \
     "$wasm_standard_builtins" \
     "$date_local_string_call" \
-    "$expected_calls" \
-    'unchanged Date local-string semantic delegates'
+    1 \
+    'Date local-string semantic delegate'
+done
+for date_locale_format in Date Time DateAndTime
+do
+  require_fixed_string_count \
+    "$wasm_standard_builtins" \
+    "self.emit_date_to_locale_string(DateLocaleFormat::$date_locale_format, function)?;" \
+    1 \
+    "$date_locale_format Date locale-method delegate"
 done
 # Measured immediately after the time-source extraction: 1,675 parent lines and 339 child
 # lines. The narrow margins are for maintenance of each owner.
@@ -3213,6 +3218,10 @@ check_raw_line_budget "$wasm_intl_locale_construction" 195
 
 wasm_intl_date_time_format="crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs"
 wasm_intl_date_time_format_construction="crates/lila-aot-wasm/src/builtins/intl_datetimeformat/construction_lifecycle.rs"
+wasm_intl_date_time_format_initialization="crates/lila-aot-wasm/src/builtins/intl_datetimeformat/initialization.rs"
+require_file "$wasm_intl_date_time_format_initialization"
+require_module_decl "$wasm_intl_date_time_format" "initialization"
+check_no_inline_legacy_includes "$wasm_intl_date_time_format_initialization"
 require_file "$wasm_intl_date_time_format_construction"
 check_no_inline_legacy_includes "$wasm_intl_date_time_format"
 check_no_inline_legacy_includes "$wasm_intl_date_time_format_construction"
@@ -3290,14 +3299,23 @@ require_exact_line_count \
 if grep -Eq 'pub(\([^)]*\))?[[:space:]]+struct[[:space:]]+IntlDtfKeywordNeedle' "$wasm_intl_date_time_format"; then
   fail "$wasm_intl_date_time_format must keep IntlDtfKeywordNeedle owner-private"
 fi
+intl_time_zone_domain="crates/lila-intl/src/time_zone.rs"
+require_file "$intl_time_zone_domain"
+require_exact_line_count \
+  "$intl_time_zone_domain" \
+  'pub enum TimeZoneNameStyle {' \
+  1 \
+  'shared Intl time-zone-name style authority'
+require_tree_regex_count \
+  crates/lila-aot-wasm/src \
+  'enum[[:space:]]+TimeZoneNameStyle' \
+  0 \
+  'duplicate time-zone-name style domain in the Wasm backend'
 require_exact_line_count \
   "$wasm_intl_date_time_format" \
-  'enum TimeZoneNameStyle {' \
+  'const INTL_DTF_TIME_ZONE_NAME_CODES: &[(&str, i64)] = &TimeZoneNameStyle::OPTIONS;' \
   1 \
-  'owner-private DateTimeFormat time-zone-name style declaration'
-if grep -Eq 'pub(\([^)]*\))?[[:space:]]+enum[[:space:]]+TimeZoneNameStyle' "$wasm_intl_date_time_format"; then
-  fail "$wasm_intl_date_time_format must keep TimeZoneNameStyle owner-private"
-fi
+  'DateTimeFormat option projection from the shared style domain'
 require_exact_line_count \
   "$wasm_intl_date_time_format" \
   'struct IntlDtfOption {' \
@@ -3311,9 +3329,6 @@ if grep -Eq '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' <<<"$intl_dtf_option_reco
   fail "$wasm_intl_date_time_format must keep every IntlDtfOption field private"
 fi
 for intl_dtf_private_time_zone_declaration in \
-  'struct TzOffsetMinutes(i16);' \
-  'struct IntlDtfNamedZone {' \
-  'const INTL_DTF_NAMED_ZONES: &[IntlDtfNamedZone] = &[' \
   'struct DtfCanonicalTimeZone {' \
   'struct DtfResolvedTimeZone(DtfCanonicalTimeZone);'
 do
@@ -3323,13 +3338,20 @@ do
     1 \
     'owner-private DateTimeFormat time-zone authority declaration'
 done
-if grep -Eq 'pub(\([^)]*\))?[[:space:]]+(struct[[:space:]]+(TzOffsetMinutes|IntlDtfNamedZone|DtfCanonicalTimeZone|DtfResolvedTimeZone)|const[[:space:]]+INTL_DTF_NAMED_ZONES)' "$wasm_intl_date_time_format"; then
+if grep -Eq 'pub(\([^)]*\))?[[:space:]]+struct[[:space:]]+(DtfCanonicalTimeZone|DtfResolvedTimeZone)' "$wasm_intl_date_time_format"; then
   fail "$wasm_intl_date_time_format must keep the DateTimeFormat time-zone authority owner-private"
 fi
-intl_dtf_named_zone_record="$(sed -n '/^struct IntlDtfNamedZone {$/,/^}$/p' "$wasm_intl_date_time_format")"
-if grep -Eq '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' <<<"$intl_dtf_named_zone_record"; then
-  fail "$wasm_intl_date_time_format must keep every IntlDtfNamedZone field private"
-fi
+require_tree_regex_count \
+  crates/lila-aot-wasm/src \
+  '(struct[[:space:]]+(TzOffsetMinutes|IntlDtfNamedZone)|const[[:space:]]+INTL_DTF_NAMED_ZONES)' \
+  0 \
+  'retired constant-offset named-zone authority'
+require_module_decl "$wasm_intl_date_time_format" "time_zone"
+require_exact_line_count \
+  "$intl_time_zone_domain" \
+  'pub struct FixedTimeZoneOffset(i32);' \
+  1 \
+  'validated fixed-offset domain with a private representation'
 require_exact_line_count \
   "$wasm_intl_date_time_format" \
   'mod construction_lifecycle;' \
@@ -3369,14 +3391,16 @@ do
     1 \
     "$lifecycle_transition private-child owner"
   require_fixed_string_count \
-    "$wasm_intl_date_time_format" \
+    "$wasm_intl_date_time_format_initialization" \
     ".${lifecycle_transition}(" \
     1 \
-    "$lifecycle_transition parent constructor call"
+    "$lifecycle_transition shared initialization call"
 done
-# Measured immediately after extraction: 7,093 parent lines and 94 child
-# lines. The narrow margins are for maintenance of each lifecycle owner.
-check_raw_line_budget "$wasm_intl_date_time_format" 7150
+# The shared initialization owns constructor and Date method field policies.
+check_raw_line_budget "$wasm_intl_date_time_format" 6650
+check_raw_line_budget "$wasm_intl_date_time_format_initialization" 620
+require_module_decl "$wasm_date_builtins" "locale_string"
+check_raw_line_budget "crates/lila-aot-wasm/src/builtins/date/locale_string.rs" 115
 require_module_decl "$wasm_intl_date_time_format" "numbering"
 require_file "crates/lila-aot-wasm/src/builtins/intl_datetimeformat/numbering.rs"
 check_raw_line_budget "crates/lila-aot-wasm/src/builtins/intl_datetimeformat/numbering.rs" 210
@@ -4373,7 +4397,7 @@ require_exact_line_count \
   0 \
   'obsolete function-meta registry iterator'
 
-wasm_objects_property_read="$(sed -n '/    pub(crate) fn compile_property_read_from_locals(/,/    fn compile_dynamic_property_read_from_locals(/p' crates/lila-aot-wasm/src/objects.rs)"
+wasm_objects_property_read="$(sed -n '/    pub(crate) fn compile_property_read_from_locals(/,/    pub(crate) fn compile_dynamic_property_read_from_locals(/p' crates/lila-aot-wasm/src/objects.rs)"
 require_text_regex_count \
   "$wasm_objects_property_read" \
   '^[[:space:]]*ValueKind::Dynamic => \{$' \

@@ -1531,14 +1531,11 @@ impl<'a> FunctionBuilder<'a> {
         match operation {
             TemporalPlainArithmeticOperation::Add => {}
             TemporalPlainArithmeticOperation::Subtract => {
-                for local in duration_locals.iter() {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(*local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(*local));
-                }
+                self.emit_temporal_duration_negate_fields(&duration_locals, function);
             }
         }
+        let date_fields =
+            self.reserve_temporal_duration_date_field_locals(&duration_locals, function);
 
         // `ToDateDurationRecordWithoutTime`. `emit_temporal_duration_normalize_seconds`
         // leaves a whole-second count and a `|subsecond| < 1e9` of the same
@@ -1554,7 +1551,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(86_400));
         function.instruction(&Instruction::I64DivS);
         function.instruction(&Instruction::LocalGet(
-            duration_locals[TemporalUnit::Day.duration_field_index()],
+            date_fields[TemporalUnit::Day.duration_field_index()],
         ));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(day_delta_local));
@@ -1563,9 +1560,9 @@ impl<'a> FunctionBuilder<'a> {
             year_local,
             month_local,
             day_local,
-            duration_locals[TemporalUnit::Year.duration_field_index()],
-            duration_locals[TemporalUnit::Month.duration_field_index()],
-            duration_locals[TemporalUnit::Week.duration_field_index()],
+            date_fields[TemporalUnit::Year.duration_field_index()],
+            date_fields[TemporalUnit::Month.duration_field_index()],
+            date_fields[TemporalUnit::Week.duration_field_index()],
             day_delta_local,
             overflow_local,
             function,
@@ -1583,6 +1580,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        for local in date_fields.into_iter().rev() {
+            self.release_temp_local(local);
+        }
         self.release_temporal_duration_field_locals(duration_locals);
         for local in [
             prototype_payload_local,
@@ -2151,10 +2151,7 @@ impl<'a> FunctionBuilder<'a> {
             (weeks_local, TemporalUnit::Week),
             (days_local, TemporalUnit::Day),
         ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(
-                duration_locals[unit.duration_field_index()],
-            ));
+            self.emit_temporal_duration_set_integer_field(&duration_locals, unit, source, function);
         }
         self.emit_create_temporal_duration(&duration_locals, function)?;
 

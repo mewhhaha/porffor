@@ -7,6 +7,7 @@
 
 use super::super::*;
 use super::temporal_duration::{
+    TemporalDurationFields, TemporalDurationNumberProjection, TemporalDurationSubsecondUnit,
     TEMPORAL_DURATION_ALPHABETICAL_FIELDS, TEMPORAL_DURATION_FIELD_NAMES,
 };
 use super::temporal_options::{
@@ -31,17 +32,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(options_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(options_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(options_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(options_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
+        self.emit_is_heap_object_like_tag_i32(options_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -420,20 +412,21 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         argument_payload_local: u32,
         argument_tag_local: u32,
-        field_locals: &[u32; 10],
+        field_locals: &TemporalDurationFields,
         present_locals: &[u32; 10],
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let key_local = self.reserve_temp_local();
         let value_payload_local = self.reserve_temp_local();
         let value_tag_local = self.reserve_temp_local();
-        let bits_local = self.reserve_temp_local();
 
         for index in 0..10 {
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::LocalSet(present_locals[index]));
             function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(field_locals[index]));
+            function.instruction(&Instruction::LocalSet(
+                field_locals.number_bits_locals()[index],
+            ));
         }
         for (name, index) in TEMPORAL_DURATION_ALPHABETICAL_FIELDS {
             function.instruction(&Instruction::I64Const(self.strings.payload(name)));
@@ -458,35 +451,12 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_temporal_duration_field_to_number(
                 value_payload_local,
                 value_tag_local,
-                bits_local,
+                field_locals.number_bits_locals()[index],
                 function,
             )?;
-            // The per-field bound is checked here rather than in a second pass
-            // because a partial record has no companion `f64` array to carry.
-            function.instruction(&Instruction::LocalGet(bits_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::F64Abs);
-            function.instruction(&Instruction::F64Const(Ieee64::from(
-                9_223_372_036_854_775_808.0_f64,
-            )));
-            function.instruction(&Instruction::F64Ge);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Invalid Temporal.Duration: fields must not exceed the supported range",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(bits_local));
-            function.instruction(&Instruction::F64ReinterpretI64);
-            function.instruction(&Instruction::I64TruncSatF64S);
-            function.instruction(&Instruction::LocalSet(field_locals[index]));
             function.instruction(&Instruction::End);
         }
 
-        self.release_temp_local(bits_local);
         self.release_temp_local(value_tag_local);
         self.release_temp_local(value_payload_local);
         self.release_temp_local(key_local);
@@ -499,12 +469,12 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         value_payload_local: u32,
         value_tag_local: u32,
-        field_locals: &[u32; 10],
+        field_locals: &TemporalDurationFields,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let brand_local = self.reserve_temp_local();
         let record_local = self.reserve_temp_local();
-        let present_locals = self.reserve_temporal_duration_field_locals();
+        let present_locals: [u32; 10] = std::array::from_fn(|_| self.reserve_temp_local());
         let any_present_local = self.reserve_temp_local();
 
         self.emit_temporal_duration_brand_check_i32(
@@ -522,17 +492,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_temporal_duration_load_record(record_local, field_locals, function);
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        self.emit_is_heap_object_like_tag_i32(value_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_duration_partial_record(
             value_payload_local,
@@ -580,7 +540,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.release_temp_local(any_present_local);
-        self.release_temporal_duration_field_locals(present_locals);
+        for local in present_locals.into_iter().rev() {
+            self.release_temp_local(local);
+        }
         self.release_temp_local(record_local);
         self.release_temp_local(brand_local);
         Ok(())
@@ -621,21 +583,11 @@ impl<'a> FunctionBuilder<'a> {
         let any_present_local = self.reserve_temp_local();
         let field_locals = self.reserve_temporal_duration_field_locals();
         let partial_locals = self.reserve_temporal_duration_field_locals();
-        let present_locals = self.reserve_temporal_duration_field_locals();
+        let present_locals: [u32; 10] = std::array::from_fn(|_| self.reserve_temp_local());
 
         self.emit_temporal_duration_fields_from_receiver(&field_locals, function)?;
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
+        self.emit_is_heap_object_like_tag_i32(argument_tag_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
@@ -682,8 +634,12 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(partial_locals[index]));
-            function.instruction(&Instruction::LocalSet(field_locals[index]));
+            function.instruction(&Instruction::LocalGet(
+                partial_locals.number_bits_locals()[index],
+            ));
+            function.instruction(&Instruction::LocalSet(
+                field_locals.number_bits_locals()[index],
+            ));
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::LocalGet(any_present_local));
@@ -699,7 +655,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.emit_create_temporal_duration(&field_locals, function)?;
 
-        self.release_temporal_duration_field_locals(present_locals);
+        for local in present_locals.into_iter().rev() {
+            self.release_temp_local(local);
+        }
         self.release_temporal_duration_field_locals(partial_locals);
         self.release_temporal_duration_field_locals(field_locals);
         self.release_temp_local(any_present_local);
@@ -713,7 +671,7 @@ impl<'a> FunctionBuilder<'a> {
     /// nanosecond when the duration is blank.
     pub(crate) fn emit_temporal_duration_default_largest_unit(
         &mut self,
-        field_locals: &[u32; 10],
+        field_locals: &TemporalDurationFields,
         output_local: u32,
         function: &mut Function,
     ) {
@@ -724,9 +682,7 @@ impl<'a> FunctionBuilder<'a> {
         // separate numberings, named as such: this loop used to use one `index`
         // for both.
         for unit in TemporalUnit::ALL.into_iter().rev() {
-            function.instruction(&Instruction::LocalGet(
-                field_locals[unit.duration_field_index()],
-            ));
+            function.instruction(&Instruction::LocalGet(field_locals.number_bits(unit)));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
@@ -741,20 +697,16 @@ impl<'a> FunctionBuilder<'a> {
     /// resolve.
     pub(crate) fn emit_temporal_duration_reject_calendar_units(
         &mut self,
-        field_locals: &[u32; 10],
+        field_locals: &TemporalDurationFields,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let mut calendar_units = TemporalUnit::ALL
             .into_iter()
             .filter(|unit| unit.is_calendar_unit());
         let first = calendar_units.next().expect("year is a calendar unit");
-        function.instruction(&Instruction::LocalGet(
-            field_locals[first.duration_field_index()],
-        ));
+        function.instruction(&Instruction::LocalGet(field_locals.number_bits(first)));
         for unit in calendar_units {
-            function.instruction(&Instruction::LocalGet(
-                field_locals[unit.duration_field_index()],
-            ));
+            function.instruction(&Instruction::LocalGet(field_locals.number_bits(unit)));
             function.instruction(&Instruction::I64Or);
         }
         function.instruction(&Instruction::I64Eqz);
@@ -778,17 +730,15 @@ impl<'a> FunctionBuilder<'a> {
         seconds_local: u32,
         subsecond_local: u32,
         largest_unit_local: u32,
-        field_locals: &[u32; 10],
+        fields: &TemporalDurationFields,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let sign_local = self.reserve_temp_local();
-        let magnitude_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
-        let sub_local = self.reserve_temp_local();
-
-        self.emit_temporal_duration_zero_fields(field_locals, function);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(sign_local));
+        let negative = self.reserve_temp_local();
+        let magnitude = self.reserve_temp_local();
+        let remaining_seconds = self.reserve_temp_local();
+        let subsecond = self.reserve_temp_local();
+        let component = self.reserve_temp_local();
+        self.emit_temporal_duration_zero_fields(fields, function);
         function.instruction(&Instruction::LocalGet(seconds_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
@@ -796,14 +746,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(sign_local));
-        function.instruction(&Instruction::End);
-        for (source, destination) in [
-            (seconds_local, magnitude_local),
-            (subsecond_local, sub_local),
-        ] {
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(negative));
+        for (source, destination) in [(seconds_local, magnitude), (subsecond_local, subsecond)] {
             function.instruction(&Instruction::LocalGet(source));
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64LtS);
@@ -816,131 +761,76 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalSet(destination));
         }
-
-        // The seconds-and-above split depends on the largest unit; the
-        // sub-second tail is the same for every unit down to millisecond.
-        for (index, (unit, _scale)) in TEMPORAL_UNIT_SECONDS.iter().enumerate() {
+        for (index, (unit, _)) in TEMPORAL_UNIT_SECONDS.iter().enumerate() {
             function.instruction(&Instruction::LocalGet(largest_unit_local));
             function.instruction(&Instruction::I64Const(unit.code()));
             function.instruction(&Instruction::I64Eq);
-            // Year, month and week durations balance the same way a day
-            // duration does once the calendar fields are known to be zero.
             if *unit == TemporalUnit::Day {
                 function.instruction(&Instruction::LocalGet(largest_unit_local));
-                function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
+                function.instruction(&Instruction::I64Const(unit.code()));
                 function.instruction(&Instruction::I64LtS);
                 function.instruction(&Instruction::I32Or);
             }
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(magnitude_local));
-            function.instruction(&Instruction::LocalSet(remainder_local));
+            function.instruction(&Instruction::LocalGet(magnitude));
+            function.instruction(&Instruction::LocalSet(remaining_seconds));
             for (slot, divisor) in TEMPORAL_UNIT_SECONDS.iter().skip(index) {
-                function.instruction(&Instruction::LocalGet(remainder_local));
+                function.instruction(&Instruction::LocalGet(remaining_seconds));
                 function.instruction(&Instruction::I64Const(*divisor));
                 function.instruction(&Instruction::I64DivU);
-                function.instruction(&Instruction::LocalSet(
-                    field_locals[slot.duration_field_index()],
-                ));
-                function.instruction(&Instruction::LocalGet(remainder_local));
+                function.instruction(&Instruction::LocalSet(component));
+                self.emit_temporal_duration_set_integer_field(fields, *slot, component, function);
+                function.instruction(&Instruction::LocalGet(remaining_seconds));
                 function.instruction(&Instruction::I64Const(*divisor));
                 function.instruction(&Instruction::I64RemU);
-                function.instruction(&Instruction::LocalSet(remainder_local));
+                function.instruction(&Instruction::LocalSet(remaining_seconds));
             }
             function.instruction(&Instruction::End);
         }
-        // Millisecond, microsecond and nanosecond largest units fold the whole
-        // second count down into the sub-second field, which can overflow the
-        // `i64` the record holds; that case is reported as a RangeError.
-        for (unit, scale) in [
-            (TemporalUnit::Millisecond, 1_000_i64),
-            (TemporalUnit::Microsecond, 1_000_000),
-            (TemporalUnit::Nanosecond, 1_000_000_000),
-        ] {
+        for unit in TemporalDurationSubsecondUnit::ALL {
+            let divisor = unit.nanoseconds();
             function.instruction(&Instruction::LocalGet(largest_unit_local));
-            function.instruction(&Instruction::I64Const(unit.code()));
+            function.instruction(&Instruction::I64Const(unit.temporal_unit().code()));
+            function.instruction(&Instruction::I64LeS);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(subsecond));
+            function.instruction(&Instruction::I64Const(divisor));
+            function.instruction(&Instruction::I64DivU);
+            function.instruction(&Instruction::LocalSet(component));
+            function.instruction(&Instruction::LocalGet(largest_unit_local));
+            function.instruction(&Instruction::I64Const(unit.temporal_unit().code()));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(magnitude_local));
-            function.instruction(&Instruction::I64Const(9_223_372_036_854_775_807 / scale));
-            function.instruction(&Instruction::I64GtU);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Invalid Temporal.Duration: fields must not exceed the supported range",
-                self.result_local,
-                self.result_tag_local,
+            self.emit_temporal_duration_scaled_time_number(
+                magnitude,
+                component,
+                TemporalDurationNumberProjection::BalancedField(unit),
+                fields.number_bits(unit.temporal_unit()),
                 function,
-            )?;
-            self.emit_return_current_completion(function);
+            );
+            function.instruction(&Instruction::Else);
+            self.emit_temporal_duration_set_integer_field(
+                fields,
+                unit.temporal_unit(),
+                component,
+                function,
+            );
             function.instruction(&Instruction::End);
-            function.instruction(&Instruction::LocalGet(magnitude_local));
-            function.instruction(&Instruction::I64Const(scale));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalSet(
-                field_locals[unit.duration_field_index()],
-            ));
+            function.instruction(&Instruction::LocalGet(subsecond));
+            function.instruction(&Instruction::I64Const(divisor));
+            function.instruction(&Instruction::I64RemU);
+            function.instruction(&Instruction::LocalSet(subsecond));
             function.instruction(&Instruction::End);
         }
-        // Sub-second tail: whatever the largest unit, milliseconds and below
-        // come straight out of the nanosecond remainder, except that a
-        // microsecond or nanosecond largest unit absorbs the coarser slots.
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Microsecond.code()));
-        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::LocalGet(negative));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(
-            field_locals[TemporalUnit::Millisecond.duration_field_index()],
-        ));
-        function.instruction(&Instruction::LocalGet(sub_local));
-        function.instruction(&Instruction::I64Const(1_000_000));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(
-            field_locals[TemporalUnit::Millisecond.duration_field_index()],
-        ));
-        function.instruction(&Instruction::LocalGet(sub_local));
-        function.instruction(&Instruction::I64Const(1_000_000));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(sub_local));
+        self.emit_temporal_duration_negate_fields(fields, function);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(largest_unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(
-            field_locals[TemporalUnit::Microsecond.duration_field_index()],
-        ));
-        function.instruction(&Instruction::LocalGet(sub_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(
-            field_locals[TemporalUnit::Microsecond.duration_field_index()],
-        ));
-        function.instruction(&Instruction::LocalGet(sub_local));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(sub_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(
-            field_locals[TemporalUnit::Nanosecond.duration_field_index()],
-        ));
-        function.instruction(&Instruction::LocalGet(sub_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(
-            field_locals[TemporalUnit::Nanosecond.duration_field_index()],
-        ));
-
-        for local in field_locals.iter() {
-            function.instruction(&Instruction::LocalGet(*local));
-            function.instruction(&Instruction::LocalGet(sign_local));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalSet(*local));
+        for local in [component, subsecond, remaining_seconds, magnitude, negative] {
+            self.release_temp_local(local);
         }
-
-        self.release_temp_local(sub_local);
-        self.release_temp_local(remainder_local);
-        self.release_temp_local(magnitude_local);
-        self.release_temp_local(sign_local);
         Ok(())
     }
 
@@ -991,12 +881,7 @@ impl<'a> FunctionBuilder<'a> {
         match operation {
             TemporalDurationArithmeticOperation::Add => {}
             TemporalDurationArithmeticOperation::Subtract => {
-                for local in other_locals.iter() {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(*local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(*local));
-                }
+                self.emit_temporal_duration_negate_fields(&other_locals, function);
             }
         }
         self.emit_temporal_duration_reject_calendar_units(&field_locals, function)?;
@@ -1176,8 +1061,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(result_local));
         for index in 0..10 {
-            function.instruction(&Instruction::LocalGet(one_locals[index]));
-            function.instruction(&Instruction::LocalGet(two_locals[index]));
+            function.instruction(&Instruction::LocalGet(
+                one_locals.number_bits_locals()[index],
+            ));
+            function.instruction(&Instruction::LocalGet(
+                two_locals.number_bits_locals()[index],
+            ));
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(0));
@@ -2157,29 +2046,53 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::F64Div);
         function.instruction(&Instruction::F64Add);
         function.instruction(&Instruction::Else);
-        // Sub-second units multiply instead of divide, so the whole-second
-        // part is converted first and the remainder folded in afterwards.
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::LocalSet(scale_local));
-        for (unit, scale) in [(7_i64, 1_000_000_i64), (8, 1_000), (9, 1)] {
-            function.instruction(&Instruction::LocalGet(unit_local));
-            function.instruction(&Instruction::I64Const(unit));
-            function.instruction(&Instruction::I64Eq);
+        // Subsecond totals need a single rounding of the exact rational.
+        function.instruction(&Instruction::LocalGet(seconds_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::LocalGet(subsecond_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(quotient_local));
+        for local in [seconds_local, subsecond_local] {
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::I64LtS);
             function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(scale));
-            function.instruction(&Instruction::LocalSet(scale_local));
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::LocalSet(local));
             function.instruction(&Instruction::End);
         }
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1_000_000_000.0)));
-        function.instruction(&Instruction::F64Mul);
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::LocalGet(scale_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::F64Div);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(remainder_local));
+        for unit in TemporalDurationSubsecondUnit::ALL {
+            function.instruction(&Instruction::LocalGet(unit_local));
+            function.instruction(&Instruction::I64Const(unit.temporal_unit().code()));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_temporal_duration_scaled_time_number(
+                seconds_local,
+                subsecond_local,
+                TemporalDurationNumberProjection::Total(unit),
+                remainder_local,
+                function,
+            );
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(quotient_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Neg);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -2380,9 +2293,13 @@ impl<'a> FunctionBuilder<'a> {
         // whole time part is rebalanced, because a carry out of the seconds
         // has to reach the minutes and hours the way `TemporalDurationFromInternal`
         // would.
-        function.instruction(&Instruction::LocalGet(field_locals[4]));
+        function.instruction(&Instruction::LocalGet(field_locals.number_bits_locals()[4]));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64S);
         function.instruction(&Instruction::LocalSet(hours_local));
-        function.instruction(&Instruction::LocalGet(field_locals[5]));
+        function.instruction(&Instruction::LocalGet(field_locals.number_bits_locals()[5]));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64S);
         function.instruction(&Instruction::LocalSet(minutes_local));
         self.emit_temporal_duration_normalize_seconds(
             &field_locals,
@@ -2511,13 +2428,21 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalSet(output_payload_local));
         for (index, designator) in [(0_usize, "Y"), (1, "M"), (2, "W"), (3, "D")] {
-            function.instruction(&Instruction::LocalGet(field_locals[index]));
+            function.instruction(&Instruction::LocalGet(
+                field_locals.number_bits_locals()[index],
+            ));
             function.instruction(&Instruction::I64Eqz);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(
+                field_locals.number_bits_locals()[index],
+            ));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::I64TruncF64S);
+            function.instruction(&Instruction::LocalSet(number_payload_local));
             self.emit_temporal_duration_append_magnitude(
                 output_payload_local,
-                field_locals[index],
+                number_payload_local,
                 number_payload_local,
                 piece_payload_local,
                 function,
@@ -2570,12 +2495,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GeS);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(field_locals[0]));
-        function.instruction(&Instruction::LocalGet(field_locals[1]));
+        function.instruction(&Instruction::LocalGet(field_locals.number_bits_locals()[0]));
+        function.instruction(&Instruction::LocalGet(field_locals.number_bits_locals()[1]));
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(field_locals[2]));
+        function.instruction(&Instruction::LocalGet(field_locals.number_bits_locals()[2]));
         function.instruction(&Instruction::I64Or);
-        function.instruction(&Instruction::LocalGet(field_locals[3]));
+        function.instruction(&Instruction::LocalGet(field_locals.number_bits_locals()[3]));
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalGet(hours_local));
         function.instruction(&Instruction::I64Or);
@@ -2794,7 +2719,7 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_temporal_duration_parse_string(
         &mut self,
         string_payload_local: u32,
-        field_locals: &[u32; 10],
+        field_locals: &TemporalDurationFields,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let offset_local = self.reserve_temp_local();
@@ -2813,7 +2738,11 @@ impl<'a> FunctionBuilder<'a> {
         let nanoseconds_local = self.reserve_temp_local();
 
         self.emit_unpack_string_payload(string_payload_local, offset_local, length_local, function);
-        self.emit_temporal_duration_zero_fields(field_locals, function);
+        let integer_fields: [u32; 10] = std::array::from_fn(|_| self.reserve_temp_local());
+        for local in integer_fields {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(local));
+        }
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(valid_local));
         function.instruction(&Instruction::I64Const(0));
@@ -2954,14 +2883,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_duration_byte_is_digit(byte_local, function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(digit_count_local));
-        function.instruction(&Instruction::I64Const(18));
-        function.instruction(&Instruction::I64GeS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(value_local));
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Mul);
@@ -2970,6 +2891,16 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(value_local));
+        // Every valid whole date/time component is below 2^53. Check the
+        // magnitude after each digit, allowing arbitrarily many leading zeros.
+        function.instruction(&Instruction::LocalGet(value_local));
+        function.instruction(&Instruction::I64Const(9_007_199_254_740_992));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(valid_local));
+        function.instruction(&Instruction::Br(2));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(digit_count_local));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
@@ -3137,10 +3068,10 @@ impl<'a> FunctionBuilder<'a> {
             }
             function.instruction(&Instruction::I64Const(*stage));
             function.instruction(&Instruction::LocalSet(stage_local));
-            function.instruction(&Instruction::LocalGet(field_locals[*field]));
+            function.instruction(&Instruction::LocalGet(integer_fields[*field]));
             function.instruction(&Instruction::LocalGet(value_local));
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(field_locals[*field]));
+            function.instruction(&Instruction::LocalSet(integer_fields[*field]));
             if *field >= 4 {
                 let scale: i64 = match *field {
                     4 => 3_600,
@@ -3191,12 +3122,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         // Spread the fractional remainder over the sub-hour fields.
-        function.instruction(&Instruction::LocalGet(field_locals[5]));
+        function.instruction(&Instruction::LocalGet(integer_fields[5]));
         function.instruction(&Instruction::LocalGet(nanoseconds_local));
         function.instruction(&Instruction::I64Const(60_000_000_000));
         function.instruction(&Instruction::I64DivU);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(field_locals[5]));
+        function.instruction(&Instruction::LocalSet(integer_fields[5]));
         function.instruction(&Instruction::LocalGet(nanoseconds_local));
         function.instruction(&Instruction::I64Const(60_000_000_000));
         function.instruction(&Instruction::I64RemU);
@@ -3207,22 +3138,27 @@ impl<'a> FunctionBuilder<'a> {
             (8, 1_000),
             (9, 1),
         ] {
-            function.instruction(&Instruction::LocalGet(field_locals[field]));
+            function.instruction(&Instruction::LocalGet(integer_fields[field]));
             function.instruction(&Instruction::LocalGet(nanoseconds_local));
             function.instruction(&Instruction::I64Const(divisor));
             function.instruction(&Instruction::I64DivU);
             function.instruction(&Instruction::I64Add);
-            function.instruction(&Instruction::LocalSet(field_locals[field]));
+            function.instruction(&Instruction::LocalSet(integer_fields[field]));
             function.instruction(&Instruction::LocalGet(nanoseconds_local));
             function.instruction(&Instruction::I64Const(divisor));
             function.instruction(&Instruction::I64RemU);
             function.instruction(&Instruction::LocalSet(nanoseconds_local));
         }
-        for local in field_locals.iter() {
-            function.instruction(&Instruction::LocalGet(*local));
+        for (unit, local) in TemporalUnit::ALL.into_iter().zip(integer_fields) {
+            function.instruction(&Instruction::LocalGet(local));
             function.instruction(&Instruction::LocalGet(sign_local));
             function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::LocalSet(*local));
+            function.instruction(&Instruction::F64ConvertI64S);
+            function.instruction(&Instruction::I64ReinterpretF64);
+            function.instruction(&Instruction::LocalSet(field_locals.number_bits(unit)));
+        }
+        for local in integer_fields.into_iter().rev() {
+            self.release_temp_local(local);
         }
 
         for local in [

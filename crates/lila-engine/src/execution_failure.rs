@@ -5,6 +5,8 @@ use super::{DynamicSourceRuntimeOperation, EngineError, ObservedCompletion, Wasm
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmExecutionFailureKind {
     JavaScriptException,
+    /// The entry evaluation is pending after supported host work becomes quiescent.
+    IncompleteModuleEvaluation,
     DynamicSource,
     ConcurrentFailure,
     Trap,
@@ -14,6 +16,7 @@ pub enum WasmExecutionFailureKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum EngineExecutionFailure {
     JavaScriptException { constructor_name: Option<String> },
+    IncompleteModuleEvaluation,
     DynamicSource(DynamicSourceRuntimeOperation),
     Trap,
     Timeout,
@@ -50,6 +53,7 @@ impl ExecutionFailures {
                 ) => {}
                 Some(
                     WasmExecutionFailureKind::JavaScriptException
+                    | WasmExecutionFailureKind::IncompleteModuleEvaluation
                     | WasmExecutionFailureKind::ConcurrentFailure,
                 )
                 | None => {
@@ -108,6 +112,9 @@ impl EngineError {
                 EngineExecutionFailure::JavaScriptException { .. } => {
                     WasmExecutionFailureKind::JavaScriptException
                 }
+                EngineExecutionFailure::IncompleteModuleEvaluation => {
+                    WasmExecutionFailureKind::IncompleteModuleEvaluation
+                }
                 EngineExecutionFailure::DynamicSource(_) => WasmExecutionFailureKind::DynamicSource,
                 EngineExecutionFailure::Trap => WasmExecutionFailureKind::Trap,
                 EngineExecutionFailure::Timeout => WasmExecutionFailureKind::Timeout,
@@ -127,6 +134,7 @@ impl EngineError {
             None
             | Some(
                 EngineExecutionFailure::DynamicSource(_)
+                | EngineExecutionFailure::IncompleteModuleEvaluation
                 | EngineExecutionFailure::Trap
                 | EngineExecutionFailure::Timeout
                 | EngineExecutionFailure::Concurrent(_),
@@ -154,6 +162,7 @@ impl EngineError {
             }
             Some(
                 EngineExecutionFailure::JavaScriptException { .. }
+                | EngineExecutionFailure::IncompleteModuleEvaluation
                 | EngineExecutionFailure::Trap
                 | EngineExecutionFailure::Timeout,
             ) => Vec::new(),
@@ -330,16 +339,32 @@ mod tests {
     }
 
     #[test]
+    fn incomplete_module_evaluation_is_neither_a_javascript_exception_nor_timeout() {
+        let failure = EngineError::from_execution_failure(
+            EngineExecutionFailure::IncompleteModuleEvaluation,
+            "entry remains pending at host quiescence",
+        );
+        assert_eq!(
+            failure.wasm_execution_failure_kind(),
+            Some(WasmExecutionFailureKind::IncompleteModuleEvaluation)
+        );
+        assert_eq!(failure.wasm_javascript_exception_constructor_name(), None);
+        assert!(failure.runtime_dynamic_source_operations().is_empty());
+    }
+
+    #[test]
     fn root_and_worker_failures_survive_in_both_orders_without_becoming_js_exceptions() {
         for reason in [
             EngineExecutionFailure::JavaScriptException {
                 constructor_name: None,
             },
+            EngineExecutionFailure::IncompleteModuleEvaluation,
             EngineExecutionFailure::Trap,
             EngineExecutionFailure::Timeout,
         ] {
             let expected = match reason {
-                EngineExecutionFailure::JavaScriptException { .. } => {
+                EngineExecutionFailure::JavaScriptException { .. }
+                | EngineExecutionFailure::IncompleteModuleEvaluation => {
                     WasmExecutionFailureKind::ConcurrentFailure
                 }
                 EngineExecutionFailure::Trap => WasmExecutionFailureKind::Trap,

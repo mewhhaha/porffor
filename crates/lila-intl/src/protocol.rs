@@ -1,8 +1,9 @@
 use core::{fmt, marker::PhantomData};
 
 use crate::{
-    CanonicalLocaleId, CanonicalTimeZoneId, IntlCapabilitySet, IntlDataCapability,
-    IntlDataIdentity, InvalidCanonicalLocaleId, LocaleId, TimeZoneId,
+    CanonicalLocaleId, IntlCapabilitySet, IntlDataCapability, IntlDataIdentity,
+    InvalidCanonicalLocaleId, LocaleId, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult,
+    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, TimeZoneId, TimeZoneResolveError,
 };
 
 /// Packed offset/length span read by an Intl host operation.
@@ -225,11 +226,11 @@ intl_operations! {
         error: LocaleTransformError,
         capabilities: [IntlDataCapability::LocaleAliases],
     }
-    CanonicalizeTimeZone {
+    LookupNamedTimeZone {
         code: 1,
-        name: "canonicalize-time-zone",
-        request: CanonicalizeTimeZoneRequest,
-        response: CanonicalizeTimeZoneResult,
+        name: "lookup-named-time-zone",
+        request: LookupNamedTimeZoneRequest,
+        response: LookupNamedTimeZoneResult,
         error: UnknownTimeZone,
         capabilities: [IntlDataCapability::TimeZoneTransitions],
     }
@@ -248,6 +249,14 @@ intl_operations! {
         response: LocaleTransformResult,
         error: LocaleTransformError,
         capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::LikelySubtags],
+    }
+    ResolveTimeZone {
+        code: 4,
+        name: "resolve-time-zone",
+        request: ResolveTimeZoneRequest,
+        response: ResolvedTimeZoneSnapshot,
+        error: TimeZoneResolveError,
+        capabilities: [IntlDataCapability::TimeZoneTransitions, IntlDataCapability::TimeZoneNames],
     }
 }
 
@@ -301,45 +310,6 @@ impl LocaleTransformResult {
     #[must_use]
     pub fn into_locale(self) -> CanonicalLocaleId {
         self.locale
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalizeTimeZoneRequest {
-    time_zone: TimeZoneId,
-}
-
-impl CanonicalizeTimeZoneRequest {
-    #[must_use]
-    pub const fn new(time_zone: TimeZoneId) -> Self {
-        Self { time_zone }
-    }
-
-    #[must_use]
-    pub const fn time_zone(&self) -> &TimeZoneId {
-        &self.time_zone
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalizeTimeZoneResult {
-    time_zone: CanonicalTimeZoneId,
-}
-
-impl CanonicalizeTimeZoneResult {
-    #[must_use]
-    pub const fn new(time_zone: CanonicalTimeZoneId) -> Self {
-        Self { time_zone }
-    }
-
-    #[must_use]
-    pub const fn time_zone(&self) -> &CanonicalTimeZoneId {
-        &self.time_zone
-    }
-
-    #[must_use]
-    pub fn into_time_zone(self) -> CanonicalTimeZoneId {
-        self.time_zone
     }
 }
 
@@ -533,7 +503,7 @@ where
     ///
     /// ```compile_fail
     /// use lila_intl::{
-    ///     CanonicalizeLocale, CanonicalizeTimeZoneRequest, IntlOperationHandle,
+    ///     CanonicalizeLocale, LookupNamedTimeZoneRequest, IntlOperationHandle,
     ///     IntlOperationProvider, TimeZoneId,
     /// };
     ///
@@ -542,7 +512,7 @@ where
     ///     P: IntlOperationProvider<CanonicalizeLocale>,
     /// {
     ///     let zone = TimeZoneId::parse("UTC").unwrap();
-    ///     let _ = handle.execute(CanonicalizeTimeZoneRequest::new(zone));
+    ///     let _ = handle.execute(LookupNamedTimeZoneRequest::new(zone));
     /// }
     /// ```
     pub fn execute(&self, request: O::Request) -> Result<O::Response, O::Error> {
@@ -636,17 +606,20 @@ mod tests {
         }
     }
 
-    impl IntlOperationProvider<CanonicalizeTimeZone> for FixtureProvider {
+    impl IntlOperationProvider<LookupNamedTimeZone> for FixtureProvider {
         fn execute(
             &self,
-            request: CanonicalizeTimeZoneRequest,
-        ) -> Result<CanonicalizeTimeZoneResult, UnknownTimeZone> {
-            let time_zone = match request.time_zone().as_str() {
-                "europe/stockholm" => CanonicalTimeZoneId::from_data("Europe/Stockholm").unwrap(),
-                "Etc/UTC" => CanonicalTimeZoneId::from_data("UTC").unwrap(),
-                _ => return Err(UnknownTimeZone::new(request.time_zone)),
+            request: LookupNamedTimeZoneRequest,
+        ) -> Result<LookupNamedTimeZoneResult, UnknownTimeZone> {
+            let identity = match request.identifier().as_str() {
+                "europe/stockholm" => {
+                    crate::NamedTimeZoneIdentity::from_data("Europe/Stockholm", "Europe/Stockholm")
+                        .unwrap()
+                }
+                "Etc/UTC" => crate::NamedTimeZoneIdentity::from_data("Etc/UTC", "UTC").unwrap(),
+                _ => return Err(UnknownTimeZone::new(request.into_identifier())),
             };
-            Ok(CanonicalizeTimeZoneResult::new(time_zone))
+            Ok(LookupNamedTimeZoneResult::new(identity))
         }
     }
 
@@ -682,13 +655,13 @@ mod tests {
         assert_eq!(locale.locale().as_str(), "he-IL");
 
         let time_zone = kernel
-            .operation::<CanonicalizeTimeZone>()
+            .operation::<LookupNamedTimeZone>()
             .unwrap()
-            .execute(CanonicalizeTimeZoneRequest::new(
+            .execute(LookupNamedTimeZoneRequest::new(
                 TimeZoneId::parse("europe/stockholm").unwrap(),
             ))
             .unwrap();
-        assert_eq!(time_zone.time_zone().as_str(), "Europe/Stockholm");
+        assert_eq!(time_zone.identity().identifier(), "Europe/Stockholm");
     }
 
     #[test]
@@ -701,8 +674,8 @@ mod tests {
         let kernel = IntlKernel::new(identity, provider).unwrap();
 
         assert!(kernel.operation::<CanonicalizeLocale>().is_ok());
-        let error = kernel.operation::<CanonicalizeTimeZone>().unwrap_err();
-        assert_eq!(error.operation(), IntlHostOp::CanonicalizeTimeZone);
+        let error = kernel.operation::<LookupNamedTimeZone>().unwrap_err();
+        assert_eq!(error.operation(), IntlHostOp::LookupNamedTimeZone);
         assert!(error
             .missing()
             .contains(IntlDataCapability::TimeZoneTransitions));
@@ -722,21 +695,23 @@ mod tests {
     #[test]
     fn intl_host_wire_domain_is_closed_and_stable() {
         assert_eq!(IntlHostOp::CanonicalizeLocale.wire(), 0);
-        assert_eq!(IntlHostOp::CanonicalizeTimeZone.wire(), 1);
+        assert_eq!(IntlHostOp::LookupNamedTimeZone.wire(), 1);
         assert_eq!(
             IntlHostOp::from_wire(0),
             Some(IntlHostOp::CanonicalizeLocale)
         );
         assert_eq!(
             IntlHostOp::from_wire(1),
-            Some(IntlHostOp::CanonicalizeTimeZone)
+            Some(IntlHostOp::LookupNamedTimeZone)
         );
         assert_eq!(IntlHostOp::from_wire(-1), None);
         assert_eq!(IntlHostOp::MaximizeLocale.wire(), 2);
         assert_eq!(IntlHostOp::MinimizeLocale.wire(), 3);
         assert_eq!(IntlHostOp::from_wire(2), Some(IntlHostOp::MaximizeLocale));
         assert_eq!(IntlHostOp::from_wire(3), Some(IntlHostOp::MinimizeLocale));
-        assert_eq!(IntlHostOp::from_wire(4), None);
+        assert_eq!(IntlHostOp::ResolveTimeZone.wire(), 4);
+        assert_eq!(IntlHostOp::from_wire(4), Some(IntlHostOp::ResolveTimeZone));
+        assert_eq!(IntlHostOp::from_wire(5), None);
 
         let read = IntlHostReadSpan::new(u32::MAX, u32::MAX);
         assert_eq!(IntlHostReadSpan::from_wire(read.wire()), read);

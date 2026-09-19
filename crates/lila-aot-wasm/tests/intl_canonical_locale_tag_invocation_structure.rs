@@ -278,12 +278,12 @@ fn role_and_authority_census_is_closed_over_product_sources() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "CanonicalLocaleTagInvocationLocals"),
-        16
+        15
     );
     for role in ROLES {
         assert_eq!(
             count_identifier_in_rust_sources(&source_root, &format!("CanonicalLocale{role}Local")),
-            16,
+            15,
             "CanonicalLocale{role}Local census"
         );
     }
@@ -298,14 +298,14 @@ fn every_producer_constructs_all_roles_and_each_consumer_projects_once() {
         product_source
             .matches("CanonicalLocaleTagInvocationLocals::new(")
             .count(),
-        10
+        9
     );
     for role in ROLES {
         assert_eq!(
             product_source
                 .matches(&format!("CanonicalLocale{role}Local::new("))
                 .count(),
-            10,
+            9,
             "CanonicalLocale{role}Local producer census"
         );
     }

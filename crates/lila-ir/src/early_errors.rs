@@ -18,6 +18,9 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 expr_contains_this_before_super(operand, state);
             }
         }
+        ExprIr::ModuleEntryEvaluation(entry) => {
+            expr_contains_this_before_super(entry.evaluation(), state)
+        }
         ExprIr::SynchronousModuleGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::ModuleEvaluate(_)

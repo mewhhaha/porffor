@@ -256,14 +256,10 @@ impl<'a> ScriptLowerer<'a> {
                     self.unsupported("using declaration in for-await-of");
                     return ForOfLoweringIr::no_iteration();
                 }
-                if self.root_this_binding == RootThisBinding::Undefined {
-                    self.unsupported("using declaration in a module");
+                let Some(owner) = self.admit_sync_disposable_scope_owner() else {
                     return ForOfLoweringIr::no_iteration();
-                }
-                if self.current_generator_resume_state.is_some()
-                    || self.current_async_resume_state.is_some()
-                    || self.current_resumable_plan.is_some()
-                {
+                };
+                if owner != SyncDisposableScopeOwnerPlan::Immediate {
                     self.unsupported("using declaration in a generator or async function");
                     return ForOfLoweringIr::no_iteration();
                 }

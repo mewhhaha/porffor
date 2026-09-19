@@ -304,14 +304,7 @@ fn reaction_initialization_is_the_exact_private_capability_free_domain() {
 
     let continuation_declaration = normalize_rust(bounded(
         PROMISE_SOURCE,
-        concat!(
-            "    ResolveThenable {\n",
-            "        thenable_job_local: u32,\n",
-            "        then_payload_local: u32,\n",
-            "        then_tag_local: u32,\n",
-            "    },\n",
-            "}\n"
-        ),
+        "const HEAP_PROMISE_FINALLY_VALUE_TAG_OFFSET: u64 = 8;",
         "/// Whether an async-generator request publishes a yielded or terminal result.",
     ));
     assert_eq!(
@@ -331,7 +324,7 @@ fn reaction_initialization_is_the_exact_private_capability_free_domain() {
             "    AsyncExecution(&'a AsyncExecutionRealmContext),\n",
             "}\n"
         ),
-        "/// The inseparable Realm-owned fields",
+        "#[derive(Clone, Copy)]\nenum PromiseCombinatorMode",
     ));
     assert_eq!(
         initialization_declaration.code,
@@ -635,11 +628,18 @@ fn consumers_borrow_one_policy_for_resolve_and_both_reactions() {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let realm = match &continuation {
-            AsyncAwaitContinuation::AsyncFunction => self
-                .emit_async_function_execution_realm_context_from_activation(
+            AsyncAwaitContinuation::AsyncFunction => {
+                self.store_i64_local_at_offset(
+                    activation_local,
+                    HEAP_ASYNC_ENV_OFFSET,
+                    self.current_env_local,
+                    function,
+                );
+                self.emit_async_function_execution_realm_context_from_activation(
                     activation_local,
                     function,
-                ),
+                )
+            }
             AsyncAwaitContinuation::AsyncGeneratorBody
             | AsyncAwaitContinuation::AsyncGeneratorAwaitReturn
             | AsyncAwaitContinuation::AsyncGeneratorYield

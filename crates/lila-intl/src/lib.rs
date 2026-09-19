@@ -1,30 +1,42 @@
 //! Deterministic ECMA-402 data and protocol domains.
 //!
 //! This crate owns the closed vocabulary shared by the data generator, Wasm
-//! emitter and runtime provider. Its first host-embedded ICU4X kernel handles
-//! locale alias canonicalization and likely subtags without access to parser
-//! state, JavaScript IR, Wasmtime, JavaScript objects or observable operations.
+//! emitter and runtime provider. Its host-embedded kernel handles pinned locale
+//! transforms and exact IANA time-zone snapshots without access to parser state,
+//! JavaScript IR, Wasmtime, JavaScript objects or observable operations.
 
 use core::{fmt, fmt::Write as _};
 
 mod identifiers;
 mod protocol;
 mod provider;
+mod time_zone;
+
+pub use time_zone::{
+    FixedTimeZoneOffset, InvalidTimeZoneData, InvalidTimeZoneRequest, LookupNamedTimeZoneRequest,
+    LookupNamedTimeZoneResult, NamedTimeZoneIdentity, ResolveTimeZoneRequest,
+    ResolvedTimeZoneSnapshot, TimeZoneEpochSeconds, TimeZoneKind, TimeZoneNameStyle,
+    TimeZoneResolveError, TimeZoneSelection, LOOKUP_TIME_ZONE_HEADER_BYTES,
+    LOOKUP_TIME_ZONE_IDENTIFIER_LENGTH_OFFSET, LOOKUP_TIME_ZONE_PRIMARY_LENGTH_OFFSET,
+    RESOLVE_TIME_ZONE_EPOCH_SECONDS_OFFSET, RESOLVE_TIME_ZONE_FIXED_SECONDS_OFFSET,
+    RESOLVE_TIME_ZONE_HEADER_BYTES, RESOLVE_TIME_ZONE_IDENTIFIER_LENGTH_OFFSET,
+    RESOLVE_TIME_ZONE_KIND_OFFSET, RESOLVE_TIME_ZONE_LOCALE_LENGTH_OFFSET,
+    RESOLVE_TIME_ZONE_NAME_STYLE_OFFSET, RESOLVE_TIME_ZONE_RESULT_HEADER_BYTES,
+};
 
 pub use identifiers::{
-    CanonicalLocaleId, CanonicalTimeZoneId, InvalidCanonicalLocaleId, InvalidCanonicalTimeZoneId,
-    InvalidLocaleId, InvalidTimeZoneId, LocaleId, TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
+    CanonicalLocaleId, InvalidCanonicalLocaleId, InvalidLocaleId, InvalidTimeZoneId, LocaleId,
+    TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
 };
 pub use protocol::{
-    CanonicalizeLocale, CanonicalizeTimeZone, CanonicalizeTimeZoneRequest,
-    CanonicalizeTimeZoneResult, IntlHostCallOutcome, IntlHostOp, IntlHostReadSpan,
-    IntlHostWriteSpan, IntlKernel, IntlOperation, IntlOperationHandle, IntlOperationProvider,
-    IntlProvider, IntlProviderIdentityMismatch, LocaleTransformError, LocaleTransformRequest,
-    LocaleTransformResult, MaximizeLocale, MinimizeLocale, MissingIntlCapabilities,
-    UnknownTimeZone, UnsupportedLocale,
+    CanonicalizeLocale, IntlHostCallOutcome, IntlHostOp, IntlHostReadSpan, IntlHostWriteSpan,
+    IntlKernel, IntlOperation, IntlOperationHandle, IntlOperationProvider, IntlProvider,
+    IntlProviderIdentityMismatch, LocaleTransformError, LocaleTransformRequest,
+    LocaleTransformResult, LookupNamedTimeZone, MaximizeLocale, MinimizeLocale,
+    MissingIntlCapabilities, ResolveTimeZone, UnknownTimeZone, UnsupportedLocale,
 };
 pub use provider::{
-    embedded_locale_data_identity, EmbeddedLocaleProvider, EmbeddedLocaleProviderSetupError,
+    embedded_intl_data_identity, EmbeddedIntlProvider, EmbeddedIntlProviderSetupError,
 };
 
 // The embedded provider crosses Wasmtime store and agent-thread boundaries.
@@ -33,7 +45,7 @@ pub use provider::{
 const _: fn() = || {
     fn assert_send_sync<T: Send + Sync>() {}
 
-    assert_send_sync::<IntlKernel<EmbeddedLocaleProvider>>();
+    assert_send_sync::<IntlKernel<EmbeddedIntlProvider>>();
 };
 
 macro_rules! closed_string_domain {
@@ -65,16 +77,16 @@ macro_rules! closed_string_domain {
 
 pub const INTL_DATA_SCHEMA_VERSION: IntlDataSchemaVersion = IntlDataSchemaVersion(1);
 
-/// Host-call ABI2 adds required-capacity responses for locale canonicalization.
+/// Host-call ABI3 adds named-zone identity and exact-instant snapshot operations.
 /// Artifact identity includes this value so an incompatible host is rejected
 /// before instantiation, independently of the pinned ICU/CLDR data identity.
-pub const INTL_HOST_CALL_ABI_VERSION: u16 = 2;
+pub const INTL_HOST_CALL_ABI_VERSION: u16 = 3;
 
 /// Canonical Wasm custom section carrying the Intl provider identity expected
 /// by a compiled artifact.
 ///
 /// This section carries identity metadata, not the ICU/CLDR payload itself.
-/// The current [`EmbeddedLocaleProvider`] therefore records `External`
+/// The current [`EmbeddedIntlProvider`] therefore records `External`
 /// placement even though its Rust-side data is compiled into the host.
 pub const INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION: &str = "lila.intl-data-identity.v1";
 
@@ -383,9 +395,10 @@ impl IntlDataVersions {
 
 /// A selected profile with capability closure already computed.
 ///
-/// Callers select services, never capability bits. That makes it impossible to
-/// advertise `DateTimeFormat`, for example, without time-zone transitions and
-/// names being present in the generated-data plan.
+/// Callers select services or sealed operations, never capability bits.
+/// Advertising a complete DateTimeFormat service still requires its full data
+/// closure; an individual operation can require a narrower set without claiming
+/// that every other operation in that service is implemented.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntlProfilePlan {
     profile: IntlDataProfile,
@@ -428,6 +441,14 @@ impl IntlProfilePlan {
             services,
             capabilities,
         })
+    }
+
+    /// Adds only the data required by a sealed pure operation. This does not
+    /// advertise a whole service whose other formatting data is absent.
+    #[must_use]
+    pub fn with_operation<O: IntlOperation>(mut self) -> Self {
+        self.capabilities = self.capabilities.union(O::HOST_OP.required_capabilities());
+        self
     }
 
     #[must_use]
@@ -650,6 +671,30 @@ mod tests {
     }
 
     #[test]
+    fn operation_data_does_not_advertise_a_complete_formatter_service() {
+        let profile = IntlProfilePlan::minimal(IntlServiceSet::EMPTY.with(IntlService::Locale))
+            .unwrap()
+            .with_operation::<LookupNamedTimeZone>()
+            .with_operation::<ResolveTimeZone>();
+        assert_eq!(
+            profile.services(),
+            IntlServiceSet::EMPTY.with(IntlService::Locale)
+        );
+        assert!(profile
+            .capabilities()
+            .contains(IntlDataCapability::TimeZoneTransitions));
+        assert!(profile
+            .capabilities()
+            .contains(IntlDataCapability::TimeZoneNames));
+        assert!(!profile
+            .capabilities()
+            .contains(IntlDataCapability::DateTimePatterns));
+        assert!(!profile
+            .capabilities()
+            .contains(IntlDataCapability::Calendars));
+    }
+
+    #[test]
     fn current_identity_fixes_schema_and_data_line() {
         let identity = IntlDataIdentity::new(
             IntlProfilePlan::conformance(),
@@ -679,7 +724,7 @@ mod tests {
                 .expect("identity is canonical UTF-8"),
             concat!(
                 "schema=1\n",
-                "host-call-abi=2\n",
+                "host-call-abi=3\n",
                 "profile=minimal\n",
                 "services=Locale\n",
                 "capabilities=likely-subtags,locale-aliases,parent-locales\n",

@@ -35,8 +35,8 @@ fn intl_date_time_format_heap_slot_is_the_exact_capability_free_domain() {
             "CalendarPayload,",
             "NumberingSystemPayload,",
             "TimeZonePayload,",
-            "TimeZoneOffsetMinutes,",
-            "TimeZoneGmtNamePayload,",
+            "TimeZoneFixedSeconds,",
+            "TimeZoneKind,",
             "HourCycleCode,",
             "WeekdayCode,",
             "EraCode,",
@@ -105,16 +105,16 @@ fn one_exhaustive_projection_owns_twenty_three_exact_rows() {
             true,
         ),
         (
-            "TimeZoneOffsetMinutes",
-            "time_zone_offset_minutes",
-            "HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET",
+            "TimeZoneFixedSeconds",
+            "time_zone_fixed_seconds",
+            "HEAP_INTL_DTF_TIME_ZONE_FIXED_SECONDS_OFFSET",
             false,
         ),
         (
-            "TimeZoneGmtNamePayload",
-            "time_zone_gmt_name_payload",
-            "HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET",
-            true,
+            "TimeZoneKind",
+            "time_zone_kind",
+            "HEAP_INTL_DTF_TIME_ZONE_KIND_OFFSET",
+            false,
         ),
         (
             "HourCycleCode",
@@ -226,8 +226,8 @@ fn typed_registry_preserves_date_time_format_slot_order() {
         "CalendarPayload",
         "NumberingSystemPayload",
         "TimeZonePayload",
-        "TimeZoneOffsetMinutes",
-        "TimeZoneGmtNamePayload",
+        "TimeZoneFixedSeconds",
+        "TimeZoneKind",
         "HourCycleCode",
         "WeekdayCode",
         "EraCode",
@@ -267,9 +267,22 @@ fn intl_date_time_format_layout_has_one_private_owner() {
     assert!(!LIB_SOURCE.contains("pub mod heap_intl_date_time_format_layout;"));
     assert!(!HEAP_SOURCE.contains("record: \"intl-date-time-format-record\""));
     assert!(!HEAP_SOURCE.contains("HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[HeapLayoutSlot]"));
-    for evidence in [CONTRACT, T05, T23] {
+    for evidence in [T05, T23] {
         assert!(evidence.contains("IntlDateTimeFormatHeapSlot"));
         assert!(evidence.contains("passive metadata migration"));
         assert!(evidence.contains("no new Intl behavior"));
+    }
+    for invariant in [
+        "IntlDateTimeFormatHeapSlot",
+        "five traced",
+        "eighteen fields",
+        "TimeZoneFixedSeconds",
+        "TimeZoneKind",
+        "no longer a GC root",
+    ] {
+        assert!(
+            CONTRACT.contains(invariant),
+            "missing current contract `{invariant}`"
+        );
     }
 }

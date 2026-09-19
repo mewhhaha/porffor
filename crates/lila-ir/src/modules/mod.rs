@@ -3,7 +3,8 @@
 //! `record` owns `ParseModule` and the static entry tables (16.2.1.6.1,
 //! 16.2.2, 16.2.3). `early` owns the module early errors (16.2.3.1) and the
 //! classification of boa's own module-goal static-semantics failures.
-//! `graph_build` owns transitive assembly; `graph_resolution` owns
+//! `admission` assigns dynamic-only loading failures to import jobs while
+//! preserving static rejection. `graph_build` owns transitive assembly; `graph_resolution` owns
 //! `GetExportedNames` / `ResolveExport`; `graph_evaluation_classification` owns
 //! evaluation-mode classification and unsupported phase policy;
 //! `graph_evaluation_order` owns `InnerModuleEvaluation` order and
@@ -29,10 +30,14 @@
 //! hands the closure over as a [`ModuleGraphSources`]; nothing in this
 //! directory touches the filesystem.
 
+mod admission;
 mod default_export_definition;
 mod dynamic;
 mod early;
+mod entry_evaluation;
 mod evaluation_mode;
+pub(crate) use entry_evaluation::{LinkedModuleEntry, ModuleEntryEvaluationBoundary};
+pub use entry_evaluation::{ModuleEntryEvaluationIr, ModuleEntryEvaluationKindIr};
 mod graph;
 mod graph_async_evaluation;
 mod graph_build;
@@ -69,6 +74,7 @@ pub use namespace::*;
 pub use record::*;
 pub use resolved_binding::{ModuleBindingNameIr, ResolvedBindingIr};
 
+pub(crate) use admission::link_loaded_graph;
 pub(crate) use dynamic::lower_import_call;
 pub(crate) use graph::link;
 pub(crate) use graph_build::build_graph;

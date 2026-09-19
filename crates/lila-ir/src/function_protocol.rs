@@ -98,7 +98,7 @@ impl FunctionProtocolIr {
 
     /// Execution of the original source body, excluding a private module
     /// instantiation suspension. The module's call ABI still uses a generator.
-    pub(crate) const fn source_execution_kind(self) -> FunctionExecutionKind {
+    pub const fn source_execution_kind(self) -> FunctionExecutionKind {
         match self {
             Self::OrdinaryCallOnly
             | Self::OrdinaryCallAndConstruct

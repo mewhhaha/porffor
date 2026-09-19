@@ -1,0 +1,76 @@
+{
+  "upstream": "unicode-org/cldr",
+  "release": "47.0.0",
+  "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "files": [
+    {
+      "path": "common/main/root.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/common/main/root.xml",
+      "bytes": 268212,
+      "sha256": "1ac705812e9e186b8d904813a4989d160729cc4d217849ad3736257da10f69b0"
+    },
+    {
+      "path": "common/main/en.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/common/main/en.xml",
+      "bytes": 435987,
+      "sha256": "cdb3d09f4d5cd206616a57cc8a8cb54c458c6678758c59b8b817125fe2dfb147"
+    },
+    {
+      "path": "common/main/en_US.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/common/main/en_US.xml",
+      "bytes": 459,
+      "sha256": "e3c97332d035ce5424269b7226b7d85e6cf36333b5caf329c82b9a9c607e13d0"
+    },
+    {
+      "path": "common/bcp47/timezone.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/common/bcp47/timezone.xml",
+      "bytes": 46467,
+      "sha256": "99008ac7e936b61f4eda6c3a0f09fb4b2fb9cb87943b575657e69b2e71cc240d"
+    },
+    {
+      "path": "common/supplemental/metaZones.xml",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/common/supplemental/metaZones.xml",
+      "bytes": 94005,
+      "sha256": "e2a4c44352ef0dde6815c8208b7020bdc37aa65cc6582521aa478ba51b5f492f"
+    },
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/unicode-org/cldr/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/LICENSE",
+      "bytes": 2033,
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+    },
+    {
+      "path": "icu-77-1-zoneinfo64.icu",
+      "url": "https://raw.githubusercontent.com/unicode-org/icu/457157a92aa053e632cc7fcfd0e12f8a943b2d11/icu4c/source/data/misc/zoneinfo64.txt",
+      "bytes": 360734,
+      "sha256": "c0c34daadb59d2552252405b9be08894f83d2cd8145d0f6eb35e1557721dd55f"
+    },
+    {
+      "path": "ICU-LICENSE",
+      "url": "https://raw.githubusercontent.com/unicode-org/icu/457157a92aa053e632cc7fcfd0e12f8a943b2d11/LICENSE",
+      "bytes": 26487,
+      "sha256": "451167c55c0fa447cc2d5632714f5e3c567fe4f1e1badefab2c1333852198aca"
+    },
+    {
+      "path": "icu-country-source.json",
+      "url": null,
+      "bytes": 421,
+      "sha256": "cb258ee45482069f5dbba397521a80ac33b7443771aa2ed6db54e55683a659fc"
+    },
+    {
+      "path": "selector.json",
+      "source": "Lila pinned LDML47 selector recipe",
+      "bytes": 1176,
+      "sha256": "ae96c919599d6d703dde9a3adc235bff28a75e7adae24c85e7482aec1b8c9f7a"
+    }
+  ],
+  "total_bytes": 1235981,
+  "country_authority": {
+    "release": "77.1",
+    "tag": "release-77-1",
+    "tagObject": "457157a92aa053e632cc7fcfd0e12f8a943b2d11",
+    "commit": "457157a92aa053e632cc7fcfd0e12f8a943b2d11",
+    "sourceUrl": "https://raw.githubusercontent.com/unicode-org/icu/457157a92aa053e632cc7fcfd0e12f8a943b2d11/icu4c/source/data/misc/zoneinfo64.txt",
+    "usage": "geographic country metadata only; IANA2026a Zone/Link/zone.tab/backzone is identifier authority"
+  }
+}

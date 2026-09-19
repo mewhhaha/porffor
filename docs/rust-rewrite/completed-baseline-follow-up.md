@@ -518,6 +518,292 @@ await paths, foreign descriptor prototypes and all eight exotic error-Realm
 checks. Its remaining resource-loop probe is rejected by the same module guard.
 The descriptor corruption test passes, while the combined lifetime test reaches
 an existing matchAll capability gap when cloning a Unicode program with changed
-flags. Broader native verification and the module, Intl, RegExp and catch/BigInt
-replays remain active. These are partial checkpoint results, not a completed
-verification claim or a refreshed full Test262 status.
+flags.
+
+Checkpoint twelve completed all 167 verification stages on 2026-09-18: 155 pass
+and twelve retain failed tests. The complete verdicts and immutable executable
+hashes are in `batch12-verification-complete.json`. Frontend passes 164/164,
+IR reports 1,143/1,144, AOT passes 443/443 and Test262 passes 364/364. The failed
+stages cover the module resource admission guard, RegExp descriptor/protocol
+behavior, seven source-census fixtures and the module-root-this IR fixture.
+
+The completed module replay passes 137/153 with twelve Bug and four
+NotImplemented outcomes: 44 repaired current-main failures and 93 retained
+successes. The Intl replay passes 334/394 with sixty Bug outcomes; its 366-case
+overlap with checkpoint ten repairs eight failures and retains all 300 previous
+successes. The separate lookaround replay passes 158/162, repairing 56 main
+failures and retaining 102 main successes. A complete 24-execution Date locale
+reference passes twenty and records four Bugs. All four completed replays have
+zero crashes and zero timeouts. The separate RegExp folding replay passes
+225/242 with six Bugs and eleven timeout Crashes. Compared with main, it repairs
+sixteen Bugs, clears one previous timeout and retains 208 successes; the other
+eleven timeouts remain unresolved. The completed catch/BigInt replay passes
+390/390, repairing 37 current-main failures and retaining 353 successes, with
+zero crashes or timeouts.
+These are bounded cohort results, separate from a refreshed full Test262 status.
+
+The thirteenth source batch admits canonical synchronous module resource scopes,
+orders RegExp `lastIndex` coercion before program selection, and repairs stale
+source fixtures without dropping their ownership and ordering checks. It adds
+an emitted compiler for computed legacy RegExp patterns and routes Date locale
+methods through shared DateTimeFormat initialization. Runtime Unicode RegExp
+grammar, broader Intl locale/calendar support and asynchronous module drivers
+remain open; the following counts cover bounded checks, not a new full sweep.
+
+The thirteenth frozen compiler has SHA-256
+`9758cb830f3bd369cf9dca0e61f44f6bd4271dc5cab2b27a68d873fc58f86770`;
+its 3,734-input source manifest has SHA-256
+`549d156feaaf7f2dc5ed9c732b3846a8ce27d74ab9bcd9b9bdc23cb413f791b7`.
+Release checking, immutable compiler/test builds and the oracle-feature check
+pass. The source census completes 54 stages with 52 passes and two stale
+source-boundary failures. Date locale passes 12/12 native tests and 24/24 pinned
+executions, with four repairs and twenty retained checkpoint-twelve successes.
+RegExp recompilation passes 7/7 and descriptor lifetime passes 3/3. The runtime
+compiler target passes 5/6: its unchanged large grammar fixture exceeds the
+Wasmtime function-size limit. Module instantiation passes 21/23 native tests;
+the two failures retain backend guards on resource loop heads. All 172 selected
+verification stages finished: 168 pass and four retain failed tests. A later
+library source guard read the next batch's live source; that limitation is
+recorded in `batch13-live-source-reader-limitation.json`, so the full result is
+not claimed as a single-source verification. The completed module replay remains
+137/153. Intl passes 374/394, repairing forty checkpoint-twelve failures and
+retaining 334 successes, with zero crashes/timeouts. Lookaround passes 157/162:
+four old Bugs remain and one former success exceeds the Wasmtime function-size
+limit. Folding passes 224/242 with six Bugs and twelve timeout Crashes; all 208
+main successes remain successful. The completed catch/BigInt replay passes
+390/390: 37 main failures repaired and all 353 main successes retained, with
+zero crashes/timeouts.
+
+The fourteenth batch fixes those resource guards using the closed source
+execution kind, and publishes host globals needed only by independently
+compiled Script, Function and module-prelude sources. Prepared declarations
+remain owned by runtime instantiation. Bare entry vars reuse host properties,
+entry functions retain their override, and later replacement/deletion remains
+observable. New regressions cover direct and queued callbacks, separate Realm
+Scripts, Function bodies and module completion jobs.
+
+The same batch adds canonical synchronous import continuations: dynamic-only
+targets wait for their import job, load/link failures reject the owning promise,
+and repeated evaluations retain the original completion. Computed legacy RegExp
+patterns gain nested scoped `i`/`m`/`s` flags, including changed-global-flag clones.
+Array present-index bookkeeping moves into one emitted helper; the original
+large RegExp grammar fixture is retained as the end-to-end size regression.
+The array change preserves the bookkeeping algorithm and has no runtime-speed
+claim. Separate phase probes still investigate the remaining RegExp
+timeout failures.
+
+
+Checkpoint fourteen revision one has compiler SHA-256
+`593922739990098fb718914456b8662e0b1e66b51a7803cadafe3f182beb821c`
+and 3,745-input manifest SHA-256
+`4daf47d5fe29a8f56589fcbc9fb73462c500f525c0102f45842427f8f90d82bf`.
+The first attempt stopped at a Rust formatting-macro error before producing a
+compiler; its failure evidence remains separate. Revision one passes release
+checking, immutable builds and the oracle-feature check. Its 61 source/library
+stages finish before source unfreezes: 60 pass, with one stale helper-count
+assertion. Frontend passes 164/164, IR 1,148/1,148, AOT 443/444, and Test262
+364/364. Native module instantiation passes 24/24 and import-job ordering passes
+9/9. The completed pinned module audit passes 147/153, repairing 54 main
+failures and retaining all 93 main successes, with zero crashes/timeouts. The
+remaining two Bugs and four unsupported cases concern asynchronous deferred
+module evaluation.
+
+The unchanged runtime-RegExp grammar fixture now fits Wasmtime's function-size
+limit: its main body falls from 4,556,950 to 3,183,163 bytes with 283 locals in
+both artifacts. It then exposes dirty compiler workspace reused by capture
+arrays. Three standalone computed-pattern probes fail at that same boundary.
+The next batch clears released storage on successful publication and every
+typed failure while preserving immutable descriptors. One new native prepared
+Realm-Script test also lacked its `$262` host bridge; the correctly bridged
+source passes on the immutable fourteen compiler, and the fixture is corrected.
+These failed checks remain recorded rather than counted as passes.
+
+The full fourteen-revision-one verification finishes at 178/181 passing test
+groups. The three failed groups are the stale AOT helper count, runtime RegExp
+workspace reuse, and the missing host bridge in the prepared Realm fixture.
+The fifteenth batch repairs those paths, implements both legacy accessor
+definers, separates Test262 Script rejection reporting from Script completion,
+and makes allocated dense array capacity authoritative for indexed storage and
+iteration. Sparse descriptors transfer intact when capacity grows. Its public
+Promise policy rejects the retained async Module driver when ignoring rejection
+reports would discard module evaluation failure.
+
+Checkpoint fifteen has compiler SHA-256
+`fa38c03f424111162e4ebd208f7dff09e95f7b6d79b9e0c898c500785b6756c3`
+and 3,753-input manifest SHA-256
+`560cec320a4dd5e4785417473b390cd3fe20d71d8a7ffadb1cc46cb675dc2536`.
+Release all-targets checking, immutable CLI/test builds, and the oracle-feature
+check pass. All 64 source/library groups pass before source unfreezes, including
+Frontend 164/164, IR 1,149/1,149, AOT 444/444, and Test262 366/366. The completed
+paired Promise audit passes 28/28: 26 main Bugs repaired and two async main
+successes retained. Legacy accessor definitions pass 21/21, repairing eighteen
+main Bugs and retaining three successes. Folding passes 242/242, repairing 22
+main Bugs, passing all twelve main timeout rechecks and retaining 208 successes.
+Lookaround passes 161/162: all sixty main Bugs are repaired, 101 main successes
+remain, and the strict named-lookbehind fixture still regresses at Wasmtime's
+function-size limit. Modules retain 147/153 with the same six async-defer
+failures. These complete cohorts have zero crashes/timeouts. Native verification
+finishes at 188/190 passing groups: the two failed groups expose sparse
+descriptor transfer and a Promise test's formatted-note assertion. Revision one
+below addresses both. Intl retains 374/394 and Date locale retains 24/24, with
+zero crashes/timeouts. The completed catch/BigInt replay passes 390/390,
+repairing 37 main failures and retaining all 353 main successes.
+
+Checkpoint fifteen revision one has compiler SHA-256
+`35b1e763240b4f17c2afb306620d0e91a8edb0a6121bbe5ceff781ced4702fe4`
+and source-manifest SHA-256
+`92c06b7fc9c91e5767b5427eaffc5781ddd5eb44587837d5a09d04fca86563fb`.
+Its release checks and builds pass. All 77 verification groups complete: 74 pass
+and three fail. The 64 source/library groups pass against verified frozen
+sources; frontend is 164/164, IR 1,149/1,149, AOT 445/445 and Test262 366/366.
+Promise policy passes 8/8, including the public async-Module guard; JSON passes
+27/27 and Array 52/52. The original sparse descriptor-transfer failure passes.
+Array storage now reports 10/11, indexed deletion 7/8 and Arguments concat 3/4:
+their remaining failures expose stale carriers after deletion and a missing
+descriptor when reusing a sparse tombstone. The following source batch repairs
+those causes and retains the failed receipts for comparison.
+
+Checkpoint sixteen revision three has compiler SHA-256
+`fc93fae26be677472c3cb1aedfdbb51aee2fe3aa58991b826d87598bc95f02fe`
+and 3,841-input source-manifest SHA-256
+`633722fb07590caaf1930100b949fc5d16ecc1870f4464d6a57cd80ee90a0df2`.
+Release all-target checking, immutable builds and the oracle-feature check pass.
+The three earlier compilation attempts retain separate failure evidence and
+produced no frozen compiler. All 101 verification groups complete: 97 pass.
+The 69 source/library groups finish against verified frozen inputs, with three
+failures from stale contract/catalog assertions; the remaining failing provider
+group exposes Iceland's incorrect primary-zone mapping. The next batch repairs
+the mapping from IANA's explicit geographic alias authority and updates those
+assertions without changing their intended invariants.
+
+Native named-zone tests pass 9/9, String match 8/8 and emitted-size controls 2/2.
+Array storage passes 12/12, deletion 8/8 and Arguments concat 4/4. Both independent
+deletion/reinsertion reproducers pass. Frontend passes 164/164, AOT 445/445 and
+Test262 366/366; IR is 1,148/1,149 because of the catalog-order assertion. The
+completed lookaround audit passes 162/162, repairing all 60 main Bugs and retaining
+102 main successes. Folding passes 242/242: 22 main Bugs repaired, 12 main timeout
+rechecks pass and 208 main successes remain. Neither cohort has crashes/timeouts.
+The unchanged strict named-lookbehind fixture also passes in an isolated native
+run; its main Wasm function falls from 4,144,083 to 1,263,006 bytes with 104 locals
+in both versions. The completed Intl audit passes 390/394, repairing sixteen
+checkpoint-fifteen failures and retaining all 374 successes. Four Bugs remain
+in Chinese related-year and Arabic Temporal-formatting cases. Date locale
+passes 24/24. Neither replay has timeouts.
+
+Checkpoint seventeen revision one has compiler SHA-256
+`a2a061767782b86f1ff206b9851d59c071d08c6be5e51ca80a709c086e75ad33`
+and 3,895-input source-manifest SHA-256
+`4bd4df936d5d0b7c6f081d2604307cb96a7e93bdf171590c858ea79cda9e4efe`.
+The selected Instant audit completes 229 executions: 227 Success and two Bug,
+with no timeouts. It repairs 225 main failures and retains both selected main
+successes. Until/since still reject a recognized date largestUnit before reading
+later options; the next source batch restores their required observation order.
+Wide Duration native tests pass 8/8, Instant methods 12/12 and Intl provider
+tests 56/56. Frontend passes 164/164 and IR 1,149/1,149. These paired cohort and
+native results are separate from the full historical sweep and the still-running
+immutable-main replay.
+
+All 148 checkpoint-seventeen verification groups complete: 142 pass. The 101
+source/library groups ran before releasing the verified source freeze. Four
+guards still name obsolete code boundaries, and the AOT dependency test finds
+that Reflect's ordinary definition body was not retained for standalone JSON.
+The JSON reviver target passes 6/8: inherited descriptor reads and locked Array
+length expose shared property-definition defects. The next source batch fixes
+those causes, keeps the failures as evidence and adds direct ordinary API
+controls. All 142 frozen test executables and all 148 logs are hashed in the
+completion receipt. The 27 retained JSON, 52 Array and other selected native
+groups pass; this does not erase the new focused failures.
+
+Checkpoint eighteen revision two has compiler SHA-256
+`52a8b39aada65b67fb6b39092003db4120406efc2817f34a5b38f653e71078a4`
+and 3,913-input source-manifest SHA-256
+`ae3d623eb58bc1a5ea5096a2e22ce3361a39f4aa9404e98b7d0e0efb9bffc5c5`.
+Its release all-target check, immutable build and oracle-feature check pass.
+On 2026-09-19, all 159 verification groups complete successfully, containing
+3,033 tests. All 105 source/library groups run before releasing the verified
+source freeze. Frontend passes 164/164, IR 1,149/1,149, Wasm backend 447/447,
+Test262 harness 369/369 and Intl provider 56/56. The completion receipt hashes
+all 152 frozen executables and all 159 logs.
+
+Native module entry completion passes 12/12, JSON reviver definitions 9/9,
+Reflect/Object descriptors 9/9, Instant methods 19/19, wide Duration 8/8,
+Promise policy 8/8 and Array index storage 13/13. The nine unchanged saved
+reproductions all pass through Wasm AOT: canonical descriptors and JSON sibling
+callbacks, locked Array length, TypedArray coercion throws, nested Proxy
+definitions and Instant conversion boundaries. No new paired conformance result
+is inferred from these native tests.
+
+The initial eighteenth compile failed on a missing IR import. Revision one
+then exposed a missing interned error string in fifty verification groups and
+one stale completion-shape guard. Both failures remain recorded; revision two
+registers the string and updates the guard while preserving its completion
+routing assertion. Revision one's 108/159 result is superseded only for the
+verified revised source, not rewritten in the evidence.
+
+The next source change preserves the Arguments indexed own-property bit when
+all descriptor attributes and the ParameterMap flags are zero. Its batch keeps
+all source/library guards and the affected Arguments, Array, property-definition
+and JSON native regressions. The planned paired replay carries the same 641
+execution identities: property definitions (231), Instant (229), modules (153)
+and Promise policy (28). This replaces the unstarted eighteenth-checkpoint
+replay; no observed outcome is discarded. Generated full-suite status remains
+unchanged, and the immutable-main replay is still incomplete.
+
+Checkpoint nineteen has compiler SHA-256
+`21273808b5be7f963225149ab64dc655a1a3d3676571fd30f5d6b0f083703f71`
+and 3,914-input source-manifest SHA-256
+`af122712623fba3af6f3ea490e94cc951283702e35859fc49bec60b102cc6513`.
+The release all-target check, immutable builds and oracle-feature check pass.
+All 121 selected verification groups complete successfully, containing 2712
+tests. The 106 source/library groups run against verified frozen source. The
+five new Arguments descriptor tests, six Array/Arguments primitive-conversion
+controls, fourteen Arguments iteration tests and four concat tests pass, along
+with the selected Array, JSON and property-definition retention groups. Both
+saved Arguments reproducers pass through the frozen Wasm-AOT CLI. The source
+change from checkpoint eighteen is confined to the shared Arguments indexed
+entry store, its tests and documentation; unrelated native groups retain their
+separate completed eighteenth-checkpoint result.
+
+The paired 641-execution replay is now running on this frozen nineteenth
+compiler. Its four complete comparison cohorts are property definition (231),
+Instant (229), modules (153) and Promise policy (28). Pending executions have no
+candidate outcome. Refresh the same selection with the retained
+`replay-batch19.sh`, or use `scripts/replay-test262-executions.py` with each
+recorded execution list, immutable compiler and a fresh output directory, then
+`scripts/audit-test262-replay.py` with its recorded main-reference audit. Native
+refresh commands include `cargo check --release --locked --workspace --all-targets`
+and `cargo test --release --locked -p lila-engine --test aot_arguments_index_descriptors
+--test aot_array_arguments_primitive --test aot_arguments_iteration
+--test aot_arguments_concat -- --test-threads=2`.
+
+## Instant arithmetic and differences
+
+The remaining-main snapshot at `2026-09-18T20:23:20Z` contains 227 observed
+missing-method Bugs across Instant add (26), subtract (24), round (40), until
+(68), and since (69), plus two selected passing epoch-limit controls. These
+are selected executions from an incomplete immutable-main replay, not a full
+suite count or a candidate result. The exact 229-execution replay and copied
+source/outcome/transcript hashes live under
+`target/failure-review/completed-baseline-20260914/temporal-instant-methods-followup`.
+
+The new methods use the existing canonical Duration conversion and arithmetic
+pipeline, a shared exact Instant/ZonedDateTime BigInt splitter, and the private
+validated epoch allocation proof. Instant rounding uses a floor day and a
+within-day nanosecond remainder; half-even includes the day contribution to
+global quotient parity. Difference options retain observable getter order,
+time-unit admission, signed rounding and since's rounding-mode inversion.
+
+Instant and Duration member installation is shared between entry and created
+Realms. Only these two Temporal families are added to created-Realm publication
+in this change; the wider pre-existing omission of other Temporal families
+and Temporal.Now there remains separate work. Result prototypes come from
+immutable Realm slots, and foreign constructor fallback follows NewTarget.
+
+The batch must be integrated together with the canonical wide Duration field
+foundation. Pinned add/subtract minimum-maximum cases require valid Number
+fields beyond i64, and largestUnit nano/micro differences must also retain
+those values. The required native regression includes real Duration instances
+and later Duration operations; there is no Instant-only conversion bypass.
+No candidate pass count is claimed before root runs the new native target,
+existing arithmetic controls and the exact canonical replay. See
+[the Instant method contract](contracts/temporal-instant-methods.md).

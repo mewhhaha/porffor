@@ -3,6 +3,8 @@ use crate::functions::{NewTargetPrototypeFallback, OrdinaryDefaultPrototype};
 
 mod date_string_parse;
 mod local_string;
+mod locale_string;
+pub(crate) use locale_string::DateLocaleFormat;
 
 enum DateComponentSetterOperation {
     FullYear,

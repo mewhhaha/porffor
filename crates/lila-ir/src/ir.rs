@@ -15,8 +15,8 @@ use crate::{
     GLOBAL_THIS_NAME,
 };
 use crate::{
-    ImportPhaseIr, ModuleGraphIr, ModuleUnitId, PreparedScript, PreparedScriptOutcome,
-    PreparedScriptUnit, RuntimeGlobalDeclarationPlan,
+    ImportPhaseIr, ModuleEntryEvaluationIr, ModuleGraphIr, ModuleUnitId, PreparedScript,
+    PreparedScriptOutcome, PreparedScriptUnit, RuntimeGlobalDeclarationPlan,
 };
 
 /// Reference Records (6.2.5) and their `[[Strict]]`. See
@@ -2088,6 +2088,7 @@ pub enum ExprIr {
     },
     /// Allocate every private activation, instantiate imports/namespaces, then evaluate.
     SynchronousModuleGraph(Box<crate::modules::SynchronousModuleGraphIr>),
+    ModuleEntryEvaluation(crate::modules::ModuleEntryEvaluationIr),
     ModuleBindingRead(crate::modules::ModuleCellIr),
     ModuleEvaluate(crate::modules::SynchronousModuleEvaluationIr),
     DeferredModuleEvaluate(crate::modules::DeferredModuleEvaluationIr),
@@ -4361,6 +4362,26 @@ impl GlobalBindingPlan {
         );
     }
 
+    pub(crate) fn require_host_global(&mut self, builtin: HostBuiltinId) {
+        let Some(name) = builtin.global_name() else {
+            return;
+        };
+        match self.object_bindings.get_mut(name) {
+            Some(binding) => {
+                // Prepared sources are compiled after entry declarations. A bare
+                // var reuses the host property; a source function overrides it.
+                if binding.initializer == GlobalPropertyInitializerIr::FreshUndefined {
+                    binding.initializer = GlobalPropertyInitializerIr::HostFunction(builtin);
+                }
+            }
+            None => self.insert_initial(ScriptGlobalBindingIr {
+                name: name.to_owned(),
+                initializer: GlobalPropertyInitializerIr::HostFunction(builtin),
+                declarations: GlobalDeclarationSetIr::None,
+            }),
+        }
+    }
+
     pub fn record_var(&mut self, name: String) {
         assert!(
             !self.lexical_bindings.contains_key(&name),
@@ -4494,6 +4515,10 @@ pub struct ScriptIr {
 }
 
 impl ScriptIr {
+    pub fn module_entry_evaluation(&self) -> Option<&ModuleEntryEvaluationIr> {
+        ModuleEntryEvaluationIr::in_root_block(&self.body)
+    }
+
     pub fn prepared_script_units(&self) -> impl Iterator<Item = &PreparedScriptUnit> {
         self.module_prelude
             .iter()
@@ -5250,6 +5275,7 @@ impl IrSummaryCounts {
                 }
             }
             ExprIr::ImportMeta { .. } => {}
+            ExprIr::ModuleEntryEvaluation(entry) => self.visit_expr(entry.evaluation()),
             ExprIr::SynchronousModuleGraph(_)
             | ExprIr::ModuleBindingRead(_)
             | ExprIr::ModuleEvaluate(_)

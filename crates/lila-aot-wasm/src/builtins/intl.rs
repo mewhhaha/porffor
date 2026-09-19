@@ -160,7 +160,7 @@ impl IntlLocaleStringSlot {
 }
 
 impl<'a> FunctionBuilder<'a> {
-    fn intl_call_import_function_index(&self) -> Result<u32, EmitError> {
+    pub(super) fn intl_call_import_function_index(&self) -> Result<u32, EmitError> {
         self.functions
             .intl_call_import_function_index()
             .ok_or_else(|| {

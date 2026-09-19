@@ -456,14 +456,25 @@ impl<'a> FunctionBuilder<'a> {
             &duration_locals,
             function,
         )?;
-        for (source, index) in [(years_local, 0_usize), (months_local, 1), (weeks_local, 2)] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(duration_locals[index]));
+        for (source, unit) in [
+            (years_local, TemporalUnit::Year),
+            (months_local, TemporalUnit::Month),
+            (weeks_local, TemporalUnit::Week),
+        ] {
+            self.emit_temporal_duration_set_integer_field(&duration_locals, unit, source, function);
         }
-        function.instruction(&Instruction::LocalGet(duration_locals[3]));
+        function.instruction(&Instruction::LocalGet(
+            duration_locals.number_bits(TemporalUnit::Day),
+        ));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncF64S);
         function.instruction(&Instruction::LocalGet(days_local));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(duration_locals[3]));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(
+            duration_locals.number_bits(TemporalUnit::Day),
+        ));
         self.emit_create_temporal_duration(&duration_locals, function)?;
 
         self.release_temporal_duration_field_locals(duration_locals);

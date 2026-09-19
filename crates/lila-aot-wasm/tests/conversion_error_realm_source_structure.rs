@@ -295,7 +295,7 @@ fn conversion_error_realm_domains_are_closed_non_capability_authorities() {
             "Self::MainRealm=>0,Self::CurrentFunctionRealm=>1,}}}",
             "enumConversionErrorRealmSource{",
             "Fixed(ConversionErrorRealm),CurrentExecutionContext,RuntimeHelperArgument,}",
-            "#[must_use=\"a current-function-realm primitive must be consumed by its matching ToString wrapper\"]",
+            "#[must_use=\"a current-function-realm primitive must be consumed by a tagged or ToString projection\"]",
             "pub(crate)structCurrentFunctionRealmPrimitiveLocals{",
             "payload_local:u32,tag_local:u32,}"
         )
@@ -312,7 +312,7 @@ fn conversion_error_realm_domains_are_closed_non_capability_authorities() {
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "CurrentFunctionRealmPrimitiveLocals",),
-        5
+        7
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "ConversionErrorRealm::MainRealm"),
@@ -753,11 +753,30 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
         Ok(())
     }
 
+    pub(crate) fn emit_current_function_realm_primitive_to_tagged_locals(
+        &mut self,
+        primitive: CurrentFunctionRealmPrimitiveLocals,
+        output_payload_local: u32,
+        output_tag_local: u32,
+        function: &mut Function,
+    ) {
+        let CurrentFunctionRealmPrimitiveLocals {
+            payload_local,
+            tag_local,
+        } = primitive;
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::LocalSet(output_tag_local));
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+    }
+
 "#;
     assert_eq!(
         current_lifecycle.code,
         normalize_rust(expected_current_lifecycle).code,
-        "the typed token must couple both fixed current-function-Realm boundaries and release its locals exactly"
+        "the typed token must preserve fixed Realm conversion, tagged projection and exact local release"
     );
     assert_eq!(
         current_lifecycle

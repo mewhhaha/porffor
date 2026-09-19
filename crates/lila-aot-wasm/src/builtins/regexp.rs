@@ -16,6 +16,7 @@ use lila_ir::{
 };
 
 mod backreference;
+mod compiler;
 mod program;
 mod range_search;
 mod word_boundary;

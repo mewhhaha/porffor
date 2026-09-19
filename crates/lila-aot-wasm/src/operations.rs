@@ -148,15 +148,12 @@ enum ConversionErrorRealmSource {
     RuntimeHelperArgument,
 }
 
-/// A current-function-realm ToPrimitive result prepared for primitive
-/// ToString.
+/// A primitive whose ToPrimitive errors belong to the current function Realm.
 ///
-/// The fields stay private to this module. The only producer fixes
-/// `CurrentFunctionRealm` for ToPrimitive, and the only consumer fixes the same
-/// Realm for primitive ToString before releasing the locals. The token's type
-/// is the proof, so a builtin cannot split the composite or substitute a stored
-/// source policy.
-#[must_use = "a current-function-realm primitive must be consumed by its matching ToString wrapper"]
+/// The private producer owns abrupt routing. Consumers either preserve the
+/// primitive tag or perform primitive ToString with the same Realm policy;
+/// both consume the token and release its locals.
+#[must_use = "a current-function-realm primitive must be consumed by a tagged or ToString projection"]
 pub(crate) struct CurrentFunctionRealmPrimitiveLocals {
     payload_local: u32,
     tag_local: u32,
@@ -3031,6 +3028,25 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(tag_local);
         self.release_temp_local(payload_local);
         Ok(())
+    }
+
+    pub(crate) fn emit_current_function_realm_primitive_to_tagged_locals(
+        &mut self,
+        primitive: CurrentFunctionRealmPrimitiveLocals,
+        output_payload_local: u32,
+        output_tag_local: u32,
+        function: &mut Function,
+    ) {
+        let CurrentFunctionRealmPrimitiveLocals {
+            payload_local,
+            tag_local,
+        } = primitive;
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::LocalSet(output_tag_local));
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
     }
 
     fn emit_tagged_to_primitive_locals_pending(

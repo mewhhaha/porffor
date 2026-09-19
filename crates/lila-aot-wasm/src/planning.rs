@@ -1504,6 +1504,50 @@ mod tests {
     }
 
     #[test]
+    fn accessor_definers_root_the_canonical_definition_path() {
+        for builtin in [
+            StandardBuiltinId::ObjectConstructor,
+            StandardBuiltinId::ObjectPrototypeDefineGetter,
+            StandardBuiltinId::ObjectPrototypeDefineSetter,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(builtin);
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::ObjectDefineProperty));
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::ObjectGetOwnPropertyDescriptor));
+        }
+        let mut plan = RuntimeBootstrapPlan::default();
+        plan.require_standard_builtin(StandardBuiltinId::ObjectConstructor);
+        for builtin in [
+            StandardBuiltinId::ObjectPrototypeDefineGetter,
+            StandardBuiltinId::ObjectPrototypeDefineSetter,
+        ] {
+            assert!(plan.standard_roots.contains(&builtin));
+            assert_eq!(standard_builtin_length(builtin), 2);
+        }
+    }
+
+    #[test]
+    fn boolean_property_definitions_root_the_ordinary_definition_body() {
+        for entry in [
+            StandardBuiltinId::JsonParse,
+            StandardBuiltinId::ReflectDefineProperty,
+        ] {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(entry);
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::ReflectDefineProperty));
+            assert!(plan
+                .standard_roots
+                .contains(&StandardBuiltinId::ObjectDefineProperty));
+        }
+    }
+
+    #[test]
     fn descriptor_entry_points_root_generic_descriptor_lookup() {
         for builtin in [
             StandardBuiltinId::ObjectDefineProperty,
@@ -2285,7 +2329,16 @@ impl RuntimeBootstrapPlan {
             self.require_standard_builtin(StandardBuiltinId::ObjectGroupBy);
             self.require_standard_builtin(StandardBuiltinId::ObjectFromEntries);
             self.require_standard_builtin(StandardBuiltinId::ObjectAssign);
+            self.require_standard_builtin(StandardBuiltinId::ObjectPrototypeDefineGetter);
+            self.require_standard_builtin(StandardBuiltinId::ObjectPrototypeDefineSetter);
             self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptors);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ObjectPrototypeDefineGetter
+                | StandardBuiltinId::ObjectPrototypeDefineSetter
+        ) {
+            self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
         }
         if matches!(
             builtin,
@@ -2435,6 +2488,12 @@ impl RuntimeBootstrapPlan {
                 | StandardBuiltinId::FunctionPrototypeApply
         ) {
             self.require_standard_builtin(StandardBuiltinId::ProxyConstructor);
+        }
+        if builtin == StandardBuiltinId::JsonParse {
+            self.require_standard_builtin(StandardBuiltinId::ReflectDefineProperty);
+        }
+        if builtin == StandardBuiltinId::ReflectDefineProperty {
+            self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
         }
         if builtin == StandardBuiltinId::ObjectCreate {
             self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperties);
@@ -3051,11 +3110,17 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
             | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
             | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+            | StandardBuiltinId::TemporalInstantPrototypeAdd
+            | StandardBuiltinId::TemporalInstantPrototypeSubtract
+            | StandardBuiltinId::TemporalInstantPrototypeRound
+            | StandardBuiltinId::TemporalInstantPrototypeUntil
+            | StandardBuiltinId::TemporalInstantPrototypeSince
             | StandardBuiltinId::TemporalInstantPrototypeEquals
             | StandardBuiltinId::TemporalInstantPrototypeToString
             | StandardBuiltinId::TemporalInstantPrototypeToJson
             | StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 self.require_temporal_namespace();
+                self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
                 for dependency in [
                     StandardBuiltinId::TemporalInstantConstructor,
                     StandardBuiltinId::TemporalInstantFrom,
@@ -3064,6 +3129,11 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalInstantFromEpochNanoseconds,
                     StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
                     StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
+                    StandardBuiltinId::TemporalInstantPrototypeAdd,
+                    StandardBuiltinId::TemporalInstantPrototypeSubtract,
+                    StandardBuiltinId::TemporalInstantPrototypeRound,
+                    StandardBuiltinId::TemporalInstantPrototypeUntil,
+                    StandardBuiltinId::TemporalInstantPrototypeSince,
                     StandardBuiltinId::TemporalInstantPrototypeEquals,
                     StandardBuiltinId::TemporalInstantPrototypeToString,
                     StandardBuiltinId::TemporalInstantPrototypeToJson,
@@ -3603,15 +3673,19 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::DatePrototypeToIsoString
             | StandardBuiltinId::DatePrototypeToPrimitive
             | StandardBuiltinId::DatePrototypeToDateString
-            | StandardBuiltinId::DatePrototypeToLocaleDateString
-            | StandardBuiltinId::DatePrototypeToLocaleString
-            | StandardBuiltinId::DatePrototypeToLocaleTimeString
             | StandardBuiltinId::DatePrototypeToTemporalInstant
             | StandardBuiltinId::DatePrototypeToTimeString
             | StandardBuiltinId::DatePrototypeToString
             | StandardBuiltinId::DatePrototypeToUtcString => {
                 self.standard_roots
                     .insert(StandardBuiltinId::DateConstructor);
+            }
+            StandardBuiltinId::DatePrototypeToLocaleDateString
+            | StandardBuiltinId::DatePrototypeToLocaleString
+            | StandardBuiltinId::DatePrototypeToLocaleTimeString => {
+                self.standard_roots
+                    .insert(StandardBuiltinId::DateConstructor);
+                self.require_intl_date_time_format_family();
             }
             StandardBuiltinId::RegExpEscape
             | StandardBuiltinId::RegExpSpeciesGetter
@@ -4074,6 +4148,7 @@ fn array_accumulation_has_spread(accumulation: &ArrayAccumulationIr) -> bool {
 
 fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
     match &expr.expr {
+        ExprIr::ModuleEntryEvaluation(entry) => expr_exposes_global_object(entry.evaluation()),
         ExprIr::EnvironmentIdentifier(_) => true,
         // Module top-level `this` is `undefined`, and neither a namespace
         // object nor `import.meta` can reach the global object.
@@ -4606,6 +4681,9 @@ fn collect_object_property_global_property_names(
 
 fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<String>) {
     match &expr.expr {
+        ExprIr::ModuleEntryEvaluation(entry) => {
+            collect_expr_global_property_names(entry.evaluation(), names)
+        }
         ExprIr::EnvironmentIdentifier(identifier) => {
             names.insert(identifier.name.clone());
             for operand in identifier.operation.operands() {
@@ -5908,6 +5986,9 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     .operands()
                     .any(|operand| expr_references_function(operand, target))
         }
+        ExprIr::ModuleEntryEvaluation(entry) => {
+            expr_references_function(entry.evaluation(), target)
+        }
         ExprIr::SynchronousModuleGraph(graph) => {
             graph
                 .activations
@@ -6888,6 +6969,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::ObjectIsExtensible => 1,
         StandardBuiltinId::ObjectPreventExtensions => 1,
         StandardBuiltinId::ObjectPrototypeHasOwnProperty => 1,
+        StandardBuiltinId::ObjectPrototypeDefineGetter => 2,
+        StandardBuiltinId::ObjectPrototypeDefineSetter => 2,
         StandardBuiltinId::ObjectPrototypeLookupGetter => 1,
         StandardBuiltinId::ObjectPrototypeLookupSetter => 1,
         StandardBuiltinId::ObjectPrototypeProtoGetter => 0,
@@ -7308,6 +7391,11 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalInstantFrom
         | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
         | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
+        | StandardBuiltinId::TemporalInstantPrototypeAdd
+        | StandardBuiltinId::TemporalInstantPrototypeSubtract
+        | StandardBuiltinId::TemporalInstantPrototypeRound
+        | StandardBuiltinId::TemporalInstantPrototypeUntil
+        | StandardBuiltinId::TemporalInstantPrototypeSince
         | StandardBuiltinId::TemporalInstantPrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimeFrom
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
@@ -8691,6 +8779,7 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             }
         }
         ExprIr::ImportMeta { .. } => 2,
+        ExprIr::ModuleEntryEvaluation(entry) => 8 + count_expr_temp_locals(entry.evaluation()),
         ExprIr::SynchronousModuleGraph(_) | ExprIr::ModuleEvaluate(_) => 256,
         ExprIr::ModuleBindingRead(_) => 64,
         ExprIr::DeferredModuleEvaluate(plan) => 256 + plan.readiness.len(),

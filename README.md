@@ -10,7 +10,7 @@ and exposes eight additional getters. Locale canonicalization preserves valid
 five-to-eight-letter languages and tags longer than 255 bytes through a typed
 provider domain and exact-capacity host calls. Each compiled provider caller
 declares its host import, including standalone Locale construction.
-Verification is pending; see the
+Bounded verification and remaining scope are recorded in the
 [constructor contract](docs/rust-rewrite/aot-intl-locale-options.md). The provider
 now includes all 65 keyword-value aliases from pinned CLDR 47; broader Intl
 services remain open.
@@ -19,9 +19,9 @@ Published conformance counts are unchanged.
 The direct Wasm `Intl.DateTimeFormat` path negotiates and renders all 77
 positional numbering systems in pinned CLDR 47 across numeric date/time fields,
 parts, ranges, fractional separators, and GMT display labels. Locale patterns
-remain `en`/`en-US`; Chinese calendars, Arabic locale defaults, named-zone
-transitions, and Date locale-method routing remain separate gaps. Verification
-of this follow-up is pending; see the
+remain `en`/`en-US`; Chinese calendars and Arabic locale defaults remain gaps.
+Named zones use pinned IANA transitions and CLDR English display names. Date
+locale methods share the formatter's initialization and field rendering. See the
 [numbering contract](docs/rust-rewrite/aot-intl-datetime-numbering.md).
 
 The public project and all current Rust packages, commands, environment
@@ -134,17 +134,43 @@ Follow-up repairs cover observable function coercion, reverse RegExp
 backreferences and [case folding](docs/rust-rewrite/regexp-case-folding.md),
 shared dynamic property writes, cross-realm Proxy read errors, for-of head
 completion, and retained deferred-module failures.
+[Date locale methods](docs/rust-rewrite/date-locale-methods.md) use the shared
+DateTimeFormat initialization and formatting paths, with distinct date, time
+and combined defaults and ordered locale/options observations.
+[Reentrant RegExp execution](docs/rust-rewrite/regexp-reentrant-execution.md)
+coerces `lastIndex` once before reading the current program and flags, so
+recompilation during conversion takes effect in the same execution.
+[Legacy accessor definers](docs/rust-rewrite/legacy-accessor-definers.md) install
+`Object.prototype.__defineGetter__` and `__defineSetter__` through the shared
+property-definition path, preserving coercion order, partial descriptors and
+the executing method’s Realm.
+[Promise host policy](docs/rust-rewrite/contracts/main-job-checkpoint.md)
+preserves source completion for Test262 while retaining async `$DONE` failure
+checks. CLI runs keep FIFO unhandled-rejection diagnostics.
+[Module entry completion](docs/rust-rewrite/contracts/module-entry-completion.md)
+owns the actual evaluation result independently of unrelated Promise rejections,
+including `throw undefined`. Scripts and Modules both admit `Ignore`; a Module
+entry still pending after supported host work drains returns the typed host
+failure `IncompleteModuleEvaluation`. This foundation preserves the retained TLA
+driver and its existing scheduling and deferred-import limitations.
 [Property descriptor Realm ownership](docs/rust-rewrite/property-descriptor-realm.md)
 keeps Proxy trap descriptor objects and definition errors in the executing
 method or class Realm, including foreign public-field definitions.
+[Property definition completions](docs/rust-rewrite/reflect-property-definition-completions.md)
+keep private Object and Reflect descriptor forwarding free of inherited-field
+reads and preserve TypedArray coercion throws separately from normal definition
+rejection.
 [Synchronous module instantiation](docs/rust-rewrite/contracts/module-instantiation.md)
 adds private module environments, live import cells, and deferred readiness for
 synchronous Module-entry graphs, including evaluation cycles. Module aliases stay
 out of the global object, and a cycle completes or caches its error across all
-entered members. Synchronous catch and finally scopes retain ordinary
-control flow after the private instantiation boundary. Module resource admission
-still has a lowering guard to remove. Module Test262 helpers
-execute as an independent global Script;
+entered members. Synchronous catch, finally, and resource scopes retain ordinary
+control flow after the private instantiation boundary. Canonical synchronous
+module owners admit statement-list, classic-for and for-of resources with
+ordered disposal, including nested function scopes. Module Test262 helpers
+execute as an independent global Script. Host globals referenced only by
+prepared Script, Function or module-prelude sources are included in entry
+initialization, while their declarations still wait for source execution;
 TLA, Script-entry and source-phase drivers still have scope and lifecycle gaps.
 The next batch adds [word boundaries and reverse whitespace](crates/lila-aot-wasm/docs/regexp-word-boundary.md),
 [case-insensitive backreference comparison](crates/lila-aot-wasm/docs/regexp-backreference-folding.md),
@@ -195,8 +221,57 @@ Checkpoint twelve passes native async property assignment (10/10), module scope
 and cycles (11/11), public class fields (5/5), and property-definition Realm
 behavior (6/6), retaining the separate Reflect descriptor control (1/1).
 Its workspace release check, immutable build and oracle feature check pass.
-Broader verification remains active; module resource admission, additional
-RegExp protocol behavior and several stale structural assertions remain open.
+Checkpoint thirteen's Date locale replay passes 24/24 and Intl passes 374/394.
+Checkpoint fourteen revision one's module replay passes 147/153, repairing 54
+main failures and retaining all 93 main successes with no crashes/timeouts.
+Checkpoint fifteen retains 147/153 modules, passes 242/242 RegExp folding cases,
+28/28 Promise-policy cases, 21/21 legacy-accessor cases and 390/390 catch/BigInt
+cases. Checkpoint sixteen revision three passes 162/162 lookaround and 242/242
+folding cases. The formerly failing strict lookbehind fixture's main Wasm body
+shrinks from 4,144,083 to 1,263,006 bytes and passes unchanged.
+These bounded audits were refreshed on 2026-09-18; compiler hashes and refresh
+commands are in the completed-baseline notes. Native module instantiation passes
+24/24 and import-job ordering 9/9. Checkpoint sixteen's native string-match tests
+pass 8/8, array index storage 12/12 and named time zones 9/9. Its 101 verification
+groups finish with 97 passing. Its completed Intl replay passes 390/394 and Date
+locale replay 24/24, with no timeouts. Three stale assertions and one Iceland
+identifier mapping error are corrected in checkpoint seventeen. Its selected
+Instant replay passes 227/229, repairing 225 main failures and retaining two
+main successes; both remaining failures concern difference option order. Wide
+Duration native tests pass 8/8 and Instant method tests 12/12. Checkpoint
+eighteen revision two completes all 159 verification groups with 3,033 tests
+passing, including 105 source/library groups checked against frozen inputs.
+Module entry completion passes 12/12, JSON reviver definitions 9/9, Reflect/Object
+descriptors 9/9, Instant methods 19/19 and Array index storage 13/13. All nine
+unchanged saved reproductions pass. These results were refreshed on 2026-09-19;
+checkpoint nineteen also passes all 121 selected verification groups and both
+Arguments reproductions. Its paired 641-execution conformance replay is running.
+
+Computed legacy RegExp patterns now reach an emitted Wasm parser and compiler
+through the existing constructor and `compile` paths. It emits the same immutable
+program descriptors as static compilation, with explicit syntax, capability and
+resource outcomes. Compilation clears released workspace before heap reuse,
+preserving the compact descriptor and fresh-object initialization. Scoped
+`i`/`m`/`s` modifiers compose with nested groups and changed-flag clones. Dynamic
+`u`/`v`, named groups and lookbehind remain outside this runtime compiler's
+grammar; supported static programs remain available. The
+[runtime compiler contract](docs/rust-rewrite/contracts/regexp-runtime-compiler.md)
+records ownership, grammar and the verification boundary. This addition does not
+change the generated conformance counts.
+
+Ordinary `.match` calls read the actual method and enter its shared callable body.
+This keeps replacement methods, getter and argument order, and exceptions while
+avoiding repeated RegExp fallback construction in the caller. The
+[match call emission notes](docs/rust-rewrite/string-match-call-emission.md)
+record the named-lookbehind size regression and verification boundary.
+
+Dense array slots own their values and descriptors directly. Traversal scans
+that backing through holes, while sparse indexes retain one shared bookkeeping
+body. Dense fill and reset no longer repeatedly search a duplicate index list;
+capacity growth preserves sparse values and accessors that become dense. The
+computed RegExp grammar fixture remains unchanged. See [the storage and emitted-size
+repair notes](docs/rust-rewrite/array-present-index-outlining.md) for the measured
+failure evidence and pending verification.
 
 The older JavaScript implementation was retired from the working tree at Git
 commit `2107dfe9ad58c730e3d19b0cc1c73ed4390602f8`. History remains available for
@@ -293,6 +368,10 @@ Arguments-backed `for-of` loops now use the existing Arguments-aware iterator
 lookup, including escaped aliases and async-disposable loop heads. The bounded
 repair and focused regression commands are described in
 [the Arguments iteration follow-up](docs/rust-rewrite/aot-arguments-iteration.md).
+Arguments indexed definitions retain own-property presence when all attributes
+are false, including an explicit `undefined` value or a detached parameter
+mapping. The [indexed descriptor contract](docs/rust-rewrite/contracts/arguments-index-descriptor-exotic.md)
+describes the shared storage boundary and focused regressions.
 The next major deliverable remains T01's reproducible current-pin full-suite
 baseline; this change does not update the generated conformance counts.
 
@@ -970,9 +1049,13 @@ the generated status block above, not by this task summary.
 
 - `crates/lila-front`: parser boundary and source-unit handling.
 - `crates/lila-ir`: spec-shaped IR, diagnostics, and lowering metadata.
-- `crates/lila-intl`: Intl data/profile/protocol domains and the first pinned,
-  host-embedded locale canonicalization and likely-subtag provider. `Intl.Locale`
-  supports `maximize()` and `minimize()` through the same pinned ICU4X data.
+- `crates/lila-intl`: Intl data/profile/protocol domains and a pinned host provider
+  for locale canonicalization, likely subtags and IANA 2026a time-zone snapshots.
+  `Intl.Locale` supports `maximize()` and `minimize()` through pinned ICU4X data.
+  `Intl.DateTimeFormat` and Date locale methods use historical offsets, future
+  transitions and CLDR47 zone names for their existing en/en-US locale domain.
+  Range endpoints resolve independently; Plain Temporal fields remain local.
+  See [the named-zone boundary](docs/rust-rewrite/intl-named-time-zones.md).
 - `crates/lila-runtime`: realms plus typed host clock, randomness, and output
   capabilities.
 - `crates/lila-aot-wasm`: primary direct JS -> Wasm backend.
@@ -3278,14 +3361,31 @@ Recent focused progress through `2026-09-01`:
   `compareArray.js` preludes. Both sloppy/strict Wasm-AOT executions pass
   `2/2` with every failure bucket at zero as of `2026-08-30`; a provenance
   test pins the helper origins and complete concatenated source bytes.
+  `Temporal.Duration` keeps valid integer Number fields wider than `i64`,
+  including nanoseconds `1.728e22` and microseconds `1.728e19`. Constructors,
+  bags, copies, getters and sign transforms preserve that Number precision;
+  normalization and balancing use exact integer seconds/subseconds, with one
+  rounding when a result becomes a Number field. Calendar callers and
+  subsecond `total` share the canonical conversion boundary. See
+  [the Duration field contract](docs/rust-rewrite/temporal-duration-number-fields.md)
+  for bounds, coercion order, Realm ownership and regression commands.
   `Temporal.Instant` now has a real namespace binding, constructor, prototype,
   private epoch-nanoseconds slot, branded `epochNanoseconds` and floor-rounded
   `epochMilliseconds` accessors, and a real static `from` path. `from` copies
-  branded instants, performs object `ToPrimitive(string)`, parses exact ISO
-  instant strings without routing through millisecond-only `Date.parse`, and
+  branded instants, performs object `ToPrimitive(string)` for all object kinds
+  including Arguments, rejects non-string primitive results with TypeError,
+  parses exact ISO instant strings without routing through millisecond-only `Date.parse`, and
   preserves nanosecond offsets, annotations, leap seconds, and range
   boundaries. Its instances also have branded canonical UTC `toString`
-  formatting. A distinct branded `Temporal.ZonedDateTime` record now retains
+  formatting. `add`, `subtract`, `round`, `until`, and `since` use exact
+  seconds/subseconds arithmetic across the full Instant range. Instant rounding
+  uses as-if-positive tie handling and full-day increments; differences use
+  signed rounding and return intrinsic Duration objects. Difference options
+  are read and coerced in order before recognized units are checked against
+  the Instant time-unit range, preserving later option throws. Entry and created
+  Realms share the Instant and Duration member definitions, and method results
+  retain the calling built-in's intrinsic prototype even when public
+  constructor bindings change. A distinct branded `Temporal.ZonedDateTime` record now retains
   exact epoch nanoseconds, a stored time-zone string, and the canonical
   `iso8601` calendar identifier; UTC spellings are canonicalized to `UTC`, and
   numeric offset syntax is range-checked. Its static `from` path now copies
@@ -6704,12 +6804,15 @@ Recent focused progress through `2026-09-01`:
   ordering and named groups, and supports all standard string substitution
   forms. Finite runtime-selected pattern/flag strings used by `RegExp`
   subclasses or `RegExp.prototype.compile` select immutable AOT programs from
-  a compact static table; emitted Wasm still contains no parser or interpreter.
+  a compact static table. Computed legacy patterns outside that table use the
+  [emitted RegExp compiler](docs/rust-rewrite/contracts/regexp-runtime-compiler.md);
+  emitted Wasm contains no JavaScript parser or interpreter.
   Each program is a validated immutable descriptor owning its instructions,
   ranges, named-capture candidates and name bytes. RegExp objects and clones
   retain one allocation handle; matcher reads use that descriptor's section
   bounds. This is the [program boundary](docs/rust-rewrite/contracts/regexp-program-boundary.md)
-  required before adding the runtime RegExp compiler, which remains unimplemented.
+  shared by the static and runtime RegExp compilers. Runtime Unicode modes,
+  named captures and lookbehind remain explicit capability gaps.
   The complete `built-ins/RegExp/prototype/Symbol.replace` and
   `built-ins/String/prototype/replaceAll` Test262 leaves report `70/70` and
   `45/45` passing as of `2026-07-15`. The adjacent
@@ -7318,3 +7421,15 @@ fake CLI validates publication orchestration, not JavaScript conformance.
 ## Real shard evidence validation
 
 The Array callback workflow binds its shared CLI artifact to the checked-out commit and verifies the executable SHA-256 before execution. Every real subtree shard must report the exact execution count derived from the native modulo partition, the Wasm-AOT backend, all executions passing, and zero in every failure bucket. `python3 scripts/check-test262-shard-report.py --inventory <list-output> --report <shard-output> --shard <index/count>` checks that contract without rewriting evidence. Run its failure controls with `python3 -m unittest discover -s scripts/tests -p test_test262_shard_report.py -v`. The Rust runner still owns the complete execution-ID manifest checks; this textual report gate supplements them and does not establish full-suite conformance or raw-source shortcut closure.
+
+The canonical synchronous Module-entry compiler schedules ordinary dynamic
+imports through load and evaluation continuations, retains exact cached module
+errors, and rejects invalid dynamic-only dependency closures through their
+import promises. Static dependency syntax errors remain compile-time
+SyntaxErrors. Generated import operations use intrinsic promises and reflection
+identities, so replacing global Promise or its prototype methods does not alter
+internal scheduling. TLA, Script-entry and source-phase module drivers remain
+separate. See [the module import job contract](docs/rust-rewrite/contracts/module-import-jobs.md).
+
+JSON revivers use the canonical property-definition path for descriptor and
+extensibility checks; see [the contract and regression scope](docs/rust-rewrite/json-reviver-property-definitions.md).

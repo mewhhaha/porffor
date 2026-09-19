@@ -388,7 +388,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
             "ExprIr::Identifier(storage_name.clone())",
             "self.locate_identifier_reference(source_name)",
             "self.lower_located_identifier_assign_value",
-            "vec![StatementIr::Expression(assignment)]",
+            "vec![StatementIr::DeclarationEvaluation(assignment)]",
         ],
     );
 
@@ -416,7 +416,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
         &[
             "ExprIr::Identifier(storage_name.clone())",
             "self.lower_pattern_assign_value(pattern, value)",
-            "vec![StatementIr::Expression(assign)]",
+            "vec![StatementIr::DeclarationEvaluation(assign)]",
         ],
     );
 

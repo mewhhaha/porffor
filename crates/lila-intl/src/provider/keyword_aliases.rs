@@ -172,12 +172,12 @@ fn extension_range(source: &str, singleton: u8) -> Option<Range<usize>> {
 mod tests {
     use super::*;
     use crate::{
-        CanonicalizeLocale, EmbeddedLocaleProvider, IntlDataVersions, IntlKernel, IntlProvider,
+        CanonicalizeLocale, EmbeddedIntlProvider, IntlDataVersions, IntlKernel, IntlProvider,
         LocaleId, LocaleTransformRequest,
     };
 
     fn canonical(source: &str) -> String {
-        let provider = EmbeddedLocaleProvider::new().unwrap();
+        let provider = EmbeddedIntlProvider::new().unwrap();
         let kernel = IntlKernel::new(provider.identity().clone(), provider).unwrap();
         kernel
             .operation::<CanonicalizeLocale>()

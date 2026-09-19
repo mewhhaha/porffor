@@ -91,31 +91,22 @@ fn lower_graph(
         return program;
     }
 
-    let mut graph = match modules::build_graph(sources) {
+    let mut graph = match modules::link_loaded_graph(sources, entry_is_script) {
         Ok(graph) => graph,
-        Err(diagnostics) => {
+        Err(rejection) => {
+            if rejection.graph.is_some() {
+                stages.push(LoweringStage::ModuleGraphLoaded);
+                stages.push(LoweringStage::ModuleGraphLinked);
+            }
             stages.push(LoweringStage::UnsupportedFeaturesRecorded);
             let mut program = new_program(goal, source_len, stages);
-            program.diagnostics = diagnostics;
+            program.diagnostics = rejection.diagnostics;
+            program.modules = rejection.graph;
             return program;
         }
     };
-    graph.entry_is_script = entry_is_script;
     stages.push(LoweringStage::ModuleGraphLoaded);
-
-    modules::link(&mut graph);
     stages.push(LoweringStage::ModuleGraphLinked);
-    if !graph.link_errors.is_empty() {
-        stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-        let mut program = new_program(goal, source_len, stages);
-        program.diagnostics = graph
-            .link_errors
-            .iter()
-            .map(ModuleLinkErrorIr::to_diagnostic)
-            .collect();
-        program.modules = Some(graph);
-        return program;
-    }
 
     // The whole graph is merged into one Script-goal source, in evaluation
     // order, and lowered once. See `modules::link` for why the merge happens on

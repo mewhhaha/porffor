@@ -466,6 +466,7 @@ impl<'a> ScriptLowerer<'a> {
         match &expr.expr {
             // `import()` rejects rather than throws, and reading `import.meta`
             // or a namespace object cannot throw.
+            ExprIr::ModuleEntryEvaluation(entry) => self.infer_expr_throw_info(entry.evaluation()),
             ExprIr::SynchronousModuleGraph(_)
             | ExprIr::ModuleBindingRead(_)
             | ExprIr::ModuleEvaluate(_)

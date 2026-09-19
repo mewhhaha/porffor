@@ -898,8 +898,25 @@ impl<'a> FunctionBuilder<'a> {
     /// remains primary.
     pub(crate) fn emit_report_unhandled_rejection(
         &mut self,
+        policy: PromiseRejectionPolicy,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        match policy {
+            PromiseRejectionPolicy::FailRun => {}
+            PromiseRejectionPolicy::Ignore => {
+                // The default host tracker has no observable callbacks. Release
+                // its checkpoint roots without coercing rejection values.
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::GlobalSet(
+                    PROMISE_UNHANDLED_REJECTION_HEAD_GLOBAL_INDEX,
+                ));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::GlobalSet(
+                    PROMISE_UNHANDLED_REJECTION_TAIL_GLOBAL_INDEX,
+                ));
+                return Ok(());
+            }
+        }
         let value_to_string_helper = self.value_to_string_helper_function_index().ok_or_else(|| {
             EmitError::unsupported(
                 "unsupported in lila wasm-aot: unhandled-rejection reporting requires the value-to-string runtime helper",

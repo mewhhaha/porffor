@@ -214,6 +214,8 @@ pub(crate) const DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 139;
 pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX: u32 = 140;
 pub(crate) const REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 141;
 pub(crate) const FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 142;
+pub(crate) const MODULE_EVALUATION_PROMISE_GLOBAL_INDEX: u32 = 143;
+pub(crate) const MODULE_EVALUATION_STATUS_GLOBAL_INDEX: u32 = 144;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
@@ -839,6 +841,14 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "Float16Array",
         index: FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "module_evaluation_promise",
+        index: MODULE_EVALUATION_PROMISE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "module_evaluation_status",
+        index: MODULE_EVALUATION_STATUS_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -1100,6 +1110,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ObjectIsExtensible
         | StandardBuiltinId::ObjectPreventExtensions
         | StandardBuiltinId::ObjectPrototypeHasOwnProperty
+        | StandardBuiltinId::ObjectPrototypeDefineGetter
+        | StandardBuiltinId::ObjectPrototypeDefineSetter
         | StandardBuiltinId::ObjectPrototypeLookupGetter
         | StandardBuiltinId::ObjectPrototypeLookupSetter
         | StandardBuiltinId::ObjectPrototypeProtoGetter
@@ -1622,6 +1634,11 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalNowZonedDateTimeIso
         | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+        | StandardBuiltinId::TemporalInstantPrototypeAdd
+        | StandardBuiltinId::TemporalInstantPrototypeSubtract
+        | StandardBuiltinId::TemporalInstantPrototypeRound
+        | StandardBuiltinId::TemporalInstantPrototypeUntil
+        | StandardBuiltinId::TemporalInstantPrototypeSince
         | StandardBuiltinId::TemporalInstantPrototypeEquals
         | StandardBuiltinId::TemporalInstantFrom
         | StandardBuiltinId::TemporalInstantCompare
@@ -2069,7 +2086,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX as usize + 1,
+            MODULE_EVALUATION_STATUS_GLOBAL_INDEX as usize + 1,
             "the fixed scalar registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
         );

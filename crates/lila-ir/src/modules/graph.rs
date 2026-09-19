@@ -42,6 +42,7 @@ pub struct ModuleGraphIr {
     /// fixed point, components whose referrer does not materialize are removed,
     /// so every row here names a call site that can run in this artifact.
     components: Vec<DynamicComponentIr>,
+    pub(super) dynamic_rejections: Vec<super::admission::RejectedDynamicModule>,
     /// When each unit's body runs, indexed by [`ModuleUnitId`].
     ///
     /// Filled by [`link`]; empty on a graph that has not been linked, which

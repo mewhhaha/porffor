@@ -11,6 +11,8 @@ use super::heap::{
     HEAP_TEMPORAL_DURATION_WEEKS_OFFSET, HEAP_TEMPORAL_DURATION_YEARS_OFFSET,
 };
 
+/// Each scalar slot stores the bits of an integral finite Number, with +0 for
+/// zero. Wide microsecond/nanosecond values are not narrowed to signed i64.
 pub(crate) enum TemporalDurationHeapSlot {
     Years,
     Months,

@@ -59,6 +59,22 @@ fn assert_modules(files: &[(&str, &str)], expected: &[&str], prelude: Option<&st
 }
 
 #[test]
+fn script_prelude_hosts_are_available_to_module_completion_jobs() {
+    assert_modules(
+        &[(
+            "entry.js",
+            r#"
+const original = finish;
+globalThis.finish = function(value) { original(value); };
+Promise.resolve(7).then(finish);
+"#,
+        )],
+        &["finished:7"],
+        Some("function finish(value) { print('finished:' + value); }"),
+    );
+}
+
+#[test]
 fn nested_import_readers_keep_live_values_after_reassignment() {
     assert_modules(
         &[
@@ -579,6 +595,130 @@ print('after resource loop');
             ("dependency.js", "export const value = 1;"),
         ],
         &["catch1,dispose1,catch2,dispose2", "after resource loop"],
+        None,
+    );
+}
+
+#[test]
+fn deferred_module_resources_are_acquired_only_during_evaluation() {
+    assert_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+import defer * as resource from './resource.js';
+globalThis.events = [];
+globalThis.events.push('before');
+const value = resource.value;
+globalThis.events.push('after' + value);
+print(globalThis.events.join(','));
+"#,
+            ),
+            (
+                "resource.js",
+                r#"
+using resource = (globalThis.events.push('acquire'), {
+  [Symbol.dispose]() { globalThis.events.push('dispose'); }
+});
+globalThis.events.push('body');
+export const value = 3;
+"#,
+            ),
+        ],
+        &["before,acquire,body,dispose,after3"],
+        None,
+    );
+}
+
+#[test]
+fn module_classic_for_resources_keep_continue_break_and_disposal_order() {
+    assert_modules(
+        &[(
+            "entry.js",
+            r#"
+const events = [];
+function acquire(name) {
+  events.push('acquire' + name);
+  return { [Symbol.dispose]() { events.push('dispose' + name); } };
+}
+let index = 0;
+for (using resource = acquire('loop'); index < 3; index++) {
+  events.push('body' + index);
+  if (index === 0) continue;
+  break;
+}
+for (using resource = acquire('empty'); false;) { throw 'unreachable body'; }
+events.push('after');
+print(events.join(','));
+"#,
+        )],
+        &["acquireloop,body0,body1,disposeloop,acquireempty,disposeempty,after"],
+        None,
+    );
+}
+
+#[test]
+fn module_for_of_resources_dispose_before_iterator_close_and_propagate_errors() {
+    assert_modules(
+        &[(
+            "entry.js",
+            r#"
+const events = [];
+const marker = {};
+function resource(name, fail) {
+  return { [Symbol.dispose]() { events.push('dispose' + name); if (fail) throw marker; } };
+}
+for (using value of [resource('first', false), resource('second', false)]) {
+  events.push('body');
+}
+const iterable = {
+  [Symbol.iterator]() {
+    return {
+      next() { return {value:resource('throwing', true), done:false}; },
+      return() { events.push('close'); return {done:true}; }
+    };
+  }
+};
+let caught = false;
+try {
+  for (using value of iterable) { events.push('last body'); break; }
+} catch (error) { caught = error === marker; }
+if (!caught) throw 'disposal error identity';
+events.push('after');
+print(events.join(','));
+"#,
+        )],
+        &["body,disposefirst,body,disposesecond,last body,disposethrowing,close,after"],
+        None,
+    );
+}
+
+#[test]
+fn nested_module_resources_preserve_reverse_disposal_and_suppressed_errors() {
+    assert_modules(
+        &[(
+            "entry.js",
+            r#"
+const events = [];
+const bodyError = {};
+const disposalError = {};
+function nested() {
+  using first = { [Symbol.dispose]() { events.push('first'); } };
+  using second = { [Symbol.dispose]() { events.push('second'); throw disposalError; } };
+  events.push('body');
+  throw bodyError;
+}
+let caught = false;
+try { nested(); } catch (error) {
+  caught = error instanceof SuppressedError && error.error === disposalError && error.suppressed === bodyError;
+}
+if (!caught) throw 'suppressed disposal error';
+{ using resource = { [Symbol.dispose]() { events.push('block'); } }; }
+events.push('after');
+print(events.join(','));
+"#,
+        )],
+        &["body,second,first,block,after"],
         None,
     );
 }

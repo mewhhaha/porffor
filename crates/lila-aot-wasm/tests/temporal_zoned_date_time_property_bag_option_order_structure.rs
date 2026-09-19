@@ -35,7 +35,7 @@ fn property_bag_reads_options_after_year_and_before_algorithmic_validation() {
     let time_zone_conversion = "        self.emit_temporal_zoned_date_time_time_zone(";
     let year_conversion = "        self.emit_temporal_property_bag_integer(\n            argument_payload_local,\n            argument_tag_local,\n            \"year\",";
     let options_read = "        self.emit_temporal_zoned_date_time_options(";
-    let resolver = "        let resolved_year = self.emit_temporal_resolve_era_to_year(";
+    let resolver = "        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(";
     let requires_year = "        self.emit_throw_current_function_realm_type_error(\n            \"Temporal.ZonedDateTime property bag requires year\",";
     let requires_day = "        self.emit_throw_current_function_realm_type_error(\n            \"Temporal.ZonedDateTime property bag requires day\",";
     let requires_time_zone = "        self.emit_throw_current_function_realm_type_error(\n            \"Temporal.ZonedDateTime property bag requires timeZone\",";
@@ -83,8 +83,13 @@ fn property_bag_reads_options_after_year_and_before_algorithmic_validation() {
 fn option_reader_releases_its_five_scratch_locals_in_reverse_reservation_order() {
     let option_reader = bounded(
         ZONED_DATE_TIME_SOURCE,
-        "    fn emit_temporal_zoned_date_time_options(",
+        "    pub(super) fn emit_temporal_zoned_date_time_options(",
         "    pub(crate) fn emit_temporal_zoned_date_time_constructor(",
+    );
+    assert!(option_reader.contains("context: TemporalZonedDateTimeOptionsContext,"));
+    assert_eq!(
+        option_reader.matches("key.default_code(context)").count(),
+        1
     );
     let reservations = option_reader
         .lines()
@@ -155,6 +160,7 @@ fn era_slots_stay_live_across_options_until_the_resolver_consumes_them() {
     assert_eq!(
         options_arguments,
         [
+            "TemporalZonedDateTimeOptionsContext::From,",
             "options_payload_local,",
             "options_tag_local,",
             "offset_option_local,",
@@ -188,19 +194,19 @@ fn era_slots_stay_live_across_options_until_the_resolver_consumes_them() {
     assert_before(
         property_bag,
         "        self.emit_temporal_zoned_date_time_options(",
-        "        let resolved_year = self.emit_temporal_resolve_era_to_year(",
+        "        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(",
     );
 
     let option_reader = bounded(
         ZONED_DATE_TIME_SOURCE,
-        "    fn emit_temporal_zoned_date_time_options(",
+        "    pub(super) fn emit_temporal_zoned_date_time_options(",
         "    pub(crate) fn emit_temporal_zoned_date_time_constructor(",
     );
     for forbidden_consumer in [
         "TemporalEraSlots",
         "TemporalEraLocals",
         "era_slots",
-        "emit_temporal_resolve_era_to_year",
+        "emit_temporal_resolve_era_to_iso_year",
     ] {
         assert!(
             !option_reader.contains(forbidden_consumer),
@@ -210,7 +216,7 @@ fn era_slots_stay_live_across_options_until_the_resolver_consumes_them() {
 
     let resolver_arguments = bounded(
         property_bag,
-        "        let resolved_year = self.emit_temporal_resolve_era_to_year(",
+        "        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(",
         "        )?;",
     )
     .lines()
@@ -230,7 +236,7 @@ fn era_slots_stay_live_across_options_until_the_resolver_consumes_them() {
 
     let resolver = bounded(
         ERA_SOURCE,
-        "    pub(crate) fn emit_temporal_resolve_era_to_year(",
+        "    pub(crate) fn emit_temporal_resolve_era_to_iso_year(",
         "    pub(crate) fn emit_temporal_resolved_year_default_to(",
     );
     assert!(resolver.contains("era: TemporalEraLocals,"));

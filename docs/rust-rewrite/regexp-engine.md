@@ -39,10 +39,13 @@ wire format, ownership inventory and corruption controls.
 
 This is a foundation, not the complete design:
 
-- computed patterns are served by a finite table of strings found at compile
-  time and a separate small-pattern fallback; arbitrary runtime patterns do not
-  yet reach the program compiler;
-- the parser and program lowerer recurse on the Rust stack for nested groups;
+- computed legacy patterns reach an iterative RegExp-only parser/compiler in
+  emitted Wasm after a static-cache miss. It supports the ordinary legacy grammar,
+  numbered captures/references, lookahead, nullable quantifiers and scoped
+  `i`/`m`/`s` modifiers. Runtime Unicode modes, named groups and lookbehind remain
+  explicit capability gaps; see the [runtime compiler contract](contracts/regexp-runtime-compiler.md);
+- the static parser and program lowerer still recurse on the Rust stack;
+  the emitted runtime compiler uses bounded arena and task stacks;
 - legal constructs such as general lookahead, `v`-mode string properties and
   several nullable or astral forms outside the direct legacy term seam still
   return `UnsupportedFeature`;
@@ -71,8 +74,9 @@ path cannot admit Annex B control/octal or unrestricted identity escapes under
 representation. An incomplete legacy `\c` likewise preserves Annex B's
 standalone-backslash atom boundary through either encoder. See the
 focused [Unicode ordinary-class escape contract](contracts/regexp-unicode-class-escape-grammar.md).
-This does not change the separate UnicodeSets class grammar or supply arbitrary
-runtime pattern compilation.
+This does not change the separate UnicodeSets class grammar. The runtime
+compiler shares the legacy lexical facts while Unicode runtime modes remain an
+explicit capability gap.
 
 Legacy direct astral source now has its own closed parsed-term case. It stores a
 validated UTF-16 surrogate pair, emits the lead once, and applies any following

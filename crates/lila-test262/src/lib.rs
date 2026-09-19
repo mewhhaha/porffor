@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 
 use lila_engine::{
     compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions, Engine,
-    EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, RealmBuilder, RunOptions,
-    WasmExecutionFailureKind,
+    EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, PromiseRejectionPolicy,
+    RealmBuilder, RunOptions, WasmExecutionFailureKind,
 };
 use lila_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind, TaskId, UnsupportedFeature};
 use serde::ser::SerializeMap;
@@ -3413,7 +3413,9 @@ var __lilaTest262AsyncDone = { active: true, called: false };
 var __lilaTest262OriginalDONE = $DONE;
 $DONE = function $DONE(error) {
   if (__lilaTest262AsyncDone.called) {
-    throw new Error('host harness async $DONE called multiple times');
+    var duplicate = new Error('host harness async $DONE called multiple times');
+    __lilaTest262OriginalDONE(duplicate);
+    throw duplicate;
   }
   __lilaTest262AsyncDone.called = true;
   return __lilaTest262OriginalDONE(error);
@@ -9912,6 +9914,9 @@ fn compile_options_for_case(case: &TestCase) -> CompileOptions {
     CompileOptions {
         filename: Some(case.source_path.display().to_string()),
         host_surface_policy: HostSurfacePolicy::Test262,
+        // Entry Module completion has its own root; unrelated rejections use
+        // the default ECMAScript host tracker in every source goal.
+        promise_rejection_policy: PromiseRejectionPolicy::Ignore,
         ..CompileOptions::default()
     }
 }
@@ -11235,6 +11240,7 @@ fn classify_engine_failure(test_id: TestExecutionId, err: &EngineError) -> Failu
         }
         Some(
             WasmExecutionFailureKind::JavaScriptException
+            | WasmExecutionFailureKind::IncompleteModuleEvaluation
             | WasmExecutionFailureKind::ConcurrentFailure,
         ) => OutcomeKind::Bug,
         None => classify_failure_outcome(kind, err.message()),
@@ -11252,6 +11258,7 @@ fn classify_engine_error(err: &EngineError) -> FailureKind {
         return match kind {
             WasmExecutionFailureKind::DynamicSource => FailureKind::Unsupported,
             WasmExecutionFailureKind::JavaScriptException
+            | WasmExecutionFailureKind::IncompleteModuleEvaluation
             | WasmExecutionFailureKind::ConcurrentFailure
             | WasmExecutionFailureKind::Trap
             | WasmExecutionFailureKind::Timeout => FailureKind::Runtime,
@@ -17184,6 +17191,163 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
             };
             assert_eq!(failure.kind, expected_kind, "{path}");
             assert!(failure.detail.contains(expected_detail), "{path}");
+        }
+    }
+
+    #[test]
+    fn wasm_aot_module_evaluation_rejection_remains_a_failure() {
+        let path = "harness/module-evaluation-rejection.js";
+        let mut case = synthetic_case(path);
+        case.execution_id = TestExecutionId::new(path, TestExecutionMode::Module);
+        case.flags.insert("module".into());
+        case.original_source =
+            Arc::from("await 0; throw new TypeError('module evaluation marker');");
+        assert_eq!(
+            compile_options_for_case(&case).promise_rejection_policy,
+            PromiseRejectionPolicy::Ignore
+        );
+        let result = run_one_case(
+            &case,
+            &fixture_preludes(),
+            30_000,
+            ExecutionBackend::WasmAot,
+        );
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("module evaluation rejection must not become a passing Script completion");
+        };
+        assert!(
+            failure.detail.contains("module evaluation marker"),
+            "{failure:?}"
+        );
+    }
+
+    #[test]
+    fn module_entry_completion_policy_is_independent_for_all_module_modes() {
+        for mode in [TestExecutionMode::Module, TestExecutionMode::RawModule] {
+            let mut case = synthetic_case("harness/module-entry-policy.js");
+            case.execution_id = TestExecutionId::new("harness/module-entry-policy.js", mode);
+            case.flags.insert("module".into());
+            if mode == TestExecutionMode::RawModule {
+                case.flags.insert("raw".into());
+            }
+            assert_eq!(
+                compile_options_for_case(&case).promise_rejection_policy,
+                PromiseRejectionPolicy::Ignore
+            );
+        }
+    }
+
+    #[test]
+    fn module_entry_completion_ignores_only_unrelated_rejections() {
+        let path = "harness/module-entry-background.js";
+        let mut case = synthetic_case(path);
+        case.execution_id = TestExecutionId::new(path, TestExecutionMode::Module);
+        case.flags.insert("module".into());
+        case.original_source = Arc::from("Promise.reject(new RangeError('background')); await 0;");
+        let result = run_one_case(
+            &case,
+            &fixture_preludes(),
+            30_000,
+            ExecutionBackend::WasmAot,
+        );
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "{:?}",
+            result.status
+        );
+        case.original_source =
+            Arc::from("Promise.reject(new RangeError('background')); await 0; throw undefined;");
+        let result = run_one_case(
+            &case,
+            &fixture_preludes(),
+            30_000,
+            ExecutionBackend::WasmAot,
+        );
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("undefined rejection must fail");
+        };
+        assert_eq!(failure.kind, FailureKind::Runtime);
+        assert_eq!(failure.outcome, OutcomeKind::Bug);
+        assert!(failure.detail.contains("undefined"), "{failure:?}");
+    }
+
+    #[test]
+    fn module_entry_completion_pending_cannot_satisfy_runtime_negative() {
+        let path = "harness/module-entry-pending.js";
+        let mut case = synthetic_case(path);
+        case.execution_id = TestExecutionId::new(path, TestExecutionMode::Module);
+        case.flags.insert("module".into());
+        case.original_source = Arc::from("await new Promise(() => {});");
+        case.negative = Some(Arc::new(NegativeExpectation {
+            phase: NegativePhase::Runtime,
+            error_type: "TypeError".into(),
+        }));
+        let result = run_one_case(
+            &case,
+            &fixture_preludes(),
+            30_000,
+            ExecutionBackend::WasmAot,
+        );
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("pending is not a JavaScript exception");
+        };
+        assert_eq!(failure.kind, FailureKind::Runtime);
+        assert_eq!(failure.outcome, OutcomeKind::Bug);
+        assert!(failure.detail.contains("pending"), "{failure:?}");
+        assert!(!failure.detail.contains("timeout"), "{failure:?}");
+    }
+
+    #[test]
+    fn wasm_aot_host_tracker_preserves_sync_completion_and_async_failures() {
+        let preludes = async_done_preludes();
+        for source in [
+            "Promise.any([]);",
+            "var source = Promise.resolve(); source.constructor = null; if (Promise.resolve(source) === source) throw 'identity';",
+            "Promise.reject({toString() { throw 'diagnostic conversion'; }}); Promise.reject('second');",
+        ] {
+            let mut case = synthetic_case("harness/wasm-promise-host-completion.js");
+            case.original_source = Arc::from(source);
+            let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
+            assert!(matches!(result.status, TestStatus::Passed), "{source}: {:?}", result.status);
+        }
+        for (source, passing, detail) in [
+            (
+                "Promise.reject('ignored'); Promise.resolve().then(() => $DONE());",
+                true,
+                "",
+            ),
+            (
+                "Promise.resolve().then(() => $DONE('rejection marker'));",
+                false,
+                "rejection marker",
+            ),
+            (
+                "Promise.resolve().then(() => { throw 'before done'; });",
+                false,
+                "was not called",
+            ),
+            (
+                "Promise.resolve().then(() => { $DONE(); $DONE(); });",
+                false,
+                "called multiple times",
+            ),
+            (
+                "$DONE(); Promise.resolve().then(() => $DONE('late error'));",
+                false,
+                "called multiple times",
+            ),
+        ] {
+            let mut case = synthetic_case("harness/wasm-promise-async-completion.js");
+            case.flags.insert("async".into());
+            case.original_source = Arc::from(source);
+            let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::WasmAot);
+            match result.status {
+                TestStatus::Passed => assert!(passing, "{source} must fail"),
+                TestStatus::Failed(failure) => {
+                    assert!(!passing, "{source}: {failure:?}");
+                    assert!(failure.detail.contains(detail), "{source}: {failure:?}");
+                }
+            }
         }
     }
 

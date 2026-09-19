@@ -2463,6 +2463,7 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         | ExprIr::DynamicImport { .. }
         | ExprIr::ImportMeta { .. }
         | ExprIr::ModuleNamespace { .. }
+        | ExprIr::ModuleEntryEvaluation(_)
         | ExprIr::SynchronousModuleGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::ModuleEvaluate(_)
@@ -2741,6 +2742,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::DynamicImport { .. }
         | ExprIr::ImportMeta { .. }
         | ExprIr::ModuleNamespace { .. }
+        | ExprIr::ModuleEntryEvaluation(_)
         | ExprIr::SynchronousModuleGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::ModuleEvaluate(_)

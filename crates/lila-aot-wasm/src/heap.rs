@@ -279,7 +279,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 320;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 496;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 512;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -710,6 +710,8 @@ pub(crate) const HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET: u64 = 
 pub(crate) const HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET: u64 = 464;
 pub(crate) const HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET: u64 = 480;
 pub(crate) const HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET: u64 = 488;
+pub(crate) const HEAP_REALM_INTRINSICS_TEMPORAL_INSTANT_PROTOTYPE_OFFSET: u64 = 496;
+pub(crate) const HEAP_REALM_INTRINSICS_TEMPORAL_DURATION_PROTOTYPE_OFFSET: u64 = 504;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -744,6 +746,9 @@ pub(crate) const HEAP_ARRAY_INDEX_PROP_DATA_PAYLOAD_OFFSET: u64 = 176;
 pub(crate) const HEAP_ARRAY_INPUT_PROP_DESCRIPTOR_KIND_OFFSET: u64 = 184;
 pub(crate) const HEAP_ARRAY_INPUT_PROP_DATA_TAG_OFFSET: u64 = 192;
 pub(crate) const HEAP_ARRAY_INPUT_PROP_DATA_PAYLOAD_OFFSET: u64 = 200;
+// Indexed properties below the allocated capacity live in the dense buffer.
+// This table owns sparse properties outside that capacity; promoted entries
+// retain their index with a zero descriptor and are ignored by traversal.
 pub(crate) const HEAP_ARRAY_PRESENT_INDEXES_PTR_OFFSET: u64 = 208;
 pub(crate) const HEAP_ARRAY_PRESENT_INDEXES_LEN_OFFSET: u64 = 216;
 pub(crate) const HEAP_ARRAY_PRESENT_INDEXES_CAP_OFFSET: u64 = 224;
@@ -811,27 +816,11 @@ pub(crate) const HEAP_INTL_DTF_BOUND_FORMAT_OFFSET: u64 = 152;
 /// bag named no date/time component and no dateStyle/timeStyle, so the
 /// Temporal `toLocaleString` path may substitute the type's own defaults.
 pub(crate) const HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET: u64 = 160;
-/// The resolved time zone's offset from UTC, in whole signed minutes.
-///
-/// This is the *other half* of [`HEAP_INTL_DTF_TIME_ZONE_OFFSET`]: that slot
-/// holds the identifier `resolvedOptions().timeZone` reports, this one holds
-/// the shift `PartitionDateTimePattern` applies to an exact time value before
-/// breaking it into components. `"UTC"`, `"Etc/GMT+7"` and `"-07:00"` are three
-/// identifiers, two offsets and one formatted output for two of them, so
-/// neither slot can be derived from the other and both are stored.
-///
-/// A raw signed `i64` holding a value in `-1439..=1439` — the `TzOffsetMinutes`
-/// range of `crate::builtins::intl_datetimeformat` — never an f64 bit pattern.
-pub(crate) const HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET: u64 = 168;
-/// The localized GMT name (`"GMT-07:00"`) of a **non-zero** offset zone, or `0`
-/// when the offset is zero and CLDR `en`'s real UTC names apply instead.
-///
-/// Pre-rendered by the constructor rather than built inside the format walk.
-/// That walk is emitted once per `format`, `formatToParts`, `formatRange` and
-/// `formatRangeToParts` body and is already the largest thing this crate emits;
-/// the string concatenations this slot replaces would have been paid for four
-/// times over, in the one function whose size budget is known to be tight.
-pub(crate) const HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET: u64 = 176;
+/// Signed offset seconds for a fixed-offset formatter; zero for a named zone.
+/// Named offsets are selected for each exact input instant by the provider.
+pub(crate) const HEAP_INTL_DTF_TIME_ZONE_FIXED_SECONDS_OFFSET: u64 = 168;
+/// Closed `lila_intl::TimeZoneKind` discriminant; this slot holds no pointer.
+pub(crate) const HEAP_INTL_DTF_TIME_ZONE_KIND_OFFSET: u64 = 176;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_TAG_OFFSET: u64 = 16;
@@ -848,10 +837,9 @@ pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_ISO_YEAR_OFFSET: u64 = 0;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_ISO_MONTH_OFFSET: u64 = 8;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_ISO_DAY_OFFSET: u64 = 16;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_CALENDAR_PAYLOAD_OFFSET: u64 = 24;
-/// `Temporal.Duration` internal slots. Every field is a plain signed `i64`:
-/// `IsValidDuration` caps years/months/weeks below 2^32 and forces the whole
-/// day-through-nanosecond tail below 2^53 seconds, so no field can escape an
-/// `i64` once construction has succeeded.
+/// `Temporal.Duration` internal slots retain integral Number bits and canonical
+/// +0. Wide subsecond fields normalize to exact integer seconds and remainders;
+/// `IsValidDuration` bounds the total, without narrowing each field to `i64`.
 /// `Temporal.PlainTime` internal slots. `RejectTime` bounds every field to two
 /// or three digits, so a plain signed `i64` per field is always enough and
 /// there is no calendar slot to carry — a `PlainTime` has no calendar.
@@ -3676,6 +3664,20 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Temporal.Instant.prototype%",
+        offset: HEAP_REALM_INTRINSICS_TEMPORAL_INSTANT_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Temporal.Duration.prototype%",
+        offset: HEAP_REALM_INTRINSICS_TEMPORAL_DURATION_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -5717,7 +5719,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 496);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 512);
         assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
         assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);
@@ -7065,15 +7067,15 @@ mod tests {
             ),
             (
                 &layouts[4],
-                "time_zone_offset_minutes",
-                HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
+                "time_zone_fixed_seconds",
+                HEAP_INTL_DTF_TIME_ZONE_FIXED_SECONDS_OFFSET,
                 false,
             ),
             (
                 &layouts[5],
-                "time_zone_gmt_name_payload",
-                HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET,
-                true,
+                "time_zone_kind",
+                HEAP_INTL_DTF_TIME_ZONE_KIND_OFFSET,
+                false,
             ),
             (
                 &layouts[6],

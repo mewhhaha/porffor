@@ -3,7 +3,8 @@ const OWNER_SOURCE: &str = include_str!("../src/modules/graph_build.rs");
 const GRAPH_SOURCE: &str = include_str!("../src/modules/graph.rs");
 const GRAPH_TESTS_SOURCE: &str = include_str!("../src/modules/graph_tests.rs");
 const LOADED_SOURCES_SOURCE: &str = include_str!("../src/modules/loaded_sources.rs");
-const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
+const LOWERING_SOURCE: &str = include_str!("../src/lowering/module_graph.rs");
+const ADMISSION_SOURCE: &str = include_str!("../src/modules/admission.rs");
 const DYNAMIC_SOURCE: &str = include_str!("../src/modules/dynamic.rs");
 const LINK_SOURCE: &str = include_str!("../src/modules/link.rs");
 const NAMESPACE_SOURCE: &str = include_str!("../src/modules/namespace.rs");
@@ -74,7 +75,15 @@ fn build_graph_callers_keep_the_existing_crate_boundary() {
     assert_eq!(OWNER_SOURCE.matches("build_graph").count(), 1);
     assert_eq!(GRAPH_SOURCE.matches("build_graph(").count(), 0);
     assert_eq!(GRAPH_TESTS_SOURCE.matches("build_graph(").count(), 33);
-    assert_eq!(LOWERING_SOURCE.matches("modules::build_graph(").count(), 1);
+    assert_eq!(LOWERING_SOURCE.matches("modules::build_graph(").count(), 0);
+    assert_eq!(
+        LOWERING_SOURCE
+            .matches("modules::link_loaded_graph(")
+            .count(),
+        1
+    );
+    assert_eq!(ADMISSION_SOURCE.matches("build_graph(sources)").count(), 1);
+    assert!(ADMISSION_SOURCE.contains("pub(crate) fn link_loaded_graph("));
     assert_eq!(
         DYNAMIC_SOURCE
             .matches("crate::modules::build_graph(")

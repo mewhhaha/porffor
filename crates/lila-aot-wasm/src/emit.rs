@@ -32,7 +32,7 @@ use wasm_encoder::{
 };
 
 use super::*;
-use lila_intl::{embedded_locale_data_identity, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION};
+use lila_intl::{embedded_intl_data_identity, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION};
 
 mod completion_exit;
 pub(crate) use completion_exit::CompletionExit;
@@ -152,7 +152,7 @@ pub(crate) enum ReturnAbi {
 /// a caller cannot construct a main body without its rooted section or extract
 /// a copyable schema to pair with another section.
 enum FunctionModuleState<'a> {
-    Main(&'a FinalizedModuleGlobals),
+    Main(&'a FinalizedModuleGlobals, PromiseRejectionPolicy),
     PreparedScript(&'a PreparedScriptUnit),
     Internal,
 }
@@ -160,7 +160,7 @@ enum FunctionModuleState<'a> {
 impl FunctionModuleState<'_> {
     const fn parameter_count(&self) -> usize {
         match self {
-            Self::Main(_) => 0,
+            Self::Main(_, _) => 0,
             Self::Internal => JS_FUNCTION_PARAM_COUNT,
             Self::PreparedScript(_) => PREPARED_SCRIPT_PARAM_COUNT,
         }
@@ -168,7 +168,7 @@ impl FunctionModuleState<'_> {
 
     const fn return_abi(&self) -> ReturnAbi {
         match self {
-            Self::Main(_) => ReturnAbi::MainExport,
+            Self::Main(_, _) => ReturnAbi::MainExport,
             Self::Internal | Self::PreparedScript(_) => ReturnAbi::MultiValue,
         }
     }
@@ -182,6 +182,7 @@ impl FunctionModuleState<'_> {
 /// while compiling against package B.
 pub(crate) struct MainFunctionCompilation<'a> {
     script: &'a ScriptIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
     strings: &'a StringPool,
     functions: &'a FunctionMetaRegistry,
     uses_heap: bool,
@@ -199,6 +200,7 @@ impl<'a> MainFunctionCompilation<'a> {
     #[allow(clippy::too_many_arguments)]
     fn new(
         script: &'a ScriptIr,
+        promise_rejection_policy: PromiseRejectionPolicy,
         strings: &'a StringPool,
         functions: &'a FunctionMetaRegistry,
         uses_heap: bool,
@@ -213,6 +215,7 @@ impl<'a> MainFunctionCompilation<'a> {
     ) -> Self {
         Self {
             script,
+            promise_rejection_policy,
             strings,
             functions,
             uses_heap,
@@ -249,6 +252,7 @@ impl<'a> MainFunctionCompilation<'a> {
             self.plain_object_alloc_function_index,
             self.array_alloc_function_index,
             module_globals,
+            self.promise_rejection_policy,
         );
         let main = builder.compile()?;
         let emitted_local_count = builder.emitted_local_count();
@@ -301,6 +305,8 @@ impl NumericErrorRealmSource {
             | RuntimeHelperId::ObjectPreventExtensions
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::RegExpCompiler
+            | RuntimeHelperId::ArrayAppendPresentIndex
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
@@ -382,6 +388,8 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::ObjectIsExtensible
             | RuntimeHelperId::ObjectPreventExtensions
             | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::RegExpCompiler
+            | RuntimeHelperId::ArrayAppendPresentIndex
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
@@ -468,6 +476,8 @@ impl ObjectMutationErrorRealmSource {
             | RuntimeHelperId::ObjectPreventExtensions
             | RuntimeHelperId::ObjectReadProxy
             | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::RegExpCompiler
+            | RuntimeHelperId::ArrayAppendPresentIndex
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::ArrayWrite
@@ -529,6 +539,8 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::ObjectIsExtensible
             | RuntimeHelperId::ObjectPreventExtensions
             | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::RegExpCompiler
+            | RuntimeHelperId::ArrayAppendPresentIndex
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
@@ -809,6 +821,13 @@ pub(crate) struct FunctionBuilder<'a> {
 }
 
 pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
+    emit_with_promise_rejection_policy(program, PromiseRejectionPolicy::default())
+}
+
+pub fn emit_with_promise_rejection_policy(
+    program: &ProgramIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+) -> Result<WasmArtifact, EmitError> {
     // Diagnostics are scanned *before* `program.script`: a stage that reports a
     // reason for failing also declines to produce a script, so checking the
     // script first replaces every honest diagnostic with the generic "no
@@ -821,10 +840,22 @@ pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
     let script = program.script.as_ref().ok_or_else(|| {
         EmitError::unsupported("unsupported in lila wasm-aot first slice: no lowered script ir")
     })?;
-    emit_script(script)
+    let is_module_entry = program
+        .modules
+        .as_ref()
+        .is_some_and(|graph| !graph.entry_is_script);
+    if is_module_entry != script.module_entry_evaluation().is_some() {
+        return Err(EmitError::unsupported(
+            "compiler invariant violated: Module entry and trusted evaluation-completion operation must have the same owner",
+        ));
+    }
+    emit_script(script, promise_rejection_policy)
 }
 
-fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
+fn emit_script(
+    script: &ScriptIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+) -> Result<WasmArtifact, EmitError> {
     let mut prepared_script = script.clone();
     super::builtins::append_empty_dynamic_function_bodies(&mut prepared_script);
     let script = &prepared_script;
@@ -856,7 +887,8 @@ fn emit_script(script: &ScriptIr) -> Result<WasmArtifact, EmitError> {
     // counts, so the loop terminates; in practice it converges in 2-4 passes.
     let mut forced = ForcedBuiltins::default();
     loop {
-        let (artifact, touched_stubbed) = emit_script_with_forced_builtins(script, &forced)?;
+        let (artifact, touched_stubbed) =
+            emit_script_with_forced_builtins(script, &forced, promise_rejection_policy)?;
         if touched_stubbed.standard.is_empty()
             && touched_stubbed.host.is_empty()
             && !touched_stubbed.number_pow_import
@@ -1339,6 +1371,7 @@ struct ForcedBuiltins {
 fn emit_script_with_forced_builtins(
     script: &ScriptIr,
     forced: &ForcedBuiltins,
+    promise_rejection_policy: PromiseRejectionPolicy,
 ) -> Result<(WasmArtifact, ForcedBuiltins), EmitError> {
     let uses_heap = true;
     let references_agent_host = script
@@ -1662,6 +1695,7 @@ fn emit_script_with_forced_builtins(
 
     let mut module_package = module_sections.compile_main(MainFunctionCompilation::new(
         script,
+        promise_rejection_policy,
         &string_pool,
         &function_metas,
         uses_heap,
@@ -2067,6 +2101,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_regexp_matcher_helper()
         })
         .transpose()?;
+    let regexp_compiler_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_regexp_compiler_helper()
+        })
+        .transpose()?;
     let function_call_helper_function = uses_heap
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -2150,6 +2201,23 @@ fn emit_script_with_forced_builtins(
                 array_alloc_function_index,
             );
             builder.compile_array_write_helper()
+        })
+        .transpose()?;
+    let array_append_present_index_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_array_append_present_index_helper()
         })
         .transpose()?;
     let ordinary_set_helper_function = uses_heap
@@ -2508,6 +2576,11 @@ fn emit_script_with_forced_builtins(
                 .expect("regexp matcher helper must exist when heap is enabled"),
         );
         helper_bodies.insert(
+            RuntimeHelperId::RegExpCompiler,
+            regexp_compiler_helper_function
+                .expect("regexp compiler helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
             RuntimeHelperId::FunctionCall,
             function_call_helper_function
                 .expect("function-call helper must exist when heap is enabled"),
@@ -2531,6 +2604,11 @@ fn emit_script_with_forced_builtins(
             RuntimeHelperId::ArrayWrite,
             array_write_helper_function
                 .expect("array-write helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::ArrayAppendPresentIndex,
+            array_append_present_index_helper_function
+                .expect("array present-index helper must exist when heap is enabled"),
         );
         helper_bodies.insert(
             RuntimeHelperId::OrdinarySet,
@@ -2638,6 +2716,13 @@ fn emit_script_with_forced_builtins(
 
     let mut exports = ExportSection::new();
     exports.export("main", ExportKind::Func, main_wasm_index);
+    if script.module_entry_evaluation().is_some() {
+        exports.export(
+            MODULE_EVALUATION_STATUS_EXPORT,
+            ExportKind::Global,
+            MODULE_EVALUATION_STATUS_GLOBAL_INDEX,
+        );
+    }
     exports.export(
         RESULT_TAG_EXPORT,
         ExportKind::Global,
@@ -3037,7 +3122,7 @@ fn emit_script_with_forced_builtins(
     }
 
     if uses_intl_host {
-        let identity = embedded_locale_data_identity().map_err(|error| {
+        let identity = embedded_intl_data_identity().map_err(|error| {
             EmitError::unsupported(format!(
                 "failed to construct the Intl artifact identity: {error}"
             ))
@@ -3147,6 +3232,7 @@ impl<'a> FunctionBuilder<'a> {
         plain_object_alloc_function_index: Option<u32>,
         array_alloc_function_index: Option<u32>,
         module_globals: &'a FinalizedModuleGlobals,
+        promise_rejection_policy: PromiseRejectionPolicy,
     ) -> Self {
         let mut builder = Self::new(
             &script.body,
@@ -3164,7 +3250,7 @@ impl<'a> FunctionBuilder<'a> {
             None,
             Some(&script.global_bindings),
             uses_heap,
-            FunctionModuleState::Main(module_globals),
+            FunctionModuleState::Main(module_globals, promise_rejection_policy),
             NumericErrorRealmSource::GlobalFallback,
             false,
             runtime_bootstrap_plan,
@@ -3424,7 +3510,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Self {
         let return_abi = module_state.return_abi();
         let hoisted_vars = match &module_state {
-            FunctionModuleState::Main(_) => script_global_bindings
+            FunctionModuleState::Main(_, _) => script_global_bindings
                 .expect("main builder must carry the global binding plan")
                 .main_frame_write_bindings()
                 .map(|binding| binding.name.clone())
@@ -3687,6 +3773,11 @@ impl<'a> FunctionBuilder<'a> {
             .map(|base| RuntimeHelperId::RegExpMatcher.index(base))
     }
 
+    pub(crate) fn regexp_compiler_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::RegExpCompiler.index(base))
+    }
+
     /// Wasm function index of the shared plain function-call dispatcher.
     /// Unconditional (emitted whenever heap is used) so its fixed offset never
     /// shifts.
@@ -3722,6 +3813,11 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn array_write_helper_function_index(&self) -> Option<u32> {
         self.heap_alloc_function_index
             .map(|base| RuntimeHelperId::ArrayWrite.index(base))
+    }
+
+    pub(crate) fn array_append_present_index_helper_function_index(&self) -> Option<u32> {
+        self.heap_alloc_function_index
+            .map(|base| RuntimeHelperId::ArrayAppendPresentIndex.index(base))
     }
 
     /// Wasm function index of the shared OrdinarySet helper with an explicit receiver.
@@ -3802,7 +3898,7 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) fn has_global_script_bindings(&self) -> bool {
         match self.module_state {
-            FunctionModuleState::Main(_) => true,
+            FunctionModuleState::Main(_, _) => true,
             FunctionModuleState::PreparedScript(unit) => unit.has_global_variable_environment(),
             FunctionModuleState::Internal => false,
         }
@@ -3814,7 +3910,7 @@ impl<'a> FunctionBuilder<'a> {
                 PreparedScriptKind::DirectEval(context) => context.derived_constructor_owner(),
                 PreparedScriptKind::RealmScript | PreparedScriptKind::IndirectEval => None,
             },
-            FunctionModuleState::Main(_) | FunctionModuleState::Internal => {
+            FunctionModuleState::Main(_, _) | FunctionModuleState::Internal => {
                 self.captured_direct_eval_execution_context_local?;
                 let function_id = self
                     .function_id
@@ -3849,7 +3945,7 @@ impl<'a> FunctionBuilder<'a> {
             {
                 Some(9)
             }
-            FunctionModuleState::Main(_)
+            FunctionModuleState::Main(_, _)
             | FunctionModuleState::Internal
             | FunctionModuleState::PreparedScript(_) => {
                 self.captured_direct_eval_execution_context_local
@@ -3864,7 +3960,7 @@ impl<'a> FunctionBuilder<'a> {
             {
                 Some(8)
             }
-            FunctionModuleState::Main(_)
+            FunctionModuleState::Main(_, _)
             | FunctionModuleState::Internal
             | FunctionModuleState::PreparedScript(_) => None,
         }
@@ -4112,6 +4208,14 @@ impl<'a> FunctionBuilder<'a> {
                 &mut function,
             )?;
         }
+        let module_entry_kind = if self.is_main() {
+            lila_ir::ModuleEntryEvaluationIr::in_root_block(self.body).map(|entry| entry.kind())
+        } else {
+            None
+        };
+        if module_entry_kind.is_some() {
+            self.initialize_module_entry_completion(&mut function);
+        }
         let main_job_checkpoint = if self.is_main() && self.uses_heap {
             let target = self.open_frame(ControlFrameKind::Block, &mut function);
             self.completion_exit.enter_main_job_checkpoint(target);
@@ -4154,9 +4258,18 @@ impl<'a> FunctionBuilder<'a> {
             } else {
                 self.emit_drain_promise_jobs(&mut function)?;
             }
+            if let Some(kind) = module_entry_kind {
+                self.emit_module_entry_checkpoint(kind, &mut function)?;
+            }
             // Every job that could still attach a handler has now run, so a
             // promise still marked unhandled really is an unhandled rejection.
-            self.emit_report_unhandled_rejection(&mut function)?;
+            let promise_rejection_policy = match self.module_state {
+                FunctionModuleState::Main(_, policy) => policy,
+                FunctionModuleState::PreparedScript(_) | FunctionModuleState::Internal => {
+                    unreachable!("only the main export reports unhandled rejections")
+                }
+            };
+            self.emit_report_unhandled_rejection(promise_rejection_policy, &mut function)?;
             self.emit_capture_final_throw_constructor_name(&mut function);
         }
         assert!(
@@ -4323,7 +4436,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn initialize_runtime_gc_anchor_root(&self, function: &mut Function) {
         let module_globals = match &self.module_state {
-            FunctionModuleState::Main(module_globals) => module_globals,
+            FunctionModuleState::Main(module_globals, _) => module_globals,
             FunctionModuleState::Internal | FunctionModuleState::PreparedScript(_) => return,
         };
 
@@ -4343,7 +4456,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Internal functions carry no finalized global package and emit nothing.
     pub(crate) fn verify_and_clear_runtime_gc_anchor_root(&self, function: &mut Function) {
         let module_globals = match &self.module_state {
-            FunctionModuleState::Main(module_globals) => module_globals,
+            FunctionModuleState::Main(module_globals, _) => module_globals,
             FunctionModuleState::Internal | FunctionModuleState::PreparedScript(_) => return,
         };
         module_globals.emit_verify_and_clear_anchor_root(function);
@@ -4569,6 +4682,8 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::PlainObjectAlloc
             | RuntimeHelperId::ArrayAlloc
             | RuntimeHelperId::RegExpMatcher
+            | RuntimeHelperId::RegExpCompiler
+            | RuntimeHelperId::ArrayAppendPresentIndex
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
             | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback

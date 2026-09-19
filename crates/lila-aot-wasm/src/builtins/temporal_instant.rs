@@ -1,5 +1,4 @@
-//! `Temporal.Instant` members that need no duration arithmetic, no rounding, no
-//! time zone and no calendar.
+//! `Temporal.Instant` exact epoch creation, comparison and time arithmetic.
 //!
 //! Temporal proposal 8.2.4 `compare`, 8.2.2 `fromEpochMilliseconds`, 8.2.3
 //! `fromEpochNanoseconds`, 8.3.11 `toJSON` and 8.3.12 `valueOf`. Every one of
@@ -8,7 +7,7 @@
 //! layout, the range check and the allocation all live in
 //! `builtins/temporal.rs` and are reused unchanged from here.
 //!
-//! The one new idea is the [`UnvalidatedEpochNanoseconds`] ->
+//! Creation is guarded by the [`UnvalidatedEpochNanoseconds`] ->
 //! [`EpochNanoseconds`] pair. The first is a named-field `(payload, tag)` local
 //! pair, so the two same-typed locals cannot be swapped in silence at a call
 //! site; the second is that pair after `IsValidEpochNanoseconds` accepted it.
@@ -18,7 +17,12 @@
 //! needs simply cannot be produced any other way.
 
 use super::super::*;
+use crate::intrinsics::temporal::TemporalIntrinsicFamily;
 use crate::operations::BigIntNumberPolicy;
+
+mod methods;
+mod round;
+pub(super) use methods::{InstantArithmetic, InstantDifference};
 
 /// `Temporal.Instant.fromEpochMilliseconds` step 2 rejects a non-integral
 /// Number through `NumberToBigInt`, which is a **RangeError**, not the
@@ -100,10 +104,11 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
         }) = epoch;
         let prototype_payload_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        self.emit_load_current_builtin_temporal_prototype(
+            TemporalIntrinsicFamily::Instant,
+            prototype_payload_local,
+            function,
+        );
         self.emit_alloc_temporal_instant(
             payload_local,
             tag_local,

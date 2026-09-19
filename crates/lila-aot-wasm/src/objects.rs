@@ -6290,7 +6290,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn compile_dynamic_property_read_from_locals(
+    pub(crate) fn compile_dynamic_property_read_from_locals(
         &mut self,
         target_possible_kinds: KindSet,
         key: &PropertyKeyIr,

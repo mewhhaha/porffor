@@ -777,42 +777,14 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                 }
                 function.instruction(&Instruction::Else);
-                if let Some(array_index_local) = array_index_local {
-                    function.instruction(&Instruction::LocalGet(array_index_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64GeS);
-                    function.instruction(&Instruction::LocalGet(holder_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::I32And);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_array_create_data_property_silent(
-                        holder_payload_local,
-                        array_index_local,
-                        result_payload_local,
-                        result_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::Else);
-                    self.emit_json_create_data_property(
-                        holder_payload_local,
-                        holder_tag_local,
-                        key_payload_local,
-                        result_payload_local,
-                        result_tag_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::End);
-                } else {
-                    self.emit_json_create_data_property(
-                        holder_payload_local,
-                        holder_tag_local,
-                        key_payload_local,
-                        result_payload_local,
-                        result_tag_local,
-                        function,
-                    )?;
-                }
+                self.emit_json_create_data_property(
+                    holder_payload_local,
+                    holder_tag_local,
+                    key_payload_local,
+                    result_payload_local,
+                    result_tag_local,
+                    function,
+                )?;
                 function.instruction(&Instruction::End);
             }
         }
@@ -828,59 +800,75 @@ impl<'a> FunctionBuilder<'a> {
         value_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let boxed_kind_local = self.reserve_temp_local();
+        let descriptor_payload = self.reserve_temp_local();
+        let descriptor_tag = self.reserve_temp_local();
+        let key_tag = self.reserve_temp_local();
+        let attribute_key = self.reserve_temp_local();
+        let attribute_value = self.reserve_temp_local();
+        let attribute_tag = self.reserve_temp_local();
+        let accepted_payload = self.reserve_temp_local();
+        let accepted_tag = self.reserve_temp_local();
 
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(holder_tag_local));
+        // CreateDataProperty ignores a false result, but propagates an abrupt
+        // DefineOwnProperty completion. The intrinsic Reflect operation owns
+        // that distinction for ordinary objects, arrays and Proxy targets.
+        // Its input descriptor is private: inherited get/set fields must not
+        // participate in the canonical ToPropertyDescriptor conversion.
+        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+        function.instruction(&Instruction::LocalSet(descriptor_payload));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            holder_payload_local,
-            HEAP_OBJECT_BOXED_KIND_OFFSET,
-            boxed_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(boxed_kind_local));
-        function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_create_data_property_or_throw(
-            holder_payload_local,
-            holder_tag_local,
-            key_payload_local,
-            value_payload_local,
-            value_tag_local,
-            "Cannot redefine JSON reviver property",
-            "Cannot add JSON reviver property",
+        function.instruction(&Instruction::LocalSet(descriptor_tag));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(key_tag));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(attribute_value));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(attribute_tag));
+        for (name, payload, tag) in [
+            ("value", value_payload_local, value_tag_local),
+            ("writable", attribute_value, attribute_tag),
+            ("enumerable", attribute_value, attribute_tag),
+            ("configurable", attribute_value, attribute_tag),
+        ] {
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(attribute_key));
+            self.emit_object_define_enumerable_data(
+                descriptor_payload,
+                attribute_key,
+                payload,
+                tag,
+                function,
+            )?;
+        }
+        let define_property = self
+            .functions
+            .get(&StandardBuiltinId::ReflectDefineProperty.function_id())
+            .cloned()
+            .expect("JSON.parse roots the canonical Boolean property-definition operation");
+        self.emit_direct_js_call(
+            &define_property,
             None,
+            &[
+                (holder_payload_local, holder_tag_local),
+                (key_payload_local, key_tag),
+                (descriptor_payload, descriptor_tag),
+            ],
+            accepted_payload,
+            accepted_tag,
             function,
         )?;
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::End);
-        self.emit_object_create_data_property_silent(
-            holder_payload_local,
-            key_payload_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_create_data_property_or_throw(
-            holder_payload_local,
-            holder_tag_local,
-            key_payload_local,
-            value_payload_local,
-            value_tag_local,
-            "Cannot redefine JSON reviver property",
-            "Cannot add JSON reviver property",
-            None,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(boxed_kind_local);
+        for local in [
+            accepted_tag,
+            accepted_payload,
+            attribute_tag,
+            attribute_value,
+            attribute_key,
+            key_tag,
+            descriptor_tag,
+            descriptor_payload,
+        ] {
+            self.release_temp_local(local);
+        }
         Ok(())
     }
 
@@ -6368,119 +6356,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_finalize_json_array_present_indexes(
-        &mut self,
-        array_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let buffer_local = self.reserve_temp_local();
-        let len_local = self.reserve_temp_local();
-        let allocation_size_local = self.reserve_temp_local();
-        let present_buffer_local = self.reserve_temp_local();
-        let index_local = self.reserve_temp_local();
-        let entry_local = self.reserve_temp_local();
-        let present_entry_local = self.reserve_temp_local();
-
-        self.load_i64_to_local_from_offset(array_local, HEAP_LEN_OFFSET, len_local, function);
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64Const(HEAP_ARRAY_PRESENT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(allocation_size_local));
-        self.emit_heap_alloc_from_local(allocation_size_local, function)?;
-        function.instruction(&Instruction::LocalSet(present_buffer_local));
-        self.load_i64_to_local_from_offset(array_local, HEAP_PTR_OFFSET, buffer_local, function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(len_local));
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::LocalGet(buffer_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(HEAP_ARRAY_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(entry_local));
-        function.instruction(&Instruction::LocalGet(present_buffer_local));
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(HEAP_ARRAY_PRESENT_ENTRY_SIZE as i64));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(present_entry_local));
-        self.store_i64_local_at_offset(
-            present_entry_local,
-            HEAP_ARRAY_PRESENT_ENTRY_INDEX_OFFSET,
-            index_local,
-            function,
-        );
-        for (source_offset, destination_offset) in [
-            (HEAP_ARRAY_TAG_OFFSET, HEAP_ARRAY_PRESENT_ENTRY_TAG_OFFSET),
-            (
-                HEAP_ARRAY_PAYLOAD_OFFSET,
-                HEAP_ARRAY_PRESENT_ENTRY_PAYLOAD_OFFSET,
-            ),
-            (
-                HEAP_ARRAY_SETTER_TAG_OFFSET,
-                HEAP_ARRAY_PRESENT_ENTRY_SETTER_TAG_OFFSET,
-            ),
-            (
-                HEAP_ARRAY_SETTER_PAYLOAD_OFFSET,
-                HEAP_ARRAY_PRESENT_ENTRY_SETTER_PAYLOAD_OFFSET,
-            ),
-            (
-                HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
-                HEAP_ARRAY_PRESENT_ENTRY_DESCRIPTOR_KIND_OFFSET,
-            ),
-        ] {
-            self.load_i64_from_offset(entry_local, source_offset, function);
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.store_i64_local_at_offset(
-                present_entry_local,
-                destination_offset,
-                self.scratch_local,
-                function,
-            );
-        }
-        self.emit_increment_local(index_local, 1, function);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        self.store_i64_local_at_offset(
-            array_local,
-            HEAP_ARRAY_PRESENT_INDEXES_PTR_OFFSET,
-            present_buffer_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            array_local,
-            HEAP_ARRAY_PRESENT_INDEXES_LEN_OFFSET,
-            len_local,
-            function,
-        );
-        self.store_i64_local_at_offset(
-            array_local,
-            HEAP_ARRAY_PRESENT_INDEXES_CAP_OFFSET,
-            len_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(present_entry_local);
-        self.release_temp_local(entry_local);
-        self.release_temp_local(index_local);
-        self.release_temp_local(present_buffer_local);
-        self.release_temp_local(allocation_size_local);
-        self.release_temp_local(len_local);
-        self.release_temp_local(buffer_local);
-        Ok(())
-    }
-
     fn emit_alloc_json_parse_metadata(
         &mut self,
         string_offset_local: u32,
@@ -7550,12 +7425,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(b']' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_finalize_json_array_present_indexes(frame_payload_local, function)?;
-        function.instruction(&Instruction::LocalGet(capture_metadata_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_finalize_json_array_present_indexes(frame_metadata_payload_local, function)?;
-        function.instruction(&Instruction::End);
         self.emit_increment_local(index_local, 1, function);
         function.instruction(&Instruction::LocalGet(frame_len_local));
         function.instruction(&Instruction::I64Const(1));
@@ -7707,12 +7576,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(b']' as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_finalize_json_array_present_indexes(frame_payload_local, function)?;
-        function.instruction(&Instruction::LocalGet(capture_metadata_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_finalize_json_array_present_indexes(frame_metadata_payload_local, function)?;
-        function.instruction(&Instruction::End);
         self.emit_increment_local(index_local, 1, function);
         function.instruction(&Instruction::LocalGet(frame_len_local));
         function.instruction(&Instruction::I64Const(1));

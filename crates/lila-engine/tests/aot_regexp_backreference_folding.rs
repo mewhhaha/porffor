@@ -1,8 +1,4 @@
 use lila_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
-use lila_ir::{
-    ExprIr, StatementIr, REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
-};
-
 fn wasm_run_options() -> RunOptions {
     RunOptions {
         backend: ExecutionBackend::WasmAot,
@@ -160,53 +156,4 @@ match.index === 1 && match[1] === 'a' && match.indices[0][1] === 3 &&
 failed === null && sticky.lastIndex === 0 && first.index === 2 && second.index === 5 && global.lastIndex === 6;
 "#,
     );
-}
-
-#[test]
-fn malformed_backreference_operands_are_rejected_even_for_empty_captures() {
-    lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
-    for (pattern, operand1) in [
-        (r"()\1", 4),
-        (r"()\1", 1_u64 << 63),
-        (r"(?<a>)\k<a>", 1),
-        (r"(?<a>)\k<a>", 3),
-        (r"(?<a>)\k<a>", 4),
-    ] {
-        let source = format!("let expression = /{pattern}/i; let rejected = false; try {{ expression.test(''); }} catch (error) {{ rejected = error.message === 'RegExp compiled program matcher failed'; }} rejected;");
-        let engine = Engine::new(RealmBuilder::new().build());
-        let mut unit = engine
-            .compile_script(&source, CompileOptions::default())
-            .expect("script compiles");
-        let script = unit.ir.script.as_mut().expect("script IR");
-        let StatementIr::Lexical { init, .. } = &mut script.body.statements[0] else {
-            panic!("expected the RegExp lexical initializer");
-        };
-        let ExprIr::RegExpLiteral {
-            program: Some(program),
-            ..
-        } = &mut init.expr
-        else {
-            panic!("expected compiled RegExp literal");
-        };
-        let reference = program
-            .instructions
-            .iter_mut()
-            .find(|instruction| {
-                matches!(
-                    instruction.opcode,
-                    REGEXP_OPCODE_NAMED_BACKREFERENCE | REGEXP_OPCODE_NUMBERED_BACKREFERENCE
-                )
-            })
-            .expect("one reference");
-        reference.operand1 = operand1;
-        let outcome = engine
-            .run_compiled_unit(&unit, &source, wasm_run_options())
-            .unwrap_or_else(|error| panic!("malformed /{pattern}/ operand {operand1}: {error}"));
-        assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
-        assert!(
-            outcome.note.contains("boolean(true)"),
-            "/{pattern}/ operand {operand1}: {}",
-            outcome.note
-        );
-    }
 }

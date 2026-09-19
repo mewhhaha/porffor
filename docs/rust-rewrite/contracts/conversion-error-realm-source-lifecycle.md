@@ -26,10 +26,13 @@ policy, not arbitrary runtime corruption.
 
 The type-owned current-function Realm proof is
 `CurrentFunctionRealmPrimitiveLocals`. It carries payload and tag locals only;
-its sole producer and sole consumer make the two fixed boundary selections for
-ToPrimitive and primitive
-ToString. A builtin can move the token between those phases, but cannot carry,
-replace or inspect a freely shaped `ConversionErrorRealmSource` field.
+its producer and primitive ToString consumer make the two fixed boundary selections
+for those phases. The tagged projection consumes the same token without a
+second coercion, retaining both the primitive value and its actual kind. This
+is the ToTemporalInstant path: Arguments take the ordinary object protocol,
+and a non-string primitive result is rejected before ISO parsing. Each
+consumer releases the two temporary locals in reverse order. A builtin cannot
+carry, replace or inspect a freely shaped `ConversionErrorRealmSource` field.
 
 This makes a mismatched main-Realm token unrepresentable through the public
 backend boundary. Main-Realm wrappers still borrow their fixed named source
@@ -62,7 +65,14 @@ census, the two fixed selections and the complete local-release lifecycle. The
 coordinated workspace formatter, `cargo xc`, diff, module-boundary, and
 task-plan checks pass.
 
-This invariant preserves every helper argument, error call, local operation,
+The original 2026-08-28 invariant preserved every helper argument, error call, local operation,
 instruction and ordering. It does not claim a conversion-semantics change, a
 completion-ABI redesign, broader Test262 evidence, a Wasm-golden result or a
 published conformance-count change.
+
+The tagged projection and ToTemporalInstant caller are a later semantic fix.
+The four native controls in `aot_temporal_instant_methods` cover Arguments,
+primitive result types, abrupt identity/order, branded copies, and borrowed
+Realm calls. Their added coverage is source-reviewed and awaits the next
+shared verification checkpoint; the earlier counts above describe only the
+original invariant checkpoint.

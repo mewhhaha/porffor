@@ -4,7 +4,31 @@ use super::temporal_plain_date::{
     TemporalCalendarCanonicalizationContext, TemporalCalendarId, TemporalEraField,
 };
 use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
+use crate::intrinsics::temporal::TemporalIntrinsicFamily;
 use crate::operations::BigIntNumberPolicy;
+
+/// Both instant-bearing records share the exact BigInt splitter. The closed
+/// selector owns the offsets so callers cannot pair fields from two layouts.
+#[derive(Clone, Copy)]
+pub(super) enum TemporalEpochNanosecondsRecord {
+    Instant,
+    ZonedDateTime,
+}
+
+impl TemporalEpochNanosecondsRecord {
+    const fn offsets(self) -> (u64, u64) {
+        match self {
+            Self::Instant => (
+                HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+                HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
+            ),
+            Self::ZonedDateTime => (
+                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
+            ),
+        }
+    }
+}
 
 pub(super) enum TemporalZonedDateTimePlainTarget {
     Date,
@@ -550,10 +574,11 @@ impl<'a> FunctionBuilder<'a> {
             nanoseconds_tag_local,
             function,
         );
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        self.emit_load_current_builtin_temporal_prototype(
+            TemporalIntrinsicFamily::Instant,
+            prototype_payload_local,
+            function,
+        );
         self.emit_alloc_temporal_instant(
             nanoseconds_payload_local,
             nanoseconds_tag_local,
@@ -586,10 +611,11 @@ impl<'a> FunctionBuilder<'a> {
             nanoseconds_tag_local,
             function,
         );
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        self.emit_load_current_builtin_temporal_prototype(
+            TemporalIntrinsicFamily::Instant,
+            prototype_payload_local,
+            function,
+        );
         self.emit_alloc_temporal_instant(
             nanoseconds_payload_local,
             nanoseconds_tag_local,
@@ -600,24 +626,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(argument_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_value_to_string_payload(argument_payload_local, argument_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(argument_payload_local));
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(argument_tag_local));
-        function.instruction(&Instruction::End);
+        let primitive = self.emit_tagged_to_primitive_locals_in_current_function_realm(
+            ToPrimitiveHint::String,
+            argument_payload_local,
+            argument_tag_local,
+            function,
+        )?;
+        self.emit_current_function_realm_primitive_to_tagged_locals(
+            primitive,
+            argument_payload_local,
+            argument_tag_local,
+            function,
+        );
 
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
@@ -639,10 +659,11 @@ impl<'a> FunctionBuilder<'a> {
             TemporalIsoParseGoal::Instant,
             function,
         )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        self.emit_load_current_builtin_temporal_prototype(
+            TemporalIntrinsicFamily::Instant,
+            prototype_payload_local,
+            function,
+        );
         self.emit_alloc_temporal_instant(
             nanoseconds_payload_local,
             nanoseconds_tag_local,
@@ -3869,12 +3890,17 @@ impl<'a> FunctionBuilder<'a> {
             nanoseconds_tag_local,
             function,
         )?;
-        self.emit_error_new_target_prototype_to_local(
+        let prototype_tag_local = self.reserve_temp_local();
+        self.emit_new_target_prototype_to_locals(
             TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
-            None,
+            crate::functions::NewTargetPrototypeFallback::RealmIntrinsic(
+                TemporalIntrinsicFamily::Instant.prototype_slot().offset(),
+            ),
             prototype_payload_local,
+            prototype_tag_local,
             function,
         )?;
+        self.release_temp_local(prototype_tag_local);
         self.emit_alloc_temporal_instant(
             nanoseconds_payload_local,
             nanoseconds_tag_local,
@@ -6804,30 +6830,23 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_temporal_zoned_date_time_epoch_pair(
+    /// Exact signed truncation pair, including heap BigInts beyond i64.
+    pub(super) fn emit_temporal_epoch_nanoseconds_pair(
         &mut self,
         record_local: u32,
+        record: TemporalEpochNanosecondsRecord,
         seconds_local: u32,
         subsecond_local: u32,
         function: &mut Function,
     ) {
+        let (payload_offset, tag_offset) = record.offsets();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
         let milliseconds_local = self.reserve_temp_local();
         let remainder_local = self.reserve_temp_local();
         let negative_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
-            tag_local,
-            function,
-        );
+        self.load_i64_to_local_from_offset(record_local, payload_offset, payload_local, function);
+        self.load_i64_to_local_from_offset(record_local, tag_offset, tag_local, function);
         function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -7424,7 +7443,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_temporal_instant_record_from_receiver(
+    pub(super) fn emit_temporal_instant_record_from_receiver(
         &mut self,
         record_local: u32,
         function: &mut Function,

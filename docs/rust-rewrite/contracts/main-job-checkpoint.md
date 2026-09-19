@@ -9,12 +9,44 @@ completion. The completion remains the primary result of the run. A rejection
 created by a drained job may be recorded as unhandled, but it must not replace
 an already-pending top-level throw.
 
-The Wasm-AOT backend implements both halves of this rule:
+The Wasm-AOT backend implements both halves of this rule. Under the default
+`FailRun` host policy,
 `emit_drain_promise_jobs` saves and restores the complete result tuple, while
 `emit_report_unhandled_rejection` reports the complete detached checkpoint
 snapshot of the still-unhandled FIFO and promotes its oldest rejection only
 while the restored completion is Normal. The control-flow half prevents an
 abrupt operation in the main body from returning before either helper can run.
+
+## Host rejection policy
+
+`PromiseRejectionPolicy` is a closed compilation option retained by compiled
+units, inherited by agent workers, and included in the program cache key.
+The default `FailRun` policy keeps the CLI behavior described here. `Ignore`
+implements the ECMAScript default `HostPromiseRejectionTracker`: Promise jobs
+still run, rejected reactions still receive their values, and Script completion
+is preserved. The checkpoint releases tracking roots without invoking `ToString`
+or producing rejection diagnostics. The choice is encoded in emitted Wasm.
+
+Test262 selects `Ignore` for Script and Module cases, including async cases. A
+rejected promise that a test intentionally leaves unhandled is not a source
+throw. The runner still
+rejects actual Script throws, runtime negatives that do not throw, missing or
+repeated async completion, and every `$DONE(error)` failure. The duplicate-DONE
+guard reports failure through the original harness callback before throwing,
+so a throw captured by a Promise reaction cannot conceal a second completion.
+The CLI host-global option does not change its default rejection policy.
+
+Module entry completion has an [independent owner](module-entry-completion.md).
+After supported jobs and host work drain, the checkpoint projects the entry's
+exact fulfillment or rejection before applying the selected rejection policy.
+The entry Promise is internally handled and cannot be confused with an earlier
+unrelated rejection. Both synchronous and asynchronous Module graphs may select
+`Ignore`; an ordinary nested async function does not make module evaluation
+asynchronous. A still-pending entry produces the host failure
+`IncompleteModuleEvaluation`, regardless of background-rejection policy, and
+cannot satisfy a Test262 runtime-negative expectation.
+
+Specification: [HostPromiseRejectionTracker](https://tc39.es/ecma262/multipage/control-abstraction-objects.html#sec-host-promise-rejection-tracker).
 
 ## Closed completion-exit state
 

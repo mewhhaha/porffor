@@ -274,6 +274,20 @@ standard_builtin_catalog! {
         installer: None,
         native: "hasOwnProperty",
     }
+    ObjectPrototypeDefineGetter {
+        function: FunctionOrdinal(826) => "$builtin.Object.prototype.__defineGetter__",
+        debug: "Object.prototype.__defineGetter__",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "__defineGetter__",
+    }
+    ObjectPrototypeDefineSetter {
+        function: FunctionOrdinal(827) => "$builtin.Object.prototype.__defineSetter__",
+        debug: "Object.prototype.__defineSetter__",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "__defineSetter__",
+    }
     ObjectPrototypeLookupGetter {
         function: FunctionOrdinal(31) => BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID,
         debug: "Object.prototype.__lookupGetter__",
@@ -2027,21 +2041,21 @@ standard_builtin_catalog! {
     DatePrototypeToLocaleDateString {
         function: FunctionOrdinal(279) => BUILTIN_DATE_PROTOTYPE_TO_LOCALE_DATE_STRING_FUNCTION_ID,
         debug: "Date.prototype.toLocaleDateString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleDateString",
     }
     DatePrototypeToLocaleString {
         function: FunctionOrdinal(280) => BUILTIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Date.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
     DatePrototypeToLocaleTimeString {
         function: FunctionOrdinal(281) => BUILTIN_DATE_PROTOTYPE_TO_LOCALE_TIME_STRING_FUNCTION_ID,
         debug: "Date.prototype.toLocaleTimeString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleTimeString",
     }
@@ -3235,6 +3249,41 @@ standard_builtin_catalog! {
         installer: None,
         native: "get epochNanoseconds",
     }
+    TemporalInstantPrototypeAdd {
+        function: FunctionOrdinal(828) => "$builtin.Temporal.Instant.prototype.add",
+        debug: "Temporal.Instant.prototype.add",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "add",
+    }
+    TemporalInstantPrototypeSubtract {
+        function: FunctionOrdinal(829) => "$builtin.Temporal.Instant.prototype.subtract",
+        debug: "Temporal.Instant.prototype.subtract",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "subtract",
+    }
+    TemporalInstantPrototypeRound {
+        function: FunctionOrdinal(830) => "$builtin.Temporal.Instant.prototype.round",
+        debug: "Temporal.Instant.prototype.round",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "round",
+    }
+    TemporalInstantPrototypeUntil {
+        function: FunctionOrdinal(831) => "$builtin.Temporal.Instant.prototype.until",
+        debug: "Temporal.Instant.prototype.until",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "until",
+    }
+    TemporalInstantPrototypeSince {
+        function: FunctionOrdinal(832) => "$builtin.Temporal.Instant.prototype.since",
+        debug: "Temporal.Instant.prototype.since",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "since",
+    }
     TemporalInstantPrototypeEquals {
         function: FunctionOrdinal(452) => BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID,
         debug: "Temporal.Instant.prototype.equals",
@@ -3588,7 +3637,7 @@ standard_builtin_catalog! {
     IntlDateTimeFormatConstructor {
         function: FunctionOrdinal(492) => BUILTIN_INTL_DATE_TIME_FORMAT_FUNCTION_ID,
         debug: "Intl.DateTimeFormat",
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, INTL_HOST],
         installer: IntlDateTimeFormat,
         native: INTL_DATE_TIME_FORMAT_NAME,
     }
@@ -3616,28 +3665,28 @@ standard_builtin_catalog! {
     IntlDateTimeFormatPrototypeFormatToParts {
         function: FunctionOrdinal(496) => BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
         debug: "Intl.DateTimeFormat.prototype.formatToParts",
-        flags: [WALL_CLOCK],
+        flags: [WALL_CLOCK, INTL_HOST],
         installer: None,
         native: "formatToParts",
     }
     IntlDateTimeFormatPrototypeFormatRange {
         function: FunctionOrdinal(497) => BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID,
         debug: "Intl.DateTimeFormat.prototype.formatRange",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "formatRange",
     }
     IntlDateTimeFormatPrototypeFormatRangeToParts {
         function: FunctionOrdinal(498) => BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID,
         debug: "Intl.DateTimeFormat.prototype.formatRangeToParts",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "formatRangeToParts",
     }
     IntlDateTimeFormatBoundFormat {
         function: FunctionOrdinal(499) => BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID,
         debug: "Intl.DateTimeFormat Format Function",
-        flags: [WALL_CLOCK],
+        flags: [WALL_CLOCK, INTL_HOST],
         installer: None,
         native: "",
     }
@@ -6037,8 +6086,16 @@ mod tests {
         assert_eq!(
             callers,
             [
+                StandardBuiltinId::DatePrototypeToLocaleDateString,
+                StandardBuiltinId::DatePrototypeToLocaleString,
+                StandardBuiltinId::DatePrototypeToLocaleTimeString,
                 StandardBuiltinId::IntlGetCanonicalLocales,
                 StandardBuiltinId::IntlLocaleConstructor,
+                StandardBuiltinId::IntlDateTimeFormatConstructor,
+                StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
+                StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
+                StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
+                StandardBuiltinId::IntlDateTimeFormatBoundFormat,
                 StandardBuiltinId::IntlLocalePrototypeMaximize,
                 StandardBuiltinId::IntlLocalePrototypeMinimize,
             ]
@@ -6128,6 +6185,29 @@ mod tests {
     }
 
     #[test]
+    fn object_accessor_definers_have_call_only_catalog_identities() {
+        for (builtin, name) in [
+            (
+                StandardBuiltinId::ObjectPrototypeDefineGetter,
+                "__defineGetter__",
+            ),
+            (
+                StandardBuiltinId::ObjectPrototypeDefineSetter,
+                "__defineSetter__",
+            ),
+        ] {
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&builtin.function_id()),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(name));
+            assert!(!builtin.constructable());
+            assert!(!builtin.is_static_method());
+            assert!(builtin.may_run_user_code_synchronously());
+        }
+    }
+
+    #[test]
     fn object_and_reflect_proxy_capable_builtins_declare_synchronous_user_code() {
         for builtin in [
             StandardBuiltinId::ObjectAssign,
@@ -6151,6 +6231,8 @@ mod tests {
             StandardBuiltinId::ObjectIsExtensible,
             StandardBuiltinId::ObjectPreventExtensions,
             StandardBuiltinId::ObjectPrototypeHasOwnProperty,
+            StandardBuiltinId::ObjectPrototypeDefineGetter,
+            StandardBuiltinId::ObjectPrototypeDefineSetter,
             StandardBuiltinId::ObjectPrototypeLookupGetter,
             StandardBuiltinId::ObjectPrototypeLookupSetter,
             StandardBuiltinId::ObjectPrototypeProtoGetter,

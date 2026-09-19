@@ -53,6 +53,8 @@ pub(super) enum TemporalDateTimeDifferenceSettingsPlan {
     PlainSince,
     ZonedUntil,
     ZonedSince,
+    InstantUntil,
+    InstantSince,
 }
 
 impl TemporalDateTimeDifferenceSettingsPlan {
@@ -60,13 +62,32 @@ impl TemporalDateTimeDifferenceSettingsPlan {
         match self {
             Self::PlainUntil | Self::PlainSince => TemporalUnit::Day,
             Self::ZonedUntil | Self::ZonedSince => TemporalUnit::Hour,
+            Self::InstantUntil | Self::InstantSince => TemporalUnit::Second,
+        }
+    }
+
+    const fn largest_allowed_unit(self) -> TemporalUnit {
+        match self {
+            Self::PlainUntil | Self::PlainSince | Self::ZonedUntil | Self::ZonedSince => {
+                TemporalUnit::Year
+            }
+            Self::InstantUntil | Self::InstantSince => TemporalUnit::Hour,
+        }
+    }
+
+    const fn invalid_unit_message(self) -> &'static str {
+        match self {
+            Self::PlainUntil | Self::PlainSince | Self::ZonedUntil | Self::ZonedSince => {
+                "Invalid Temporal.PlainDateTime unit option"
+            }
+            Self::InstantUntil | Self::InstantSince => "Invalid Temporal.Instant unit option",
         }
     }
 
     const fn negates_rounding_mode(self) -> bool {
         match self {
-            Self::PlainUntil | Self::ZonedUntil => false,
-            Self::PlainSince | Self::ZonedSince => true,
+            Self::PlainUntil | Self::ZonedUntil | Self::InstantUntil => false,
+            Self::PlainSince | Self::ZonedSince | Self::InstantSince => true,
         }
     }
 }
@@ -1780,14 +1801,11 @@ impl<'a> FunctionBuilder<'a> {
         match operation {
             TemporalPlainArithmeticOperation::Add => {}
             TemporalPlainArithmeticOperation::Subtract => {
-                for local in duration_locals.iter() {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(*local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(*local));
-                }
+                self.emit_temporal_duration_negate_fields(&duration_locals, function);
             }
         }
+        let date_fields =
+            self.reserve_temporal_duration_date_field_locals(&duration_locals, function);
 
         // Hours and below fold into a nanosecond offset; the whole days that
         // fall out of it join the duration's own day count.
@@ -1822,7 +1840,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(day_delta_local));
         function.instruction(&Instruction::LocalGet(seconds_local));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(duration_locals[3]));
+        function.instruction(&Instruction::LocalGet(date_fields[3]));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(day_delta_local));
         self.emit_temporal_plain_time_from_nanoseconds(total_local, &time_locals, function);
@@ -1834,9 +1852,9 @@ impl<'a> FunctionBuilder<'a> {
             field_locals[0],
             field_locals[1],
             field_locals[2],
-            duration_locals[0],
-            duration_locals[1],
-            duration_locals[2],
+            date_fields[0],
+            date_fields[1],
+            date_fields[2],
             day_delta_local,
             overflow_local,
             function,
@@ -1849,6 +1867,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        for local in date_fields.into_iter().rev() {
+            self.release_temp_local(local);
+        }
         self.release_temporal_duration_field_locals(duration_locals);
         self.release_temporal_plain_date_time_field_locals(field_locals);
         for local in [
@@ -2091,10 +2112,10 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// The shared `GetDifferenceSettings` boundary for PlainDateTime and
-    /// ZonedDateTime differences. `plan` is compile-time policy: no raw unit or
-    /// direction flag can cross this boundary independently of the consumer
-    /// that owns it.
+    /// The shared `GetDifferenceSettings` boundary for PlainDateTime,
+    /// ZonedDateTime and Instant differences. `plan` is compile-time policy:
+    /// no raw unit or direction flag can cross this boundary independently of
+    /// the consumer that owns it.
     pub(super) fn emit_temporal_date_time_difference_settings(
         &mut self,
         options_payload_local: u32,
@@ -2168,11 +2189,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
         function.instruction(&Instruction::LocalSet(smallest_unit_local));
         function.instruction(&Instruction::End);
+        // Recognized units are checked against the receiver's category only
+        // after all four options have been read and independently validated.
         self.emit_temporal_require_unit_range(
             smallest_unit_local,
-            TemporalUnit::Year,
+            plan.largest_allowed_unit(),
             TemporalUnit::Nanosecond,
-            "Invalid Temporal.PlainDateTime unit option",
+            plan.invalid_unit_message(),
             function,
         )?;
 
@@ -2199,9 +2222,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.emit_temporal_require_unit_range(
             largest_unit_local,
-            TemporalUnit::Year,
+            plan.largest_allowed_unit(),
             TemporalUnit::Nanosecond,
-            "Invalid Temporal.PlainDateTime unit option",
+            plan.invalid_unit_message(),
             function,
         )?;
         self.emit_temporal_require_largest_not_smaller(

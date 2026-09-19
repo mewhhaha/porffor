@@ -13,6 +13,7 @@ pub(crate) struct SynchronousModuleAnalysis {
     pub(crate) deferred_evaluations: BTreeMap<usize, DeferredModuleEvaluationIr>,
     pub(crate) publishers: BTreeMap<usize, (u32, ModuleNamespaceModeIr)>,
     pub(crate) boundaries: BTreeSet<usize>,
+    pub(crate) intrinsics: BTreeMap<usize, StandardBuiltinId>,
 }
 
 #[derive(Debug)]
@@ -32,6 +33,7 @@ pub(super) struct SynchronousModuleDefinitions {
     pub(super) units: Vec<SynchronousUnitDefinition>,
     pub(super) record_count: u32,
     pub(super) dispatcher_namespaces: BTreeMap<String, ModuleCellIr>,
+    pub(super) dispatcher_evaluations: BTreeMap<String, SynchronousModuleEvaluationIr>,
     pub(super) initial_evaluation: Vec<u32>,
 }
 
@@ -266,6 +268,7 @@ impl SynchronousModuleDefinitions {
         // No Script lexical aliases are created for user code to resolve.
         struct DispatcherReads<'a, 'b> {
             namespaces: &'b BTreeMap<String, ModuleCellIr>,
+            evaluations: &'b BTreeMap<String, SynchronousModuleEvaluationIr>,
             interner: &'b Interner,
             analysis: &'b mut Analysis<'a>,
         }
@@ -274,7 +277,18 @@ impl SynchronousModuleDefinitions {
             fn visit_expression(&mut self, expression: &'a Expression) -> ControlFlow<()> {
                 if let Expression::Identifier(identifier) = expression {
                     let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                    if let Some(target) = self.namespaces.get(&name) {
+                    let pointer = std::ptr::from_ref(expression) as usize;
+                    if let Some(builtin) = super::dynamic::synchronous_dispatcher_intrinsic(&name) {
+                        self.analysis
+                            .synchronous_modules
+                            .intrinsics
+                            .insert(pointer, builtin);
+                    } else if let Some(evaluation) = self.evaluations.get(&name) {
+                        self.analysis
+                            .synchronous_modules
+                            .evaluations
+                            .insert(pointer, evaluation.clone());
+                    } else if let Some(target) = self.namespaces.get(&name) {
                         self.analysis
                             .synchronous_modules
                             .reads
@@ -286,6 +300,7 @@ impl SynchronousModuleDefinitions {
         }
         let mut dispatcher = DispatcherReads {
             namespaces: &self.dispatcher_namespaces,
+            evaluations: &self.dispatcher_evaluations,
             interner,
             analysis,
         };

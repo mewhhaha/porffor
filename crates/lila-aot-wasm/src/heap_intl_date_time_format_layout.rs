@@ -11,8 +11,8 @@ use super::heap::{
     HEAP_INTL_DTF_LOCALE_OFFSET, HEAP_INTL_DTF_MINUTE_OFFSET, HEAP_INTL_DTF_MONTH_OFFSET,
     HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET, HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
     HEAP_INTL_DTF_SECOND_OFFSET, HEAP_INTL_DTF_TIME_STYLE_OFFSET,
-    HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET, HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET,
-    HEAP_INTL_DTF_TIME_ZONE_OFFSET, HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
+    HEAP_INTL_DTF_TIME_ZONE_FIXED_SECONDS_OFFSET, HEAP_INTL_DTF_TIME_ZONE_KIND_OFFSET,
+    HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET, HEAP_INTL_DTF_TIME_ZONE_OFFSET,
     HEAP_INTL_DTF_WEEKDAY_OFFSET, HEAP_INTL_DTF_YEAR_OFFSET,
 };
 
@@ -21,8 +21,8 @@ pub(crate) enum IntlDateTimeFormatHeapSlot {
     CalendarPayload,
     NumberingSystemPayload,
     TimeZonePayload,
-    TimeZoneOffsetMinutes,
-    TimeZoneGmtNamePayload,
+    TimeZoneFixedSeconds,
+    TimeZoneKind,
     HourCycleCode,
     WeekdayCode,
     EraCode,
@@ -81,20 +81,19 @@ impl IntlDateTimeFormatHeapSlot {
                 width: 8,
                 pointer: true,
             },
-            // The offset stays adjacent to the time-zone identifier because they are one value.
-            Self::TimeZoneOffsetMinutes => IntlDateTimeFormatHeapSlotMetadata {
+            Self::TimeZoneFixedSeconds => IntlDateTimeFormatHeapSlotMetadata {
                 record: "intl-date-time-format-record",
-                name: "time_zone_offset_minutes",
-                offset: HEAP_INTL_DTF_TIME_ZONE_OFFSET_MINUTES_OFFSET,
+                name: "time_zone_fixed_seconds",
+                offset: HEAP_INTL_DTF_TIME_ZONE_FIXED_SECONDS_OFFSET,
                 width: 8,
                 pointer: false,
             },
-            Self::TimeZoneGmtNamePayload => IntlDateTimeFormatHeapSlotMetadata {
+            Self::TimeZoneKind => IntlDateTimeFormatHeapSlotMetadata {
                 record: "intl-date-time-format-record",
-                name: "time_zone_gmt_name_payload",
-                offset: HEAP_INTL_DTF_TIME_ZONE_GMT_NAME_OFFSET,
+                name: "time_zone_kind",
+                offset: HEAP_INTL_DTF_TIME_ZONE_KIND_OFFSET,
                 width: 8,
-                pointer: true,
+                pointer: false,
             },
             Self::HourCycleCode => IntlDateTimeFormatHeapSlotMetadata {
                 record: "intl-date-time-format-record",
@@ -235,8 +234,8 @@ pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[IntlDateTimeFormatH
     IntlDateTimeFormatHeapSlot::CalendarPayload,
     IntlDateTimeFormatHeapSlot::NumberingSystemPayload,
     IntlDateTimeFormatHeapSlot::TimeZonePayload,
-    IntlDateTimeFormatHeapSlot::TimeZoneOffsetMinutes,
-    IntlDateTimeFormatHeapSlot::TimeZoneGmtNamePayload,
+    IntlDateTimeFormatHeapSlot::TimeZoneFixedSeconds,
+    IntlDateTimeFormatHeapSlot::TimeZoneKind,
     IntlDateTimeFormatHeapSlot::HourCycleCode,
     IntlDateTimeFormatHeapSlot::WeekdayCode,
     IntlDateTimeFormatHeapSlot::EraCode,

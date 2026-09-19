@@ -162,17 +162,17 @@ fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
 fn range_local_carriers_are_private_non_capability_types() {
     let declarations = normalized_rust(bounded(
         DTF_SOURCE,
-        "struct InitializedIntlDateTimeFormatObjectLocal(u32);",
+        "/// The broken-down components of one side of a format.",
         "fn emit_dtf_copy_components(",
     ));
     assert_eq!(
         declarations,
         concat!(
             "structDtfComponentLocals{year:u32,month:u32,day:u32,hour:u32,",
-            "minute:u32,second:u32,ms:u32,weekday_index:u32,display_year:u32,}",
-            "implDtfComponentLocals{fnlocals(&self)->[u32;9]{[self.year,self.month,",
+            "minute:u32,second:u32,ms:u32,weekday_index:u32,display_year:u32,time_zone_name:u32,}",
+            "implDtfComponentLocals{fnlocals(&self)->[u32;10]{[self.year,self.month,",
             "self.day,self.hour,self.minute,self.second,self.ms,self.weekday_index,",
-            "self.display_year,]}}",
+            "self.display_year,self.time_zone_name,]}}",
             "enumDtfRangePattern{Fallback,TextMonthDifference,TextDayDifference,}",
             "implDtfRangePattern{constfncode(&self)->i64{matchself{",
             "Self::Fallback=>0,Self::TextMonthDifference=>1,",
@@ -186,7 +186,7 @@ fn range_local_carriers_are_private_non_capability_types() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "DtfComponentLocals"),
-        11
+        12
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "DtfRangeLocals"),
@@ -229,7 +229,7 @@ fn component_producers_and_helpers_borrow_until_release() {
         "fnemit_dtf_copy_components(from:&DtfComponentLocals,to:&DtfComponentLocals,function:&mutFunction,)"
     ));
     assert!(normalized.contains(
-        "fnemit_dtf_components_from_time(&mutself,time_local:u32,offset_minutes_local:u32,comps:&DtfComponentLocals,function:&mutFunction,)"
+        "fnemit_dtf_components_from_time(&mutself,time_local:u32,offset_seconds_local:u32,comps:&DtfComponentLocals,function:&mutFunction,)"
     ));
     assert!(normalized.contains(
         "fnemit_dtf_practical_equality(&mutself,codes:[u32;9],range:&DtfRangeLocals,function:&mutFunction,)"
@@ -272,9 +272,9 @@ fn range_is_observed_by_shared_reference_then_consumed_for_one_reverse_release()
     assert!(!formatter.contains("range.as_ref()"));
 
     for call in [
-        "emit_dtf_components_from_time(times.first,applied_offset_local,&current,function,)",
-        "emit_dtf_components_from_time(times.first,applied_offset_local,&range.start,function,)",
-        "emit_dtf_components_from_time(range.second_time,applied_offset_local,&range.end,function,)",
+        "emit_dtf_components_in_time_zone(record_local,times.first,exact_time_local,e_time_zone_name,&current,function,)",
+        "emit_dtf_components_in_time_zone(record_local,times.first,exact_time_local,e_time_zone_name,&range.start,function,)",
+        "emit_dtf_components_in_time_zone(record_local,range.second_time,exact_time_local,e_time_zone_name,&range.end,function,)",
         "emit_dtf_copy_components(&range.start,&current,function);",
         "emit_dtf_copy_components(&range.end,&current,function);",
     ] {
@@ -332,7 +332,7 @@ fn contract_and_task_record_the_focused_boundary() {
     for phrase in [
         "DtfRangeLocals",
         "DtfComponentLocals",
-        "11/4/8 production identifier census",
+        "12/4/8 production identifier census",
         "eight shared observations",
         "second_time",
         "textual interval selection",

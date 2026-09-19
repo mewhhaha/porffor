@@ -4,8 +4,11 @@ use super::binary_data::{
     ArrayBufferSliceBound, ArrayBufferSliceCopyLocals, ArrayBufferSliceCopyPolicy,
     TypedArrayAccessorKind, TypedArrayViewLocals, TypedArrayWitnessUse,
 };
+use super::date::DateLocaleFormat;
+use super::intl_datetimeformat::IntlDateTimeFormatPurpose;
 use super::string::StringNormalizationForm;
 use super::temporal::{TemporalZonedDateTimePlainTarget, ZonedDateTimeField};
+use super::temporal_instant::{InstantArithmetic, InstantDifference};
 use super::temporal_options::TemporalTimeUnit;
 use super::temporal_plain_date_time_methods::{
     TemporalPlainArithmeticOperation, TemporalPlainDateTimeComponent,
@@ -4926,6 +4929,12 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::ObjectPrototypeHasOwnProperty => {
                 self.compile_object_prototype_has_own_property_builtin(function)?
+            }
+            StandardBuiltinId::ObjectPrototypeDefineGetter => {
+                self.compile_object_prototype_define_getter_builtin(function)?
+            }
+            StandardBuiltinId::ObjectPrototypeDefineSetter => {
+                self.compile_object_prototype_define_setter_builtin(function)?
             }
             StandardBuiltinId::ObjectPrototypeLookupGetter => {
                 self.compile_object_prototype_lookup_getter_builtin(function)?
@@ -21762,6 +21771,21 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter => {
                 self.emit_temporal_instant_epoch_nanoseconds(function)?;
             }
+            StandardBuiltinId::TemporalInstantPrototypeAdd => {
+                self.emit_temporal_instant_add_or_subtract(InstantArithmetic::Add, function)?;
+            }
+            StandardBuiltinId::TemporalInstantPrototypeSubtract => {
+                self.emit_temporal_instant_add_or_subtract(InstantArithmetic::Subtract, function)?;
+            }
+            StandardBuiltinId::TemporalInstantPrototypeRound => {
+                self.emit_temporal_instant_round(function)?;
+            }
+            StandardBuiltinId::TemporalInstantPrototypeUntil => {
+                self.emit_temporal_instant_until_or_since(InstantDifference::Until, function)?;
+            }
+            StandardBuiltinId::TemporalInstantPrototypeSince => {
+                self.emit_temporal_instant_until_or_since(InstantDifference::Since, function)?;
+            }
             StandardBuiltinId::TemporalInstantPrototypeEquals => {
                 self.emit_temporal_instant_equals(function)?;
             }
@@ -22408,7 +22432,10 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_intl_locale_variants_getter_builtin(function)?;
             }
             StandardBuiltinId::IntlDateTimeFormatConstructor => {
-                self.emit_intl_date_time_format_constructor(function)?;
+                self.emit_intl_create_date_time_format(
+                    IntlDateTimeFormatPurpose::Constructor,
+                    function,
+                )?;
             }
             StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf => {
                 self.emit_intl_date_time_format_supported_locales_of(function)?;
@@ -23179,13 +23206,13 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_date_to_date_string(function)?;
             }
             StandardBuiltinId::DatePrototypeToLocaleDateString => {
-                self.emit_date_to_date_string(function)?;
+                self.emit_date_to_locale_string(DateLocaleFormat::Date, function)?;
             }
             StandardBuiltinId::DatePrototypeToLocaleString => {
-                self.emit_date_to_string(function)?;
+                self.emit_date_to_locale_string(DateLocaleFormat::DateAndTime, function)?;
             }
             StandardBuiltinId::DatePrototypeToLocaleTimeString => {
-                self.emit_date_to_time_string(function)?;
+                self.emit_date_to_locale_string(DateLocaleFormat::Time, function)?;
             }
             StandardBuiltinId::DatePrototypeToTemporalInstant => {
                 self.emit_date_to_temporal_instant(function)?;
@@ -29276,6 +29303,7 @@ impl<'a> FunctionBuilder<'a> {
                 let pattern_is_regexp_local = self.reserve_temp_local();
                 let pattern_brand_local = self.reserve_temp_local();
                 let reuse_program_local = self.reserve_temp_local();
+                let original_flags_local = self.reserve_temp_local();
                 let program_handle_local = self.reserve_temp_local();
                 self.emit_builtin_arg_to_locals(
                     0,
@@ -29367,6 +29395,20 @@ impl<'a> FunctionBuilder<'a> {
                     value_payload_local,
                     function,
                 );
+                self.load_i64_to_local_from_offset(
+                    pattern_payload_local,
+                    HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
+                    original_flags_local,
+                    function,
+                );
+                self.load_i64_to_local_from_offset(
+                    pattern_payload_local,
+                    HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+                    program_handle_local,
+                    function,
+                );
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(reuse_program_local));
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(value_tag_local));
                 function.instruction(&Instruction::LocalGet(flags_tag_local));
@@ -29381,14 +29423,7 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(flags_tag_local));
-                function.instruction(&Instruction::I64Const(1));
-                function.instruction(&Instruction::LocalSet(reuse_program_local));
-                self.load_i64_to_local_from_offset(
-                    pattern_payload_local,
-                    HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
-                    program_handle_local,
-                    function,
-                );
+
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::Else);
                 function.instruction(&Instruction::LocalGet(pattern_is_regexp_local));
@@ -29498,12 +29533,14 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.store_i64_local_at_offset(
+                self.emit_regexp_program_with_compatible_flags(
                     object_local,
-                    HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+                    value_payload_local,
+                    flags_payload_local,
+                    original_flags_local,
                     program_handle_local,
                     function,
-                );
+                )?;
                 function.instruction(&Instruction::Else);
                 self.emit_runtime_regexp_program_slots(
                     object_local,
@@ -29536,6 +29573,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
                 self.release_temp_local(program_handle_local);
+                self.release_temp_local(original_flags_local);
                 self.release_temp_local(reuse_program_local);
                 self.release_temp_local(pattern_brand_local);
                 self.release_temp_local(pattern_is_regexp_local);

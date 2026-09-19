@@ -43,7 +43,7 @@ pub(super) fn linked_synchronous_source(
         return Err(diagnostics);
     }
     let mut text = String::from("\"use strict\";\n");
-    text.push_str(&graph.dynamic_import_prelude());
+    text.push_str(&graph.synchronous_dynamic_import_prelude());
     text.push('\n');
     let graph_start_line = source_line_number(&text);
     let mut definitions = Vec::new();
@@ -153,37 +153,23 @@ pub(super) fn linked_synchronous_source(
             )
         })
         .collect();
-    // Entry dependencies must be traversed from the entry, in request order.
-    // Pre-evaluating a cycle member would choose a different DFS root and can
-    // execute the entry body before an earlier requested dependency.
-    let mut entry_dependencies = BTreeSet::new();
-    let mut pending = vec![graph.entry];
-    while let Some(module) = pending.pop() {
-        if entry_dependencies.insert(module) {
-            pending.extend(
-                graph
-                    .evaluation_dependencies_of(module)
-                    .into_iter()
-                    .map(|dependency| dependency.target()),
-            );
-        }
-    }
-    // Preserve the existing eager dynamic-import roots outside the entry's
-    // static dependency graph until their job scheduler is replaced.
-    let initial_evaluation = graph
-        .evaluation_order
-        .iter()
-        .copied()
-        .filter(|module| {
-            !entry_dependencies.contains(module)
-                && graph.evaluation_mode(*module) == ModuleEvaluationModeIr::Eager
-        })
-        .chain(core::iter::once(graph.entry))
-        .collect::<Vec<_>>();
+    // Dynamic targets evaluate only from their import continuation. Starting
+    // at the entry also preserves its static dependency DFS and SCC owner.
+    let initial_evaluation = vec![graph.entry];
     for _ in &initial_evaluation {
         text.push_str("0;\n");
     }
+    let dispatcher_evaluations = definitions
+        .iter()
+        .map(|unit| {
+            (
+                super::dynamic::synchronous_evaluator_name(unit.module),
+                unit.evaluation.clone(),
+            )
+        })
+        .collect();
     let mut linked = super::LinkedScriptDefinitions::default();
+    linked.entry = Some(super::LinkedModuleEntry::SynchronousGraph(graph.entry));
     linked.synchronous = Some(SynchronousModuleDefinitions {
         graph_span: (
             boa_ast::Position::new(graph_start_line, 1),
@@ -192,6 +178,7 @@ pub(super) fn linked_synchronous_source(
         units: definitions,
         record_count: graph.units.len() as u32,
         dispatcher_namespaces,
+        dispatcher_evaluations,
         initial_evaluation,
     });
     Ok(LinkedScriptSource {

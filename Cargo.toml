@@ -31,6 +31,7 @@ boa_parser = { path = "vendor/boa_parser-0.21.1" }
 icu_calendar = { path = "vendor/icu_calendar-2.0.6" }
 regress = { path = "vendor/regress-0.10.5" }
 temporal_rs = { path = "vendor/temporal_rs-0.1.0" }
+timezone_provider = { path = "vendor/timezone_provider-0.1.2" }
 
 # Developer builds keep Lila's large IR/backend crates cheap to rebuild,
 # while compiling third-party code (notably Wasmtime/Cranelift) once at a

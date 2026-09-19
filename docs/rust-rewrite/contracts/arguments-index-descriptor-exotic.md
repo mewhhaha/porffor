@@ -21,6 +21,25 @@ descriptor store is unsound: the store is permitted to replace the descriptor
 word, so a later read can silently turn every nonzero parameter slot into slot
 zero.
 
+## Indexed presence
+
+A zero indexed descriptor word denotes an absent property. A data property
+whose writable, enumerable and configurable attributes are all false is still
+present, including when its value is `undefined` and it has no ParameterMap
+entry. `emit_arguments_store_index_entry` therefore adds the shared indexed
+own-property bit when publishing the descriptor. It preserves the attributes
+and complete mapped-slot payload without changing the caller's descriptor
+local. Data, accessor and generic definitions, and receiver-side indexed
+writes, all publish through this boundary.
+
+Initial Arguments entries already have the three normal data attributes, so
+their descriptor words cannot be zero. Buffer growth copies those words;
+ordinary value assignment preserves the existing word. Deletion uses the
+separate descriptor-clear path, which stores zero and clears the value and
+accessor carriers. The presence rule does not convert deletion into an empty
+data property. Indexed extent remains separate from the observable `length`
+property.
+
 ## Private lifecycle owner
 
 `functions/arguments_index_mapping.rs` is the sole owner of the non-`Copy`
@@ -116,6 +135,9 @@ shortcut.
   exist.
 - Compatibility goes through `StoredDescriptorLocals` and
   `emit_validate_stored_descriptor` before the first indexed or mapping store.
+- Present indexed publication adds the own-property marker even when every
+  data attribute is false. The source descriptor local remains unchanged,
+  and descriptor clearing stays outside the present-entry publisher.
 - An absent indexed descriptor plus the non-extensible Arguments flag rejects
   before the first indexed or mapping store.
 - Mapping restore emits both bit 5 and the captured slot payload in one helper.
@@ -149,6 +171,16 @@ deleted-index/accessor redefinition, own and inherited named setters,
 non-writable named data, non-extensible absent-index rejection, and Arguments
 objects used as indexed setter/non-writable prototypes.
 
+`aot_arguments_index_descriptors` exercises all eight attribute combinations
+through Object and Reflect for mapped, unmapped and strict Arguments; current
+mapped-value capture and detachment at a nonzero slot; explicit and default
+`undefined`; inherited-property shadowing; indexed growth without a `length`
+change; SameValue and incompatible non-configurable definitions; and accessor,
+deletion and receiver-side creation transitions. The original completed-suite
+reproducer is the all-false data definition used by
+`built-ins/Object/defineProperty/15.2.3.6-4-292.js` and
+`15.2.3.6-4-293.js`. The repair does not change the pinned tests or harness.
+
 This bounded lane does not claim complete special-property closure. Arguments
 `length` and `callee` retain their separate write branches and remain follow-up
 audit surfaces. `Symbol.isConcatSpreadable` boolean coercion and delete
@@ -161,8 +193,13 @@ The focused current-pin witnesses are
 their two exact cases; they are not evidence for the complete Arguments or
 Object descriptor subtrees.
 
-This source-equivalent extraction uses only the focused structure target,
-module-boundary and task-plan audits, scoped formatting and `git diff --check`.
-The structure target passes `4/4`, and each dry audit is green.
-The CLI witness, semantic golden, workspace compilation and broad suites remain
-owned by the coordinated shared verification checkpoint.
+Focused regression commands are:
+
+```sh
+cargo test --release --locked -p lila-aot-wasm --test arguments_index_descriptor_structure
+cargo test --release --locked -p lila-engine --test aot_arguments_index_descriptors -- --test-threads=2
+```
+
+Native execution, unchanged pinned-test replays, workspace compilation and
+broad suites belong to the coordinated shared verification checkpoint. Staged
+source review and formatting alone are not execution evidence.

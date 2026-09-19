@@ -17,6 +17,7 @@ mod get_own_property_descriptors;
 mod integrity_test;
 mod object_to_locale_string_invoke;
 mod own_descriptor_predicate;
+mod prototype_definition;
 mod prototype_lookup;
 
 impl<'a> FunctionBuilder<'a> {

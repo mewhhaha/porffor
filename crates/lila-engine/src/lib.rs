@@ -1,7 +1,10 @@
-use lila_aot_wasm::{decode_heap_bigint_decimal, WasmRuntimeValueTag};
+use lila_aot_wasm::{
+    decode_heap_bigint_decimal, WasmModuleEvaluationStatus, WasmRuntimeValueTag,
+    MODULE_EVALUATION_STATUS_EXPORT,
+};
 use lila_front::{parse, ParseDiagnostic, ParseGoal, ParseOptions, ParsedSource, SourceUnit};
 use lila_intl::{
-    CanonicalizeLocale, EmbeddedLocaleProvider, IntlDataIdentity, IntlHostCallOutcome, IntlHostOp,
+    CanonicalizeLocale, EmbeddedIntlProvider, IntlDataIdentity, IntlHostCallOutcome, IntlHostOp,
     IntlHostReadSpan, IntlHostWriteSpan, IntlKernel, IntlProvider, LocaleId, LocaleTransformError,
     LocaleTransformRequest, MaximizeLocale, MinimizeLocale, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
 };
@@ -34,11 +37,14 @@ mod cache;
 mod execution_failure;
 pub use execution_failure::WasmExecutionFailureKind;
 use execution_failure::{finish_wasm_execution, EngineExecutionFailure};
+mod intl_host_request;
 mod intl_locale_host;
+mod intl_time_zone_host;
 mod module_loader;
 mod wasmtime_policy;
 
 pub use cache::{cache_status, prune_caches, CacheDirectoryStatus, CachePruneReport, CacheStatus};
+pub use lila_aot_wasm::PromiseRejectionPolicy;
 pub use lila_ir::HostSurfacePolicy;
 pub use module_loader::{
     load_module_graph, FilesystemModuleLoader, HostModuleLoader, LoadedModule, LoadedModuleKind,
@@ -366,7 +372,7 @@ fn compiler_fingerprint() -> &'static [u8; 32] {
     })
 }
 
-const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v3";
+const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v4";
 
 fn hash_program_cache_field(hash: &mut Sha256, bytes: &[u8]) {
     let length = u64::try_from(bytes.len()).expect("cache-key field length must fit in u64");
@@ -408,6 +414,10 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
     hash.update([match options.host_surface_policy {
         HostSurfacePolicy::Product => 0,
         HostSurfacePolicy::Test262 => 1,
+    }]);
+    hash.update([match options.promise_rejection_policy {
+        PromiseRejectionPolicy::FailRun => 0,
+        PromiseRejectionPolicy::Ignore => 1,
     }]);
     hash_optional_program_cache_field(&mut hash, options.filename.as_deref());
     hash_optional_program_cache_field(&mut hash, options.target_triple.as_deref());
@@ -555,6 +565,7 @@ struct PreparedCompilation {
     module_prelude: Option<lila_front::ParsedScript>,
     graph: Option<lila_ir::ModuleGraphSources>,
     host_surface_policy: HostSurfacePolicy,
+    promise_rejection_policy: PromiseRejectionPolicy,
     module_loading_policy: ModuleLoadingPolicy,
 }
 
@@ -1200,6 +1211,8 @@ pub struct CompileOptions {
     pub module_loading_policy: ModuleLoadingPolicy,
     /// Which closed set of host-backed globals lowering may expose.
     pub host_surface_policy: HostSurfacePolicy,
+    /// Host policy applied after Promise jobs drain; part of the emitted artifact.
+    pub promise_rejection_policy: PromiseRejectionPolicy,
 }
 
 impl Default for CompileOptions {
@@ -1212,6 +1225,7 @@ impl Default for CompileOptions {
             module_root: None,
             module_loading_policy: ModuleLoadingPolicy::default(),
             host_surface_policy: HostSurfacePolicy::default(),
+            promise_rejection_policy: PromiseRejectionPolicy::default(),
         }
     }
 }
@@ -1251,6 +1265,7 @@ pub struct CompilationUnit {
     pub ir: ProgramIr,
     module_prelude: Option<String>,
     module_loading_policy: ModuleLoadingPolicy,
+    promise_rejection_policy: PromiseRejectionPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1522,7 +1537,7 @@ impl WasmOutputEvents {
 struct WasmHostState {
     realm: Realm,
     output_events: WasmOutputEvents,
-    intl_kernel: Arc<IntlKernel<EmbeddedLocaleProvider>>,
+    intl_kernel: Arc<IntlKernel<EmbeddedIntlProvider>>,
     can_block: bool,
     monotonic_clock_origin: MonotonicClockInstant,
     shared_memory_backing: Option<Arc<WasmSharedMemoryBacking>>,
@@ -1532,12 +1547,12 @@ struct WasmHostState {
     limits: WasmtimeStoreLimits,
 }
 
-fn shared_embedded_intl_kernel() -> Result<Arc<IntlKernel<EmbeddedLocaleProvider>>, EngineError> {
-    static KERNEL: OnceLock<Result<Arc<IntlKernel<EmbeddedLocaleProvider>>, String>> =
+fn shared_embedded_intl_kernel() -> Result<Arc<IntlKernel<EmbeddedIntlProvider>>, EngineError> {
+    static KERNEL: OnceLock<Result<Arc<IntlKernel<EmbeddedIntlProvider>>, String>> =
         OnceLock::new();
     KERNEL
         .get_or_init(|| {
-            let provider = EmbeddedLocaleProvider::new()
+            let provider = EmbeddedIntlProvider::new()
                 .map_err(|error| format!("embedded Intl provider setup failed: {error}"))?;
             let expected_identity = provider.identity().clone();
             IntlKernel::new(expected_identity, provider)
@@ -1628,9 +1643,12 @@ fn wasm_intl_call(
             request_span_wire,
             result_span_wire,
         ),
-        IntlHostOp::CanonicalizeTimeZone => Err(wasmtime::Error::msg(
-            "Intl host operation canonicalize-time-zone is not bound",
-        )),
+        IntlHostOp::LookupNamedTimeZone => {
+            intl_time_zone_host::lookup_named_time_zone(caller, request_span_wire, result_span_wire)
+        }
+        IntlHostOp::ResolveTimeZone => {
+            intl_time_zone_host::resolve_time_zone(caller, request_span_wire, result_span_wire)
+        }
     }
 }
 
@@ -1683,13 +1701,14 @@ struct WasmAgentAsyncWaiterRegistry {
 
 /// The closed subset of root compilation authority inherited by an agent.
 ///
-/// Keeping both policies in one value prevents either the harness-to-group
+/// Keeping these policies in one value prevents either the harness-to-group
 /// handoff or a worker-cache retry from rebuilding options with an ambient
 /// default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WasmAgentCompilePolicy {
     host_surface_policy: HostSurfacePolicy,
     module_loading_policy: ModuleLoadingPolicy,
+    promise_rejection_policy: PromiseRejectionPolicy,
 }
 
 impl WasmAgentCompilePolicy {
@@ -1697,6 +1716,7 @@ impl WasmAgentCompilePolicy {
         Self {
             host_surface_policy: options.host_surface_policy,
             module_loading_policy: options.module_loading_policy,
+            promise_rejection_policy: options.promise_rejection_policy,
         }
     }
 
@@ -1705,6 +1725,7 @@ impl WasmAgentCompilePolicy {
             filename: Some("<test262-agent>".to_string()),
             host_surface_policy: self.host_surface_policy,
             module_loading_policy: self.module_loading_policy,
+            promise_rejection_policy: self.promise_rejection_policy,
             ..CompileOptions::default()
         }
     }
@@ -2053,6 +2074,10 @@ impl Engine {
         }
     }
 
+    /// Runs a Module through the selected backend. Wasm AOT reports an
+    /// unsettled entry at host quiescence as
+    /// [`WasmExecutionFailureKind::IncompleteModuleEvaluation`], not success
+    /// or a JavaScript exception. This one-shot API does not retain a resumable Store.
     pub fn run_module(
         &self,
         source: &str,
@@ -2090,7 +2115,10 @@ impl Engine {
     }
 
     /// Executes one Module while keeping ECMAScript rejection distinct from
-    /// compiler, loader, host and backend failures.
+    /// compiler, loader, host and backend failures. A pending entry after
+    /// supported Wasm host work drains returns
+    /// [`WasmExecutionFailureKind::IncompleteModuleEvaluation`] as an error;
+    /// it never becomes an [`ObservedCompletion`].
     pub fn observe_module(
         &self,
         source: &str,
@@ -2441,7 +2469,10 @@ impl Engine {
     }
 
     fn emit_wasm_on_current_thread(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
-        match lila_aot_wasm::emit(&unit.ir) {
+        match lila_aot_wasm::emit_with_promise_rejection_policy(
+            &unit.ir,
+            unit.promise_rejection_policy,
+        ) {
             Ok(wasm) => {
                 // `lila build wasm` and the Test262 wasm-aot backend both reach
                 // emission through here and never through
@@ -2589,6 +2620,7 @@ impl Engine {
             module_prelude,
             graph,
             host_surface_policy: options.host_surface_policy,
+            promise_rejection_policy: options.promise_rejection_policy,
             module_loading_policy: options.module_loading_policy,
         })
     }
@@ -2602,6 +2634,7 @@ impl Engine {
             module_prelude,
             graph,
             host_surface_policy,
+            promise_rejection_policy,
             module_loading_policy,
         } = prepared;
         let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
@@ -2665,6 +2698,7 @@ impl Engine {
             ir,
             module_prelude: module_prelude.map(|prelude| prelude.source_text.to_string()),
             module_loading_policy,
+            promise_rejection_policy,
         })
     }
 
@@ -2848,8 +2882,11 @@ impl Engine {
         };
 
         let emit_started = std::time::Instant::now();
-        let artifact = lila_aot_wasm::emit(&unit.ir)
-            .map_err(|err| EngineError::from_wasm_emit_error(&unit.ir, err))?;
+        let artifact = lila_aot_wasm::emit_with_promise_rejection_policy(
+            &unit.ir,
+            unit.promise_rejection_policy,
+        )
+        .map_err(|err| EngineError::from_wasm_emit_error(&unit.ir, err))?;
         if std::env::var_os("LILA_WASM_TRACE_DUMP").is_some() {
             eprintln!("lila wasm trace: artifact debug:\n{}", artifact.debug_dump);
         }
@@ -3695,6 +3732,22 @@ impl Engine {
                 )));
                 }
             };
+            let module_status = read_module_entry_status(&instance, &mut store)?;
+            match module_status {
+                Some(WasmModuleEvaluationStatus::Pending) => {
+                    return Err(EngineError::from_execution_failure(
+                        EngineExecutionFailure::IncompleteModuleEvaluation,
+                        "module entry evaluation remained pending after supported host work became quiescent",
+                    ));
+                }
+                Some(WasmModuleEvaluationStatus::NotStarted) => {
+                    return Err(EngineError::from_execution_failure(
+                        EngineExecutionFailure::Trap,
+                        "Module entry returned without reaching its completion checkpoint",
+                    ));
+                }
+                Some(WasmModuleEvaluationStatus::Settled) | None => {}
+            }
             match mode {
                 WasmExecutionMode::Legacy => {
                     // Legacy callers retain the historical human rendering. Keep
@@ -3762,6 +3815,35 @@ impl Engine {
         });
         finish_wasm_execution(execution_result, agent_result)
     }
+}
+
+fn read_module_entry_status(
+    instance: &wasmtime::Instance,
+    store: &mut WasmtimeStore<WasmHostState>,
+) -> Result<Option<WasmModuleEvaluationStatus>, EngineError> {
+    let Some(exported) = instance.get_export(&mut *store, MODULE_EVALUATION_STATUS_EXPORT) else {
+        return Ok(None);
+    };
+    let WasmtimeExtern::Global(exported) = exported else {
+        return Err(EngineError::from_execution_failure(
+            EngineExecutionFailure::Trap,
+            "Module evaluation status export must be a global",
+        ));
+    };
+    let WasmtimeVal::I64(word) = exported.get(&mut *store) else {
+        return Err(EngineError::from_execution_failure(
+            EngineExecutionFailure::Trap,
+            "Module evaluation status export must be i64",
+        ));
+    };
+    WasmModuleEvaluationStatus::from_word(word)
+        .map(Some)
+        .ok_or_else(|| {
+            EngineError::from_execution_failure(
+                EngineExecutionFailure::Trap,
+                format!("invalid Module evaluation status word {word}"),
+            )
+        })
 }
 
 enum WasmTopLevelCompletionKind {
@@ -4288,6 +4370,7 @@ var $262 = {
     fn wasm_agent_compile_policy_preserves_root_module_authority() {
         let root = CompileOptions {
             host_surface_policy: HostSurfacePolicy::Test262,
+            promise_rejection_policy: PromiseRejectionPolicy::Ignore,
             module_loading_policy: ModuleLoadingPolicy::RejectAll,
             ..CompileOptions::default()
         };
@@ -4295,6 +4378,10 @@ var $262 = {
 
         assert_eq!(worker.host_surface_policy, HostSurfacePolicy::Test262);
         assert_eq!(worker.module_loading_policy, ModuleLoadingPolicy::RejectAll);
+        assert_eq!(
+            worker.promise_rejection_policy,
+            PromiseRejectionPolicy::Ignore
+        );
     }
 
     fn push_wasm_u32(mut value: u32, bytes: &mut Vec<u8>) {
@@ -4347,7 +4434,7 @@ var $262 = {
 
     #[test]
     fn intl_artifact_identity_gate_is_closed_before_wasmtime() {
-        let expected = lila_intl::embedded_locale_data_identity()
+        let expected = lila_intl::embedded_intl_data_identity()
             .expect("embedded Intl identity should be valid");
         let identity = expected.artifact_identity();
         let identity = identity.as_bytes();
@@ -4584,6 +4671,12 @@ report;
         assert_ne!(
             key,
             program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed_policy)
+        );
+        let mut changed_rejection_policy = base.clone();
+        changed_rejection_policy.promise_rejection_policy = PromiseRejectionPolicy::Ignore;
+        assert_ne!(
+            key,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed_rejection_policy)
         );
         let mut changed_module_policy = base.clone();
         changed_module_policy.module_loading_policy = ModuleLoadingPolicy::RejectAll;
@@ -34348,3 +34441,9 @@ try {
 
 #[cfg(test)]
 mod regexp_program_boundary_tests;
+
+#[cfg(test)]
+mod runtime_regexp_compiler_tests;
+
+#[cfg(test)]
+mod array_present_index_tests;

@@ -1,13 +1,17 @@
 //! `temporal` intrinsic installation.
 //!
-//! Extracted verbatim from `builtins/bootstrap.rs::init_builtin_constructor_object`.
+//! Instant and Duration share member definitions across entry and created Realms.
 //! Property installation order is observable through `Object.keys`, so the
 //! statement order inside each installer is load-bearing — do not reorder.
 
 use super::super::*;
 use super::IntrinsicInstall;
 
-/// The property key a `Temporal.Instant` member is installed under, derived
+mod members;
+mod realm;
+pub(crate) use members::{TemporalIntrinsicFamily, TemporalIntrinsicRealm};
+
+/// The property key a Temporal member is installed under, derived
 /// from the one place its name is already stated.
 ///
 /// `native_function_name()` is what `Function.prototype.name` reports, so for a
@@ -17,7 +21,7 @@ use super::IntrinsicInstall;
 /// a literal beside the id is a second spelling of a closed fact, and a typo in
 /// it installs a correctly-named function under the wrong key with nothing in
 /// the compiler noticing.
-fn temporal_instant_property_key(builtin: StandardBuiltinId) -> Result<&'static str, EmitError> {
+fn temporal_intrinsic_property_key(builtin: StandardBuiltinId) -> Result<&'static str, EmitError> {
     let name = builtin.native_function_name().ok_or_else(|| {
         EmitError::unsupported(format!(
             "unsupported in lila wasm-aot first slice: builtin `{}` has no native function name",
@@ -36,117 +40,18 @@ impl<'a> FunctionBuilder<'a> {
         context: &IntrinsicInstall<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // Re-bind the shared preamble values under the names the moved body
-        // already uses, so the body below is a verbatim copy of the arm it
-        // replaced. Most families read only a few of them.
-        #[allow(unused_variables)]
-        let IntrinsicInstall {
-            builtin,
-            meta,
-            prototype_global_index,
-            constructor_global_index,
-            object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            prototype_object_local,
-        } = *context;
-
-        // Property installation order is observable through `Object.keys`, so
-        // the statics go on in specification order and every one of them is
-        // installed before the prototype is touched.
-        //
-        // The property key is *derived* from `native_function_name()`, not
-        // written beside the id. They are two spellings of one closed fact —
-        // `.name` already comes from `native_function_name()` — so a literal
-        // here could install `Temporal.Instant.prototype.toJson` under a
-        // correctly-named function with nothing in the compiler noticing.
-        for builtin in [
-            StandardBuiltinId::TemporalInstantFrom,
-            StandardBuiltinId::TemporalInstantFromEpochMilliseconds,
-            StandardBuiltinId::TemporalInstantFromEpochNanoseconds,
-            StandardBuiltinId::TemporalInstantCompare,
-        ] {
-            let name = temporal_instant_property_key(builtin)?;
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            self.emit_object_define_function_data(object_local, name, meta, function)?;
-        }
-        function.instruction(&Instruction::GlobalGet(prototype_global_index));
-        function.instruction(&Instruction::LocalSet(prototype_object_local));
-        for builtin in [
-            StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter,
-            StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter,
-        ] {
-            let name = temporal_instant_property_key(builtin)?;
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_function_value_payload(meta, function)?;
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            self.emit_object_append_accessor_property_with_flags(
-                prototype_object_local,
-                key_local,
-                Some((payload_local, tag_local)),
-                None,
-                false,
-                true,
-                function,
-            )?;
-        }
-        // `toJSON` and `toString` share an emitter but never a function object,
-        // so each gets its own meta here; installing them from one meta would
-        // make `Temporal.Instant.prototype.toJSON === ...toString` true, which
-        // `toJSON/prop-desc.js` and `toJSON/name.js` observe.
-        for builtin in [
-            StandardBuiltinId::TemporalInstantPrototypeToString,
-            StandardBuiltinId::TemporalInstantPrototypeEquals,
-            StandardBuiltinId::TemporalInstantPrototypeToJson,
-            StandardBuiltinId::TemporalInstantPrototypeValueOf,
-        ] {
-            let name = temporal_instant_property_key(builtin)?;
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            self.emit_object_define_function_data(prototype_object_local, name, meta, function)?;
-        }
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.toStringTag"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("Temporal.Instant"),
-        ));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_append_data_property_with_flags(
-            prototype_object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            false,
-            false,
-            true,
+        let prototype = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(context.prototype_global_index));
+        function.instruction(&Instruction::LocalSet(prototype));
+        let result = self.emit_install_temporal_intrinsic_members(
+            TemporalIntrinsicFamily::Instant,
+            context.object_local,
+            prototype,
+            TemporalIntrinsicRealm::Entry,
             function,
-        )?;
-
-        Ok(())
+        );
+        self.release_temp_local(prototype);
+        result
     }
 
     /// Property installation order is observable through `Object.keys`, so the
@@ -610,164 +515,18 @@ impl<'a> FunctionBuilder<'a> {
         context: &IntrinsicInstall<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        #[allow(unused_variables)]
-        let IntrinsicInstall {
-            builtin,
-            meta,
-            prototype_global_index,
-            constructor_global_index,
-            object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            prototype_object_local,
-        } = *context;
-
-        for (name, builtin) in [
-            ("from", StandardBuiltinId::TemporalDurationFrom),
-            ("compare", StandardBuiltinId::TemporalDurationCompare),
-        ] {
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            self.emit_object_define_function_data(object_local, name, meta, function)?;
-        }
-        function.instruction(&Instruction::GlobalGet(prototype_global_index));
-        function.instruction(&Instruction::LocalSet(prototype_object_local));
-        for (name, builtin) in [
-            (
-                "years",
-                StandardBuiltinId::TemporalDurationPrototypeYearsGetter,
-            ),
-            (
-                "months",
-                StandardBuiltinId::TemporalDurationPrototypeMonthsGetter,
-            ),
-            (
-                "weeks",
-                StandardBuiltinId::TemporalDurationPrototypeWeeksGetter,
-            ),
-            (
-                "days",
-                StandardBuiltinId::TemporalDurationPrototypeDaysGetter,
-            ),
-            (
-                "hours",
-                StandardBuiltinId::TemporalDurationPrototypeHoursGetter,
-            ),
-            (
-                "minutes",
-                StandardBuiltinId::TemporalDurationPrototypeMinutesGetter,
-            ),
-            (
-                "seconds",
-                StandardBuiltinId::TemporalDurationPrototypeSecondsGetter,
-            ),
-            (
-                "milliseconds",
-                StandardBuiltinId::TemporalDurationPrototypeMillisecondsGetter,
-            ),
-            (
-                "microseconds",
-                StandardBuiltinId::TemporalDurationPrototypeMicrosecondsGetter,
-            ),
-            (
-                "nanoseconds",
-                StandardBuiltinId::TemporalDurationPrototypeNanosecondsGetter,
-            ),
-            (
-                "sign",
-                StandardBuiltinId::TemporalDurationPrototypeSignGetter,
-            ),
-            (
-                "blank",
-                StandardBuiltinId::TemporalDurationPrototypeBlankGetter,
-            ),
-        ] {
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_function_value_payload(meta, function)?;
-            function.instruction(&Instruction::LocalSet(payload_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-            function.instruction(&Instruction::LocalSet(tag_local));
-            self.emit_object_append_accessor_property_with_flags(
-                prototype_object_local,
-                key_local,
-                Some((payload_local, tag_local)),
-                None,
-                false,
-                true,
-                function,
-            )?;
-        }
-        for (name, builtin) in [
-            ("with", StandardBuiltinId::TemporalDurationPrototypeWith),
-            (
-                "negated",
-                StandardBuiltinId::TemporalDurationPrototypeNegated,
-            ),
-            ("abs", StandardBuiltinId::TemporalDurationPrototypeAbs),
-            ("add", StandardBuiltinId::TemporalDurationPrototypeAdd),
-            (
-                "subtract",
-                StandardBuiltinId::TemporalDurationPrototypeSubtract,
-            ),
-            ("round", StandardBuiltinId::TemporalDurationPrototypeRound),
-            ("total", StandardBuiltinId::TemporalDurationPrototypeTotal),
-            (
-                "toString",
-                StandardBuiltinId::TemporalDurationPrototypeToString,
-            ),
-            ("toJSON", StandardBuiltinId::TemporalDurationPrototypeToJson),
-            (
-                "toLocaleString",
-                StandardBuiltinId::TemporalDurationPrototypeToLocaleString,
-            ),
-            (
-                "valueOf",
-                StandardBuiltinId::TemporalDurationPrototypeValueOf,
-            ),
-        ] {
-            let meta = self.functions.get(&builtin.function_id()).ok_or_else(|| {
-                EmitError::unsupported(format!(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
-                    builtin.debug_name()
-                ))
-            })?;
-            self.emit_object_define_function_data(prototype_object_local, name, meta, function)?;
-        }
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .property_key_symbol_payload("Symbol.toStringTag"),
-        ));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("Temporal.Duration"),
-        ));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-        self.emit_object_append_data_property_with_flags(
-            prototype_object_local,
-            key_local,
-            payload_local,
-            tag_local,
-            false,
-            false,
-            true,
+        let prototype = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(context.prototype_global_index));
+        function.instruction(&Instruction::LocalSet(prototype));
+        let result = self.emit_install_temporal_intrinsic_members(
+            TemporalIntrinsicFamily::Duration,
+            context.object_local,
+            prototype,
+            TemporalIntrinsicRealm::Entry,
             function,
-        )?;
-
-        Ok(())
+        );
+        self.release_temp_local(prototype);
+        result
     }
 
     /// Temporal proposal 4.2/4.3: `Temporal.PlainTime`'s statics, then the six

@@ -23,6 +23,7 @@ mod created_realm_dynamic_function_intrinsics;
 mod created_realm_finalization_registry_intrinsics;
 mod created_realm_intl_intrinsics;
 mod created_realm_iterator_next;
+mod created_realm_temporal_intrinsics;
 mod created_realm_weak_collection_intrinsics;
 mod created_realm_weak_ref_intrinsics;
 mod detach_array_buffer;
@@ -1242,6 +1243,20 @@ impl<'a> FunctionBuilder<'a> {
                             "unsupported in lila wasm-aot first slice: missing builtin meta `Object.prototype.hasOwnProperty`",
                         )
                     })?,
+            ),
+            (
+                "__defineGetter__",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectPrototypeDefineGetter.function_id())
+                    .cloned()
+                    .expect("Object intrinsic installation roots accessor definers"),
+            ),
+            (
+                "__defineSetter__",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectPrototypeDefineSetter.function_id())
+                    .cloned()
+                    .expect("Object intrinsic installation roots accessor definers"),
             ),
             (
                 "__lookupGetter__",
@@ -7773,6 +7788,12 @@ impl<'a> FunctionBuilder<'a> {
             .ok_or_else(|| {
                 EmitError::unsupported("created Realm requires the complete Intl namespace")
             })?;
+        let created_realm_temporal = self.emit_materialize_created_realm_temporal_intrinsics(
+            realm_record,
+            &realm_functions,
+            object_prototype_local,
+            function,
+        )?;
         let created_realm_intl = self.emit_materialize_created_realm_intl_intrinsics(
             intl_members,
             realm_record,
@@ -8318,6 +8339,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_publish_created_realm_intl_intrinsics(
             created_realm_intl,
+            global_local,
+            function,
+        )?;
+        self.emit_publish_created_realm_temporal_intrinsics(
+            created_realm_temporal,
             global_local,
             function,
         )?;

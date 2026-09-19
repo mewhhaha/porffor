@@ -3,6 +3,48 @@
 use super::*;
 
 impl ScriptLowerer<'_> {
+    pub(super) fn admit_sync_disposable_scope_owner(
+        &mut self,
+    ) -> Option<SyncDisposableScopeOwnerPlan> {
+        if self.root_this_binding == RootThisBinding::Undefined {
+            // The retained TLA/source-phase drivers do not own independent
+            // Module environments. Only a canonical module activation proves
+            // this module's resources belong to an admitted execution lifetime.
+            let mut owner_id = Some(self.current_owner_id.as_str());
+            let mut has_module_activation = false;
+            while let Some(id) = owner_id {
+                if self
+                    .analysis
+                    .function_plans
+                    .get(id)
+                    .is_some_and(|owner| owner.protocol == FunctionProtocolIr::ModuleActivation)
+                {
+                    has_module_activation = true;
+                    break;
+                }
+                owner_id = self
+                    .analysis
+                    .owner_plans
+                    .get(id)
+                    .and_then(|owner| owner.parent_owner_id.as_deref());
+            }
+            if !has_module_activation {
+                self.unsupported(
+                    "using declaration in a module without a canonical execution owner",
+                );
+                return None;
+            }
+        }
+        Some(
+            self.current_function_id
+                .as_ref()
+                .and_then(|id| self.analysis.function_plans.get(id))
+                .map_or(SyncDisposableScopeOwnerPlan::Immediate, |owner| {
+                    owner.sync_disposable_scope_owner()
+                }),
+        )
+    }
+
     pub(super) fn lower_module_instantiation_boundary(
         &mut self,
         statement: &Statement,
@@ -45,6 +87,12 @@ impl ScriptLowerer<'_> {
     ) -> Option<TypedExpr> {
         let pointer = std::ptr::from_ref(expression) as usize;
         let operations = &self.analysis.synchronous_modules;
+        if let Some(builtin) = operations.intrinsics.get(&pointer) {
+            return Some(TypedExpr::from_info(
+                Self::standard_builtin_value_info(*builtin),
+                ExprIr::FunctionValue(builtin.function_id()),
+            ));
+        }
         let operation = if let Some(cell) = operations.reads.get(&pointer) {
             ExprIr::ModuleBindingRead(cell.clone())
         } else if let Some(evaluation) = operations.evaluations.get(&pointer) {

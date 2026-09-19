@@ -61,24 +61,67 @@ jobs:
 
       - name: Test module instantiation and suspension environments
         run: |
-          cargo test --release --locked -p lila-ir --test async_if_continuations --test module_instantiation --test array_arguments_primitive --test module_default_export_names
+          cargo test --release --locked -p lila-ir --test async_if_continuations --test module_instantiation --test array_arguments_primitive --test module_default_export_names --test prepared_script_host_globals --test module_import_jobs --test graph_build_structure --test link_error_structure --test dynamic_import_dispatcher_reference_structure
           cargo test --release --locked -p lila-engine --lib module_prelude
+          cargo test --release --locked -p lila-ir --test module_entry_completion
+          cargo test --release --locked -p lila-aot-wasm --test module_entry_completion
+          cargo test --release --locked -p lila-aot-wasm --test heap_root_source_structure
+          cargo test --release --locked -p lila-aot-wasm --lib module_status_has_a_closed_wire_domain_outside_js_completion_kinds
+          cargo test --release --locked -p lila-engine --test aot_module_entry_completion --test aot_promise_rejection_policy -- --test-threads=2
+          cargo test --release --locked -p lila-engine --lib execution_failure::tests -- --test-threads=2
+          cargo test --release --locked -p lila-test262 --lib module_entry_completion -- --test-threads=2
           cargo test --release --locked -p lila-test262 --lib module_materialization
           cargo test --release --locked -p lila-test262 --lib module_runner
-          cargo test --release --locked -p lila-engine --test aot_async_if --test aot_async_property_assignment --test aot_generator_catch_environment --test aot_module_instantiation --test aot_module_scope_isolation --test aot_public_class_fields --test aot_array_arguments_primitive --test aot_catch_pattern_owners --test aot_control_flow -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test plain_generator_synchronous_using_structure --test async_generator_synchronous_using_structure --test plain_async_classic_for_await_using_structure --test plain_async_sync_for_of_iterator_record_structure --test promise_reaction_initialization_structure --test resumable_loop_iteration_environment_structure
+          cargo test --release --locked -p lila-engine --test aot_async_if --test aot_async_property_assignment --test aot_generator_catch_environment --test aot_module_instantiation --test aot_module_scope_isolation --test aot_public_class_fields --test aot_array_arguments_primitive --test aot_catch_pattern_owners --test aot_control_flow --test aot_prepared_script_hosts --test aot_module_import_jobs -- --test-threads=2
 
-      - name: Test Intl numbering and immutable RegExp programs
+      - name: Test Intl numbering, Date locale methods and RegExp compilation
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/tests/test_generate_intl_datetime_numbering.py
           python3 scripts/generate-intl-datetime-numbering.py --check --report crates/lila-aot-wasm/data/cldr-47-numbering/generated-report.json
-          cargo test --release --locked -p lila-engine --test aot_intl_datetime_numbering -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_intl_datetime_numbering --test aot_date_locale --test aot_regexp_recompile -- --test-threads=2
           cargo test --release --locked -p lila-engine --lib regexp_program_boundary_tests -- --test-threads=2
+          cargo test --release --locked -p lila-engine --lib runtime_regexp_compiler_tests -- --test-threads=2
+          cargo test --release --locked -p lila-engine --lib array_present_index_tests -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --lib dense_literals_avoid_sparse_bookkeeping_and_sparse_writes_share_one_body
+          cargo test --release --locked -p lila-engine --test aot_array_index_storage -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_string_match_call -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test string_match_call_emission --test shadowed_property_read_arm_absence_structure
           cargo test --release --locked -p lila-ir --lib regexp::program::tests
+          cargo test --release --locked -p lila-aot-wasm --test intl_date_time_format_construction_order_structure --test intl_dtf_range_locals_ownership_structure --test regexp_exec_result_mode_structure --test regexp_nullable_quantifier_progress_structure --test regexp_unicode_sets_class_strings_structure --test runtime_regexp_entry_kind_structure
+
+      - name: Test pinned named time-zone data and formatting
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/tests/test_generate_intl_named_time_zones.py scripts/tests/test_generate_intl_time_zone_names.py
+          python3 scripts/generate-intl-named-time-zones.py --check
+          python3 scripts/generate-intl-time-zone-names.py --check
+          cargo test --release --locked -p lila-engine --lib intl_time_zone_host::tests -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_intl_named_time_zones -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test intl_dtf_time_zone_authority_privacy_structure --test intl_dtf_time_zone_name_style_privacy_structure --test intl_date_time_format_heap_slot_structure
+
+      - name: Test JSON reviver property definitions
+        run: |
+          cargo test --release --locked -p lila-engine --test aot_json_reviver_definitions -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test json_reviver_frame_structure
 
       - name: Test property definition Realm ownership
         run: |
-          cargo test --release --locked -p lila-engine --test aot_define_property_realm --test reflect_descriptor_object_realm -- --test-threads=2
-          cargo test --release --locked -p lila-aot-wasm --test to_property_descriptor_operation_evidence_structure --test reflect_descriptor_object_realm_structure
+          cargo test --release --locked -p lila-engine --test aot_define_property_realm --test aot_legacy_accessor_definers --test reflect_descriptor_object_realm --test aot_reflect_completed_descriptors -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test to_property_descriptor_operation_evidence_structure --test reflect_descriptor_object_realm_structure --test reflect_define_property_completion_structure --test object_define_property_descriptor_roles_structure
+
+      - name: Test Promise host completion policy
+        run: |
+          cargo test --release --locked -p lila-engine --test aot_promise_rejection_policy -- --test-threads=2
+          cargo test --release --locked -p lila-engine --lib program_cache_key_tracks_source_goal_and_configuration
+          cargo test --release --locked -p lila-engine --lib wasm_agent_compile_policy_preserves_root_module_authority
+          cargo test --release --locked -p lila-test262 --lib wasm_aot_host_tracker_preserves_sync_completion_and_async_failures -- --test-threads=2
+          cargo test --release --locked -p lila-test262 --lib wasm_aot_module_evaluation_rejection_remains_a_failure -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test function_module_state_structure --test completion_exit_structure --test unhandled_rejection_reporting_structure
+
+      - name: Test Arguments indexed descriptor presence
+        run: |
+          cargo test --release --locked -p lila-engine --test aot_arguments_index_descriptors -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test arguments_index_descriptor_structure
 
       - name: Execute the pinned Test262 agent regression (non-vacuous)
         shell: bash

@@ -91,6 +91,7 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot change non-writable arguments.callee",
     "Cannot change value of non-writable arguments property",
     "Cannot define arguments index on a non-extensible object",
+    "Cannot define array index beyond non-writable length",
     "Cannot define array length",
     "Cannot make non-configurable arguments property writable",
     "Cannot make non-configurable arguments.callee writable",
@@ -330,14 +331,9 @@ pub(crate) const fn runtime_regexp_record_offset(word: usize) -> u64 {
     (word * 8) as u64
 }
 
-/// The `entry_kind` word of a runtime RegExp program table record.
-///
-/// The record is [`RUNTIME_REGEXP_RECORD_SIZE`] bytes: the eight words the
-/// emitter already read, plus this discriminant at
-/// [`RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD`]. It is a word rather than a
-/// sentinel (`ptr == 0`, `instruction_count == 0`) on purpose — a sentinel is
-/// what the emitter used to be forced into, and it cannot tell "the compiler
-/// rejected this pattern" apart from "this row was never written".
+/// The closed outcome word in a four-word static candidate-cache record.
+/// Program handles carry validated immutable descriptors; a separate outcome
+/// distinguishes syntax rejection from a cache miss or unsupported capability.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
 /// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
 /// compile-time `RegExpProgram::compile` answered
@@ -375,18 +371,9 @@ pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
 /// landed, and read any new failure whose detail names SyntaxError as a
 /// false-`InvalidSyntax` candidate rather than as unrelated noise.**
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
-/// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
-/// compile-time compiler answered [`RegExpCompileErrorKind::UnsupportedFeature`]
-/// — the pattern **is** legal ECMAScript and Lila simply cannot compile it yet.
-///
-/// This is the distinction that makes the table worth having and the one a
-/// bare "compile failed, so throw" would destroy: a `SyntaxError` here would be
-/// a *new* wrong answer, thrown for a pattern the spec says is fine. Such a row
-/// deliberately behaves exactly like a total miss — zeroed program slots, and
-/// the runtime's own fallback matcher gets its turn. `lila-ir`'s
-/// `try_lower_static_regexp_compilation` draws the same line at its
-/// `Err(error) if error.kind == RegExpCompileErrorKind::InvalidSyntax` arm, and
-/// the two must not drift apart.
+/// A static compiler capability gap. Like a cache miss, this enters the
+/// emitted compiler. Only its explicit Unsupported status retains the old
+/// fallback matcher; a capability gap alone never invents a SyntaxError.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED: u64 = 2;
 
 mod runtime_regexp_entry_kind;
@@ -426,8 +413,8 @@ enum RuntimeRegExpEntry {
     /// into a SyntaxError.
     Rejected,
     /// `RegExpProgram::compile` answered `UnsupportedFeature`: the pattern is
-    /// legal and Lila cannot compile it yet. A hit on this row must **not**
-    /// throw — see [`RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED`].
+    /// outside the static compiler's capability. A hit enters runtime
+    /// compilation — see [`RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED`].
     Unsupported,
 }
 
@@ -1566,7 +1553,6 @@ impl StringPool {
             "Proxy defineProperty trap result is incompatible with target descriptor",
             "Proxy defineProperty trap cannot define non-writable target property",
             "Proxy defineProperty trap cannot report a writable target property as non-writable",
-            "Cannot define invalid TypedArray index",
             "Cannot define incompatible TypedArray index descriptor",
             "TypedArray.prototype.subarray requires TypedArray",
             "TypedArray.prototype.subarray has unknown element type",
@@ -1596,6 +1582,7 @@ impl StringPool {
             "TypedArray.prototype.with has unknown element type",
             "Reflect.defineProperty target must be object",
             "Reflect.defineProperty attributes must be object",
+            "Accessor must be callable",
             "Property descriptor getter/setter must be callable or undefined",
             "Property descriptor cannot be both accessor and data",
             "Reflect.get target must be object",
@@ -1959,6 +1946,11 @@ impl StringPool {
             "Temporal.Instant epoch nanoseconds are outside the supported range",
             "Temporal.Instant.fromEpochMilliseconds requires an integral Number",
             "Temporal.Instant does not support implicit conversion; use compare() or equals()",
+            "Temporal.Instant arithmetic does not accept date units",
+            "Temporal.Instant.prototype.round requires a roundTo argument",
+            "Temporal.Instant.prototype.round requires smallestUnit",
+            "Invalid Temporal.Instant unit option",
+            "Invalid Temporal.Instant rounding increment",
             "RegExp.escape input must be a string",
             "RegExp.prototype.compile receiver is not a direct RegExp instance",
             "RegExp.prototype.compile flags must be undefined when pattern is RegExp",
@@ -2285,7 +2277,18 @@ impl StringPool {
         if pool.needs_runtime_regexp_programs {
             pool.queue_runtime_regexp_programs();
         }
+        for message in [
+            "RegExp runtime compiler exceeded its addressable resource limit",
+            "RegExp runtime compiler produced an invalid program",
+        ] {
+            pool.intern_string(message);
+        }
         pool.append_regexp_programs();
+        // The emitted compiler can encounter an i flag absent from every
+        // statically compiled pattern. Its literals/classes and references
+        // must all use the same retained legacy canonicalization table.
+        pool.needed_regexp_case_folding
+            .insert(RegExpCaseFolding::Legacy);
         pool.append_regexp_case_folding_tables();
         if compiled_standard_builtins.iter().any(|builtin| {
             matches!(
@@ -3754,6 +3757,10 @@ impl StringPool {
                     self.collect_expr(operand);
                 }
             }
+            ExprIr::ModuleEntryEvaluation(entry) => {
+                self.uses_heap = true;
+                self.collect_expr(entry.evaluation());
+            }
             ExprIr::SynchronousModuleGraph(_)
             | ExprIr::ModuleBindingRead(_)
             | ExprIr::ModuleEvaluate(_)
@@ -5025,40 +5032,11 @@ fn callee_names_regexp_compile(callee: &TypedExpr) -> bool {
     }
 }
 
-/// Every string this expression can *statically* evaluate to, when that set is
-/// finite and readable off the IR shape alone.
-///
-/// # The catch-all is deliberate, and it is the safe direction
-///
-/// The trailing `_ => {}` is not an oversight and must not be replaced by an
-/// exhaustive match over [`ExprIr`]. This is a heuristic over an open,
-/// hundreds-of-variants expression domain, and the two directions are not
-/// symmetric:
-///
-/// * a shape this function **does not** recognise contributes no candidate, the
-///   `(source, flags)` pair gets no row, and the runtime lookup falls through to
-///   exactly the behaviour it had before the table existed — the fallback
-///   matcher, and `TypeError: RegExp.prototype.exec unsupported pattern` if it
-///   declines. Missing a shape costs coverage, never correctness;
-/// * a shape it **does** recognise reaches `RegExpProgram::compile`, and an
-///   `InvalidSyntax` verdict there becomes a
-///   [`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`] row, which **throws SyntaxError** at
-///   every one of the seven `emit_runtime_regexp_program_slots` call sites for
-///   any runtime pattern whose bytes equal that literal.
-///
-/// So adding an arm here is not "collect a few more literals": it widens the set
-/// of patterns this compiler will refuse at run time, keyed by string value
-/// rather than by syntactic origin. Read
-/// [`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`]'s doc — which records that
-/// `lila-ir/src/regexp.rs`'s ~20 `invalid_syntax(` sites have never been
-/// audited against the grammar — before widening, and measure
-/// `built-ins/RegExp/prototype` as a delta afterwards.
-///
-/// Concatenation is the arm most obviously "missing": `new RegExp(a + b)` where
-/// both halves are literals is a known open case (RE-RT probe 6, no throw
-/// today). It is left out on purpose rather than by oversight, because closing
-/// it is the widening this doc is warning about and it needs its own measured
-/// gate.
+/// Finite string choices recognized directly from IR are an AOT optimization.
+/// Unrecognized shapes contribute no table row and use the emitted Pattern
+/// compiler at runtime. Recognized invalid patterns retain a rejected row, whose
+/// exact byte match throws SyntaxError before publication. Keep this collector
+/// conservative; extending it changes which static parser verdicts are cached.
 fn collect_finite_string_choices(expr: &TypedExpr, choices: &mut BTreeSet<String>) {
     match &expr.expr {
         ExprIr::String(value) => {

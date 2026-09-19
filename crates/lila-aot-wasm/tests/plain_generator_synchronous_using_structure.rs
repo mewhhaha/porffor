@@ -1,6 +1,8 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const MODULE_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/synchronous_modules.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
@@ -88,11 +90,20 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
         );
     }
     assert!(!analyzed_owner.contains("_ =>"));
+    let admission = bounded(
+        MODULE_LOWERING_SOURCE,
+        "    pub(super) fn admit_sync_disposable_scope_owner(",
+        "    pub(super) fn lower_module_instantiation_boundary(",
+    );
+    assert!(admission.contains("owner.sync_disposable_scope_owner()"));
+    assert!(admission.contains("owner.protocol == FunctionProtocolIr::ModuleActivation"));
+    assert!(admission.contains("owner.parent_owner_id.as_deref()"));
+    assert!(admission.contains("return None;"));
 
     let lower = bounded(
         LOWERING_SOURCE,
         "    fn lower_using_declaration(",
-        "    /// Selects the only legal lifetime for an ordinary statement-list `using`.",
+        "    fn sync_disposable_scope_execution(",
     );
     assert_before(
         lower,
@@ -108,11 +119,10 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
 
     let owner = bounded(
         LOWERING_SOURCE,
-        "    fn sync_disposable_scope_owner(",
+        "    fn sync_disposable_scope_execution(",
         "    fn hoist_root_statement_items(",
     );
     for marker in [
-        "function.sync_disposable_scope_owner()",
         "SyncDisposableScopeOwnerPlan::Immediate =>",
         "SyncDisposableScopeOwnerPlan::PlainGenerator =>",
         "SyncDisposableScopeOwnerPlan::AsyncFunction =>",

@@ -95,12 +95,12 @@ jobs:
           cargo test --locked -p lila-ir --test regexp_word_boundary --test regexp_reverse_whitespace --test regexp_backreference_folding --test number_constructor_coercion
           cargo test --locked -p lila-ir --test regexp_legacy_pooled_class --test legacy_utf16_pair_structure
           cargo test --locked -p lila-intl --lib
-          cargo test --locked -p lila-ir --test float16_array --test intl_locale_getters
+          cargo test --locked -p lila-ir --test float16_array --test intl_locale_getters --test temporal_instant_methods
           cargo test --locked -p lila-aot-wasm --test object_literal_home_object_structure
           cargo test --locked -p lila-aot-wasm --test numeric_bitwise_emission --test created_realm_typed_array_method_publication_structure --test typed_array_witness_use_ownership_structure
           cargo test --locked -p lila-aot-wasm --test typed_array_set_witness_structure --test typed_array_with_witness_structure --test typed_array_slice_witness_structure --test typed_array_constructor_source_witness_structure --test promise_internal_function_realm_context_structure
           cargo test --locked -p lila-aot-wasm --test intl_canonical_locale_tag_invocation_structure --test intl_namespace_plan_structure --test object_read_proxy_realm_structure
-          cargo test --locked -p lila-aot-wasm --test with_environment_identifier_call_structure --test regexp_modifier_override_structure --test temporal_plain_date_time_field_read_mode_structure --test temporal_plain_date_time_component_structure --test temporal_zoned_date_time_difference_defaults_structure
+          cargo test --locked -p lila-aot-wasm --test with_environment_identifier_call_structure --test regexp_modifier_override_structure --test temporal_plain_date_time_field_read_mode_structure --test temporal_plain_date_time_component_structure --test temporal_zoned_date_time_difference_defaults_structure --test temporal_instant_methods_structure --test temporal_instant_epoch_proof_structure --test created_realm_temporal_structure
 
       - name: Execute completed-baseline expression repairs through Wasmtime
         run: >-
@@ -174,9 +174,18 @@ jobs:
           --test aot_temporal_zoned_date_time_surface
           --test aot_temporal_zoned_date_time_day
           --test aot_temporal_zoned_date_time_round
-          --test aot_temporal_zoned_date_time_difference
+          --test aot_temporal_zoned_date_time_difference --test aot_temporal_instant_methods
+          --test aot_temporal_duration_wide_fields
           --test aot_temporal_plain_date_zoned
           -- --test-threads=1
+
+      - name: Check canonical Duration Number fields
+        run: >-
+          cargo test --locked -p lila-aot-wasm
+          --test temporal_duration_number_fields_structure
+          --test temporal_duration_field_transform_structure
+          --test temporal_duration_arithmetic_operation_structure
+          --test temporal_duration_heap_slot_structure
 
       - name: Check Uint8Array codec lowering contracts
         run: |

@@ -71,10 +71,7 @@ impl ValidatedRegExpProgram {
             .instructions
             .iter()
             .filter(|instruction| {
-                matches!(
-                    instruction.opcode,
-                    REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT
-                )
+                RegExpOpcode::from_word(instruction.opcode).is_some_and(RegExpOpcode::is_choice)
             })
             .count();
         let repeatable_split_count = repeatable_split_count(program);
@@ -362,61 +359,48 @@ fn validate_program(program: &RegExpProgram) -> Result<(), RegExpProgramValidati
                 .windows(2)
                 .all(|pair| pair[0].1 < pair[1].0)
         };
-        let valid = match opcode {
-            REGEXP_OPCODE_ACCEPT | REGEXP_OPCODE_WHITESPACE | REGEXP_OPCODE_NOT_WHITESPACE => {
-                a == 0 && b == 0
-            }
-            REGEXP_OPCODE_LITERAL_ASCII => a <= 0x7f && b == 0,
-            REGEXP_OPCODE_LITERAL_CODE_POINT => a <= 0x10ffff && b == 0,
-            REGEXP_OPCODE_POSITIVE_ASCII_CLASS | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS => true,
-            REGEXP_OPCODE_SPLIT => target(a) && target(b),
-            REGEXP_OPCODE_JUMP => target(a) && b == 0,
-            REGEXP_OPCODE_CAPTURE_START | REGEXP_OPCODE_CAPTURE_END => capture(a) && b == 0,
-            REGEXP_OPCODE_CLEAR_CAPTURE_RANGE => {
+        let Some(opcode) = RegExpOpcode::from_word(opcode) else {
+            return Err(Failure::InvalidInstruction { pc });
+        };
+        let valid = match opcode.operand_rule() {
+            RegExpOperandRule::Zero => a == 0 && b == 0,
+            RegExpOperandRule::Ascii => a <= 0x7f && b == 0,
+            RegExpOperandRule::CodePoint => a <= 0x10ffff && b == 0,
+            RegExpOperandRule::Bitmap => true,
+            RegExpOperandRule::TargetPair => target(a) && target(b),
+            RegExpOperandRule::Target => target(a) && b == 0,
+            RegExpOperandRule::Capture => capture(a) && b == 0,
+            RegExpOperandRule::CaptureRange => {
                 a > 0 && a <= b && b <= program.capture_count as u64 + 1
             }
-            REGEXP_OPCODE_DOT | REGEXP_OPCODE_ASSERT_START | REGEXP_OPCODE_ASSERT_END => {
-                a <= 2 && b == 0
-            }
-            REGEXP_OPCODE_UNICODE_PROPERTY => range(),
-            REGEXP_OPCODE_WORD_BOUNDARY => b >> 1 != 0 && range(),
-            REGEXP_OPCODE_NAMED_BACKREFERENCE => {
+            RegExpOperandRule::Modifier => a <= 2 && b == 0,
+            RegExpOperandRule::Range => range(),
+            RegExpOperandRule::NonemptyRange => b >> 1 != 0 && range(),
+            RegExpOperandRule::NamedReference => {
                 a < program.named_groups.len() as u64 && b & !REGEXP_BACKREFERENCE_IGNORE_CASE == 0
             }
-            REGEXP_OPCODE_NUMBERED_BACKREFERENCE => {
+            RegExpOperandRule::NumberedReference => {
                 capture(a)
                     && b & !(REGEXP_BACKREFERENCE_NONEMPTY | REGEXP_BACKREFERENCE_IGNORE_CASE) == 0
             }
-            REGEXP_OPCODE_LOOKAROUND_START => a <= 1 && b == 0,
-            REGEXP_OPCODE_LOOKAROUND_END => {
+            RegExpOperandRule::LookaroundStart => a <= 1 && b == 0,
+            RegExpOperandRule::LookaroundEnd => {
                 target(a)
                     && target(b & 0x3fff_ffff_ffff_ffff)
                     && program.instructions[a as usize].opcode == REGEXP_OPCODE_LOOKAROUND_FAILURE
             }
-            REGEXP_OPCODE_LOOKAROUND_FAILURE => target(a) && b <= 3,
-            REGEXP_OPCODE_PROGRESS_SPLIT => target(a) && target(b >> 1),
-            REGEXP_OPCODE_PROGRESS_CHECK => {
+            RegExpOperandRule::LookaroundFailure => target(a) && b <= 3,
+            RegExpOperandRule::ProgressSplit => target(a) && target(b >> 1),
+            RegExpOperandRule::ProgressCheck => {
                 target(a)
                     && target(b)
                     && program.instructions[a as usize].opcode == REGEXP_OPCODE_PROGRESS_SPLIT
             }
-            _ => false,
         };
         if !valid {
             return Err(Failure::InvalidInstruction { pc });
         }
-        if pc + 1 == count
-            && !matches!(
-                opcode,
-                REGEXP_OPCODE_ACCEPT
-                    | REGEXP_OPCODE_JUMP
-                    | REGEXP_OPCODE_SPLIT
-                    | REGEXP_OPCODE_PROGRESS_SPLIT
-                    | REGEXP_OPCODE_PROGRESS_CHECK
-                    | REGEXP_OPCODE_LOOKAROUND_END
-                    | REGEXP_OPCODE_LOOKAROUND_FAILURE
-            )
-        {
+        if pc + 1 == count && opcode.control_flow() == RegExpControlFlow::Next {
             return Err(Failure::InvalidInstruction { pc });
         }
     }
@@ -426,66 +410,35 @@ fn validate_program(program: &RegExpProgram) -> Result<(), RegExpProgramValidati
     Ok(())
 }
 
-/// Counts `Split`s that can execute again through a control-flow cycle.
-///
-/// RegExp programs are capped at 4096 instructions, so a small, precise DFS
-/// per split is clearer than maintaining a separate SCC representation here.
+/// Counts every choice instruction with a path back to itself, including
+/// progress-checked repetition and lookaround bodies.
 fn repeatable_split_count(program: &RegExpProgram) -> u32 {
     let instructions = &program.instructions;
-    let successors = |pc: usize| -> Vec<usize> {
-        let Some(instruction) = instructions.get(pc) else {
-            return Vec::new();
-        };
-        let valid = |target: u64| {
-            usize::try_from(target)
-                .ok()
-                .filter(|target| *target < instructions.len())
-        };
-        match instruction.opcode {
-            REGEXP_OPCODE_SPLIT => [valid(instruction.operand0), valid(instruction.operand1)]
-                .into_iter()
-                .flatten()
-                .collect(),
-            REGEXP_OPCODE_PROGRESS_SPLIT => [
-                valid(instruction.operand0),
-                valid(instruction.operand1 >> 1),
-            ]
-            .into_iter()
-            .flatten()
-            .collect(),
-            REGEXP_OPCODE_PROGRESS_CHECK => valid(instruction.operand1).into_iter().collect(),
-            REGEXP_OPCODE_JUMP => valid(instruction.operand0).into_iter().collect(),
-            REGEXP_OPCODE_LOOKAROUND_END => valid(instruction.operand1 & 0x3fff_ffff_ffff_ffff)
-                .into_iter()
-                .collect(),
-            REGEXP_OPCODE_LOOKAROUND_FAILURE => valid(instruction.operand0).into_iter().collect(),
-            REGEXP_OPCODE_ACCEPT => Vec::new(),
-            _ if pc + 1 < instructions.len() => vec![pc + 1],
-            _ => Vec::new(),
-        }
+    let successors = |pc: usize| {
+        RegExpOpcode::from_word(instructions[pc].opcode)
+            .expect("validated opcode")
+            .successors(instructions[pc], pc, instructions.len())
     };
-
     instructions
         .iter()
         .enumerate()
         .filter(|(_, instruction)| {
-            matches!(
-                instruction.opcode,
-                REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT
-            )
+            RegExpOpcode::from_word(instruction.opcode).is_some_and(RegExpOpcode::is_choice)
         })
-        .filter(|(split_pc, _)| {
+        .filter(|(root, _)| {
             let mut visited = vec![false; instructions.len()];
-            let mut stack = successors(*split_pc);
+            let mut stack = vec![*root];
+            visited[*root] = true;
             while let Some(pc) = stack.pop() {
-                if pc == *split_pc {
-                    return true;
+                for next in successors(pc).into_iter().flatten() {
+                    if next == *root {
+                        return true;
+                    }
+                    if !visited[next] {
+                        visited[next] = true;
+                        stack.push(next);
+                    }
                 }
-                if visited[pc] {
-                    continue;
-                }
-                visited[pc] = true;
-                stack.extend(successors(pc));
             }
             false
         })
@@ -493,78 +446,37 @@ fn repeatable_split_count(program: &RegExpProgram) -> u32 {
 }
 
 fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
-    fn is_consuming(instruction: &RegExpInstruction) -> bool {
-        matches!(
-            instruction.opcode,
-            REGEXP_OPCODE_LITERAL_ASCII
-                | REGEXP_OPCODE_LITERAL_CODE_POINT
-                | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
-                | REGEXP_OPCODE_NOT_WHITESPACE
-                | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
-                | REGEXP_OPCODE_WHITESPACE
-                | REGEXP_OPCODE_DOT
-                | REGEXP_OPCODE_UNICODE_PROPERTY
-        ) || (instruction.opcode == REGEXP_OPCODE_NUMBERED_BACKREFERENCE
-            && instruction.operand1 & REGEXP_BACKREFERENCE_NONEMPTY != 0)
-    }
-
-    fn visit(pc: usize, instructions: &[RegExpInstruction], state: &mut [u8]) -> bool {
-        if state[pc] == 1 {
-            return true;
-        }
-        if state[pc] == 2
-            || is_consuming(&instructions[pc])
-            || instructions[pc].opcode == REGEXP_OPCODE_PROGRESS_CHECK
-        {
-            return false;
-        }
-        state[pc] = 1;
-        let instruction = instructions[pc];
-        let valid_target = |target: u64| {
-            usize::try_from(target)
-                .ok()
-                .filter(|target| *target < instructions.len())
-        };
-        let successors = match instruction.opcode {
-            REGEXP_OPCODE_SPLIT => [
-                valid_target(instruction.operand0),
-                valid_target(instruction.operand1),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>(),
-            REGEXP_OPCODE_PROGRESS_SPLIT => [
-                valid_target(instruction.operand0),
-                valid_target(instruction.operand1 >> 1),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>(),
-            REGEXP_OPCODE_JUMP => valid_target(instruction.operand0).into_iter().collect(),
-            REGEXP_OPCODE_LOOKAROUND_END => {
-                valid_target(instruction.operand1 & 0x3fff_ffff_ffff_ffff)
-                    .into_iter()
-                    .collect()
+    let instructions = &program.instructions;
+    let mut colors = vec![0_u8; instructions.len()];
+    for root in 0..instructions.len() {
+        let mut stack = vec![(root, 0)];
+        while let Some((pc, edge)) = stack.last_mut() {
+            let instruction = instructions[*pc];
+            let opcode = RegExpOpcode::from_word(instruction.opcode).expect("validated opcode");
+            if colors[*pc] == 2 || opcode.stops_non_consuming_walk(instruction.operand1) {
+                colors[*pc] = 2;
+                stack.pop();
+                continue;
             }
-            REGEXP_OPCODE_LOOKAROUND_FAILURE => {
-                valid_target(instruction.operand0).into_iter().collect()
+            colors[*pc] = 1;
+            if *edge == 2 {
+                colors[*pc] = 2;
+                stack.pop();
+                continue;
             }
-            REGEXP_OPCODE_ACCEPT => Vec::new(),
-            _ if pc + 1 < instructions.len() => vec![pc + 1],
-            _ => Vec::new(),
-        };
-        if successors
-            .into_iter()
-            .any(|successor| visit(successor, instructions, state))
-        {
-            return true;
+            let next = opcode.successors(instruction, *pc, instructions.len())[*edge];
+            *edge += 1;
+            if let Some(next) = next {
+                match colors[next] {
+                    1 => return true,
+                    0 => stack.push((next, 0)),
+                    2 => {}
+                    _ => unreachable!(),
+                }
+            }
         }
-        state[pc] = 2;
-        false
     }
-
-    let mut state = vec![0; program.instructions.len()];
-    (0..program.instructions.len()).any(|pc| visit(pc, &program.instructions, &mut state))
+    false
 }
 
 #[cfg(test)]
@@ -577,6 +489,48 @@ mod tests {
             named_groups: Vec::new(),
             instructions,
             ranges: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn iterative_graph_validation_handles_the_full_instruction_capacity() {
+        let mut instructions = vec![RegExpInstruction::assert_start(); REGEXP_MAX_INSTRUCTIONS - 1];
+        instructions.push(RegExpInstruction::accept());
+        let mut full = program(instructions);
+        let descriptor =
+            ValidatedRegExpProgram::from_program(&full).expect("acyclic maximum-width program");
+        assert_eq!(
+            descriptor.word(RegExpProgramWord::InstructionCount),
+            REGEXP_MAX_INSTRUCTIONS as u64
+        );
+        full.instructions[REGEXP_MAX_INSTRUCTIONS - 1] = RegExpInstruction::jump(0);
+        assert_eq!(
+            ValidatedRegExpProgram::from_program(&full),
+            Err(RegExpProgramValidationError::NonConsumingCycle)
+        );
+    }
+
+    #[test]
+    fn choice_accounting_preserves_progress_and_lookaround_edges() {
+        for (source, choices, repeatable) in [
+            ("(?:a?)*", 2, 2),
+            ("(?:a?){0,2}", 4, 0),
+            ("(?=a*)b", 2, 1),
+            (r"(?:\b)*", 1, 1),
+        ] {
+            let compiled = RegExpProgram::compile(source, "").expect("graph fixture compiles");
+            let descriptor =
+                ValidatedRegExpProgram::from_program(&compiled).expect("valid progress graph");
+            assert_eq!(
+                descriptor.word(RegExpProgramWord::SplitCount),
+                choices,
+                "{source}"
+            );
+            assert_eq!(
+                descriptor.word(RegExpProgramWord::RepeatableSplitCount),
+                repeatable,
+                "{source}"
+            );
         }
     }
 

@@ -340,6 +340,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             referrer: _referrer,
         } => false,
         ExprIr::ImportMeta { module: _module } => false,
+        ExprIr::ModuleEntryEvaluation(_) => false,
         ExprIr::SynchronousModuleGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::ModuleEvaluate(_)

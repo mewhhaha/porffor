@@ -11,6 +11,7 @@ pub(crate) enum HeapRootSource {
     ActiveFrameLocals,
     LexicalEnvironments,
     ModuleRecords,
+    ModuleEntryEvaluation,
     CompletionRecords,
     FunctionTable,
     HostBorrowedValues,
@@ -51,6 +52,11 @@ impl HeapRootSource {
             Self::ModuleRecords => HeapRootMetadata {
                 name: "module-records",
                 owner: "module-record-globals",
+                kind: HeapRootKind::PersistentNonTagged,
+            },
+            Self::ModuleEntryEvaluation => HeapRootMetadata {
+                name: "module-entry-evaluation",
+                owner: "module-evaluation-promise-global",
                 kind: HeapRootKind::PersistentNonTagged,
             },
             Self::CompletionRecords => HeapRootMetadata {
@@ -94,6 +100,7 @@ pub(crate) const HEAP_ROOT_SOURCES: &[HeapRootSource] = &[
     HeapRootSource::ActiveFrameLocals,
     HeapRootSource::LexicalEnvironments,
     HeapRootSource::ModuleRecords,
+    HeapRootSource::ModuleEntryEvaluation,
     HeapRootSource::CompletionRecords,
     HeapRootSource::FunctionTable,
     HeapRootSource::HostBorrowedValues,

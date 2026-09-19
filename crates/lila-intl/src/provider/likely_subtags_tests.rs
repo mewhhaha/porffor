@@ -8,9 +8,9 @@ where
         Response = LocaleTransformResult,
         Error = LocaleTransformError,
     >,
-    EmbeddedLocaleProvider: IntlOperationProvider<O>,
+    EmbeddedIntlProvider: IntlOperationProvider<O>,
 {
-    let provider = EmbeddedLocaleProvider::new().unwrap();
+    let provider = EmbeddedIntlProvider::new().unwrap();
     let kernel = IntlKernel::new(provider.identity().clone(), provider).unwrap();
     kernel
         .operation::<O>()

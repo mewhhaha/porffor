@@ -76,35 +76,6 @@ impl TimeZoneId {
     }
 }
 
-/// A primary time-zone identifier selected from the pinned shared catalogue.
-///
-/// `from_data` validates the binary-protocol spelling. The generated catalogue
-/// is responsible for resolving links and case-insensitive lookups before it
-/// constructs this type. UTC aliases must be normalized to `UTC`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CanonicalTimeZoneId(Box<str>);
-
-impl CanonicalTimeZoneId {
-    pub fn from_data(raw: impl Into<Box<str>>) -> Result<Self, InvalidCanonicalTimeZoneId> {
-        let raw = raw.into();
-        let utc_alias = raw.eq_ignore_ascii_case("UTC")
-            || raw.eq_ignore_ascii_case("GMT")
-            || raw.eq_ignore_ascii_case("Etc/GMT")
-            || raw.eq_ignore_ascii_case("Etc/UTC");
-        let canonical_utc = !utc_alias || &*raw == "UTC";
-        if valid_time_zone_syntax(&raw) && canonical_utc {
-            Ok(Self(raw))
-        } else {
-            Err(InvalidCanonicalTimeZoneId { value: raw })
-        }
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 fn valid_locale_syntax(raw: &str) -> bool {
     let bytes = raw.as_bytes();
     if bytes.is_empty() || !raw.is_ascii() {
@@ -256,10 +227,6 @@ invalid_identifier_error!(
     "invalid canonical locale identifier"
 );
 invalid_identifier_error!(InvalidTimeZoneId, "invalid time-zone identifier");
-invalid_identifier_error!(
-    InvalidCanonicalTimeZoneId,
-    "invalid canonical time-zone identifier"
-);
 
 #[cfg(test)]
 mod tests {
@@ -284,12 +251,10 @@ mod tests {
     }
 
     #[test]
-    fn time_zone_inputs_accept_links_but_outputs_normalize_utc() {
-        assert!(TimeZoneId::parse("europe/stockholm").is_ok());
-        assert!(CanonicalTimeZoneId::from_data("Europe/Stockholm").is_ok());
-        assert!(TimeZoneId::parse("Etc/UTC").is_ok());
-        assert!(CanonicalTimeZoneId::from_data("Etc/UTC").is_err());
-        assert!(CanonicalTimeZoneId::from_data("UTC").is_ok());
+    fn time_zone_inputs_preserve_links_and_case_for_catalogue_lookup() {
+        for value in ["europe/stockholm", "Etc/UTC", "UTC"] {
+            assert_eq!(TimeZoneId::parse(value).unwrap().as_str(), value);
+        }
     }
 
     #[test]

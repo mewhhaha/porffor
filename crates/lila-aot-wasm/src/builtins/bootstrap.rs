@@ -3209,6 +3209,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::TemporalInstantPrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3233,6 +3238,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::TemporalDurationPrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),

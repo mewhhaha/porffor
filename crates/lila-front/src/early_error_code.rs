@@ -153,7 +153,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 73] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 74] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -460,6 +460,8 @@ early_error_codes! {
     // evaluates, reported as a `SyntaxError`, and in an AOT compiler produced at
     // compile time. test262 spells the phase `resolution` and the type
     // `SyntaxError`.
+    /// Module loading retained an ordinary parser SyntaxError.
+    ModuleSyntax => "E_MODULE_SYNTAX";
     /// A requested specifier the host could not resolve.
     ModuleUnresolved => "E_MODULE_UNRESOLVED";
     /// `ResolveExport` returned **null**.

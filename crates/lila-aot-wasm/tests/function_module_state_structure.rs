@@ -76,13 +76,13 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
     assert_eq!(
         normalized_code(declaration),
         concat!(
-            "enumFunctionModuleState<'a>{Main(&'aFinalizedModuleGlobals),",
+            "enumFunctionModuleState<'a>{Main(&'aFinalizedModuleGlobals,PromiseRejectionPolicy),",
             "PreparedScript(&'aPreparedScriptUnit),Internal,}",
             "implFunctionModuleState<'_>{constfnparameter_count(&self)->usize{matchself{",
-            "Self::Main(_)=>0,Self::Internal=>JS_FUNCTION_PARAM_COUNT,",
+            "Self::Main(_,_)=>0,Self::Internal=>JS_FUNCTION_PARAM_COUNT,",
             "Self::PreparedScript(_)=>PREPARED_SCRIPT_PARAM_COUNT,}}",
             "constfnreturn_abi(&self)->ReturnAbi{matchself{",
-            "Self::Main(_)=>ReturnAbi::MainExport,",
+            "Self::Main(_,_)=>ReturnAbi::MainExport,",
             "Self::Internal|Self::PreparedScript(_)=>ReturnAbi::MultiValue,}}}"
         )
     );
@@ -98,16 +98,16 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "FunctionModuleState"),
-        36
+        39
     );
-    assert_eq!(SOURCE.matches("FunctionModuleState::Main").count(), 8);
+    assert_eq!(SOURCE.matches("FunctionModuleState::Main").count(), 9);
     assert_eq!(
         SOURCE
             .matches("FunctionModuleState::PreparedScript")
             .count(),
-        13
+        14
     );
-    assert_eq!(SOURCE.matches("FunctionModuleState::Internal").count(), 11);
+    assert_eq!(SOURCE.matches("FunctionModuleState::Internal").count(), 12);
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn exactly_six_constructors_choose_their_named_module_states() {
         (
             "    fn new_main(",
             "    fn new_prepared_script(",
-            "FunctionModuleState::Main(module_globals)",
+            "FunctionModuleState::Main(module_globals, promise_rejection_policy)",
         ),
         (
             "    fn new_prepared_script(",
@@ -204,7 +204,7 @@ fn exactly_six_constructors_choose_their_named_module_states() {
 fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
     assert_eq!(SOURCE.matches("match &module_state {").count(), 1);
     assert_eq!(SOURCE.matches("match &self.module_state {").count(), 2);
-    assert!(!SOURCE.contains("let FunctionModuleState::Main(module_globals) = self.module_state"));
+    assert!(!SOURCE.contains("let FunctionModuleState::Main("));
 
     let shared_constructor = bounded(
         SOURCE,
@@ -219,7 +219,7 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
     assert_eq!(
         normalized_code(construction_policy),
         concat!(
-            "lethoisted_vars=match&module_state{FunctionModuleState::Main(_)=>",
+            "lethoisted_vars=match&module_state{FunctionModuleState::Main(_,_)=>",
             "script_global_bindings.expect(\"main builder must carry the global binding plan\")",
             ".main_frame_write_bindings().map(|binding|binding.name.clone()).collect(),",
             "FunctionModuleState::PreparedScript(unit)ifunit.has_global_variable_environment()=>{",
@@ -239,7 +239,7 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
         normalized_code(initialize),
         concat!(
             "letmodule_globals=match&self.module_state{",
-            "FunctionModuleState::Main(module_globals)=>module_globals,",
+            "FunctionModuleState::Main(module_globals,_)=>module_globals,",
             "FunctionModuleState::Internal|FunctionModuleState::PreparedScript(_)=>return,};",
             "module_globals.emit_initialize_anchor_root(function);}"
         )
@@ -254,7 +254,7 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
         normalized_code(verify),
         concat!(
             "&self,function:&mutFunction){letmodule_globals=match&self.module_state{",
-            "FunctionModuleState::Main(module_globals)=>module_globals,",
+            "FunctionModuleState::Main(module_globals,_)=>module_globals,",
             "FunctionModuleState::Internal|FunctionModuleState::PreparedScript(_)=>return,};",
             "module_globals.emit_verify_and_clear_anchor_root(function);}"
         )
@@ -263,7 +263,7 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
 
 #[test]
 fn prepared_script_context_projections_keep_their_closed_role_policy() {
-    assert_eq!(SOURCE.matches("match self.module_state {").count(), 4);
+    assert_eq!(SOURCE.matches("match self.module_state {").count(), 5);
     let projections = bounded(
         SOURCE,
         "    pub(crate) fn has_global_script_bindings(&self) -> bool {",
@@ -272,14 +272,14 @@ fn prepared_script_context_projections_keep_their_closed_role_policy() {
     assert_eq!(
         normalized_code(projections),
         concat!(
-            "matchself.module_state{FunctionModuleState::Main(_)=>true,",
+            "matchself.module_state{FunctionModuleState::Main(_,_)=>true,",
             "FunctionModuleState::PreparedScript(unit)=>unit.has_global_variable_environment(),",
             "FunctionModuleState::Internal=>false,}}",
             "pub(crate)fndirect_eval_derived_constructor_owner(&self)->Option<&FunctionId>{",
             "matchself.module_state{FunctionModuleState::PreparedScript(unit)=>match&unit.kind{",
             "PreparedScriptKind::DirectEval(context)=>context.derived_constructor_owner(),",
             "PreparedScriptKind::RealmScript|PreparedScriptKind::IndirectEval=>None,},",
-            "FunctionModuleState::Main(_)|FunctionModuleState::Internal=>{",
+            "FunctionModuleState::Main(_,_)|FunctionModuleState::Internal=>{",
             "self.captured_direct_eval_execution_context_local?;",
             "letfunction_id=self.function_id.as_ref().expect(\"capturing arrow has an id\");",
             "letunit=self.functions.prepared_scripts().iter().find_map(|entry|match&entry.outcome{",
@@ -293,13 +293,13 @@ fn prepared_script_context_projections_keep_their_closed_role_policy() {
             "pub(crate)fndirect_eval_execution_context_local(&self)->Option<u32>{",
             "matchself.module_state{FunctionModuleState::PreparedScript(unit)",
             "ifmatches!(&unit.kind,PreparedScriptKind::DirectEval(_))=>{Some(9)}",
-            "FunctionModuleState::Main(_)|FunctionModuleState::Internal|",
+            "FunctionModuleState::Main(_,_)|FunctionModuleState::Internal|",
             "FunctionModuleState::PreparedScript(_)=>{",
             "self.captured_direct_eval_execution_context_local}}}",
             "pub(crate)fndirect_eval_private_environment_param_local(&self)->Option<u32>{",
             "matchself.module_state{FunctionModuleState::PreparedScript(unit)",
             "ifmatches!(&unit.kind,PreparedScriptKind::DirectEval(_))=>{Some(8)}",
-            "FunctionModuleState::Main(_)|FunctionModuleState::Internal|",
+            "FunctionModuleState::Main(_,_)|FunctionModuleState::Internal|",
             "FunctionModuleState::PreparedScript(_)=>None,}}"
         )
     );
@@ -331,6 +331,24 @@ fn prepared_script_role_controls_instantiation_and_script_completion() {
             "&&!self.current_function_meta().is_some_and(|meta|",
             "meta.protocol.class_kind()==ClassFunctionKind::Constructor){",
             "self.emit_statement_result(&mutfunction,ValueKind::Undefined);}"
+        )
+    );
+}
+
+#[test]
+fn only_the_main_export_selects_the_host_rejection_policy() {
+    let checkpoint = bounded(
+        SOURCE,
+        "            let promise_rejection_policy = match self.module_state {",
+        "            self.emit_capture_final_throw_constructor_name(&mut function);",
+    );
+    assert_eq!(
+        normalized_code(checkpoint),
+        concat!(
+            "FunctionModuleState::Main(_,policy)=>policy,",
+            "FunctionModuleState::PreparedScript(_)|FunctionModuleState::Internal=>{",
+            "unreachable!(\"only the main export reports unhandled rejections\")}};",
+            "self.emit_report_unhandled_rejection(promise_rejection_policy,&mutfunction)?;"
         )
     );
 }

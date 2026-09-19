@@ -1,6 +1,6 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const FOR_LOOP_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
@@ -156,11 +156,7 @@ fn lowering_holds_an_unfinished_owner_until_test_update_and_body_are_lowered() {
         ],
     );
 
-    let for_loop = bounded(
-        LOWERING_SOURCE,
-        "fn lower_for_loop(&mut self, for_loop: &ForLoop)",
-        "fn plain_async_entry_state(&self)",
-    );
+    let for_loop = FOR_LOOP_SOURCE;
     positions_in_order(
         for_loop,
         &[
@@ -201,11 +197,15 @@ fn lowering_holds_an_unfinished_owner_until_test_update_and_body_are_lowered() {
 
 #[test]
 fn backend_keeps_continue_inside_and_routes_every_terminal_edge_through_disposal() {
-    assert!(CONTROL_FLOW_SOURCE.contains(
-        "Self::labelled_async_disposable_for_finalizer(statement)\n                    .map(AsyncDisposableFinalizerPlanIr::entry_state)"
+    let code: String = CONTROL_FLOW_SOURCE
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    assert!(code.contains(
+        "Self::labelled_async_disposable_for_finalizer(statement).map(AsyncDisposableFinalizerPlanIr::entry_state)"
     ));
-    assert!(CONTROL_FLOW_SOURCE.contains(
-        "Self::labelled_async_disposable_for_finalizer(statement)\n                    .map(AsyncDisposableFinalizerPlanIr::exit_state)"
+    assert!(code.contains(
+        "Self::labelled_async_disposable_for_finalizer(statement).map(AsyncDisposableFinalizerPlanIr::exit_state)"
     ));
     let labelled = bounded(
         CONTROL_FLOW_SOURCE,
@@ -317,13 +317,21 @@ fn backend_reconstructs_the_loop_environment_and_leaves_it_before_dispatch() {
             "emit_set_async_resume_state(activation_local, finalizer.resume_state()",
             "emit_activation_async_dispose_await_reactions",
             "finish_async_dispose_pending_completion(pending, function)",
-            "emit_set_async_resume_state(activation_local, finalizer.exit_state()",
-            "ActivationAsyncDisposeCompletionContinuation::ClassicFor",
+            "match continuation",
+            "ActivationAsyncDisposeCompletionContinuation::Scope =>",
+            "emit_set_async_resume_state(",
+            "finalizer.exit_state()",
+            "emit_dispatch_activation_async_dispose_completion(owner, function)",
+            "ActivationAsyncDisposeCompletionContinuation::ClassicFor {",
+            "emit_set_async_resume_state(",
+            "finalizer.exit_state()",
             "ClassicForAsyncDisposeLexicalEnvironment::Absent => {}",
             "ClassicForAsyncDisposeLexicalEnvironment::Active =>",
             "self.emit_leave_lexical_environment(function)",
             "emit_dispatch_activation_async_dispose_completion(owner, function)",
             "self.emit_branch_to_target(break_target, function)",
+            "ActivationAsyncDisposeCompletionContinuation::ForOf(continuation) =>",
+            "finish_async_disposable_for_of_iteration(",
         ],
     );
     assert_eq!(

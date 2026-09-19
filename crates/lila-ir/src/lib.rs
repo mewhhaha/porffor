@@ -144,8 +144,9 @@ pub use modules::{
     StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
 };
 pub use modules::{
-    DeferredModuleEvaluationIr, ModuleCellIr, ModuleImportBindingIr, ModuleReadinessNodeIr,
-    SynchronousModuleActivationIr, SynchronousModuleEvaluationIr, SynchronousModuleGraphIr,
+    DeferredModuleEvaluationIr, ModuleCellIr, ModuleEntryEvaluationIr, ModuleEntryEvaluationKindIr,
+    ModuleImportBindingIr, ModuleReadinessNodeIr, SynchronousModuleActivationIr,
+    SynchronousModuleEvaluationIr, SynchronousModuleGraphIr,
 };
 pub use operations::{
     completion_abi_slot, completion_abi_slots, find_spec_operation, spec_operation_catalog,
@@ -167,22 +168,25 @@ pub use prepared_script::{
 };
 pub(crate) use prepared_script::{DynamicScriptSource, ScriptInstantiation};
 pub use regexp::{
-    CaseFolding as RegExpCaseFolding, RegExpCompileError, RegExpCompileErrorKind, RegExpFlags,
-    RegExpInstruction, RegExpModifierOverride, RegExpNamedGroup, RegExpProgram,
-    RegExpProgramValidationError, RegExpProgramWord, RegExpUnicodeMode, ValidatedRegExpProgram,
-    REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_INSTRUCTION_WIDTH,
-    REGEXP_MAX_INSTRUCTIONS, REGEXP_MAX_RANGE_ENTRIES, REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION,
-    REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END, REGEXP_OPCODE_ASSERT_START,
-    REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START, REGEXP_OPCODE_CLEAR_CAPTURE_RANGE,
-    REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP, REGEXP_OPCODE_LITERAL_ASCII,
-    REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKAROUND_END,
+    regexp_character_escape, regexp_hex_digit_value, CaseFolding as RegExpCaseFolding,
+    RegExpCompileError, RegExpCompileErrorKind, RegExpControlFlow, RegExpFlags,
+    RegExpInputProgress, RegExpInstruction, RegExpModifierOverride, RegExpNamedGroup, RegExpOpcode,
+    RegExpOperandRule, RegExpProgram, RegExpProgramValidationError, RegExpProgramWord,
+    RegExpScopedModifier, RegExpUnicodeMode, ValidatedRegExpProgram,
+    REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_CHARACTER_ESCAPES,
+    REGEXP_DIGIT_RANGES, REGEXP_HEX_DIGIT_RANGES, REGEXP_INSTRUCTION_WIDTH,
+    REGEXP_LEGACY_THREE_DIGIT_OCTAL_LAST, REGEXP_MAX_INSTRUCTIONS, REGEXP_MAX_RANGE_ENTRIES,
+    REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
+    REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START,
+    REGEXP_OPCODE_CLEAR_CAPTURE_RANGE, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
+    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKAROUND_END,
     REGEXP_OPCODE_LOOKAROUND_FAILURE, REGEXP_OPCODE_LOOKAROUND_START,
     REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
     REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
     REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
     REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
     REGEXP_OPCODE_WORD_BOUNDARY, REGEXP_PROGRAM_HEADER_SIZE, REGEXP_PROGRAM_MAGIC_VERSION,
-    REGEXP_RANGE_ENTRY_WIDTH,
+    REGEXP_RANGE_ENTRY_WIDTH, REGEXP_WHITESPACE_RANGES, REGEXP_WORD_RANGES,
 };
 pub use task::{ParseTaskIdError, TaskId};
 
@@ -1622,12 +1626,14 @@ mod tests {
         let owner = script
             .functions
             .iter()
-            .find(|function| !function.is_nested && function.protocol == FunctionProtocolIr::Arrow)
+            .find(|function| function.protocol == FunctionProtocolIr::ModuleActivation)
             .expect("private Module lexical owner");
         let StatementIr::Expression(root_this) = owner
             .body
             .statements
-            .last()
+            .iter()
+            .rev()
+            .find(|statement| !matches!(statement, StatementIr::Empty))
             .expect("module root this should remain an expression")
         else {
             panic!("expected module root this expression");

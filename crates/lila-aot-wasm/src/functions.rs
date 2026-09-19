@@ -169,6 +169,8 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     FinalizationRegistryPrototype,
     RegExpPrototype,
     DatePrototype,
+    TemporalInstantPrototype,
+    TemporalDurationPrototype,
     IntlLocalePrototype,
     IntlDateTimeFormatPrototype,
     Float64ArrayPrototype,
@@ -397,6 +399,12 @@ impl NonArrayRealmIntrinsicSlot {
             }
             Self::RegExpPrototype => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
             Self::DatePrototype => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
+            Self::TemporalInstantPrototype => {
+                HEAP_REALM_INTRINSICS_TEMPORAL_INSTANT_PROTOTYPE_OFFSET
+            }
+            Self::TemporalDurationPrototype => {
+                HEAP_REALM_INTRINSICS_TEMPORAL_DURATION_PROTOTYPE_OFFSET
+            }
             Self::IntlLocalePrototype => HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET,
             Self::IntlDateTimeFormatPrototype => {
                 HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET
@@ -7851,10 +7859,19 @@ impl<'a> FunctionBuilder<'a> {
             (HEAP_ARRAY_TAG_OFFSET, tag_local),
             (HEAP_ARRAY_SETTER_PAYLOAD_OFFSET, setter_payload_local),
             (HEAP_ARRAY_SETTER_TAG_OFFSET, setter_tag_local),
-            (HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET, descriptor_kind_local),
         ] {
             self.store_i64_local_at_offset(entry_local, offset, local, function);
         }
+        // Zero denotes absence, but a present data property may have no attributes
+        // or ParameterMap entry. Deletion uses the separate descriptor-clear path.
+        function.instruction(&Instruction::LocalGet(entry_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(ARRAY_DESCRIPTOR_OWN_PROPERTY as i64));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Store(Self::memarg64(
+            HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
+        )));
 
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::LocalGet(indexed_extent_local));

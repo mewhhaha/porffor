@@ -123,7 +123,7 @@ fn value_kind_domains_are_owner_private_and_exhaustive() {
     let value_projection = bounded(
         DTF_SOURCE,
         "impl DtfValueKind {",
-        "/// The two halves of a resolved time zone",
+        "struct DtfCanonicalTimeZone {",
     );
     assert!(!branded_projection.contains("_ =>"));
     assert!(!value_projection.contains("_ =>"));

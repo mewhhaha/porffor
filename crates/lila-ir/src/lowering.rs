@@ -4570,14 +4570,8 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         list: &[Variable],
     ) -> Option<SyncDisposableResourcesIr> {
-        if self.root_this_binding == RootThisBinding::Undefined {
-            self.unsupported("using declaration in a module");
-            return None;
-        }
-        if self.current_generator_resume_state.is_some()
-            || self.current_async_resume_state.is_some()
-            || self.current_resumable_plan.is_some()
-        {
+        let owner = self.admit_sync_disposable_scope_owner()?;
+        if owner != SyncDisposableScopeOwnerPlan::Immediate {
             self.unsupported("using declaration in a generator or async function");
             return None;
         }
@@ -6549,10 +6543,7 @@ impl<'a> ScriptLowerer<'a> {
         list: &[Variable],
         scope: &mut LexicalScopeInstantiation,
     ) -> Option<(SyncDisposableScopeExecutionIr, SyncDisposableResourcesIr)> {
-        if self.root_this_binding == RootThisBinding::Undefined {
-            self.unsupported("using declaration in a module");
-            return None;
-        }
+        let owner = self.admit_sync_disposable_scope_owner()?;
         if list.is_empty() {
             self.unsupported("empty using declaration");
             return None;
@@ -6570,7 +6561,6 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         }
 
-        let owner = self.sync_disposable_scope_owner();
         if owner == SyncDisposableScopeOwnerPlan::AsyncGenerator
             && list.iter().filter_map(Variable::init).any(|initializer| {
                 contains(initializer, ContainsSymbol::AwaitExpression)
@@ -6628,21 +6618,6 @@ impl<'a> ScriptLowerer<'a> {
             execution,
             SyncDisposableResourcesIr::new(first, resources.collect()),
         ))
-    }
-
-    /// Selects the only legal lifetime for an ordinary statement-list `using`.
-    ///
-    /// This consumes the analyzed function protocol exhaustively. In
-    /// particular, resumable capabilities can only be minted through the
-    /// suspension-owned allocator below; an async generator cannot fall
-    /// through to the immediate representation.
-    fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
-        self.current_function_id
-            .as_ref()
-            .and_then(|function_id| self.analysis.function_plans.get(function_id))
-            .map_or(SyncDisposableScopeOwnerPlan::Immediate, |function| {
-                function.sync_disposable_scope_owner()
-            })
     }
 
     fn sync_disposable_scope_execution(
@@ -7711,6 +7686,21 @@ impl<'a> ScriptLowerer<'a> {
     /// specific paths that each lower their arguments themselves, and there is
     /// no later choke point they all share.
     fn lower_expression(&mut self, expression: &Expression) -> TypedExpr {
+        if let Some(entry) = self
+            .analysis
+            .module_entry_evaluation
+            .filter(|entry| entry.owns(expression))
+        {
+            let evaluation = match entry.source() {
+                modules::LinkedModuleEntry::SynchronousGraph(_) => self
+                    .lower_synchronous_module_expression(entry.operand())
+                    .expect("trusted entry has a synchronous evaluation operation"),
+                modules::LinkedModuleEntry::RetainedDriver(_) => {
+                    self.lower_expression(entry.operand())
+                }
+            };
+            return entry.lower(evaluation);
+        }
         if let Some(module) = self.lower_synchronous_module_expression(expression) {
             return module;
         }

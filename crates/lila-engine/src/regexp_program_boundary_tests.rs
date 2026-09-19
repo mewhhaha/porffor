@@ -1,6 +1,7 @@
 use super::*;
 use lila_ir::{
     RegExpProgram, RegExpProgramWord, ValidatedRegExpProgram, REGEXP_INSTRUCTION_WIDTH,
+    REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
     REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_PROGRAM_HEADER_SIZE,
 };
 
@@ -122,4 +123,57 @@ omitted.indices.groups.outer === undefined && omitted.indices.groups.inner === u
         .unwrap();
     assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+}
+
+#[test]
+fn malformed_backreference_operands_are_rejected_even_for_empty_captures() {
+    configure_compilation_jobs(1).unwrap();
+    let engine = Engine::new(RealmBuilder::new().build());
+    for (pattern, operands) in [
+        (r"()\1", &[4, 1_u64 << 63][..]),
+        (r"(?<a>)\k<a>", &[1, 3, 4][..]),
+    ] {
+        let source = format!("let expression = /{pattern}/i; expression.lastIndex = 3; let rejected = false; try {{ expression.test(''); }} catch (error) {{ rejected = error.message === 'RegExp compiled program matcher failed'; }} rejected && expression.lastIndex === 3;");
+        let unit = engine
+            .compile_script(&source, CompileOptions::default())
+            .unwrap();
+        let artifact = engine.emit_wasm(&unit).unwrap();
+        let program = RegExpProgram::compile(pattern, "i").unwrap();
+        let descriptor = ValidatedRegExpProgram::from_program(&program).unwrap();
+        let positions = artifact
+            .bytes
+            .windows(descriptor.bytes().len())
+            .enumerate()
+            .filter_map(|(offset, bytes)| (bytes == descriptor.bytes()).then_some(offset))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            positions.len(),
+            1,
+            "one deduplicated descriptor must be embedded"
+        );
+        let pc = program
+            .instructions
+            .iter()
+            .position(|instruction| {
+                matches!(
+                    instruction.opcode,
+                    REGEXP_OPCODE_NAMED_BACKREFERENCE | REGEXP_OPCODE_NUMBERED_BACKREFERENCE
+                )
+            })
+            .unwrap();
+        let offset = positions[0] + REGEXP_PROGRAM_HEADER_SIZE + pc * REGEXP_INSTRUCTION_WIDTH + 16;
+        for operand in operands {
+            // Corrupt the encoded allocation after the producer's validation;
+            // mutating compiler IR would only test its construction boundary.
+            let mut bytes = artifact.bytes.clone();
+            bytes[offset..offset + 8].copy_from_slice(&operand.to_le_bytes());
+            let outcome = run_bytes(&engine, &bytes);
+            assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+            assert!(
+                outcome.note.contains("boolean(true)"),
+                "/{pattern}/ operand {operand}: {}",
+                outcome.note
+            );
+        }
+    }
 }

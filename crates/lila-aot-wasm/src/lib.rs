@@ -120,11 +120,14 @@ mod heap_weak_set_entry_layout;
 mod heap_weak_set_record_layout;
 mod intrinsics;
 mod module;
+mod module_entry_completion;
+pub use module_entry_completion::{WasmModuleEvaluationStatus, MODULE_EVALUATION_STATUS_EXPORT};
 mod modules;
 mod objects;
 mod operations;
 mod planning;
 mod prepared_script;
+mod promise_rejection_policy;
 mod runtime_abi;
 mod runtime_helpers;
 use abi::*;
@@ -134,11 +137,13 @@ use builtins::*;
 use code_sink::{Function, LabelDepth};
 use data::*;
 pub use emit::emit;
+pub use emit::emit_with_promise_rejection_policy;
 pub(crate) use emit::{
     AccessorThrowRouting, BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder,
     IteratorCloseOnThrowLocals, LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission,
     PropagateCallThrow, ReturnAbi,
 };
+pub use promise_rejection_policy::PromiseRejectionPolicy;
 // `FunctionBodySize` and `FunctionLocalCount` are part of the public face
 // because `EmittedFunctionSummary` carries them: a `pub` struct whose fields
 // name crate-private types is a `private_interfaces` warning, and flattening
@@ -3165,6 +3170,94 @@ mod tests {
     }
 
     #[test]
+    fn dense_literals_avoid_sparse_bookkeeping_and_sparse_writes_share_one_body() {
+        fn literal_artifact(count: usize) -> WasmArtifact {
+            let elements = (0..count)
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            emit_script(&format!(
+                "function make() {{ return [{elements}]; }} make();"
+            ))
+            .expect("ordinary array literal should emit")
+        }
+
+        fn largest_make_body(artifact: &WasmArtifact) -> u32 {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::make#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("array producer must be emitted")
+        }
+
+        let small = literal_artifact(128);
+        let large = literal_artifact(1024);
+        expect_valid_module(&large, 1);
+        let added_bytes = largest_make_body(&large) - largest_make_body(&small);
+        // Each element owns evaluation and fixed stores, not another copy of
+        // the presence-list search, allocation and six-field copy loops.
+        assert!(
+            added_bytes <= (1024 - 128) * 256,
+            "896 literal elements added {added_bytes} bytes"
+        );
+        let helpers = large
+            .function_sizes
+            .iter()
+            .filter(|body| body.name == "helper::array_append_present_index")
+            .collect::<Vec<_>>();
+        assert_eq!(helpers.len(), 1, "sparse bookkeeping has one owner");
+        let helper_index = helpers[0].wasm_index;
+        let names = function_names(&large);
+        let mut function_index = imported_function_count(&large);
+        let mut producer_count = 0;
+        let mut sparse_write_calls = 0;
+        for payload in Parser::new(0).parse_all(&large.bytes) {
+            let Payload::CodeSectionEntry(body) = payload.expect("module should parse") else {
+                continue;
+            };
+            let mut calls = 0;
+            for operator in body.get_operators_reader().expect("operators should parse") {
+                if matches!(
+                    operator.expect("operator should parse"),
+                    Operator::Call { function_index: callee } if callee == helper_index
+                ) {
+                    calls += 1;
+                }
+            }
+            if function_index == helper_index {
+                assert_eq!(
+                    calls, 0,
+                    "the helper cannot call its public seam recursively"
+                );
+            }
+            if names
+                .get(&function_index)
+                .is_some_and(|name| name.starts_with("js::make#"))
+            {
+                assert_eq!(calls, 0, "dense literals own their descriptors directly");
+                producer_count += 1;
+            }
+            if names
+                .get(&function_index)
+                .is_some_and(|name| name == "helper::array_write")
+            {
+                sparse_write_calls += calls;
+            }
+            function_index += 1;
+        }
+        assert!(
+            producer_count > 0,
+            "the dense producer witness is not vacuous"
+        );
+        assert!(
+            sparse_write_calls > 0,
+            "sparse writes retain the shared helper"
+        );
+    }
+
+    #[test]
     fn runtime_helper_count_is_derived_not_asserted() {
         // The point of this test is that the reported figure is *derived from
         // the registry*, not hand-written: the literal `27` it replaces had
@@ -5239,7 +5332,7 @@ pick(true);"#,
             "{}",
             artifact.debug_dump
         );
-        let expected_identity = lila_intl::embedded_locale_data_identity()
+        let expected_identity = lila_intl::embedded_intl_data_identity()
             .expect("embedded Intl identity should be valid")
             .artifact_identity();
         let identity_sections = Parser::new(0)

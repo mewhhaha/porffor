@@ -143,6 +143,36 @@ const _: () = assert!(
     "RegExp matcher statuses must have unique ABI words"
 );
 
+/// The pure Pattern compiler's private second result slot. These are not
+/// JavaScript completion tags. Unsupported preserves the explicit old fallback;
+/// every other non-success route throws before publishing receiver state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegExpCompilerStatus {
+    Compiled,
+    SyntaxError,
+    Unsupported,
+    ResourceExhausted,
+    CorruptProgram,
+}
+impl RegExpCompilerStatus {
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Compiled,
+        Self::SyntaxError,
+        Self::Unsupported,
+        Self::ResourceExhausted,
+        Self::CorruptProgram,
+    ];
+    pub(crate) const fn abi_word(self) -> i64 {
+        match self {
+            Self::Compiled => 0,
+            Self::SyntaxError => 1,
+            Self::Unsupported => 2,
+            Self::ResourceExhausted => 3,
+            Self::CorruptProgram => 4,
+        }
+    }
+}
+
 /// One fact a module can carry about itself that some *conditional* runtime
 /// helper's emission depends on.
 ///
@@ -339,16 +369,22 @@ pub(crate) enum RuntimeHelperId {
     /// trusted caller Realm environment or zero in 6. Slots 4/5 are unused.
     /// Returns a Boolean or the standard abrupt completion tuple.
     WithEnvironmentHasBinding = 40,
+    /// Pure runtime Pattern compiler; parameters/results use a private ABI.
+    RegExpCompiler = 41,
+    /// Sparse array index bookkeeping. Params 0..3 are array payload,
+    /// index, value payload and value tag; params 4..6 are unused. This internal
+    /// mutation neither invokes JavaScript nor changes the caller completion.
+    ArrayAppendPresentIndex = 42,
     /// Only helper whose emission is conditional today. Keep conditional
     /// helpers last; `conditional_helpers_are_last` is a compile-time check,
     /// not a comment.
-    JsonStringifyValue = 41,
+    JsonStringifyValue = 43,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 42] = [
+    pub(crate) const ALL: [Self; 44] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -390,6 +426,8 @@ impl RuntimeHelperId {
         Self::ValueToPropertyKey,
         Self::ObjectHasProperty,
         Self::WithEnvironmentHasBinding,
+        Self::RegExpCompiler,
+        Self::ArrayAppendPresentIndex,
         Self::JsonStringifyValue,
     ];
 
@@ -430,9 +468,11 @@ impl RuntimeHelperId {
             Self::FunctionObjectAlloc => FUNCTION_OBJECT_ALLOC_TYPE_INDEX,
             Self::PlainObjectAlloc => PLAIN_OBJECT_ALLOC_TYPE_INDEX,
             Self::ArrayAlloc => ARRAY_ALLOC_TYPE_INDEX,
-            // The object-define-data helper takes seven i64 params and returns
+            // Internal heap mutations take seven i64 params and return
             // nothing, which is the accessor-append signature.
-            Self::ObjectDefineData => OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX,
+            Self::ObjectDefineData | Self::ArrayAppendPresentIndex => {
+                OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX
+            }
             Self::ObjectRead
             | Self::ObjectWrite
             | Self::ProxyCall
@@ -448,6 +488,7 @@ impl RuntimeHelperId {
             | Self::ObjectPreventExtensions
             | Self::ObjectReadProxy
             | Self::RegExpMatcher
+            | Self::RegExpCompiler
             | Self::FunctionCall
             | Self::DynamicPropertyRead
             | Self::OrdinarySetDataOnReceiver
@@ -507,6 +548,8 @@ impl RuntimeHelperId {
             | Self::ObjectPreventExtensions
             | Self::ObjectReadProxy
             | Self::RegExpMatcher
+            | Self::RegExpCompiler
+            | Self::ArrayAppendPresentIndex
             | Self::FunctionCall
             | Self::DynamicPropertyRead
             | Self::OrdinarySetDataOnReceiver
@@ -563,6 +606,8 @@ impl RuntimeHelperId {
             Self::ObjectPreventExtensions => "object_prevent_extensions",
             Self::ObjectReadProxy => "object_read_proxy",
             Self::RegExpMatcher => "regexp_matcher",
+            Self::RegExpCompiler => "regexp_compiler",
+            Self::ArrayAppendPresentIndex => "array_append_present_index",
             Self::FunctionCall => "function_call",
             Self::DynamicPropertyRead => "dynamic_property_read",
             Self::OrdinarySetDataOnReceiver => "ordinary_set_data_on_receiver",
@@ -707,8 +752,8 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 41 unconditional helpers plus JSON.stringify's value helper. The
-        // `debug_dump` line used to hard-code 27 and had drifted by five.
+        // 43 unconditional helpers include ArrayAppendPresentIndex;
+        // JSON.stringify adds the only optional helper.
         let without_json = RuntimeHelperId::ALL
             .iter()
             .filter(|helper| helper.is_emitted(RuntimeHelperEmission::NONE))
@@ -721,8 +766,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 41);
-        assert_eq!(with_json, 42);
+        assert_eq!(without_json, 43);
+        assert_eq!(with_json, 44);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in

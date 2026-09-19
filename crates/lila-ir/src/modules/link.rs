@@ -354,6 +354,11 @@ pub(crate) fn linked_script_source(
         // any wrapper so it is still the merged script's first Directive
         // Prologue item.
         let mut source_text = String::from("\"use strict\";\n");
+        definitions.entry = Some(super::LinkedModuleEntry::RetainedDriver(if asynchronous {
+            ModuleEntryEvaluationKindIr::Promise
+        } else {
+            ModuleEntryEvaluationKindIr::Synchronous
+        }));
         if asynchronous {
             source_text.push_str(&wrap_async_body(&text, &mut definitions));
         } else {
@@ -477,9 +482,9 @@ fn wrap_sync_body(body: &str, names: &mut super::LinkedScriptDefinitions) -> Str
 /// lexical declarations remain separate from an earlier global Script. The
 /// retained driver still shares this one environment between its module units.
 fn wrap_async_body(body: &str, names: &mut super::LinkedScriptDefinitions) -> String {
-    // `void` because the call's value is the module's `[[TopLevelCapability]]`
-    // promise, and an `ExpressionStatement` yielding it would make that promise
-    // the merged script's completion value. A module evaluates to no value.
+    // The trusted entry boundary replaces this `void` with a private operation
+    // that adopts the driver promise and yields undefined. The source spelling
+    // itself grants no authority to capture a Script's ordinary async calls.
     //
     // The newline before `}` closes any unit body that ended in an expression
     // without a semicolon: ASI applies at the `}`, exactly as it already does
@@ -1272,7 +1277,7 @@ mod tests {
         );
         assert!(
             linked.source.source_text.contains(&format!(
-                "resolve({})",
+                "return {};",
                 MergedName::minted(0, UnitCellRole::Namespace).as_str()
             )),
             "got {}",
@@ -1511,10 +1516,9 @@ mod tests {
         );
     }
 
-    /// Ordinary dynamic import retains the existing eager scheduling policy;
-    /// its roots are distinct from the entry's static evaluation traversal.
+    /// Dynamic-only targets instantiate eagerly but evaluate from import jobs.
     #[test]
-    fn the_entry_evaluation_follows_retained_eager_dynamic_import_roots() {
+    fn initial_evaluation_starts_only_the_entry_static_traversal() {
         let sources = sources_of(
             &[
                 ("d", "import(\"a\");\nprint(\"entry\");"),
@@ -1530,6 +1534,9 @@ mod tests {
             .definitions
             .synchronous
             .expect("canonical module definitions");
-        assert_eq!(definitions.initial_evaluation, [1, 0]);
+        assert_eq!(definitions.initial_evaluation, [0]);
+        assert!(definitions
+            .dispatcher_evaluations
+            .contains_key("$lila$module$evaluate$1"));
     }
 }

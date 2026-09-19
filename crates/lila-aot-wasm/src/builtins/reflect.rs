@@ -1217,6 +1217,8 @@ impl<'a> FunctionBuilder<'a> {
         let target_value_tag_local = self.reserve_temp_local();
         let array_length_success_local = self.reserve_temp_local();
         let array_named_success_local = self.reserve_temp_local();
+        let typed_array_numeric_index_payload_local = self.reserve_temp_local();
+        let typed_array_canonical_numeric_index_local = self.reserve_temp_local();
 
         let object_define_meta = self
             .functions
@@ -1419,9 +1421,36 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        // The Proxy trap and the generic Object.defineProperty fallback must
-        // receive the completed descriptor, not the observable attributes
-        // object. This also guarantees descriptor getters run exactly once.
+        let definition_descriptor = crate::objects::WasmPartialDescriptor {
+            value: lila_ir::property_descriptor::Presence::Runtime {
+                present: value_present_local,
+                value: TaggedLocals::new(value_payload_local, value_tag_local),
+            },
+            get: lila_ir::property_descriptor::Presence::Runtime {
+                present: getter_present_local,
+                value: TaggedLocals::new(getter_payload_local, getter_tag_local),
+            },
+            set: lila_ir::property_descriptor::Presence::Runtime {
+                present: setter_present_local,
+                value: TaggedLocals::new(setter_payload_local, setter_tag_local),
+            },
+            writable: lila_ir::property_descriptor::Presence::Runtime {
+                present: writable_present_local,
+                value: writable_payload_local,
+            },
+            enumerable: lila_ir::property_descriptor::Presence::Runtime {
+                present: enumerable_present_local,
+                value: enumerable_payload_local,
+            },
+            configurable: lila_ir::property_descriptor::Presence::Runtime {
+                present: configurable_present_local,
+                value: configurable_payload_local,
+            },
+        }
+        .from_runtime_checked();
+
+        // Materialize the converted fields for a possible Proxy trap. The
+        // original attributes object must not be read again during forwarding.
         let descriptor_prototype = self.emit_reflect_descriptor_object_prototype(function);
         self.emit_alloc_reflect_descriptor_object(
             descriptor_prototype,
@@ -1561,6 +1590,22 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // With no callable trap, this descriptor has never escaped. Private
+        // redispatch must not read absent fields from Object.prototype again.
+        // An actual trap, even one returning false, keeps the original object
+        // and its defining-Realm prototype because it skips this branch.
+        self.store_i64_const_at_offset(
+            descriptor_payload_local,
+            HEAP_PROTOTYPE_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            descriptor_payload_local,
+            HEAP_OBJECT_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Null.tag() as u64,
+            function,
+        );
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -1604,42 +1649,48 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_is_module_namespace_i32(target_payload_local, target_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        let namespace_descriptor = crate::objects::WasmPartialDescriptor {
-            value: lila_ir::property_descriptor::Presence::Runtime {
-                present: value_present_local,
-                value: TaggedLocals::new(value_payload_local, value_tag_local),
-            },
-            get: lila_ir::property_descriptor::Presence::Runtime {
-                present: getter_present_local,
-                value: TaggedLocals::new(getter_payload_local, getter_tag_local),
-            },
-            set: lila_ir::property_descriptor::Presence::Runtime {
-                present: setter_present_local,
-                value: TaggedLocals::new(setter_payload_local, setter_tag_local),
-            },
-            writable: lila_ir::property_descriptor::Presence::Runtime {
-                present: writable_present_local,
-                value: writable_payload_local,
-            },
-            enumerable: lila_ir::property_descriptor::Presence::Runtime {
-                present: enumerable_present_local,
-                value: enumerable_payload_local,
-            },
-            configurable: lila_ir::property_descriptor::Presence::Runtime {
-                present: configurable_present_local,
-                value: configurable_payload_local,
-            },
-        };
         self.emit_namespace_define_own_property(
             target_payload_local,
             key_string_local,
-            &namespace_descriptor,
+            definition_descriptor.as_partial(),
             self.result_local,
             function,
         )?;
         function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        self.emit_is_typed_array_i32(target_payload_local, target_tag_local, function);
+        function.instruction(&Instruction::LocalGet(proxy_key_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_canonical_numeric_index_string(
+            key_string_local,
+            typed_array_numeric_index_payload_local,
+            typed_array_canonical_numeric_index_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(
+            typed_array_canonical_numeric_index_local,
+        ));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_typed_array_define_index_property(
+            target_payload_local,
+            typed_array_numeric_index_payload_local,
+            &definition_descriptor,
+            self.result_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         self.emit_is_heap_object_like_tag_i32(target_tag_local, function);
@@ -1882,6 +1933,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        self.release_temp_local(typed_array_canonical_numeric_index_local);
+        self.release_temp_local(typed_array_numeric_index_payload_local);
         self.release_temp_local(array_named_success_local);
         self.release_temp_local(array_length_success_local);
         self.release_temp_local(target_value_tag_local);

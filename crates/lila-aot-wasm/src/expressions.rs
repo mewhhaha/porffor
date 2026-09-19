@@ -1253,6 +1253,15 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::ModuleNamespace { mode, exports } => {
                 self.emit_module_namespace(*mode, exports, function)?;
             }
+            ExprIr::ModuleEntryEvaluation(entry) => {
+                self.emit_module_entry_evaluation(
+                    entry,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
             ExprIr::SynchronousModuleGraph(graph) => {
                 self.emit_synchronous_module_graph(graph, function)?
             }
@@ -3181,53 +3190,9 @@ impl<'a> FunctionBuilder<'a> {
         );
     }
 
-    /// Installs the compiled RegExp program for a `(source, flags)` pair that is
-    /// only known at run time, by looking the pair up **by string value** in the
-    /// AOT-built runtime program table.
-    ///
-    /// # The lookup is total, and that is the point
-    ///
-    /// Four outcomes, and every one of them is now reachable code:
-    ///
-    /// * **`Program` row** — install one immutable descriptor handle.
-    /// * **`Rejected` row** — the compile-time RegExp compiler saw this exact
-    ///   pattern and answered `InvalidSyntax`, so this is a spec SyntaxError
-    ///   (`RegExpInitialize` step 3.b). Before batch 7 the row did not exist at
-    ///   all (`data.rs` `continue`d past every compile failure), the loop below
-    ///   had no else arm, and the caller went on to publish a live RegExp whose
-    ///   `instruction_count` is 0 — `assert.throws(SyntaxError, () =>
-    ///   r.compile("(?<x>a)(?<x>b)"))` therefore measured *no throw at all*.
-    ///   That is the one Bug-outcome failure in the batch-7 sweep.
-    /// * **`Unsupported` row** — the pattern is legal ECMAScript and Lila's
-    ///   RegExp compiler cannot build a program for it yet. Behaves exactly like
-    ///   a total miss; throwing here would invent a SyntaxError for a pattern
-    ///   the spec accepts.
-    /// * **total miss** — the pair is genuinely not in the table, i.e. the
-    ///   pattern or the flags string was computed at run time and never named as
-    ///   a literal anywhere. The program handle stays zero and the caller proceeds.
-    ///
-    /// # Why a total miss deliberately does *not* throw
-    ///
-    /// The obvious symmetry ("no row, no program, so throw") is wrong here, and
-    /// the reason is measured rather than argued. A zeroed program does not mean
-    /// `exec` silently answers `null`: `emit_regexp_prototype_exec_from_locals`
-    /// tries the compiled program first, then falls through to
-    /// `emit_regexp_exec_simple_from_locals` — a real fallback matcher covering
-    /// `.`, escapes, two-alternative patterns and the `g`/`i`/`y`/`u` flags —
-    /// and only if *that* declines does it throw
-    /// `TypeError: RegExp.prototype.exec unsupported pattern`. Measured on this
-    /// head: `new RegExp("(?<" + "y>c)")` builds an object with the right
-    /// `source` and its `test` call throws that TypeError; it does not answer
-    /// `false`. So throwing SyntaxError on every miss would convert answers the
-    /// fallback matcher gets *right* into spurious SyntaxErrors, including for
-    /// the common `new RegExp("a", computedFlags)` shape whose flags string is
-    /// simply not a script literal. That trade is a regression, not a fix.
-    ///
-    /// The half this closes is therefore stated exactly: **a pattern the
-    /// compiler has seen and rejected now throws**; a valid pattern the compiler
-    /// has never seen keeps today's behaviour. Widening the first half is a
-    /// candidate-collection problem (see `runtime_regexp_argument_literals`),
-    /// not an emitter problem, and that is where it was widened.
+    /// Resolve an immutable program using the finite static cache first, then
+    /// the emitted runtime compiler. Publish only after successful compilation;
+    /// syntax/resource failures retain the receiver's previous matcher.
     pub(crate) fn emit_runtime_regexp_program_slots(
         &mut self,
         object_local: u32,
@@ -3235,32 +3200,24 @@ impl<'a> FunctionBuilder<'a> {
         flags_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if self.strings.runtime_regexp_program_count == 0 {
-            self.emit_regexp_program_slots(object_local, None, function);
-            return Ok(());
-        }
-        // The stride and every offset below come from the word indices
-        // `StringPool::append_runtime_regexp_program_table` assigns through, so
-        // this reader cannot fall out of step with that writer. They used to be
-        // literal `72`/`64`/`16`…`56` here, agreeing with the writer's array
-        // order only by inspection.
-        let index_local = self.reserve_temp_local();
-        let record_ptr_local = self.reserve_temp_local();
-        let candidate_payload_local = self.reserve_temp_local();
-        let entry_kind_local = self.reserve_temp_local();
-
-        // `RUNTIME_REGEXP_ENTRY_KIND_PROGRAM` is 0 and is also what a total miss
-        // leaves behind, so the post-loop test asks only about `Rejected`. The
-        // two are deliberately not merged: see the doc comment.
-        function.instruction(&Instruction::I64Const(
-            RuntimeRegExpEntryKind::Program.word() as i64,
-        ));
-        function.instruction(&Instruction::LocalSet(entry_kind_local));
+        use crate::runtime_helpers::RegExpCompilerStatus;
+        let index = self.reserve_temp_local();
+        let record = self.reserve_temp_local();
+        let candidate = self.reserve_temp_local();
+        let kind = self.reserve_temp_local();
+        let pending = self.reserve_temp_local();
+        let status = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(index_local));
+        function.instruction(&Instruction::LocalSet(index));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(pending));
+        function.instruction(&Instruction::I64Const(
+            RuntimeRegExpEntryKind::Unsupported.word() as i64,
+        ));
+        function.instruction(&Instruction::LocalSet(kind));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(index));
         function.instruction(&Instruction::I64Const(
             self.strings.runtime_regexp_program_count as i64,
         ));
@@ -3269,141 +3226,226 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(
             self.strings.runtime_regexp_program_table_ptr as i64,
         ));
-        function.instruction(&Instruction::LocalGet(index_local));
+        function.instruction(&Instruction::LocalGet(index));
         function.instruction(&Instruction::I64Const(RUNTIME_REGEXP_RECORD_SIZE as i64));
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(record_ptr_local));
-        function.instruction(&Instruction::LocalGet(record_ptr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(
+        function.instruction(&Instruction::LocalSet(record));
+        self.load_i64_to_local_from_offset(
+            record,
             runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_SOURCE_WORD),
-        )));
-        function.instruction(&Instruction::LocalSet(candidate_payload_local));
-        self.emit_string_payload_equality_i32(
-            source_payload_local,
-            candidate_payload_local,
+            candidate,
             function,
         );
+        self.emit_string_payload_equality_i32(source_payload_local, candidate, function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(record_ptr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(
+        self.load_i64_to_local_from_offset(
+            record,
             runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_FLAGS_WORD),
-        )));
-        function.instruction(&Instruction::LocalSet(candidate_payload_local));
-        self.emit_string_payload_equality_i32(
-            flags_payload_local,
-            candidate_payload_local,
+            candidate,
             function,
         );
+        self.emit_string_payload_equality_i32(flags_payload_local, candidate, function);
         function.instruction(&Instruction::If(BlockType::Empty));
-        // The row matched. Read its discriminant BEFORE deciding what to do
-        // with it — this is the else arm the loop never had.
-        function.instruction(&Instruction::LocalGet(record_ptr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(
+        self.load_i64_to_local_from_offset(
+            record,
             runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD),
-        )));
-        function.instruction(&Instruction::LocalSet(entry_kind_local));
-        // Leaves the search with `entry_kind_local` holding this row's kind.
-        // Branch depth is unchanged from before the discriminant existed: at
-        // this point the enclosing labels are flags-If (0), source-If (1),
-        // Loop (2), Block (3).
-        function.instruction(&Instruction::Br(3));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(index_local));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        // A `Rejected` row is the compile-time compiler's `InvalidSyntax`
-        // verdict on this exact pattern, reaching run time. `Unsupported` rows
-        // and total misses both fall through without throwing — the first
-        // because the pattern is legal, the second because the runtime fallback
-        // matcher may still answer it correctly. The doc comment says why at
-        // length; do not "simplify" this into `!= PROGRAM`.
-        //
-        // Which kinds throw is decided ONCE, by an exhaustive match over the
-        // closed domain (`RuntimeRegExpEntryKind::throws_syntax_error`), and the
-        // comparison chain is derived from `ALL` rather than transcribed here.
-        // Before that, this reader tested a raw `u64` against two of the three
-        // constants, so a fourth kind would have compiled cleanly and fallen
-        // through as a silent miss — the very class the closed writer type was
-        // introduced to remove. Today exactly one kind throws, so this emits the
-        // same four instructions it always did.
-        let throwing_kind_words = RuntimeRegExpEntryKind::ALL
-            .iter()
-            .filter(|kind| kind.throws_syntax_error())
-            .map(RuntimeRegExpEntryKind::word)
-            .collect::<Vec<_>>();
-        // Bound rather than `?`-ed. The four `release_temp_local` calls below
-        // are the temp-local stack's only unwind, and returning past them makes
-        // the *next* release trip `release_temp_local`'s `assert_eq!`, replacing
-        // a readable `EmitError` with an unrelated compiler panic. The `End`
-        // must be emitted on the error path too, or `code_sink`'s depth
-        // accounting is left unbalanced as well.
-        let mut thrown = Ok(());
-        if !throwing_kind_words.is_empty() {
-            for (position, word) in throwing_kind_words.iter().enumerate() {
-                function.instruction(&Instruction::LocalGet(entry_kind_local));
-                function.instruction(&Instruction::I64Const(*word as i64));
-                function.instruction(&Instruction::I64Eq);
-                if position > 0 {
-                    function.instruction(&Instruction::I32Or);
-                }
-            }
-            function.instruction(&Instruction::If(BlockType::Empty));
-            thrown = self.emit_throw_runtime_error_to_active_handler(
-                SYNTAX_ERROR_NAME,
-                "Invalid regular expression pattern",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
-
-        // RegExpInitialize must reject invalid syntax before replacing an
-        // existing receiver's matcher. Unsupported entries and misses retain
-        // the fallback matcher representation, with empty program slots.
-        self.emit_regexp_program_slots(object_local, None, function);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.runtime_regexp_program_count as i64,
-        ));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(entry_kind_local));
+            kind,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(kind));
         function.instruction(&Instruction::I64Const(
             RuntimeRegExpEntryKind::Program.word() as i64,
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(record_ptr_local));
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64Load(Self::memarg8(
+        self.load_i64_to_local_from_offset(
+            record,
             runtime_regexp_record_offset(RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD),
-        )));
-        function.instruction(&Instruction::LocalSet(candidate_payload_local));
-        self.store_i64_local_at_offset(
-            object_local,
-            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
-            candidate_payload_local,
+            pending,
             function,
         );
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(3));
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        self.emit_increment_local(index, 1, function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        let mut result = Ok(());
+        for entry in RuntimeRegExpEntryKind::ALL.iter() {
+            if entry.throws_syntax_error() {
+                function.instruction(&Instruction::LocalGet(kind));
+                function.instruction(&Instruction::I64Const(entry.word() as i64));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                let thrown = self.emit_throw_current_function_realm_error(
+                    SYNTAX_ERROR_NAME,
+                    "Invalid regular expression pattern",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                );
+                self.emit_propagate_current_throw(function);
+                result = result.and(thrown);
+                function.instruction(&Instruction::End);
+            }
+        }
+        function.instruction(&Instruction::LocalGet(pending));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(source_payload_local));
+        function.instruction(&Instruction::LocalGet(flags_payload_local));
+        for _ in 0..5 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::Call(
+            self.regexp_compiler_helper_function_index()
+                .expect("RegExp construction requires heap helpers"),
+        ));
+        function.instruction(&Instruction::Drop);
+        function.instruction(&Instruction::Drop);
+        function.instruction(&Instruction::LocalSet(status));
+        function.instruction(&Instruction::LocalSet(pending));
+        for outcome in RegExpCompilerStatus::ALL {
+            let failure = match outcome {
+                RegExpCompilerStatus::Compiled | RegExpCompilerStatus::Unsupported => None,
+                RegExpCompilerStatus::SyntaxError => {
+                    Some((SYNTAX_ERROR_NAME, "Invalid regular expression pattern"))
+                }
+                RegExpCompilerStatus::ResourceExhausted => Some((
+                    RANGE_ERROR_NAME,
+                    "RegExp runtime compiler exceeded its addressable resource limit",
+                )),
+                RegExpCompilerStatus::CorruptProgram => Some((
+                    ERROR_NAME,
+                    "RegExp runtime compiler produced an invalid program",
+                )),
+            };
+            if let Some((name, message)) = failure {
+                function.instruction(&Instruction::LocalGet(status));
+                function.instruction(&Instruction::I64Const(outcome.abi_word()));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                let thrown = self.emit_throw_current_function_realm_error(
+                    name,
+                    message,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                );
+                self.emit_propagate_current_throw(function);
+                result = result.and(thrown);
+                function.instruction(&Instruction::End);
+            }
+        }
+        // Only the capability route may publish the explicit old fallback.
+        // Unknown statuses and an empty successful handle are internal errors.
+        function.instruction(&Instruction::LocalGet(status));
+        function.instruction(&Instruction::I64Const(
+            RegExpCompilerStatus::Compiled.abi_word(),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(pending));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(status));
+        function.instruction(&Instruction::I64Const(
+            RegExpCompilerStatus::Unsupported.abi_word(),
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(pending));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let thrown = self.emit_throw_current_function_realm_error(
+            ERROR_NAME,
+            "RegExp runtime compiler produced an invalid program",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        );
+        self.emit_propagate_current_throw(function);
+        result = result.and(thrown);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        // No old receiver state changes until lookup/compilation has succeeded
+        // or returned its explicit unsupported-capability outcome.
+        self.store_i64_local_at_offset(
+            object_local,
+            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+            pending,
+            function,
+        );
+        for local in [status, pending, kind, candidate, record, index] {
+            self.release_temp_local(local);
+        }
+        result
+    }
 
-        self.release_temp_local(entry_kind_local);
-        self.release_temp_local(candidate_payload_local);
-        self.release_temp_local(record_ptr_local);
-        self.release_temp_local(index_local);
-        thrown
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_regexp_program_with_compatible_flags(
+        &mut self,
+        object: u32,
+        source: u32,
+        flags: u32,
+        original_flags: u32,
+        original_program: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let compatible = self.reserve_temp_local();
+        let original_has_flag = self.reserve_temp_local();
+        let replacement_has_flag = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(original_program));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(compatible));
+        // g/d/y affect result bookkeeping and cursor ownership only. Retaining
+        // a static u/v/named program when these change preserves capabilities
+        // that the runtime parser does not yet implement.
+        for flag in b"imsuv" {
+            self.emit_string_payload_contains_ascii_byte_i32(
+                original_flags,
+                *flag,
+                original_has_flag,
+                function,
+            );
+            self.emit_string_payload_contains_ascii_byte_i32(
+                flags,
+                *flag,
+                replacement_has_flag,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(original_has_flag));
+            function.instruction(&Instruction::LocalGet(replacement_has_flag));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::I64ExtendI32U);
+            function.instruction(&Instruction::LocalGet(compatible));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::LocalSet(compatible));
+        }
+        function.instruction(&Instruction::LocalGet(compatible));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.store_i64_local_at_offset(
+            object,
+            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,
+            original_program,
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        let result = self.emit_runtime_regexp_program_slots(object, source, flags, function);
+        function.instruction(&Instruction::End);
+        for local in [replacement_has_flag, original_has_flag, compatible] {
+            self.release_temp_local(local);
+        }
+        result
     }
 
     fn compile_regexp_literal_payload(
@@ -3546,6 +3588,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match &expr.expr {
+            ExprIr::ModuleEntryEvaluation(entry) => {
+                return self.emit_module_entry_evaluation(entry, payload_local, tag_local, function)
+            }
             ExprIr::ModuleBindingRead(target) => {
                 return self.emit_module_binding_read(target, payload_local, tag_local, function)
             }
