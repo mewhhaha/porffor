@@ -1,5 +1,9 @@
 # DateTimeFormat range locals have one release owner
 
+This records the earlier AOT formatter refactor. Its implementation-specific
+source census is superseded by the [DateTimeFormat provider boundary](../intl-datetime-provider.md).
+The historical evidence below is retained; it is not a current verification command.
+
 `PartitionDateTimeRangePattern` reserves two complete component sets plus its
 loop, practical-equality and selected-pattern locals. `DtfComponentLocals` and
 `DtfRangeLocals` are private non-`Clone`, non-`Copy` carriers for that local

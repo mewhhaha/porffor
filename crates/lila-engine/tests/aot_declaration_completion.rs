@@ -696,3 +696,51 @@ received === marker && destructuringReceived === marker && calls === 0
         "boolean(true)",
     );
 }
+
+#[test]
+fn borrowed_classic_for_original_loop_terminates_with_empty_completion() {
+    assert_completion(
+        include_str!("fixtures/prepared_eval_classic_for/original-progress.js"),
+        "boolean(true)",
+    );
+}
+
+#[test]
+fn borrowed_classic_for_head_shares_caller_bindings_and_initializer_order() {
+    assert_completion(
+        include_str!("fixtures/prepared_eval_classic_for/caller-and-order.js"),
+        "boolean(true)",
+    );
+}
+
+#[test]
+fn borrowed_classic_for_head_resolves_with_reference_before_initializer() {
+    assert_completion(
+        include_str!("fixtures/prepared_eval_classic_for/with-reference-and-setter.js"),
+        "boolean(true)",
+    );
+}
+
+#[test]
+fn borrowed_classic_for_head_keeps_abrupt_initializer_identity() {
+    assert_completion(
+        include_str!("fixtures/prepared_eval_classic_for/abrupt-initializer.js"),
+        "boolean(true)",
+    );
+}
+
+#[test]
+fn borrowed_classic_for_head_preserves_empty_and_body_completions() {
+    assert_completion(
+        include_str!("fixtures/prepared_eval_classic_for/completion-and-updates.js"),
+        "boolean(true)",
+    );
+}
+
+#[test]
+fn owned_classic_for_and_custom_eval_calls_keep_their_owners() {
+    assert_completion(
+        include_str!("fixtures/prepared_eval_classic_for/owned-and-custom-callee-controls.js"),
+        "boolean(true)",
+    );
+}

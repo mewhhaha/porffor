@@ -764,10 +764,18 @@ change from checkpoint eighteen is confined to the shared Arguments indexed
 entry store, its tests and documentation; unrelated native groups retain their
 separate completed eighteenth-checkpoint result.
 
-The paired 641-execution replay is now running on this frozen nineteenth
-compiler. Its four complete comparison cohorts are property definition (231),
-Instant (229), modules (153) and Promise policy (28). Pending executions have no
-candidate outcome. Refresh the same selection with the retained
+The paired replay completed on this frozen nineteenth compiler on 2026-09-19.
+Property definitions pass 231/231, repairing 47 main failures and retaining 184
+main successes. Instant passes 229/229, repairing 227 failures and retaining two
+successes. Promise policy passes 28/28, repairing 26 failures and retaining two
+successes. Modules remain 147/153, repairing 54 failures and retaining all 93
+main successes; the remaining four NotImplemented and two Bug outcomes are the
+six asynchronous deferred-module cases tracked below. All four complete audits
+have zero crashes and timeouts. Their 641 execution identities are disjoint;
+the completion receipt records each audit digest and the unchanged frozen
+compiler/source identities. This is still a bounded comparison against the
+selected main references, not a refreshed full-suite conformance claim.
+Refresh the same selection with the retained
 `replay-batch19.sh`, or use `scripts/replay-test262-executions.py` with each
 recorded execution list, immutable compiler and a fresh output directory, then
 `scripts/audit-test262-replay.py` with its recorded main-reference audit. Native
@@ -807,3 +815,183 @@ and later Duration operations; there is no Instant-only conversion bypass.
 No candidate pass count is claimed before root runs the new native target,
 existing arithmetic controls and the exact canonical replay. See
 [the Instant method contract](contracts/temporal-instant-methods.md).
+
+
+## Structured async for-of body continuations
+
+The frozen batch20r4 compiler rejects the original module lifecycle loop that
+awaits each of two concurrent imports inside try/catch. The same failure is
+independent of modules: seven ordinary async-function witnesses reject with
+`async for-of body did not lower to a direct await sequence`. The two selected
+neighboring direct-await and standalone-try controls pass; all ten recorded
+executions complete without timeouts. Exact sources and receipts are retained
+under `target/failure-review/completed-baseline-20260914/async-for-of-nested-continuation-review`
+and `async-loop-before-results`. This is a focused implementation baseline,
+not a full-suite result.
+
+The follow-up replaces the linear body split with a private-constructor body
+whose nested continuation ranges are checked against the plain async
+statement dispatcher. The existing iterator emitter retains its acquisition,
+step and IteratorClose ownership, then dispatches the complete structured body.
+Captured iteration environments are restored from the saved parent chain;
+body and catch owners restore their own descendants. Shared await scheduling,
+Promise rejection transport and Realm ownership remain canonical.
+
+Candidate verification is required before claiming the demonstrated failures
+are fixed: the `async_for_of_body` library tests, the
+`async_for_of_continuations` IR target, the existing
+`plain_async_sync_for_of_iterator_record_structure` target and the new
+`aot_async_for_of_continuations` native target. The latter retains the exact
+original two-file module graph, ordinary async controls, return/throw/finally
+close precedence, distinct captured scopes and foreign-Realm rejection
+identity. Existing async loop, async-if, iterator protocol and module lifecycle
+regressions remain required controls. No candidate execution or published
+conformance count is recorded by this staged change.
+
+## Provider and module checkpoint, 2026-09-19
+
+The frozen `batch20r6` build completes all 153 selected native/source groups:
+152 groups pass, with 3,001 passing tests and one failure. The failing
+`async_module_resources_have_a_canonical_execution_owner` test exposes the
+remaining rejection of a non-suspending resource loop in an async module.
+All 105 source/library groups pass. Workspace all-target release checking,
+the CLI/native build and the optional oracle-feature check also pass. Exact
+group membership, executable hashes and transcripts are retained in
+`target/failure-review/completed-baseline-20260914/batch20r6-test-verdicts.json`.
+This is a completed run with a known failure, not a green checkpoint.
+
+All 15 separate DateTimeFormat CLI probes pass through Wasm-AOT with zero
+timeouts. They cover locale and calendar resolution, numeric parts, negative
+subsecond and far-domain inputs, option/coercion order, foreign-Realm behavior,
+range patterns and Plain Temporal time-zone independence. The separate
+637-execution pinned replay completes with 621 Success, 16 Bug, zero Crash,
+zero NotImplemented and zero timeouts. Modules pass 153/153, including 60
+current-main repairs and 93 retained successes. Date locale passes 24/24 and
+Plain Temporal time-zone controls pass 42/42. The DateTimeFormat group passes
+384/394, repairing four earlier failures but regressing ten earlier successes;
+additional calendar/option controls pass 18/24. The 16 formatting failures
+remain owned by the provider follow-up. Exact disjoint membership and audited
+compiler/input identities are in `batch20r6-product-replay-complete.json` under
+the evidence directory. No published full-suite count is changed.
+
+The next integrated batch adds the complete NumberFormat intrinsic family,
+its Number/BigInt locale consumers, and structured async for-of continuations.
+The pure NumberFormat provider passes 89 tests in both debug and optimized
+release with overflow checks; its earlier failing range-spacing and sharing
+receipts remain preserved. Product checks are pending. Its pinned replay
+contains 552 direct family executions and 58 disjoint adjacent controls;
+335 have current-main observations (285 Bug, 50 Success). Current-main outcomes
+for the other 275 are not inferred from the historical sweep.
+
+The same batch corrects the demonstrated `new String(Symbol())` defect. String
+now owns both its call and construct results, performs conversion in the called
+function's Realm, and reads `NewTarget.prototype` after conversion. The generic
+constructor wrapper no longer preallocates or boxes its result. Frozen r6
+probes demonstrate the previous missing Symbol throw, reversed observable
+order, and incorrect foreign conversion-error Realm. Seven new native controls
+retain the unchanged pinned Symbol-conversion fixture and cover boxed UTF-16
+properties, bound calls, foreign fallback prototypes, subclassing, and exact
+abrupt values. Candidate execution remains pending.
+
+
+## Borrowed classic-for initialization in prepared direct eval
+
+The exact sloppy execution
+`language/statements/for/head-init-var-check-empty-inc-empty-completion.js`
+traps in `heap_alloc` through `array_alloc` on both immutable main and frozen
+`batch20r6`. This is an observed allocation trap, not a timeout. The retained
+r6 diagnostics isolate the cause: five bounded witnesses read the old caller
+binding after a classic-for `var` initializer; a fresh binding reads undefined
+and then NaN on every update. The three adjacent standalone-declaration,
+strict/indirect-eval and destructuring-head controls pass. All eight executions
+complete without timeouts. Exact compiler, source and transcript hashes remain
+under `target/failure-review/completed-baseline-20260914/prepared-eval-loop-progress-followup/evidence`.
+
+`lower_var_init` previously used direct declaration storage for every simple
+identifier head outside `with`. Sloppy direct eval borrows its caller variable
+environment, while the loop's reads and writes already resolve through that
+environment. The repair admits those borrowed heads to the existing declaration
+statement path. It preserves source-order initialization, runtime Reference
+selection before each initializer, empty declaration completion and the same
+strict/direct/indirect ownership decisions as a standalone `var` statement.
+No runtime source parser, alternate evaluator or special test-name path is added.
+
+The required candidate gates are `borrowed_eval_loop_heads` (including three new
+IR assertions), `with_var_hoisting`, `declaration_completion`, the six new cases
+in `aot_declaration_completion`, the existing direct-eval owner/callee controls,
+the eight retained bounded diagnostics, and the unchanged exact Test262
+execution. Native fixtures cover the original finite loop, caller closures and
+initializer mutations, object-environment Reference stability and setters,
+initializer/publication throws, empty and body completions, and owned/custom
+callee controls. Candidate execution remains pending; no full-suite count is
+changed by this source repair.
+
+## Saved draft checkpoint, 2026-09-20
+
+This checkpoint preserves the integrated implementation in draft PR #52 while
+the remaining failures are repaired. It includes the DateTimeFormat and
+NumberFormat providers, async module lifecycle, structured async for-of bodies,
+non-suspending resource loops, String construction, Realm-owned throwers, and
+borrowed direct-eval loop initialization. It is not ready to merge and does not
+claim that all historical baseline failures are fixed.
+
+The tested compiler is `batch21`, built on 2026-09-19 from parent
+`04e328657972f6c7500828bed248d71d1ffdd9c3` with uncommitted implementation changes.
+Its binary SHA-256 is
+`902c42ea090aacb49cdae844bd0a2747a19e1f3280355a5d9a7778ded6ac093f`;
+its 4,116-input source manifest SHA-256 is
+`5b5433cb23cdbe8eb5bfd7ebf5cc29fc71726e2dd4b7e48de5cab297ae154d43`.
+Those inputs were verified unchanged before this documentation-only checkpoint
+update. The pinned Test262 tree remains
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`.
+
+Release workspace all-target checking, CLI/native compilation, the separate
+`spec-exec-oracle` feature check, and Rust formatting pass. The staged whitespace
+check reports only whitespace retained verbatim in three pinned upstream CLDR
+source documents; those bytes remain unchanged for provenance. The planned 180-group
+verification stopped after its 110 source/library groups: 107 groups pass,
+with 2,735 passing tests and six failing tests. Seven separately executed
+focused runtime groups completed with 94 passing tests and four failures:
+
+| Runtime target | Passed | Failed |
+| --- | ---: | ---: |
+| `aot_intl_numberformat` | 15 | 1 |
+| `aot_intl_datetime_provider` | 16 | 0 |
+| `aot_string_constructor` | 7 | 0 |
+| `aot_throw_type_error_realm` | 4 | 2 |
+| `aot_async_for_of_continuations` | 11 | 0 |
+| `aot_async_resource_loops` | 8 | 1 |
+| `aot_declaration_completion` | 33 | 0 |
+
+These disjoint completed checks total 2,829 passes and ten failures, with zero
+ignored tests. The remaining 63 planned groups and the prepared 1,300-execution
+pinned replay have not run on this compiler. Earlier checkpoint results remain
+separate evidence.
+
+Outstanding findings at this saved checkpoint:
+
+- Six source/library failures cover an over-wide classic-for source guard,
+  the NumberFormat installer-order expectation, two stale String/prototype
+  ownership assertions, and two host-import assertions. Constant-only programs
+  currently pull in Intl and clock support through builtin dependencies; the
+  dependency expansion requires investigation and repair.
+- NumberFormat's foreign constructor creates the wrong-Realm error for a null
+  locale list. The existing primitive-option/abrupt-completion fixture fails.
+- Two thrower tests fail. Isolated diagnostics show `Reflect.get` and
+  `Reflect.set` on an unmapped Arguments `callee` return instead of invoking
+  the accessor. A prepared foreign Function with a destructuring parameter
+  also reports a parse error. Other isolated factory shapes and throw paths
+  pass; these results do not prove the complete thrower family correct.
+- The resource-loop eager-class/nested-function fixture fails. An additional
+  bounded async captured-block probe reports a TypeError while a captured
+  resource-head control passes; activation-owned disposal storage needs its
+  environment address checked. These probes are separate from native counts.
+
+The immutable compilers, source manifests, per-group membership and transcripts
+remain under `target/failure-review/completed-baseline-20260914`, including
+`batch21-test-verdicts.json`, `batch21-new-runtime-verdicts.json`,
+`batch21-diagnostic-results` and `batch21-throw-isolation-results`.
+They are local evidence, not files committed to the PR. Focused runtime results
+can be refreshed with `cargo test --release --locked -j2 -p lila-engine --test
+<target> -- --test-threads=2`, using the target names above and
+`LILA_MODULE_MEMORY_CACHE_ENTRIES=1`. Published full-suite status is unchanged.

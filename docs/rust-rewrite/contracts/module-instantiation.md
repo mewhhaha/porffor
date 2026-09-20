@@ -1,4 +1,4 @@
-# Synchronous module instantiation and global Script preludes
+# Canonical module instantiation and global Script preludes
 
 The compiler allocates each eligible module's environment before installing any
 import or evaluating any module body. Imports refer to canonical exporter cells;
@@ -7,21 +7,17 @@ and immutable import writes.
 
 ## Admission boundary
 
-`SynchronousInstantiationGraph` is the sole source-construction witness. It
-accepts Module-entry graphs without top-level await or source-phase requests.
-Ordinary imports and deferred imports use the same canonical owners; static
-evaluation cycles and deferred-readiness cycles are admitted. Script entries,
-asynchronous graphs, and source-phase requests remain on the existing driver.
-Their remaining scope and lifecycle cases are not complete.
+`ModuleInstantiationGraph` is the sole source-construction witness. It accepts
+Module-entry graphs without source-phase requests, including local top-level
+await and transitive asynchronous dependencies. Ordinary and deferred imports
+use the same canonical owners. Original request phases and order survive linking;
+runtime traversal owns cycle and async dependency state.
 
-Retained Module-entry drivers run their merged body in a private lexical arrow
-owner, using an async arrow for TLA. This keeps their declarations separate from
-the global Script environment and introduces no implicit `arguments` binding.
-Those drivers still share one environment between module units: a dependency's
-free name can incorrectly resolve to an entry Module declaration. Per-module
-scope isolation in retained TLA/source-phase drivers remains unresolved. Their
-renamed import aliases also retain global accessors that can conflict with Script
-bindings. The separate global Script boundary does not repair those cases.
+Script entries and source-phase graphs retain their separate driver and explicit
+capability boundaries. Retained Module-entry drivers use a private lexical arrow
+owner, including an async arrow when required. Their declarations stay outside
+the independent global Script, but those drivers still share declarations between
+module units and retain their global import-alias limitations.
 
 The original source is parsed and linked as Module code before the compiler's
 private driver is parsed. Generated arrow syntax cannot authorize source-level
@@ -44,51 +40,37 @@ and finally blocks run on every iteration and do not skip following statements.
 Resources acquired during evaluation never cross the instantiation suspension.
 
 Statement-list, classic-for and for-of synchronous resource declarations require
-an enclosing canonical ModuleActivation owner. Nested functions retain their own
+an enclosing canonical ModuleActivation or AsyncModuleActivation owner. Nested functions retain their own
 source execution lifetime under that module owner. Classic-for and for-of heads
 still require immediate execution; statement-list scopes retain the existing
-supported resumable function lifetimes. Retained TLA/source-phase drivers have
+supported resumable function lifetimes. Retained source-phase drivers have
 no canonical module owner and keep their explicit resource admission gap.
 
-A runtime module record retains its activation, evaluator, eager and deferred
-namespace cells, lifecycle state, and cached thrown value. These records are
-registered heap roots. Export cell addresses point into the canonical activation
-environment; an importing environment cell stores one resolved indirect target.
-Writes check the importing binding's initialization and immutability before
-consulting its target, so assignment to an initialized import throws TypeError
-even while the export remains in TDZ.
+`FunctionProtocolIr::AsyncModuleActivation` uses ordinary async function
+resumption with closed Allocate, Instantiate and Execute entry modes. Allocation
+initializes the canonical invocation environment but executes no source body.
+Instantiation hoists declarations, installs import cells and publishes namespaces,
+then stops at a private 0-to-1 boundary without settling its body Promise or
+creating an await job. Evaluation begins at state 1. Subsequent source Await and
+resource scopes use the existing async execution protocols.
 
-Each immutable evaluation plan carries the module, its evaluation-phase
-dependencies in request order, and its complete static evaluation component.
-The evaluator marks its own record Evaluating and visits dependencies before
-running its body. Reentering an Evaluating record does not execute it again.
+The record owns the canonical environment separately from the current suspended
+lexical chain. Async invocation environment offset 144 remains canonical; offset
+80 is saved at every suspension, including private import waits. Resuming a nested
+block never changes the environment used by live imported cells.
 
-The first active evaluator in a component owns completion. Its flag remains in
-a Wasm local while nested synchronous evaluators run; no second module heap
-layout or runtime DFS index is needed. Completed members keep Evaluating state
-until that owner finishes. On success, all entered members become Evaluated. On
-failure, every entered member caches the same thrown value, including members
-whose bodies already completed. Members not yet visited remain Linked: a later
-evaluation must still visit their earlier dependencies before encountering the
-cached failure. Other components that already completed stay Evaluated.
+Every record retains its activation, source function, namespaces, request vector,
+Realm, runtime DFS state, cycle root, async parent occurrences, owned Evaluate
+Promise and exact completion discriminator/payload. Module records and their
+pointer-bearing backing records are included in the passive root inventory.
+Imports resolve to the same canonical cells as namespace readers, retaining TDZ
+and immutable binding checks.
 
-Initial static traversal starts with the entry evaluator. Pre-evaluating its
-dependencies would change the DFS root for an entry cycle and could move an
-external dependency ahead of a cycle member whose body should run first.
-
-Deferred access first performs a pure readiness traversal with a seen set over
-all requested dependencies. Evaluated and errored records stop traversal;
-encountering an Evaluating record throws TypeError. Only successful readiness
-can invoke the evaluator. Deferred-edge cycles terminate without eager body
-execution. Namespace publication and dispatcher reads use typed private cells,
-without creating source-visible namespace aliases.
-
-Canonical synchronous dynamic imports use intrinsic promises and distinct load
-and evaluation continuations. Their namespace and evaluator operands lower to
-private module operations; dynamic-only targets no longer run before the entry.
-Invalid dynamic-only dependency closures reject their importing promises, while
-static dependency errors reject compilation. See [module import jobs](module-import-jobs.md).
-TLA, Script-entry and source-phase graphs retain their separate driver.
+The runtime evaluation and deferred readiness rules are specified in
+[async module lifecycle](module-async-lifecycle.md). Static SCC lists do not
+schedule execution. Evaluation starts from the entry, and dynamic-only targets
+start from their import continuation. Errors are cached only on entered members;
+independently completed components retain their outcomes.
 
 ## Independent global Script before a Module
 
@@ -132,5 +114,7 @@ properties, independent Script lexical and var bindings, same-spelled module
 bindings, entry-rooted cycle order, hoisting and import TDZ/immutability, deferred
 access to a completed-but-still-evaluating member, shared late-error identity,
 and unvisited members after an earlier failure. Namespace initialization and
-retained TLA/Script/source-phase controls remain in the focused verification set.
+ordinary TLA and retained Script/source-phase controls remain in the focused verification set.
 No full-suite status count follows from this bounded stage.
+
+Async activation, raw import waits, readiness, cycle occurrence counts, exact undefined rejection and graphless artifact boundaries are covered by `aot_module_async_lifecycle` and `module_async_runtime_tests`.

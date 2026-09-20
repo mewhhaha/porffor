@@ -50,21 +50,21 @@ fn module_owner(script: &ScriptIr) -> &lila_ir::FunctionIr {
             let StatementIr::Expression(expression) = statement else {
                 return None;
             };
-            let ExprIr::SynchronousModuleGraph(graph) = &expression.expr else {
+            let ExprIr::ModuleExecutionGraph(graph) = &expression.expr else {
                 return None;
             };
             Some(graph)
         })
         .expect("single synchronous Module has a canonical activation");
     let activation = graph
-        .activations
+        .activations()
         .iter()
-        .find(|activation| activation.module == 0)
+        .find(|activation| activation.module() == 0)
         .unwrap();
     script
         .functions
         .iter()
-        .find(|function| function.id == activation.function)
+        .find(|function| &function.id == activation.function())
         .expect("private Module lexical owner")
 }
 

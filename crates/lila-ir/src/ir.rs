@@ -5,14 +5,14 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, ToPrimitive, Zero};
 
 use crate::{
-    ArithmeticBinaryOp, ArrayPatternProtocol, ArraySpreadProtocol, AsyncFunctionIfPlanIr,
-    BindingMode, BitwiseBinaryOp, CallableToStringRepresentation, CompletionRecordIr,
-    EcmaLanguageType, EqualityBinaryOp, FunctionProtocolIr, GeneratorDelegationProtocol,
-    HostBuiltinId, IrDiagnostic, IrDiagnosticKind, IteratorProtocolWitness, IteratorRecordIr,
-    LogicalBinaryOp, LoweringStage, NativeErrorKind, NumericUpdateOp, NumericUpdateValueKind,
-    PreparedDynamicFunction, RegExpProgram, RelationalBinaryOp, SpecOperationIr,
-    SpreadArgumentProtocol, StandardBuiltinId, ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode,
-    GLOBAL_THIS_NAME,
+    ArithmeticBinaryOp, ArrayPatternProtocol, ArraySpreadProtocol, AsyncFunctionForOfBodyError,
+    AsyncFunctionForOfBodyIr, AsyncFunctionIfPlanIr, BindingMode, BitwiseBinaryOp,
+    CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
+    FunctionProtocolIr, GeneratorDelegationProtocol, HostBuiltinId, IrDiagnostic, IrDiagnosticKind,
+    IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage, NativeErrorKind,
+    NumericUpdateOp, NumericUpdateValueKind, PreparedDynamicFunction, RegExpProgram,
+    RelationalBinaryOp, SpecOperationIr, SpreadArgumentProtocol, StandardBuiltinId,
+    ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode, GLOBAL_THIS_NAME,
 };
 use crate::{
     ImportPhaseIr, ModuleEntryEvaluationIr, ModuleGraphIr, ModuleUnitId, PreparedScript,
@@ -2086,12 +2086,14 @@ pub enum ExprIr {
         mode: ModuleNamespaceModeIr,
         exports: Box<TypedExpr>,
     },
-    /// Allocate every private activation, instantiate imports/namespaces, then evaluate.
-    SynchronousModuleGraph(Box<crate::modules::SynchronousModuleGraphIr>),
+    /// Allocate every private activation and instantiate imports/namespaces before evaluation.
+    ModuleExecutionGraph(Box<crate::modules::ModuleExecutionGraphIr>),
     ModuleEntryEvaluation(crate::modules::ModuleEntryEvaluationIr),
     ModuleBindingRead(crate::modules::ModuleCellIr),
-    ModuleEvaluate(crate::modules::SynchronousModuleEvaluationIr),
+    ModuleEvaluate(crate::modules::ModuleEvaluationIr),
     DeferredModuleEvaluate(crate::modules::DeferredModuleEvaluationIr),
+    ModuleHasAsyncDependencies(crate::modules::ModuleEvaluationIr),
+    ModuleDeferredImportEvaluate(crate::modules::ModuleEvaluationIr),
     ModuleNamespacePublish {
         module: ModuleUnitId,
         mode: ModuleNamespaceModeIr,
@@ -2805,9 +2807,9 @@ pub(crate) enum AsyncFunctionForOfIteratorInitializationError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AsyncFunctionForOfIteratorPlanError {
-    InvalidAwaitSequence(AwaitSequenceError),
+    InvalidBody(AsyncFunctionForOfBodyError),
     ExitStateOverflow {
-        resume_state: u32,
+        body_exit_state: u32,
     },
     BindingHeadEnvironmentRequired {
         mode: BindingMode,
@@ -3159,13 +3161,8 @@ fn validate_async_function_for_of_initialization(
 }
 
 /// One activation-backed synchronous Iterator Record walk in a plain async
-/// function whose loop body directly awaits.
-///
-/// The private fields keep the body split, state order, Iterator Record, and
-/// environment lifecycle as one compiler-owned plan. In particular, this is
-/// not the optional async-protocol plan on [`ForOfIteratorHeadIr`]: it performs
-/// the ordinary synchronous iterator protocol, then suspends only at the
-/// source body's direct await sequence.
+/// function. Its checked body owns structured await continuations; its head
+/// and Iterator Record retain the ordinary synchronous iterator protocol.
 #[must_use = "a resumable synchronous for-of plan must be attached to its statement"]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsyncFunctionForOfIteratorPlanIr {
@@ -3174,37 +3171,18 @@ pub struct AsyncFunctionForOfIteratorPlanIr {
     record: IteratorRecordIr,
     head_environment: Option<ForInOfEnvironmentIr>,
     iteration_environment: ResumableLoopIterationEnvironmentIr,
-    before_await: Vec<StatementIr>,
-    await_statement: Box<StatementIr>,
-    after_await: Vec<StatementIr>,
-    entry_state: u32,
-    resume_state: u32,
+    body: AsyncFunctionForOfBodyIr,
     exit_state: u32,
 }
 
 impl AsyncFunctionForOfIteratorPlanIr {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         head: AsyncFunctionForOfIteratorHeadIr,
         record: IteratorRecordIr,
         head_environment: Option<ForInOfEnvironmentIr>,
-        mut before_await: Vec<StatementIr>,
-        await_statement: StatementIr,
-        after_await: Vec<StatementIr>,
+        mut statements: Vec<StatementIr>,
         entry_state: u32,
     ) -> Result<Self, AsyncFunctionForOfIteratorPlanError> {
-        if before_await.iter().any(statement_contains_suspension) {
-            return Err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence(
-                AwaitSequenceError::NestedSuspension,
-            ));
-        }
-        let resume_state =
-            direct_await_sequence_resume_state(&await_statement, &after_await, entry_state)
-                .map_err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence)?;
-        let exit_state = resume_state
-            .checked_add(1)
-            .ok_or(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { resume_state })?;
-
         let (value_storage, value_mode, iteration_environment, mut initialization) = match head {
             AsyncFunctionForOfIteratorHeadIr::Binding(binding) => {
                 let value_mode = binding.mode;
@@ -3488,7 +3466,13 @@ impl AsyncFunctionForOfIteratorPlanIr {
                 }
             }
         }
-        initialization.append(&mut before_await);
+        initialization.append(&mut statements);
+        let body = AsyncFunctionForOfBodyIr::new(initialization, entry_state)
+            .map_err(AsyncFunctionForOfIteratorPlanError::InvalidBody)?;
+        let body_exit_state = body.exit_state();
+        let exit_state = body_exit_state
+            .checked_add(1)
+            .ok_or(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { body_exit_state })?;
 
         Ok(Self {
             value_storage,
@@ -3496,11 +3480,7 @@ impl AsyncFunctionForOfIteratorPlanIr {
             record,
             head_environment,
             iteration_environment,
-            before_await: initialization,
-            await_statement: Box::new(await_statement),
-            after_await,
-            entry_state,
-            resume_state,
+            body,
             exit_state,
         })
     }
@@ -3535,26 +3515,12 @@ impl AsyncFunctionForOfIteratorPlanIr {
         &self.iteration_environment
     }
 
-    pub fn before_await(&self) -> &[StatementIr] {
-        &self.before_await
-    }
-
-    pub fn await_statement(&self) -> &StatementIr {
-        &self.await_statement
-    }
-
-    /// The remaining body, including later direct awaits in this iteration.
-    pub fn after_await(&self) -> &[StatementIr] {
-        &self.after_await
+    pub fn body(&self) -> &AsyncFunctionForOfBodyIr {
+        &self.body
     }
 
     pub fn entry_state(&self) -> u32 {
-        self.entry_state
-    }
-
-    /// The final resume state in the iteration's direct await sequence.
-    pub fn resume_state(&self) -> u32 {
-        self.resume_state
+        self.body.entry_state()
     }
 
     pub fn exit_state(&self) -> u32 {
@@ -3699,6 +3665,8 @@ pub enum StatementIr {
         resume_state: u32,
         resume_mode: GeneratorResumeModeIr,
     },
+    /// Private Allocate/Instantiate boundary; it neither creates jobs nor settles the body promise.
+    AsyncModuleInstantiation,
     AsyncAwait {
         value: TypedExpr,
         suspend_state: u32,
@@ -4203,6 +4171,7 @@ impl StatementIr {
             | Self::DeclarationEvaluation(_)
             | Self::Expression(_)
             | Self::GeneratorYield { .. }
+            | Self::AsyncModuleInstantiation
             | Self::AsyncAwait { .. }
             | Self::GeneratorLoop { .. }
             | Self::GeneratorIf { .. }
@@ -4922,7 +4891,9 @@ impl IrSummaryCounts {
                     self.visit_statement(statement);
                 }
             }
-            StatementIr::Empty | StatementIr::AnnexBFunctionCopy { .. } => {}
+            StatementIr::AsyncModuleInstantiation
+            | StatementIr::Empty
+            | StatementIr::AnnexBFunctionCopy { .. } => {}
             StatementIr::ModuleImportBinding(_) => {}
             StatementIr::ModuleUnitOnce { block, .. } => self.visit_block(block),
             StatementIr::Lexical { mode, init, .. } => {
@@ -5095,12 +5066,7 @@ impl IrSummaryCounts {
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
                 self.fors += 1;
                 self.visit_expr(iterable);
-                for statement in plan
-                    .before_await()
-                    .iter()
-                    .chain(std::iter::once(plan.await_statement()))
-                    .chain(plan.after_await())
-                {
+                for statement in plan.body().statements() {
                     self.visit_statement(statement);
                 }
             }
@@ -5276,10 +5242,12 @@ impl IrSummaryCounts {
             }
             ExprIr::ImportMeta { .. } => {}
             ExprIr::ModuleEntryEvaluation(entry) => self.visit_expr(entry.evaluation()),
-            ExprIr::SynchronousModuleGraph(_)
+            ExprIr::ModuleExecutionGraph(_)
             | ExprIr::ModuleBindingRead(_)
             | ExprIr::ModuleEvaluate(_)
-            | ExprIr::DeferredModuleEvaluate(_) => {}
+            | ExprIr::DeferredModuleEvaluate(_)
+            | ExprIr::ModuleHasAsyncDependencies(_)
+            | ExprIr::ModuleDeferredImportEvaluate(_) => {}
             ExprIr::ModuleNamespacePublish { namespace, .. } => self.visit_expr(namespace),
             ExprIr::ModuleNamespace { exports, .. } => self.visit_expr(exports),
             ExprIr::DynamicImport {

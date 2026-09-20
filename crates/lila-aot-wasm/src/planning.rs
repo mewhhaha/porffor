@@ -1902,7 +1902,7 @@ mod tests {
 /// `require_standard_builtin` does not recurse through its own match, so a
 /// caller that needs the formatter must seed every id itself rather than
 /// relying on one id dragging in the rest.
-const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 25] = [
+const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 33] = [
     StandardBuiltinId::IntlGetCanonicalLocales,
     StandardBuiltinId::IntlLocaleConstructor,
     StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
@@ -1928,6 +1928,14 @@ const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 25] = [
     StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
     StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
     StandardBuiltinId::IntlDateTimeFormatBoundFormat,
+    StandardBuiltinId::IntlNumberFormatConstructor,
+    StandardBuiltinId::IntlNumberFormatSupportedLocalesOf,
+    StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions,
+    StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter,
+    StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts,
+    StandardBuiltinId::IntlNumberFormatPrototypeFormatRange,
+    StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,
+    StandardBuiltinId::IntlNumberFormatBoundFormat,
 ];
 
 /// `INTL_NAMESPACE_CONSTRUCTORS` ⊆ [`INTL_NAMESPACE_ROOTS`], checked by the
@@ -2066,6 +2074,9 @@ impl RuntimeBootstrapPlan {
             .functions
             .iter()
             .any(|function| function.protocol.execution_kind() == FunctionExecutionKind::Async)
+            || script
+                .module_entry_evaluation()
+                .is_some_and(|entry| entry.kind() == lila_ir::ModuleEntryEvaluationKindIr::Promise)
         {
             plan.require_standard_builtin(StandardBuiltinId::PromiseConstructor);
         }
@@ -2163,7 +2174,7 @@ impl RuntimeBootstrapPlan {
                 // reaches the identical root set — but only by way of the Intl
                 // arm four hundred lines down inside `require_standard_builtin`.
                 // Same set, stated locally.
-                self.require_intl_date_time_format_family();
+                self.require_intl_namespace();
             }
             GlobalPropertyInitializerIr::BuiltinFunction(builtin) => {
                 self.require_standard_builtin(*builtin);
@@ -2197,14 +2208,14 @@ impl RuntimeBootstrapPlan {
         }
     }
 
-    /// Root the whole `Intl.DateTimeFormat` family and mark the namespace object
+    /// Root every represented Intl family and mark the namespace object
     /// as installed.
     ///
     /// Both effects come from one assignment because [`IntlNamespacePlan`] has
     /// no other way to reach its installed state: the seeding happens inside the
     /// only constructor of that variant. See [`INTL_NAMESPACE_ROOTS`] for why
     /// the family is all-or-nothing.
-    fn require_intl_date_time_format_family(&mut self) {
+    fn require_intl_namespace(&mut self) {
         self.intl = IntlNamespacePlan::rooted(&mut self.standard_roots);
     }
 
@@ -2221,6 +2232,13 @@ impl RuntimeBootstrapPlan {
         // `standard_roots`, and for the cycle that makes it necessary at all.
         if !self.walked.insert(builtin) {
             return;
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::NumberPrototypeToLocaleString
+                | StandardBuiltinId::BigIntPrototypeToLocaleString
+        ) {
+            self.require_intl_namespace();
         }
         if builtin == StandardBuiltinId::Uint8ArrayConstructor
             || lila_ir::UINT8_ARRAY_CODEC_STATIC_MEMBERS
@@ -2677,7 +2695,15 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
-            | StandardBuiltinId::IntlDateTimeFormatBoundFormat => {
+            | StandardBuiltinId::IntlDateTimeFormatBoundFormat
+            | StandardBuiltinId::IntlNumberFormatConstructor
+            | StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts
+            | StandardBuiltinId::IntlNumberFormatBoundFormat => {
                 // This or-pattern and `INTL_NAMESPACE_ROOTS` are two spellings
                 // of the same set, and only one of them can be a `match`
                 // pattern. The assertion pins the direction the types cannot:
@@ -2694,7 +2720,7 @@ impl RuntimeBootstrapPlan {
                      `INTL_NAMESPACE_ROOTS`",
                     builtin.debug_name()
                 );
-                self.require_intl_date_time_format_family();
+                self.require_intl_namespace();
             }
             // Any Temporal entry first closes the namespace contract. The
             // private Rooting state makes these recursive calls no-ops until
@@ -2788,7 +2814,7 @@ impl RuntimeBootstrapPlan {
                 }
                 // `Temporal.PlainDate.prototype.toLocaleString` builds an
                 // `Intl.DateTimeFormat` and calls its bound format function.
-                self.require_intl_date_time_format_family();
+                self.require_intl_namespace();
             }
             // The whole `Temporal.PlainYearMonth` family installs together: one shared prototype, and `until`/`since`/`toPlainDate` hand back sibling types.
             StandardBuiltinId::TemporalPlainYearMonthConstructor
@@ -2848,7 +2874,7 @@ impl RuntimeBootstrapPlan {
                 }
                 // `Temporal.PlainYearMonth.prototype.toLocaleString` builds an
                 // `Intl.DateTimeFormat` and calls its bound format function.
-                self.require_intl_date_time_format_family();
+                self.require_intl_namespace();
             }
             // The whole `Temporal.PlainMonthDay` family installs together; `toPlainDate` hands back a `Temporal.PlainDate`.
             StandardBuiltinId::TemporalPlainMonthDayConstructor
@@ -2883,7 +2909,7 @@ impl RuntimeBootstrapPlan {
                 }
                 // `Temporal.PlainMonthDay.prototype.toLocaleString` builds an
                 // `Intl.DateTimeFormat` and calls its bound format function.
-                self.require_intl_date_time_format_family();
+                self.require_intl_namespace();
             }
             // The whole `Temporal.PlainTime` family installs together, for the
             // same reason `Temporal.PlainDate` does: one shared prototype.
@@ -2938,7 +2964,7 @@ impl RuntimeBootstrapPlan {
                 }
                 // `Temporal.PlainTime.prototype.toLocaleString` builds an
                 // `Intl.DateTimeFormat` and calls its bound format function.
-                self.require_intl_date_time_format_family();
+                self.require_intl_namespace();
             }
             // The whole `Temporal.PlainDateTime` family installs together, for the
             // same reason `Temporal.PlainDate` does: one shared prototype.
@@ -3038,7 +3064,7 @@ impl RuntimeBootstrapPlan {
                 }
                 // `Temporal.PlainDateTime.prototype.toLocaleString` builds an
                 // `Intl.DateTimeFormat` and calls its bound format function.
-                self.require_intl_date_time_format_family();
+                self.require_intl_namespace();
             }
             // The whole `Temporal.Duration` family installs together, for the
             // same reason `Temporal.PlainDate` does: one shared prototype.
@@ -3685,7 +3711,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::DatePrototypeToLocaleTimeString => {
                 self.standard_roots
                     .insert(StandardBuiltinId::DateConstructor);
-                self.require_intl_date_time_format_family();
+                self.require_intl_namespace();
             }
             StandardBuiltinId::RegExpEscape
             | StandardBuiltinId::RegExpSpeciesGetter
@@ -3848,7 +3874,8 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
         }
         StatementIr::ModuleImportBinding(_) => false,
         StatementIr::ModuleUnitOnce { block, .. } => block_exposes_global_object(block),
-        StatementIr::Empty
+        StatementIr::AsyncModuleInstantiation
+        | StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
@@ -3940,10 +3967,9 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
         StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
             expr_exposes_global_object(iterable)
                 || plan
-                    .before_await()
+                    .body()
+                    .statements()
                     .iter()
-                    .chain(std::iter::once(plan.await_statement()))
-                    .chain(plan.after_await())
                     .any(statement_exposes_global_object)
         }
         StatementIr::GeneratorIf {
@@ -4152,10 +4178,12 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         ExprIr::EnvironmentIdentifier(_) => true,
         // Module top-level `this` is `undefined`, and neither a namespace
         // object nor `import.meta` can reach the global object.
-        ExprIr::SynchronousModuleGraph(_)
+        ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::ModuleEvaluate(_)
-        | ExprIr::DeferredModuleEvaluate(_) => false,
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_) => false,
         ExprIr::ModuleNamespacePublish { namespace, .. } => expr_exposes_global_object(namespace),
         ExprIr::ImportMeta { .. } => false,
         ExprIr::ModuleNamespace { exports, .. } => expr_exposes_global_object(exports),
@@ -4389,7 +4417,8 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         StatementIr::ModuleUnitOnce { block, .. } => {
             collect_block_global_property_names(block, names);
         }
-        StatementIr::Empty
+        StatementIr::AsyncModuleInstantiation
+        | StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
@@ -4491,12 +4520,7 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
         }
         StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
             collect_expr_global_property_names(iterable, names);
-            for statement in plan
-                .before_await()
-                .iter()
-                .chain(std::iter::once(plan.await_statement()))
-                .chain(plan.after_await())
-            {
+            for statement in plan.body().statements() {
                 collect_statement_global_property_names(statement, names);
             }
         }
@@ -4690,10 +4714,12 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
                 collect_expr_global_property_names(operand, names);
             }
         }
-        ExprIr::SynchronousModuleGraph(_)
+        ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::ModuleEvaluate(_)
-        | ExprIr::DeferredModuleEvaluate(_) => {}
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_) => {}
         ExprIr::ModuleNamespacePublish { namespace, .. } => {
             collect_expr_global_property_names(namespace, names)
         }
@@ -5311,7 +5337,8 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
         }
         StatementIr::ModuleImportBinding(_) => false,
         StatementIr::ModuleUnitOnce { block, .. } => block_references_function(block, target),
-        StatementIr::Empty
+        StatementIr::AsyncModuleInstantiation
+        | StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
@@ -5430,10 +5457,9 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
         StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
             expr_references_function(iterable, target)
                 || plan
-                    .before_await()
+                    .body()
+                    .statements()
                     .iter()
-                    .chain(std::iter::once(plan.await_statement()))
-                    .chain(plan.after_await())
                     .any(|statement| statement_references_function(statement, target))
         }
         StatementIr::GeneratorIf {
@@ -5989,17 +6015,20 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         ExprIr::ModuleEntryEvaluation(entry) => {
             expr_references_function(entry.evaluation(), target)
         }
-        ExprIr::SynchronousModuleGraph(graph) => {
+        ExprIr::ModuleExecutionGraph(graph) => {
             graph
-                .activations
+                .activations()
                 .iter()
-                .any(|activation| &activation.function == target || &activation.evaluator == target)
+                .any(|activation| activation.function() == target)
                 || *target == StandardBuiltinId::GeneratorPrototypeNext.function_id()
         }
         ExprIr::ModuleEvaluate(_) => {
             *target == StandardBuiltinId::GeneratorPrototypeNext.function_id()
         }
-        ExprIr::ModuleBindingRead(_) | ExprIr::DeferredModuleEvaluate(_) => false,
+        ExprIr::ModuleBindingRead(_)
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_) => false,
         ExprIr::ModuleNamespacePublish { namespace, .. } => {
             expr_references_function(namespace, target)
         }
@@ -6451,6 +6480,7 @@ impl HostImportFunctionIndices {
 
 pub(crate) struct FunctionMetaRegistry {
     module_unit_guard_count: u32,
+    module_execution_record_count: u32,
     prepared_dynamic_functions: Vec<lila_ir::PreparedDynamicFunction>,
     prepared_scripts: Vec<PreparedScript>,
     metas: BTreeMap<FunctionId, WasmFunctionMeta>,
@@ -6473,6 +6503,10 @@ impl FunctionMetaRegistry {
     pub(crate) fn module_unit_guard_count(&self) -> u32 {
         self.module_unit_guard_count
     }
+    pub(crate) fn module_execution_record_count(&self) -> u32 {
+        self.module_execution_record_count
+    }
+
     pub(crate) fn prepared_scripts(&self) -> &[PreparedScript] {
         &self.prepared_scripts
     }
@@ -6488,9 +6522,11 @@ impl FunctionMetaRegistry {
         prepared_dynamic_functions: Vec<lila_ir::PreparedDynamicFunction>,
         prepared_scripts: Vec<PreparedScript>,
         module_unit_guard_count: u32,
+        module_execution_record_count: u32,
     ) -> Self {
         Self {
             module_unit_guard_count,
+            module_execution_record_count,
             prepared_dynamic_functions,
             prepared_scripts,
             metas,
@@ -7522,6 +7558,14 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         // take (startDate, endDate), so their `length` is 2, not 1.
         StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts => 2,
+        StandardBuiltinId::IntlNumberFormatConstructor
+        | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions
+        | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => 0,
+        StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+        | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
+        | StandardBuiltinId::IntlNumberFormatBoundFormat => 1,
+        StandardBuiltinId::IntlNumberFormatPrototypeFormatRange
+        | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => 2,
         StandardBuiltinId::IntlLocalePrototypeLanguageGetter
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
@@ -7954,7 +7998,8 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                 .visit_bindings(&mut |mode, _| count += usize::from(mode != BindingMode::Var) * 2);
             count
         }
-        StatementIr::Empty
+        StatementIr::AsyncModuleInstantiation
+        | StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Var(_)
         | StatementIr::DeclarationEvaluation(_)
@@ -8076,10 +8121,9 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                 plan.value_name(),
                 plan.head_environment(),
             ) + plan
-                .before_await()
+                .body()
+                .statements()
                 .iter()
-                .chain(std::iter::once(plan.await_statement()))
-                .chain(plan.after_await())
                 .map(count_statement_lexicals)
                 .sum::<usize>()
         }
@@ -8180,7 +8224,8 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             .map(count_statement_temp_locals)
             .max()
             .unwrap_or(0),
-        StatementIr::Empty
+        StatementIr::AsyncModuleInstantiation
+        | StatementIr::Empty
         | StatementIr::Debugger
         | StatementIr::Break { .. }
         | StatementIr::Continue { .. } => 0,
@@ -8361,10 +8406,9 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
             RESUMABLE_SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS
                 + count_expr_temp_locals(iterable)
                     .max(
-                        plan.before_await()
+                        plan.body()
+                            .statements()
                             .iter()
-                            .chain(std::iter::once(plan.await_statement()))
-                            .chain(plan.after_await())
                             .map(count_statement_temp_locals)
                             .max()
                             .unwrap_or(0),
@@ -8780,9 +8824,11 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
         }
         ExprIr::ImportMeta { .. } => 2,
         ExprIr::ModuleEntryEvaluation(entry) => 8 + count_expr_temp_locals(entry.evaluation()),
-        ExprIr::SynchronousModuleGraph(_) | ExprIr::ModuleEvaluate(_) => 256,
+        ExprIr::ModuleExecutionGraph(_) | ExprIr::ModuleEvaluate(_) => 256,
         ExprIr::ModuleBindingRead(_) => 64,
-        ExprIr::DeferredModuleEvaluate(plan) => 256 + plan.readiness.len(),
+        ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_) => 256,
         ExprIr::ModuleNamespacePublish { namespace, .. } => 4 + count_expr_temp_locals(namespace),
         ExprIr::ModuleNamespace { exports, .. } => count_expr_temp_locals(exports) + 64,
         ExprIr::DynamicImport {
@@ -9844,12 +9890,7 @@ pub(crate) fn collect_hoisted_vars_statement(
             if plan.value_mode() == BindingMode::Var {
                 names.insert(plan.value_name().to_string());
             }
-            for statement in plan
-                .before_await()
-                .iter()
-                .chain(std::iter::once(plan.await_statement()))
-                .chain(plan.after_await())
-            {
+            for statement in plan.body().statements() {
                 collect_hoisted_vars_statement(statement, names);
             }
         }
@@ -9960,7 +10001,8 @@ pub(crate) fn collect_hoisted_vars_statement(
                 }
             });
         }
-        StatementIr::Empty
+        StatementIr::AsyncModuleInstantiation
+        | StatementIr::Empty
         | StatementIr::Lexical { .. }
         | StatementIr::DeclarationEvaluation(_)
         | StatementIr::Expression(_)

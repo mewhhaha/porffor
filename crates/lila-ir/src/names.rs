@@ -131,6 +131,7 @@ pub const TEMPORAL_DURATION_NAME: &str = "Duration";
 pub const INTL_NAME: &str = "Intl";
 pub const INTL_LOCALE_NAME: &str = "Locale";
 pub const INTL_DATE_TIME_FORMAT_NAME: &str = "DateTimeFormat";
+pub const INTL_NUMBER_FORMAT_NAME: &str = "NumberFormat";
 
 /// The `Intl` namespace object's constructor-valued members, in **installation
 /// order** — `Object.getOwnPropertyNames(Intl)` reports this order, so it is
@@ -154,6 +155,10 @@ pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
         StandardBuiltinId::IntlDateTimeFormatConstructor,
     ),
     (INTL_LOCALE_NAME, StandardBuiltinId::IntlLocaleConstructor),
+    (
+        INTL_NUMBER_FORMAT_NAME,
+        StandardBuiltinId::IntlNumberFormatConstructor,
+    ),
 ];
 
 /// The constructor-valued members of the `Temporal` namespace, in emitted
@@ -1263,6 +1268,21 @@ pub const BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION
     "$builtin.Intl.DateTimeFormat.prototype.formatRangeToParts";
 pub const BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID: &str =
     "$builtin.Intl.DateTimeFormat.boundFormat";
+pub const BUILTIN_INTL_NUMBER_FORMAT_FUNCTION_ID: &str = "$builtin.Intl.NumberFormat";
+pub const BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.NumberFormat.supportedLocalesOf";
+pub const BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.NumberFormat.prototype.resolvedOptions";
+pub const BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.NumberFormat.prototype.format.get";
+pub const BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID: &str =
+    "$builtin.Intl.NumberFormat.prototype.formatToParts";
+pub const BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID: &str =
+    "$builtin.Intl.NumberFormat.prototype.formatRange";
+pub const BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID: &str =
+    "$builtin.Intl.NumberFormat.prototype.formatRangeToParts";
+pub const BUILTIN_INTL_NUMBER_FORMAT_BOUND_FORMAT_FUNCTION_ID: &str =
+    "$builtin.Intl.NumberFormat.boundFormat";
 pub const BUILTIN_INTL_LOCALE_PROTOTYPE_LANGUAGE_GETTER_FUNCTION_ID: &str =
     "$builtin.Intl.Locale.prototype.language.get";
 pub const BUILTIN_INTL_LOCALE_PROTOTYPE_SCRIPT_GETTER_FUNCTION_ID: &str =

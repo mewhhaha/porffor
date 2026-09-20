@@ -99,3 +99,15 @@ fn detached_likely_subtag_methods_retain_provider_dependencies() {
         1,
     );
 }
+
+#[test]
+fn number_format_and_both_primitive_locale_consumers_root_the_provider() {
+    for source in [
+        "new Intl.NumberFormat('en-US').format(123);",
+        "(123).toLocaleString('en-US', {minimumFractionDigits:2});",
+        "(123n).toLocaleString('en-US', {minimumFractionDigits:2});",
+        "var foreign=__lilaCreateRealm().global; foreign.Intl.NumberFormat.prototype.formatRange.call(new Intl.NumberFormat('en-US'),1,2);",
+    ] {
+        assert_eq!(intl_import_count(source, HostSurfacePolicy::Test262), 1);
+    }
+}

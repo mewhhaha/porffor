@@ -1,8 +1,8 @@
 use lila_front::{parse, ParseGoal, ParseOptions, ParsedSource};
 use lila_ir::{
     lower_module_graph, lower_script_graph, ExprIr, FunctionExecutionKind, FunctionFlavor,
-    FunctionProtocolIr, ModuleEvaluationModeIr, ModuleGraphSources, ModuleKey, ModuleSourceIr,
-    ProgramIr, ScriptIr, StatementIr, SynchronousModuleGraphIr,
+    FunctionProtocolIr, ModuleEvaluationModeIr, ModuleExecutionGraphIr, ModuleGraphSources,
+    ModuleKey, ModuleSourceIr, ProgramIr, ScriptIr, StatementIr,
 };
 
 fn sources(files: &[(&str, &str)], goal: ParseGoal) -> ModuleGraphSources {
@@ -47,12 +47,12 @@ fn module_program(files: &[(&str, &str)]) -> ProgramIr {
     program
 }
 
-fn activation_graph(script: &ScriptIr) -> Option<&SynchronousModuleGraphIr> {
+fn activation_graph(script: &ScriptIr) -> Option<&ModuleExecutionGraphIr> {
     script.body.statements.iter().find_map(|statement| {
         let StatementIr::Expression(expression) = statement else {
             return None;
         };
-        let ExprIr::SynchronousModuleGraph(graph) = &expression.expr else {
+        let ExprIr::ModuleExecutionGraph(graph) = &expression.expr else {
             return None;
         };
         Some(graph.as_ref())
@@ -83,8 +83,8 @@ fn synchronous_deferred_modules_have_private_owners_and_canonical_environment_sl
     assert_eq!(modules.evaluation_mode(2), ModuleEvaluationModeIr::Deferred);
     let script = program.script.as_ref().expect("linked Script IR");
     let graph = activation_graph(script).expect("private graph operation");
-    assert_eq!(graph.record_count, 3);
-    assert_eq!(graph.activations.len(), 3);
+    assert_eq!(graph.record_count(), 3);
+    assert_eq!(graph.activations().len(), 3);
     assert!(
         !script
             .global_bindings
@@ -92,11 +92,11 @@ fn synchronous_deferred_modules_have_private_owners_and_canonical_environment_sl
             .any(|name| name.contains("namespace")),
         "private namespace cells must not become Script bindings"
     );
-    for activation in &graph.activations {
+    for activation in graph.activations() {
         let owner = script
             .functions
             .iter()
-            .find(|function| function.id == activation.function)
+            .find(|function| &function.id == activation.function())
             .expect("private owner remains reachable");
         assert_eq!(owner.protocol, FunctionProtocolIr::ModuleActivation);
         assert_eq!(owner.protocol.flavor(), FunctionFlavor::Arrow);
@@ -113,15 +113,15 @@ fn synchronous_deferred_modules_have_private_owners_and_canonical_environment_sl
         assert_eq!(suspension.suspension_points.len(), 1);
         assert!(owner.strict);
         assert!(!owner.captures_lexical_arguments);
-        assert!(script
-            .functions
-            .iter()
-            .any(|function| function.id == activation.evaluator));
+        assert_eq!(
+            activation.kind(),
+            lila_ir::ModuleActivationKindIr::Synchronous
+        );
     }
     let last = script
         .functions
         .iter()
-        .find(|function| function.id == graph.activations[2].function)
+        .find(|function| &function.id == graph.activations()[2].function())
         .unwrap();
     assert!(last
         .owned_env_bindings
@@ -144,7 +144,7 @@ fn private_source_spans_survive_ecmascript_line_terminators_and_ordinary_arrays(
             ("value.js", &source),
         ]);
         let script = program.script.as_ref().unwrap();
-        assert_eq!(activation_graph(script).unwrap().activations.len(), 2);
+        assert_eq!(activation_graph(script).unwrap().activations().len(), 2);
         assert_eq!(
             script
                 .functions
@@ -161,7 +161,7 @@ fn private_source_spans_survive_ecmascript_line_terminators_and_ordinary_arrays(
 }
 
 #[test]
-fn tla_script_entries_and_source_phase_keep_their_existing_driver() {
+fn tla_modules_use_private_async_owners_while_script_and_source_phase_keep_their_driver() {
     let asynchronous = module_program(&[
         (
             "entry.js",
@@ -169,7 +169,35 @@ fn tla_script_entries_and_source_phase_keep_their_existing_driver() {
         ),
         ("value.js", "export const value = 2;"),
     ]);
-    assert!(activation_graph(asynchronous.script.as_ref().unwrap()).is_none());
+    let async_script = asynchronous.script.as_ref().unwrap();
+    let async_graph = activation_graph(async_script).unwrap();
+    assert_eq!(
+        async_graph.activations()[0].kind(),
+        lila_ir::ModuleActivationKindIr::Async
+    );
+    let owner = async_script
+        .functions
+        .iter()
+        .find(|function| &function.id == async_graph.activations()[0].function())
+        .unwrap();
+    assert_eq!(owner.protocol, FunctionProtocolIr::AsyncModuleActivation);
+    assert_eq!(
+        owner.protocol.source_execution_kind(),
+        FunctionExecutionKind::Async
+    );
+    assert!(!owner.protocol.is_constructable());
+    assert!(!owner.captures_lexical_arguments);
+    assert!(owner.generator_plan.is_none());
+    fn contains_boundary(statements: &[StatementIr]) -> bool {
+        statements.iter().any(|statement| match statement {
+            StatementIr::AsyncModuleInstantiation => true,
+            StatementIr::Block(block) => contains_boundary(&block.statements),
+            StatementIr::LexicalBlock(statements) => contains_boundary(statements),
+            _ => false,
+        })
+    }
+    assert!(contains_boundary(&owner.body.statements));
+    assert!(async_script.prepared_scripts.is_empty());
     let script = lower_script_graph(&sources(
         &[
             (
@@ -282,10 +310,6 @@ fn retained_module_drivers_have_private_lexical_owners_outside_global_script() {
     };
     for (files, protocol) in [
         (
-            vec![("entry.js", "await 0; const shared = 'entry'; var localVar; function localFunction() {} helperRead();")],
-            FunctionProtocolIr::AsyncArrow,
-        ),
-        (
             vec![
                 ("entry.js", "import source source from './source.js'; const shared = 'entry'; var localVar; function localFunction() {} helperRead();"),
                 ("source.js", "export const unused = 1;"),
@@ -347,19 +371,22 @@ fn ordinary_modules_with_colliding_names_use_distinct_activation_owners() {
     ]);
     let script = program.script.as_ref().unwrap();
     let graph = activation_graph(script).expect("ordinary Module graph uses canonical owners");
-    assert_eq!(graph.activations.len(), 2);
-    assert_ne!(graph.activations[0].function, graph.activations[1].function);
+    assert_eq!(graph.activations().len(), 2);
+    assert_ne!(
+        graph.activations()[0].function(),
+        graph.activations()[1].function()
+    );
     assert!(script.global_bindings.lexical_names().next().is_none());
     assert!(script
         .global_bindings
         .iter()
         .all(|binding| { binding.declarations == lila_ir::GlobalDeclarationSetIr::None }));
     assert!(script.prepared_scripts.is_empty());
-    for activation in &graph.activations {
+    for activation in graph.activations() {
         let owner = script
             .functions
             .iter()
-            .find(|function| function.id == activation.function)
+            .find(|function| &function.id == activation.function())
             .unwrap();
         assert_eq!(owner.protocol, FunctionProtocolIr::ModuleActivation);
         assert!(owner.strict);
@@ -372,7 +399,7 @@ fn ordinary_modules_with_colliding_names_use_distinct_activation_owners() {
 }
 
 #[test]
-fn synchronous_cycle_plans_keep_ordered_dependencies_and_complete_components() {
+fn synchronous_cycles_keep_ordered_requests_for_runtime_component_selection() {
     let program = module_program(&[
         (
             "entry.js",
@@ -384,43 +411,29 @@ fn synchronous_cycle_plans_keep_ordered_dependencies_and_complete_components() {
     ]);
     let script = program.script.as_ref().unwrap();
     let graph = activation_graph(script).expect("evaluation cycles use canonical owners");
-    assert_eq!(graph.activations.len(), 4);
+    assert_eq!(graph.activations().len(), 4);
     let expected_dependencies = [vec![1, 2, 3], vec![0], vec![], vec![0]];
-    for activation in &graph.activations {
-        let evaluator = script
+    for activation in graph.activations() {
+        assert_eq!(
+            activation.kind(),
+            lila_ir::ModuleActivationKindIr::Synchronous
+        );
+        assert_eq!(
+            activation
+                .requests()
+                .iter()
+                .map(lila_ir::ModuleExecutionRequestIr::target)
+                .collect::<Vec<_>>(),
+            expected_dependencies[activation.module() as usize]
+        );
+        assert!(activation
+            .requests()
+            .iter()
+            .all(|request| request.phase() == lila_ir::ModuleRequestPhaseIr::Evaluation));
+        assert!(script
             .functions
             .iter()
-            .find(|function| function.id == activation.evaluator)
-            .unwrap();
-        let plan = evaluator
-            .body
-            .statements
-            .iter()
-            .find_map(|statement| {
-                let StatementIr::Return(expression) = statement else {
-                    return None;
-                };
-                let ExprIr::ModuleEvaluate(plan) = &expression.expr else {
-                    return None;
-                };
-                Some(plan)
-            })
-            .expect("the registered evaluator consumes a typed evaluation plan");
-        assert_eq!(plan.module(), activation.module);
-        assert_eq!(
-            plan.dependencies(),
-            expected_dependencies[activation.module as usize]
-        );
-        let mut members = plan.component_members().to_vec();
-        members.sort_unstable();
-        assert_eq!(
-            members,
-            if activation.module == 2 {
-                vec![2]
-            } else {
-                vec![0, 1, 3]
-            }
-        );
+            .any(|function| &function.id == activation.function()));
     }
     let initial = script
         .body
@@ -462,7 +475,7 @@ fn deferred_evaluation_components_remain_deferred_and_self_cycles_are_admitted()
     assert_eq!(
         activation_graph(program.script.as_ref().unwrap())
             .unwrap()
-            .activations
+            .activations()
             .len(),
         3
     );
@@ -473,7 +486,7 @@ fn deferred_evaluation_components_remain_deferred_and_self_cycles_are_admitted()
     assert_eq!(
         activation_graph(self_cycle.script.as_ref().unwrap())
             .unwrap()
-            .activations
+            .activations()
             .len(),
         1
     );
@@ -509,14 +522,14 @@ print('after loop');
         let script = program.script.as_ref().unwrap();
         let activation = activation_graph(script)
             .unwrap()
-            .activations
+            .activations()
             .iter()
-            .find(|activation| activation.module == 0)
+            .find(|activation| activation.module() == 0)
             .unwrap();
         let owner = script
             .functions
             .iter()
-            .find(|function| function.id == activation.function)
+            .find(|function| &function.id == activation.function())
             .unwrap();
         let plan = owner.generator_plan.as_ref().unwrap();
         assert_eq!(plan.state_count, 2);
@@ -590,13 +603,13 @@ fn synchronous_module_resources_have_no_suspension_lifetime() {
     let script = program.script.as_ref().unwrap();
     let activation = activation_graph(script)
         .unwrap()
-        .activations
+        .activations()
         .first()
         .unwrap();
     let owner = script
         .functions
         .iter()
-        .find(|function| function.id == activation.function)
+        .find(|function| &function.id == activation.function())
         .unwrap();
     fn resource_scope(
         statements: &[StatementIr],
@@ -627,13 +640,13 @@ fn synchronous_module_resource_forms_use_the_canonical_owner_lifetime() {
         let script = program.script.as_ref().unwrap();
         let activation = activation_graph(script)
             .unwrap()
-            .activations
+            .activations()
             .first()
             .unwrap();
         let owner = script
             .functions
             .iter()
-            .find(|function| function.id == activation.function)
+            .find(|function| &function.id == activation.function())
             .unwrap();
         assert_eq!(owner.protocol, FunctionProtocolIr::ModuleActivation);
         let plan = owner.generator_plan.as_ref().unwrap();
@@ -649,7 +662,7 @@ fn retained_module_drivers_do_not_gain_resource_admission() {
         "for (using resource = null; false;) {}",
         "for (using resource of [null]) {}",
     ] {
-        for prefix in ["await 0;", "import source source from './source.js';"] {
+        for prefix in ["import source source from './source.js';"] {
             let entry = format!("{prefix} {resource}");
             let program = lower_module_graph(&sources(
                 &[
@@ -671,4 +684,62 @@ fn retained_module_drivers_do_not_gain_resource_admission() {
             }
         }
     }
+}
+
+#[test]
+fn async_module_resources_have_a_canonical_execution_owner() {
+    for source in [
+        "await 0; using resource = null;",
+        "using resource = null; await 0;",
+        "await 0; for (using resource = null; false;) {}",
+        "await 0; for (using resource of [null]) {}",
+    ] {
+        let program = module_program(&[("entry.js", source)]);
+        let script = program.script.as_ref().unwrap();
+        let activation = &activation_graph(script).unwrap().activations()[0];
+        assert_eq!(activation.kind(), lila_ir::ModuleActivationKindIr::Async);
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| &function.id == activation.function())
+            .unwrap();
+        assert_eq!(owner.protocol, FunctionProtocolIr::AsyncModuleActivation);
+        assert!(owner.generator_plan.is_none());
+    }
+}
+
+#[test]
+fn original_request_phases_survive_linking_without_a_static_evaluation_schedule() {
+    let program = module_program(&[
+        ("entry.js", "import defer * as deferred from './dependency.js'; import { value } from './dependency.js'; value; deferred;"),
+        ("dependency.js", "export const value = await 0;"),
+    ]);
+    let graph = activation_graph(program.script.as_ref().unwrap()).unwrap();
+    let entry = graph
+        .activations()
+        .iter()
+        .find(|activation| activation.module() == 0)
+        .unwrap();
+    assert_eq!(entry.kind(), lila_ir::ModuleActivationKindIr::Synchronous);
+    assert_eq!(
+        entry
+            .requests()
+            .iter()
+            .map(|request| (request.phase(), request.target()))
+            .collect::<Vec<_>>(),
+        [
+            (lila_ir::ModuleRequestPhaseIr::Defer, 1),
+            (lila_ir::ModuleRequestPhaseIr::Evaluation, 1),
+        ]
+    );
+    assert_eq!(
+        program
+            .script
+            .as_ref()
+            .unwrap()
+            .module_entry_evaluation()
+            .unwrap()
+            .kind(),
+        lila_ir::ModuleEntryEvaluationKindIr::Promise
+    );
 }

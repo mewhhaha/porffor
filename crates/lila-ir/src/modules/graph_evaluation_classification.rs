@@ -30,7 +30,7 @@ use super::record::ModuleUnitId;
 ///
 /// # Deviation
 ///
-/// Eligible synchronous Module-entry graphs allocate and instantiate private
+/// Eligible Module-entry graphs allocate and instantiate private
 /// module environments first, so a deferred module's evaluation dependencies
 /// can stay deferred with it. The typed eligibility witness is shared with
 /// source assembly: classification cannot select that behavior for a graph
@@ -38,14 +38,14 @@ use super::record::ModuleUnitId;
 ///
 /// Outside that boundary, a deferred module's evaluation-phase dependencies
 /// remain eager because the merged-scope driver cannot share cells belonging
-/// to a deferred thunk. TLA, Script entries and source-phase graphs still
-/// retain that explicit implementation gap.
+/// to a deferred thunk. Script entries and source-phase graphs still retain
+/// that explicit implementation gap.
 pub(super) fn classify_evaluation_modes(
     graph: &mut ModuleGraphIr,
     components: &[DynamicComponentIr],
 ) {
     let instantiate =
-        super::synchronous_source::SynchronousInstantiationGraph::new(graph, components).is_some();
+        super::synchronous_source::ModuleInstantiationGraph::new(graph, components).is_some();
     let count = graph.units.len();
     // `(referrer, phase, target)` once, so the fixed point below is a walk over
     // an edge list rather than a repeated resolve of every request.
@@ -146,10 +146,10 @@ pub(super) fn classify_evaluation_modes(
 /// Reports the phased requests the source-text linker still cannot express.
 ///
 /// The retained driver cannot suspend a deferred TLA body or share completion
-/// across an evaluation cycle. The canonical synchronous path owns that cycle
+/// across an evaluation cycle. The canonical execution path owns that cycle
 /// lifecycle and must use the same complete request set as classification.
 pub(super) fn report_unlinkable_phases(graph: &mut ModuleGraphIr, requests: &[DynamicComponentIr]) {
-    if super::synchronous_source::SynchronousInstantiationGraph::new(graph, requests).is_some() {
+    if super::synchronous_source::ModuleInstantiationGraph::new(graph, requests).is_some() {
         return;
     }
     let components = graph.component_of_unit();

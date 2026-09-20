@@ -1,0 +1,54 @@
+{
+  "complete": true,
+  "canonical_locales": 1082,
+  "raw_candidates": 1082,
+  "numbering_systems": 77,
+  "sanctioned_units": 45,
+  "precomposed_pairs": 5,
+  "currency_codes": 307,
+  "table_rows": {
+    "strings": 64471,
+    "patterns": 21608,
+    "signed_patterns": 3978,
+    "choices": 45154,
+    "symbols": 118,
+    "compact_sets": 430,
+    "numbering_profiles": 701,
+    "currency_sets": 470,
+    "unit_sets": 542,
+    "plural_rules": 40,
+    "plural_ranges": 10,
+    "profiles": 534,
+    "unicode_sets": 6
+  },
+  "source_diagnostics": [
+    {
+      "locale": "ife_TG",
+      "kind": "DanglingDefaultContent",
+      "missing_parent": "ife",
+      "authority": "supplementalMetadata.xml defaultContent versus complete pinned Git tree"
+    }
+  ],
+  "products": [
+    {
+      "path": "profiles.json.gz",
+      "sha256": "407884de9c7f22709bd048f5d5194f98b7609c999f87a55973ecd58676721489",
+      "bytes": 1310119
+    },
+    {
+      "path": "profile-provenance.json.gz",
+      "sha256": "f2d0d8e4afd6f64aa640371c10a4e5704a47236278cbbbce5e2b74e3c235bc1f",
+      "bytes": 4653525
+    },
+    {
+      "path": "medial-denominator-policy.json",
+      "sha256": "89ffc7d990903cf4bd8868864b0aa11c6ac77db3fc0e8e293d083f68e85ba2a3",
+      "bytes": 9360
+    },
+    {
+      "path": "plural-samples.json",
+      "sha256": "2a5948312231eb5c8b88a6ee4dcb2e9c7087cdff2da796f0cb57ba6ebfc72a2b",
+      "bytes": 175345
+    }
+  ]
+}

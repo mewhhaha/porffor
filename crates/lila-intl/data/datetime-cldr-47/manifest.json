@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "release": "47.0.0",
+  "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 2033,
+      "sha256": "b4c0ae8ef04f7059f96ce5bbe0467f9fe6f6d81bbe13517701dfeb961fb4d0b6"
+    },
+    {
+      "path": "common/bcp47/calendar.xml",
+      "bytes": 3281,
+      "sha256": "8a1800fcb7fddf6f106a7cf0dd1b434a5e4847297cfeabbc5d0e19b3d3034bed"
+    },
+    {
+      "path": "common/bcp47/number.xml",
+      "bytes": 8305,
+      "sha256": "5f8cfa798bc9efbdabcf78f6a4377304856e3514e06c1ffccaa135801754abd3"
+    },
+    {
+      "path": "common/dtd/ldml.dtd",
+      "bytes": 132170,
+      "sha256": "ea3248b3620a5bcef2cee72de6da5e394517a5cd6a70218d6e4f6775facd6f5c"
+    },
+    {
+      "path": "common/main/ar.xml",
+      "bytes": 691533,
+      "sha256": "f25c71f2ddb2664d5569220b1b4803893b9ddc0e3da4d54b71e90fa16b2432eb"
+    },
+    {
+      "path": "common/main/ar_EG.xml",
+      "bytes": 977,
+      "sha256": "5b80cfe93e16c89b23dcd046ec76d9e39781386e6dfdfa7bb2d8f6dbc87955a7"
+    },
+    {
+      "path": "common/main/en.xml",
+      "bytes": 435987,
+      "sha256": "cdb3d09f4d5cd206616a57cc8a8cb54c458c6678758c59b8b817125fe2dfb147"
+    },
+    {
+      "path": "common/main/en_US.xml",
+      "bytes": 459,
+      "sha256": "e3c97332d035ce5424269b7226b7d85e6cf36333b5caf329c82b9a9c607e13d0"
+    },
+    {
+      "path": "common/main/root.xml",
+      "bytes": 268212,
+      "sha256": "1ac705812e9e186b8d904813a4989d160729cc4d217849ad3736257da10f69b0"
+    },
+    {
+      "path": "common/main/zh.xml",
+      "bytes": 610450,
+      "sha256": "97fea2cfdb7bfe59a4e0ce712ca2e6ccba67ef211957296f60365c9f84b24d52"
+    },
+    {
+      "path": "common/main/zh_Hans.xml",
+      "bytes": 458,
+      "sha256": "138d8d3b9b646ab10d30628911ce79426ed86d308b13e988fc69f57bc16c91e2"
+    },
+    {
+      "path": "common/main/zh_Hans_CN.xml",
+      "bytes": 483,
+      "sha256": "0a531ee82fcc7e4bfcb4dd2307d9f49ed5221491d178aa71c0d08037df042d0a"
+    },
+    {
+      "path": "common/rbnf/zh.xml",
+      "bytes": 17750,
+      "sha256": "8d08bfc77f6ae22bfc67426af72c48b31fba0130e079d560df54801d8bd94367"
+    },
+    {
+      "path": "common/supplemental/dayPeriods.xml",
+      "bytes": 82166,
+      "sha256": "d986ad97ca0d2daef26f3e048d9907322f71540b60cdfb3f2f824de30ac11974"
+    },
+    {
+      "path": "common/supplemental/likelySubtags.xml",
+      "bytes": 914808,
+      "sha256": "505b3d3ddfae6eac57e0a82414b6571cb74fcfc18eb9a267a38ac0e9fab8bdb2"
+    },
+    {
+      "path": "common/supplemental/numberingSystems.xml",
+      "bytes": 11682,
+      "sha256": "c2177412b58cb809cc9f86ce2da80b395e5b7288a541b390e0dc5e6c9193f029"
+    },
+    {
+      "path": "common/supplemental/supplementalData.xml",
+      "bytes": 408368,
+      "sha256": "3fb813039e4ab5041afc78c27fe35704b48e114513f008722e3e366473ed10b4"
+    },
+    {
+      "path": "common/supplemental/supplementalMetadata.xml",
+      "bytes": 179742,
+      "sha256": "74b9f3f942d7f28b302c18a9eebc21971ef83ebb02ea6b3565fb472a09a9be58"
+    },
+    {
+      "path": "docs/ldml/tr35-dates.md",
+      "bytes": 194096,
+      "sha256": "0f4a9d5a7c19d95d545c0fd2f24410d75fc1d0987bcd28a8620947e0a72e28ec"
+    },
+    {
+      "path": "docs/ldml/tr35.md",
+      "bytes": 352127,
+      "sha256": "79e0cfa61d50c5de3b1ad87a8c5b9bf334492118087dcf84f600ba011787575a"
+    },
+    {
+      "path": "selector.json",
+      "bytes": 576,
+      "sha256": "cdbdc37fd59e9e29e60eedbc1aa2c1d42c7c1e996be54e22678c5b79fe6dde8e"
+    }
+  ],
+  "total_bytes": 4315663
+}

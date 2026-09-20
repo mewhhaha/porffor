@@ -2,9 +2,9 @@ use lila_front::{parse, ParseOptions};
 use lila_ir::{lower, ExprIr, ModuleEntryEvaluationKindIr, StatementIr};
 
 #[test]
-fn module_entry_has_one_private_completion_operation_in_both_execution_modes() {
+fn every_canonical_module_entry_has_one_owned_evaluation_promise() {
     for (source, kind) in [
-        ("42;", ModuleEntryEvaluationKindIr::Synchronous),
+        ("42;", ModuleEntryEvaluationKindIr::Promise),
         ("await 0; 42;", ModuleEntryEvaluationKindIr::Promise),
         (
             "throw undefined; await 0;",
@@ -29,17 +29,7 @@ fn module_entry_has_one_private_completion_operation_in_both_execution_modes() {
             })
             .count();
         assert_eq!(entries, 1);
-        match kind {
-            ModuleEntryEvaluationKindIr::Synchronous => {
-                assert!(matches!(entry.evaluation().expr, ExprIr::ModuleEvaluate(_)));
-            }
-            ModuleEntryEvaluationKindIr::Promise => {
-                assert!(matches!(
-                    entry.evaluation().expr,
-                    ExprIr::CallIndirect { .. }
-                ));
-            }
-        }
+        assert!(matches!(entry.evaluation().expr, ExprIr::ModuleEvaluate(_)));
     }
 }
 

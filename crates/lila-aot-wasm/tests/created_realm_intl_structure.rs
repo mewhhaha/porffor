@@ -7,6 +7,8 @@ const HOST: &str = include_str!("../src/builtins/host.rs");
 const CREATED: &str = include_str!("../src/builtins/host/created_realm_intl_intrinsics.rs");
 const PROPERTIES: &str = include_str!("../src/intrinsics/intl.rs");
 const LOCALE: &str = include_str!("../src/builtins/intl/construction_lifecycle.rs");
+const NUMBER_FORMATTER: &str =
+    include_str!("../src/builtins/intl_numberformat/construction_lifecycle.rs");
 const FORMATTER: &str =
     include_str!("../src/builtins/intl_datetimeformat/construction_lifecycle.rs");
 
@@ -18,6 +20,11 @@ fn intl_default_prototypes_are_rooted_realm_intrinsics() {
             "IntlDateTimeFormat",
             "INTL_DATE_TIME_FORMAT",
             "Intl.DateTimeFormat",
+        ),
+        (
+            "IntlNumberFormat",
+            "INTL_NUMBER_FORMAT",
+            "Intl.NumberFormat",
         ),
     ] {
         let offset = format!("HEAP_REALM_INTRINSICS_{constant}_PROTOTYPE_OFFSET");
@@ -40,7 +47,7 @@ fn intl_default_prototypes_are_rooted_realm_intrinsics() {
     assert!(CREATED.contains("self.emit_store_non_array_realm_intrinsic("));
     assert!(CREATED.contains("properties.prototype_slot,"));
     assert!(!CREATED.contains("GlobalSet("));
-    for constructor in [LOCALE, FORMATTER] {
+    for constructor in [LOCALE, FORMATTER, NUMBER_FORMATTER] {
         assert!(constructor.contains("NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary("));
         assert!(!constructor.contains("NewTargetPrototypeFallback::CurrentGlobal"));
         assert!(!constructor.contains("NewTargetPrototypeFallback::RealmIntrinsic"));

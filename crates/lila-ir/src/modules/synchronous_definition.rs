@@ -5,11 +5,13 @@ use super::synchronous_execution::*;
 use crate::*;
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct SynchronousModuleAnalysis {
-    pub(crate) graphs: BTreeMap<usize, SynchronousModuleGraphIr>,
+pub(crate) struct ModuleExecutionAnalysis {
+    pub(crate) graphs: BTreeMap<usize, ModuleExecutionGraphIr>,
     pub(crate) imports: BTreeMap<usize, ModuleCellIr>,
     pub(crate) reads: BTreeMap<usize, ModuleCellIr>,
-    pub(crate) evaluations: BTreeMap<usize, SynchronousModuleEvaluationIr>,
+    pub(crate) evaluations: BTreeMap<usize, ModuleEvaluationIr>,
+    pub(crate) async_dependencies: BTreeMap<usize, ModuleEvaluationIr>,
+    pub(crate) deferred_imports: BTreeMap<usize, ModuleEvaluationIr>,
     pub(crate) deferred_evaluations: BTreeMap<usize, DeferredModuleEvaluationIr>,
     pub(crate) publishers: BTreeMap<usize, (u32, ModuleNamespaceModeIr)>,
     pub(crate) boundaries: BTreeSet<usize>,
@@ -17,27 +19,30 @@ pub(crate) struct SynchronousModuleAnalysis {
 }
 
 #[derive(Debug)]
-pub(super) struct SynchronousUnitDefinition {
+pub(super) struct ModuleUnitDefinition {
     pub(super) module: u32,
     pub(super) imports: Vec<ResolvedBindingIr>,
     pub(super) namespaces: Vec<(ModuleNamespaceModeIr, Vec<ResolvedBindingIr>)>,
     pub(super) has_import_meta: bool,
     pub(super) default_export: DefaultExportFormIr,
-    pub(super) evaluation: SynchronousModuleEvaluationIr,
-    pub(super) readiness: Vec<ModuleReadinessNodeIr>,
+    pub(super) evaluation: ModuleEvaluationIr,
+    pub(super) kind: ModuleActivationKindIr,
+    pub(super) requests: Vec<ModuleExecutionRequestIr>,
 }
 
 #[derive(Debug)]
-pub(super) struct SynchronousModuleDefinitions {
+pub(super) struct ModuleExecutionDefinitions {
     pub(super) graph_span: (boa_ast::Position, boa_ast::Position),
-    pub(super) units: Vec<SynchronousUnitDefinition>,
+    pub(super) units: Vec<ModuleUnitDefinition>,
     pub(super) record_count: u32,
     pub(super) dispatcher_namespaces: BTreeMap<String, ModuleCellIr>,
-    pub(super) dispatcher_evaluations: BTreeMap<String, SynchronousModuleEvaluationIr>,
+    pub(super) dispatcher_evaluations: BTreeMap<String, ModuleEvaluationIr>,
+    pub(super) dispatcher_async_dependencies: BTreeMap<String, ModuleEvaluationIr>,
+    pub(super) dispatcher_deferred_imports: BTreeMap<String, ModuleEvaluationIr>,
     pub(super) initial_evaluation: Vec<u32>,
 }
 
-impl SynchronousModuleDefinitions {
+impl ModuleExecutionDefinitions {
     pub(super) fn apply<'a>(
         &self,
         script: &'a Script,
@@ -62,33 +67,17 @@ impl SynchronousModuleDefinitions {
             .expect("trusted module graph span survives Script parsing");
         assert_eq!(graph.as_ref().len(), self.units.len());
         let mut owners = Vec::new();
-        let mut evaluators = Vec::new();
-        for pair in graph.as_ref() {
-            let Some(Expression::ArrayLiteral(pair)) = pair.as_ref().map(Expression::flatten)
-            else {
-                panic!("module entry holds owner and evaluator");
-            };
-            assert_eq!(pair.as_ref().len(), 2);
+        for expression in graph.as_ref() {
             let Some(Expression::AsyncArrowFunction(owner)) =
-                pair.as_ref()[0].as_ref().map(Expression::flatten)
+                expression.as_ref().map(Expression::flatten)
             else {
                 panic!("module owner is lexically transparent");
             };
-            let Some(Expression::ArrowFunction(evaluator)) =
-                pair.as_ref()[1].as_ref().map(Expression::flatten)
-            else {
-                panic!("module evaluator is a private closure");
-            };
             owners.push(owner);
-            evaluators.push(evaluator);
         }
         let functions = owners
             .iter()
             .map(|owner| analysis.function_expr_ids[&async_arrow_function_key(owner)].clone())
-            .collect::<Vec<_>>();
-        let evaluator_functions = evaluators
-            .iter()
-            .map(|owner| analysis.function_expr_ids[&arrow_function_key(owner)].clone())
             .collect::<Vec<_>>();
         let mut cells = BTreeMap::new();
         for ((unit, owner), function) in self.units.iter().zip(&owners).zip(&functions) {
@@ -96,12 +85,18 @@ impl SynchronousModuleDefinitions {
                 .function_plans
                 .get_mut(function)
                 .expect("module owner was analyzed")
-                .protocol = FunctionProtocolIr::ModuleActivation;
+                .protocol = match unit.kind {
+                ModuleActivationKindIr::Synchronous => FunctionProtocolIr::ModuleActivation,
+                ModuleActivationKindIr::Async => FunctionProtocolIr::AsyncModuleActivation,
+            };
             analysis
                 .owner_plans
                 .get_mut(function)
                 .expect("module environment was analyzed")
-                .execution_kind = FunctionExecutionKind::Generator;
+                .execution_kind = match unit.kind {
+                ModuleActivationKindIr::Synchronous => FunctionExecutionKind::Generator,
+                ModuleActivationKindIr::Async => FunctionExecutionKind::Async,
+            };
             let plan = &analysis.owner_plans[function];
             for (name, slot) in &plan.owned_env_slots {
                 cells.insert((unit.module, name.clone()), *slot);
@@ -160,17 +155,9 @@ impl SynchronousModuleDefinitions {
                 module: *module,
                 mode: *mode,
             },
-            _ => panic!(
-                "synchronous instantiation requires resolved environment or namespace bindings"
-            ),
+            _ => panic!("module instantiation requires resolved environment or namespace bindings"),
         };
-        for (((unit, owner), evaluator), function) in self
-            .units
-            .iter()
-            .zip(&owners)
-            .zip(&evaluators)
-            .zip(&functions)
-        {
+        for ((unit, owner), function) in self.units.iter().zip(&owners).zip(&functions) {
             let mut statements = owner.body().statements().iter();
             statements.next().expect("strict directive exists");
             for target in &unit.imports {
@@ -185,7 +172,7 @@ impl SynchronousModuleDefinitions {
                 let [variable] = declaration.variable_list().as_ref() else {
                     panic!("one import per declaration");
                 };
-                analysis.synchronous_modules.imports.insert(
+                analysis.module_execution.imports.insert(
                     std::ptr::from_ref(variable.init().expect("import placeholder")) as usize,
                     resolve(target),
                 );
@@ -206,19 +193,16 @@ impl SynchronousModuleDefinitions {
                 let pointer = std::ptr::from_ref(array) as usize;
                 analysis.namespace_initializers.insert(pointer, *mode);
                 analysis
-                    .synchronous_modules
+                    .module_execution
                     .publishers
                     .insert(pointer, (unit.module, *mode));
                 assert_eq!(array.as_ref().len(), 1 + 2 * exports.len());
                 if *mode == ModuleNamespaceModeIr::Deferred {
-                    analysis.synchronous_modules.deferred_evaluations.insert(
+                    analysis.module_execution.deferred_evaluations.insert(
                         std::ptr::from_ref(reader_expression(
                             array.as_ref()[0].as_ref().expect("evaluator"),
                         )) as usize,
-                        DeferredModuleEvaluationIr {
-                            module: unit.module,
-                            readiness: unit.readiness.clone(),
-                        },
+                        DeferredModuleEvaluationIr::new(unit.module),
                     );
                 }
                 for (index, export) in exports.iter().enumerate() {
@@ -228,7 +212,7 @@ impl SynchronousModuleDefinitions {
                             .expect("export reader"),
                     );
                     analysis
-                        .synchronous_modules
+                        .module_execution
                         .reads
                         .insert(std::ptr::from_ref(expression) as usize, resolve(export));
                 }
@@ -239,19 +223,9 @@ impl SynchronousModuleDefinitions {
                 panic!("boundary is a statement");
             };
             analysis
-                .synchronous_modules
+                .module_execution
                 .boundaries
                 .insert(std::ptr::from_ref(boundary.as_ref()) as usize);
-            let [StatementListItem::Statement(statement)] = evaluator.body().statements() else {
-                panic!("private evaluator has one return");
-            };
-            let Statement::Return(statement) = statement.as_ref() else {
-                panic!("private evaluator returns");
-            };
-            analysis.synchronous_modules.evaluations.insert(
-                std::ptr::from_ref(statement.target().expect("evaluation placeholder")) as usize,
-                unit.evaluation.clone(),
-            );
             super::default_export_definition::apply_synchronous_default(
                 owner.body(),
                 unit.module,
@@ -261,14 +235,19 @@ impl SynchronousModuleDefinitions {
             );
             assert_eq!(
                 analysis.function_plans[function].protocol,
-                FunctionProtocolIr::ModuleActivation
+                match unit.kind {
+                    ModuleActivationKindIr::Synchronous => FunctionProtocolIr::ModuleActivation,
+                    ModuleActivationKindIr::Async => FunctionProtocolIr::AsyncModuleActivation,
+                }
             );
         }
         // Only linker-generated dispatcher source can name these private cells.
         // No Script lexical aliases are created for user code to resolve.
         struct DispatcherReads<'a, 'b> {
             namespaces: &'b BTreeMap<String, ModuleCellIr>,
-            evaluations: &'b BTreeMap<String, SynchronousModuleEvaluationIr>,
+            evaluations: &'b BTreeMap<String, ModuleEvaluationIr>,
+            async_dependencies: &'b BTreeMap<String, ModuleEvaluationIr>,
+            deferred_imports: &'b BTreeMap<String, ModuleEvaluationIr>,
             interner: &'b Interner,
             analysis: &'b mut Analysis<'a>,
         }
@@ -278,19 +257,29 @@ impl SynchronousModuleDefinitions {
                 if let Expression::Identifier(identifier) = expression {
                     let name = self.interner.resolve_expect(identifier.sym()).to_string();
                     let pointer = std::ptr::from_ref(expression) as usize;
-                    if let Some(builtin) = super::dynamic::synchronous_dispatcher_intrinsic(&name) {
+                    if let Some(builtin) = super::dynamic::module_dispatcher_intrinsic(&name) {
                         self.analysis
-                            .synchronous_modules
+                            .module_execution
                             .intrinsics
                             .insert(pointer, builtin);
                     } else if let Some(evaluation) = self.evaluations.get(&name) {
                         self.analysis
-                            .synchronous_modules
+                            .module_execution
                             .evaluations
+                            .insert(pointer, evaluation.clone());
+                    } else if let Some(evaluation) = self.async_dependencies.get(&name) {
+                        self.analysis
+                            .module_execution
+                            .async_dependencies
+                            .insert(pointer, evaluation.clone());
+                    } else if let Some(evaluation) = self.deferred_imports.get(&name) {
+                        self.analysis
+                            .module_execution
+                            .deferred_imports
                             .insert(pointer, evaluation.clone());
                     } else if let Some(target) = self.namespaces.get(&name) {
                         self.analysis
-                            .synchronous_modules
+                            .module_execution
                             .reads
                             .insert(std::ptr::from_ref(expression) as usize, target.clone());
                     }
@@ -301,6 +290,8 @@ impl SynchronousModuleDefinitions {
         let mut dispatcher = DispatcherReads {
             namespaces: &self.dispatcher_namespaces,
             evaluations: &self.dispatcher_evaluations,
+            async_dependencies: &self.dispatcher_async_dependencies,
+            deferred_imports: &self.dispatcher_deferred_imports,
             interner,
             analysis,
         };
@@ -317,7 +308,7 @@ impl SynchronousModuleDefinitions {
             let Statement::Expression(expression) = statement.as_ref() else {
                 panic!("evaluation is an expression");
             };
-            analysis.synchronous_modules.evaluations.insert(
+            analysis.module_execution.evaluations.insert(
                 std::ptr::from_ref(expression) as usize,
                 self.units
                     .iter()
@@ -328,24 +319,23 @@ impl SynchronousModuleDefinitions {
             );
         }
         assert!(following.next().is_none());
-        analysis.synchronous_modules.graphs.insert(
+        analysis.module_execution.graphs.insert(
             std::ptr::from_ref(graph) as usize,
-            SynchronousModuleGraphIr {
-                record_count: self.record_count,
-                activations: self
-                    .units
+            ModuleExecutionGraphIr::new(
+                self.record_count,
+                self.units
                     .iter()
                     .zip(functions)
-                    .zip(evaluator_functions)
-                    .map(
-                        |((unit, function), evaluator)| SynchronousModuleActivationIr {
-                            module: unit.module,
+                    .map(|(unit, function)| {
+                        ModuleActivationIr::new(
+                            unit.module,
                             function,
-                            evaluator,
-                        },
-                    )
+                            unit.kind,
+                            unit.requests.clone(),
+                        )
+                    })
                     .collect(),
-            },
+            ),
         );
     }
 }

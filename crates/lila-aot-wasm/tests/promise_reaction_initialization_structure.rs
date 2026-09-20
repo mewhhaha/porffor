@@ -316,31 +316,28 @@ fn reaction_initialization_is_the_exact_private_capability_free_domain() {
         "the continuation declaration must remain private and attribute-free"
     );
 
-    let initialization_declaration = normalize_rust(bounded(
-        PROMISE_SOURCE,
-        concat!(
-            "enum PromiseResolveRealmAuthority<'a> {\n",
-            "    CurrentFunction,\n",
-            "    AsyncExecution(&'a AsyncExecutionRealmContext),\n",
-            "}\n"
-        ),
-        "#[derive(Clone, Copy)]\nenum PromiseCombinatorMode",
+    let initialization_declaration = normalize_rust(&format!(
+        "enum PromiseReactionInitialization<'a> {{{}",
+        bounded(
+            PROMISE_SOURCE,
+            "enum PromiseReactionInitialization<'a> {",
+            "#[derive(Clone, Copy)]\nenum PromiseCombinatorMode",
+        )
     ));
     assert_eq!(
         initialization_declaration.code,
         concat!(
-            "enumPromiseReactionInitialization<'a>{Default,",
-            "AsyncExecution{realm:&'aAsyncExecutionRealmContext,",
-            "continuation:AsyncAwaitContinuation,},}"
-        ),
-        "the reaction initialization declaration must remain private and attribute-free"
+        "enumPromiseReactionInitialization<'a>{Default,",
+        "AsyncExecution{realm:&'aAsyncExecutionRealmContext,continuation:AsyncAwaitContinuation,},",
+        "Module{realm:&'aAsyncExecutionRealmContext,continuation:ModuleReactionContinuation,},}"
+    )
     );
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "PromiseReactionInitialization"),
-        11,
-        "the declaration, two typed parameters, four producers and four exhaustive arms own every mention"
+        16,
+        "the declaration, three typed parameters, six producers and six exhaustive arms own every mention"
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "PromiseReactionInitialization::Default"),
@@ -351,15 +348,15 @@ fn reaction_initialization_is_the_exact_private_capability_free_domain() {
             &source_root,
             "PromiseReactionInitialization::AsyncExecution"
         ),
-        4
+        5
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "AsyncAwaitContinuation"),
-        17,
-        "declaration, impl, nested field, three owned parameters and eleven variant routes own every mention"
+        18,
+        "ordinary Await and the private raw module await own distinct AsyncFunction producers"
     );
     for (variant, count) in [
-        ("AsyncFunction", 2),
+        ("AsyncFunction", 3),
         ("AsyncGeneratorBody", 2),
         ("AsyncGeneratorAwaitReturn", 3),
         ("AsyncGeneratorYield", 2),
@@ -550,7 +547,10 @@ fn consumers_borrow_one_policy_for_resolve_and_both_reactions() {
             "PromiseReactionInitialization::AsyncExecution{realm,continuation,}=>{",
             "self.store_i64_local_at_offset(reaction_record_local,",
             "HEAP_PROMISE_REACTION_REALM_OFFSET,realm.realm_local,function,);",
-            "continuation.reaction_callback_kind()}"
+            "continuation.reaction_callback_kind()}",
+            "PromiseReactionInitialization::Module{realm,continuation,}=>{",
+            "self.store_i64_local_at_offset(reaction_record_local,HEAP_PROMISE_REACTION_REALM_OFFSET,realm.realm_local,function,);",
+            "continuation.callback_kind()}"
         )
     );
 
@@ -570,7 +570,7 @@ fn consumers_borrow_one_policy_for_resolve_and_both_reactions() {
         concat!(
             "PromiseReactionInitialization::Default=>",
             "PromiseResolveRealmAuthority::CurrentFunction,",
-            "PromiseReactionInitialization::AsyncExecution{realm,..}=>{",
+            "PromiseReactionInitialization::AsyncExecution{realm,..}|PromiseReactionInitialization::Module{realm,..}=>{",
             "PromiseResolveRealmAuthority::AsyncExecution(*realm)}"
         )
     );
@@ -725,4 +725,74 @@ fn existing_fixture_covers_default_and_async_execution_reactions() {
             "missing fixture marker `{marker}`"
         );
     }
+}
+
+#[test]
+fn module_reactions_accept_owned_intrinsic_records_and_keep_raw_rejection_and_realm() {
+    let raw = bounded(
+        PROMISE_SOURCE,
+        "    fn emit_owned_promise_record_reactions(",
+        "    pub(crate) fn emit_module_promise_reactions(",
+    );
+    for forbidden in [
+        "emit_intrinsic_promise_resolve",
+        "emit_get_property",
+        "emit_function_handle_call",
+        "PromiseConstructor",
+        "Species",
+    ] {
+        assert!(
+            !raw.contains(forbidden),
+            "owned module reaction observed {forbidden}"
+        );
+    }
+    assert_eq!(raw.matches("&initialization").count(), 2);
+    assert!(raw.contains("PromiseReactionType::Fulfill"));
+    assert!(raw.contains("PromiseReactionType::Reject"));
+    assert!(raw.contains("emit_route_promise_reaction_pair"));
+    assert!(raw.contains("HEAP_PROMISE_IS_HANDLED_OFFSET, 1"));
+    let module = bounded(
+        PROMISE_SOURCE,
+        "    pub(crate) fn emit_module_promise_reactions(",
+        "    pub(crate) fn emit_module_import_await_reactions(",
+    );
+    assert!(module.contains("PromiseReactionInitialization::Module"));
+    let import = bounded(
+        PROMISE_SOURCE,
+        "    pub(crate) fn emit_module_import_await_reactions(",
+        "    pub(crate) fn emit_module_execution_realm_context(",
+    );
+    assert!(import.contains("HEAP_ASYNC_ENV_OFFSET"));
+    assert!(import.contains("self.current_env_local"));
+    assert!(import.contains("emit_async_function_execution_realm_context_from_activation"));
+    assert!(import.contains("AsyncAwaitContinuation::AsyncFunction"));
+    assert!(import.contains("emit_owned_promise_record_reactions"));
+    assert!(!import.contains("emit_intrinsic_await_reactions"));
+    let callbacks = normalized(bounded(
+        PROMISE_SOURCE,
+        "pub(crate) enum ModuleReactionContinuation {",
+        "enum PromiseReactionInitialization<'a> {",
+    ));
+    assert_eq!(callbacks, concat!(
+        "Body,Join,}implModuleReactionContinuation{fncallback_kind(&self)->PromiseReactionCallbackKind{matchself{",
+        "Self::Body=>PromiseReactionCallbackKind::ModuleBody,Self::Join=>PromiseReactionCallbackKind::ModuleJoin,}}}"
+    ));
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert_eq!(
+        count_route_in_rust_sources(&source_root, "PromiseReactionInitialization::Module"),
+        3
+    );
+}
+
+#[test]
+fn canonical_evaluate_capabilities_require_intrinsic_promise_bootstrap_even_without_source_await() {
+    let planning = include_str!("../src/planning.rs");
+    let entry = normalized(bounded(
+        planning,
+        "    pub(crate) fn from_script(",
+        "    pub(crate) fn should_initialize_standard_builtin(",
+    ));
+    assert!(entry.contains("script.module_entry_evaluation()"));
+    assert!(entry.contains("entry.kind()==lila_ir::ModuleEntryEvaluationKindIr::Promise"));
+    assert!(entry.contains("plan.require_standard_builtin(StandardBuiltinId::PromiseConstructor);"));
 }

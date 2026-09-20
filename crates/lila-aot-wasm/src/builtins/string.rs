@@ -1,4 +1,6 @@
 use super::super::*;
+
+mod constructor;
 use crate::operations::{PrimitiveToStringAbruptRoute, ToLengthAbruptRoute};
 use crate::runtime_helpers::{
     RegExpMatcherFailure, RegExpMatcherFailureRoute, RegExpMatcherStatus,

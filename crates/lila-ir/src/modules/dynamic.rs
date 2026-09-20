@@ -233,7 +233,7 @@ fn append_import_options_validation(
             ),
             // Sequence callees force ordinary value lowering before invocation;
             // eval-visible environment references must not claim private names.
-            DynamicImportDispatcherExecution::SynchronousModuleJobs => (
+            DynamicImportDispatcherExecution::CompiledModuleJobs => (
                 "$lila$module$TypeError",
                 "(0, $lila$module$ownKeys)",
                 "(0, $lila$module$getOwnPropertyDescriptor)",
@@ -339,14 +339,14 @@ pub fn source_writes_dynamic_import(source: &str) -> bool {
 #[derive(Clone, Copy)]
 enum DynamicImportDispatcherExecution {
     RetainedMerged,
-    SynchronousModuleJobs,
+    CompiledModuleJobs,
 }
 
-pub(super) fn synchronous_evaluator_name(module: ModuleUnitId) -> String {
+pub(super) fn module_evaluator_name(module: ModuleUnitId) -> String {
     format!("{LINKER_NAME_PREFIX}evaluate${module}")
 }
 
-pub(super) fn synchronous_dispatcher_intrinsic(name: &str) -> Option<StandardBuiltinId> {
+pub(super) fn module_dispatcher_intrinsic(name: &str) -> Option<StandardBuiltinId> {
     match name {
         "$lila$module$TypeError" => Some(StandardBuiltinId::TypeErrorConstructor),
         "$lila$module$SyntaxError" => Some(StandardBuiltinId::SyntaxErrorConstructor),
@@ -458,8 +458,8 @@ impl ModuleGraphIr {
         self.import_dispatchers(DynamicImportDispatcherExecution::RetainedMerged)
     }
 
-    pub(super) fn synchronous_dynamic_import_prelude(&self) -> String {
-        self.import_dispatchers(DynamicImportDispatcherExecution::SynchronousModuleJobs)
+    pub(super) fn module_execution_dynamic_import_prelude(&self) -> String {
+        self.import_dispatchers(DynamicImportDispatcherExecution::CompiledModuleJobs)
     }
 
     fn import_dispatchers(&self, execution: DynamicImportDispatcherExecution) -> String {
@@ -492,7 +492,7 @@ impl ModuleGraphIr {
     ) -> String {
         let synchronous = matches!(
             execution,
-            DynamicImportDispatcherExecution::SynchronousModuleJobs
+            DynamicImportDispatcherExecution::CompiledModuleJobs
         );
         let mut text = String::from(if synchronous {
             "async function "
@@ -518,18 +518,19 @@ impl ModuleGraphIr {
                 text.push_str(" await void 0;");
                 match phase {
                     ImportPhaseIr::Evaluation => {
-                        // Evaluate returns a settled promise even for an abrupt
-                        // synchronous body. Its reaction is a second job; retain
-                        // the exact throw value until that continuation runs.
-                        text.push_str(" try { ");
-                        text.push_str(&synchronous_evaluator_name(component.target()));
-                        text.push_str(
-                            "; } catch (error) { await void 0; throw error; } await void 0;",
-                        );
+                        text.push_str(" await ");
+                        text.push_str(&module_evaluator_name(component.target()));
+                        text.push(';');
                     }
-                    ImportPhaseIr::Defer => {}
+                    ImportPhaseIr::Defer => {
+                        text.push_str(" if (");
+                        text.push_str(&module_async_dependencies_name(component.target()));
+                        text.push_str(") await ");
+                        text.push_str(&module_deferred_import_name(component.target()));
+                        text.push(';');
+                    }
                     ImportPhaseIr::Source => {
-                        unreachable!("canonical synchronous graph excludes source phase")
+                        unreachable!("canonical execution graph excludes source phase")
                     }
                 }
                 text.push_str(" return ");
@@ -546,7 +547,7 @@ impl ModuleGraphIr {
         }) {
             assert!(
                 synchronous,
-                "deferred load failures belong to canonical synchronous graphs"
+                "deferred load failures belong to canonical execution graphs"
             );
             append_component_condition(&mut text, &rejection.request);
             match rejection.stage {
@@ -2082,4 +2083,12 @@ mod tests {
         assert_eq!(js_string_literal("a\"b\\c"), "\"a\\\"b\\\\c\"");
         assert_eq!(js_string_literal("a\u{2028}b"), "\"a\\u2028b\"");
     }
+}
+
+pub(super) fn module_async_dependencies_name(module: ModuleUnitId) -> String {
+    format!("$lila$module$asyncDependencies${module}")
+}
+
+pub(super) fn module_deferred_import_name(module: ModuleUnitId) -> String {
+    format!("$lila$module$deferredImport${module}")
 }

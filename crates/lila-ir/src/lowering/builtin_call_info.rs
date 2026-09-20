@@ -1913,14 +1913,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf => {
                 Some(ValueInfo::new(ValueKind::Undefined))
             }
-            StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter => Some(ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::from_kind(ValueKind::Number)
-                    .union(KindSet::from_kind(ValueKind::Undefined)),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::none(),
-            }),
-            StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => Some(ValueInfo {
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::from_kind(ValueKind::Number)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
@@ -1945,20 +1939,11 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 Some(ValueInfo::new(ValueKind::Undefined))
             }
-            StandardBuiltinId::IntlGetCanonicalLocales => Some(ValueInfo::new(ValueKind::Array)),
             StandardBuiltinId::IntlLocaleConstructor
             | StandardBuiltinId::IntlLocalePrototypeMaximize
             | StandardBuiltinId::IntlLocalePrototypeMinimize => Some(Self::value_info_from_shape(
                 Some(Self::intl_locale_instance_shape()),
             )),
-            StandardBuiltinId::IntlLocalePrototypeLanguageGetter
-            | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
-            | StandardBuiltinId::IntlLocalePrototypeToString => {
-                Some(ValueInfo::new(ValueKind::String))
-            }
-            StandardBuiltinId::IntlLocalePrototypeNumericGetter => {
-                Some(ValueInfo::new(ValueKind::Boolean))
-            }
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
             | StandardBuiltinId::IntlLocalePrototypeRegionGetter
             | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
@@ -1969,22 +1954,37 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
             | StandardBuiltinId::IntlLocalePrototypeVariantsGetter => None,
             StandardBuiltinId::IntlDateTimeFormatConstructor
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => Some(ValueInfo {
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlNumberFormatConstructor
+            | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::none(),
             }),
-            StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
+            StandardBuiltinId::IntlGetCanonicalLocales
+            | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts => {
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
+            | StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => {
                 Some(ValueInfo::new(ValueKind::Array))
             }
-            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter => {
+            StandardBuiltinId::IntlLocalePrototypeNumericGetter => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => {
                 Some(ValueInfo::new(ValueKind::Function))
             }
-            StandardBuiltinId::IntlDateTimeFormatBoundFormat
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange => {
+            StandardBuiltinId::IntlLocalePrototypeLanguageGetter
+            | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+            | StandardBuiltinId::IntlLocalePrototypeToString
+            | StandardBuiltinId::IntlDateTimeFormatBoundFormat
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
+            | StandardBuiltinId::IntlNumberFormatBoundFormat
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange => {
                 Some(ValueInfo::new(ValueKind::String))
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition => {

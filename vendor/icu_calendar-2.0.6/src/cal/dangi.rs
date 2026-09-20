@@ -67,6 +67,12 @@ use icu_provider::prelude::*;
 ///
 /// This calendar does not use era codes.
 ///
+/// This calendar retains astronomical calculations for related ISO years
+/// -3653 through 4703, including all bundled modern data. Outside that interval,
+/// it uses an integer mean-lunar/Gregorian-solar-term approximation adapted from
+/// ICU4X 2.1. The models meet at identical New Year boundaries; ISO conversion
+/// remains reversible across the full Temporal date domain.
+///
 /// # Month codes
 ///
 /// This calendar is a lunisolar calendar. It supports regular month codes `"M01" - "M12"` as well
@@ -136,8 +142,15 @@ impl Dangi {
     pub fn try_new_unstable<D: DataProvider<CalendarDangiV1> + ?Sized>(
         provider: &D,
     ) -> Result<Self, DataError> {
+        let payload = provider.load(Default::default())?.payload;
+        payload
+            .get()
+            .validate::<chinese_based::Dangi>()
+            .map_err(|error| {
+                DataError::custom("invalid dangi calendar year cache").with_display_context(&error)
+            })?;
         Ok(Self {
-            data: Some(provider.load(Default::default())?.payload),
+            data: Some(payload),
         })
     }
 
@@ -239,13 +252,13 @@ impl Calendar for Dangi {
     fn year_info(&self, date: &Self::DateInner) -> Self::Year {
         let year = date.0.year;
         CyclicYear {
-            year: (year.related_iso as i64 - 4).rem_euclid(60) as u8 + 1,
-            related_iso: year.related_iso,
+            year: (i64::from(year.related_iso()) - 4).rem_euclid(60) as u8 + 1,
+            related_iso: year.related_iso(),
         }
     }
 
     fn extended_year(&self, date: &Self::DateInner) -> i32 {
-        chinese_based::extended_from_iso::<chinese_based::Dangi>(date.0.year.related_iso)
+        chinese_based::extended_from_iso::<chinese_based::Dangi>(date.0.year.related_iso())
     }
 
     fn is_in_leap_year(&self, date: &Self::DateInner) -> bool {

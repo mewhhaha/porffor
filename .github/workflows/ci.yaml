@@ -53,6 +53,7 @@ jobs:
         run: |
           cargo test --release --locked -p lila-front --test regexp_legacy_astral_ranges
           cargo test --release --locked -p lila-intl --lib
+          cargo test --release --locked -p lila-intl --test calendar_domain -- --test-threads=1
           cargo test --release --locked -p lila-ir --test compound_addition_flow --test compound_assignment_saved_value --test regexp_legacy_pooled_class --test intl_locale_getters --test float16_array --test catch_pattern_owners
           cargo test --release --locked -p lila-aot-wasm --lib constant_number_condition
           cargo test --release --locked -p lila-aot-wasm --test constant_number_condition_emission --test created_realm_intl_structure --test intl_bound_format_realm_structure --test intl_host_imports --test set_operation_domains_structure --test bigint_number_policy_structure --test strict_equality_static_kind_structure --test mixed_bigint_representation_equality_structure
@@ -61,8 +62,12 @@ jobs:
 
       - name: Test module instantiation and suspension environments
         run: |
-          cargo test --release --locked -p lila-ir --test async_if_continuations --test module_instantiation --test array_arguments_primitive --test module_default_export_names --test prepared_script_host_globals --test module_import_jobs --test graph_build_structure --test link_error_structure --test dynamic_import_dispatcher_reference_structure
+          cargo test --release --locked -p lila-ir --lib async_for_of_body
+          cargo test --release --locked -p lila-ir --test async_if_continuations --test async_for_of_continuations --test synchronous_resource_loops --test module_instantiation --test array_arguments_primitive --test module_default_export_names --test prepared_script_host_globals --test module_import_jobs --test graph_build_structure --test link_error_structure --test dynamic_import_dispatcher_reference_structure
           cargo test --release --locked -p lila-engine --lib module_prelude
+          cargo test --release --locked -p lila-engine --lib module_async_runtime_tests -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_module_async_lifecycle -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --lib module_execution_layouts_own_every_lifecycle_word_and_pointer
           cargo test --release --locked -p lila-ir --test module_entry_completion
           cargo test --release --locked -p lila-aot-wasm --test module_entry_completion
           cargo test --release --locked -p lila-aot-wasm --test heap_root_source_structure
@@ -75,20 +80,34 @@ jobs:
           cargo test --release --locked -p lila-aot-wasm --test plain_generator_synchronous_using_structure --test async_generator_synchronous_using_structure --test plain_async_classic_for_await_using_structure --test plain_async_sync_for_of_iterator_record_structure --test promise_reaction_initialization_structure --test resumable_loop_iteration_environment_structure
           cargo test --release --locked -p lila-engine --test aot_async_if --test aot_async_property_assignment --test aot_generator_catch_environment --test aot_module_instantiation --test aot_module_scope_isolation --test aot_public_class_fields --test aot_array_arguments_primitive --test aot_catch_pattern_owners --test aot_control_flow --test aot_prepared_script_hosts --test aot_module_import_jobs -- --test-threads=2
 
-      - name: Test Intl numbering, Date locale methods and RegExp compilation
+      - name: Test Intl date/time provider, locale methods and RegExp compilation
         run: |
-          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/tests/test_generate_intl_datetime_numbering.py
-          python3 scripts/generate-intl-datetime-numbering.py --check --report crates/lila-aot-wasm/data/cldr-47-numbering/generated-report.json
-          cargo test --release --locked -p lila-engine --test aot_intl_datetime_numbering --test aot_date_locale --test aot_regexp_recompile -- --test-threads=2
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/tests/test_generate_intl_datetime_profile.py scripts/tests/test_intl_cldr_profile.py
+          python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --check
+          python3 scripts/generate-intl-datetime-identity.py --check
+          cargo test --release --locked -p lila-engine --lib intl_datetime_host::tests -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_intl_datetime_provider --test aot_intl_datetime_numbering --test aot_date_locale --test aot_regexp_recompile -- --test-threads=2
           cargo test --release --locked -p lila-engine --lib regexp_program_boundary_tests -- --test-threads=2
           cargo test --release --locked -p lila-engine --lib runtime_regexp_compiler_tests -- --test-threads=2
           cargo test --release --locked -p lila-engine --lib array_present_index_tests -- --test-threads=2
           cargo test --release --locked -p lila-aot-wasm --lib dense_literals_avoid_sparse_bookkeeping_and_sparse_writes_share_one_body
           cargo test --release --locked -p lila-engine --test aot_array_index_storage -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_string_match_call -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_string_match_call --test aot_string_constructor -- --test-threads=2
+          cargo test --release --locked -p lila-ir --test throw_type_error_realm
+          cargo test --release --locked -p lila-aot-wasm --test throw_type_error_realm_structure --test string_constructor_realm_structure
+          cargo test --release --locked -p lila-engine --test aot_throw_type_error_realm -- --test-threads=2
           cargo test --release --locked -p lila-aot-wasm --test string_match_call_emission --test shadowed_property_read_arm_absence_structure
           cargo test --release --locked -p lila-ir --lib regexp::program::tests
-          cargo test --release --locked -p lila-aot-wasm --test intl_date_time_format_construction_order_structure --test intl_dtf_range_locals_ownership_structure --test regexp_exec_result_mode_structure --test regexp_nullable_quantifier_progress_structure --test regexp_unicode_sets_class_strings_structure --test runtime_regexp_entry_kind_structure
+          cargo test --release --locked -p lila-aot-wasm --test intl_date_time_format_construction_order_structure --test regexp_exec_result_mode_structure --test regexp_nullable_quantifier_progress_structure --test regexp_unicode_sets_class_strings_structure --test runtime_regexp_entry_kind_structure
+
+      - name: Test pinned number formatting and primitive locale methods
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/generate-intl-numberformat-profile.py --verify-sources
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/generate-intl-numberformat-profile.py --check
+          cargo test --release --locked -p lila-engine --lib intl_number_host::tests -- --test-threads=2
+          cargo test --release --locked -p lila-engine --test aot_intl_numberformat --test aot_array_to_locale_string_observable -- --test-threads=2
+          cargo test --release --locked -p lila-aot-wasm --test bigint_prototype_result_ownership_structure
+          cargo test --release --locked -p lila-cli --test cli language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct -- --exact --test-threads=2
 
       - name: Test pinned named time-zone data and formatting
         run: |

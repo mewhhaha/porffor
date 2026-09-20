@@ -8,6 +8,15 @@
 // function IDs; the mandatory installer field makes bootstrap participation a
 // compile-time choice rather than an append-only backend catch-all.
 use super::*;
+use crate::names::{
+    BUILTIN_INTL_NUMBER_FORMAT_BOUND_FORMAT_FUNCTION_ID, BUILTIN_INTL_NUMBER_FORMAT_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID, INTL_NUMBER_FORMAT_NAME,
+};
 
 /// The family-specific realm installer, if any, run after a builtin's common
 /// function/prototype initialization.
@@ -42,6 +51,7 @@ pub enum StandardBuiltinInstaller {
     TemporalPlainMonthDay,
     IntlLocale,
     IntlDateTimeFormat,
+    IntlNumberFormat,
     Date,
     Error,
     BigInt,
@@ -2258,7 +2268,7 @@ standard_builtin_catalog! {
     TemporalPlainDatePrototypeToLocaleString {
         function: FunctionOrdinal(310) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -2447,7 +2457,7 @@ standard_builtin_catalog! {
     TemporalPlainTimePrototypeToLocaleString {
         function: FunctionOrdinal(373) => BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainTime.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -2608,7 +2618,7 @@ standard_builtin_catalog! {
     TemporalPlainYearMonthPrototypeToLocaleString {
         function: FunctionOrdinal(340) => BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainYearMonth.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -2692,7 +2702,7 @@ standard_builtin_catalog! {
     TemporalPlainMonthDayPrototypeToLocaleString {
         function: FunctionOrdinal(352) => BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainMonthDay.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -2965,7 +2975,7 @@ standard_builtin_catalog! {
     TemporalPlainDateTimePrototypeToLocaleString {
         function: FunctionOrdinal(411) => BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainDateTime.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -3644,7 +3654,7 @@ standard_builtin_catalog! {
     IntlDateTimeFormatSupportedLocalesOf {
         function: FunctionOrdinal(493) => BUILTIN_INTL_DATE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
         debug: "Intl.DateTimeFormat.supportedLocalesOf",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "supportedLocalesOf",
     }
@@ -3687,6 +3697,62 @@ standard_builtin_catalog! {
         function: FunctionOrdinal(499) => BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID,
         debug: "Intl.DateTimeFormat Format Function",
         flags: [WALL_CLOCK, INTL_HOST],
+        installer: None,
+        native: "",
+    }
+    IntlNumberFormatConstructor {
+        function: FunctionOrdinal(833) => BUILTIN_INTL_NUMBER_FORMAT_FUNCTION_ID,
+        debug: "Intl.NumberFormat",
+        flags: [CONSTRUCTABLE, INTL_HOST],
+        installer: IntlNumberFormat,
+        native: INTL_NUMBER_FORMAT_NAME,
+    }
+    IntlNumberFormatSupportedLocalesOf {
+        function: FunctionOrdinal(834) => BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+        debug: "Intl.NumberFormat.supportedLocalesOf",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "supportedLocalesOf",
+    }
+    IntlNumberFormatPrototypeResolvedOptions {
+        function: FunctionOrdinal(835) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+        debug: "Intl.NumberFormat.prototype.resolvedOptions",
+        flags: [],
+        installer: None,
+        native: "resolvedOptions",
+    }
+    IntlNumberFormatPrototypeFormatGetter {
+        function: FunctionOrdinal(836) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID,
+        debug: "get Intl.NumberFormat.prototype.format",
+        flags: [],
+        installer: None,
+        native: "get format",
+    }
+    IntlNumberFormatPrototypeFormatToParts {
+        function: FunctionOrdinal(837) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
+        debug: "Intl.NumberFormat.prototype.formatToParts",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "formatToParts",
+    }
+    IntlNumberFormatPrototypeFormatRange {
+        function: FunctionOrdinal(838) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID,
+        debug: "Intl.NumberFormat.prototype.formatRange",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "formatRange",
+    }
+    IntlNumberFormatPrototypeFormatRangeToParts {
+        function: FunctionOrdinal(839) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID,
+        debug: "Intl.NumberFormat.prototype.formatRangeToParts",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "formatRangeToParts",
+    }
+    IntlNumberFormatBoundFormat {
+        function: FunctionOrdinal(840) => BUILTIN_INTL_NUMBER_FORMAT_BOUND_FORMAT_FUNCTION_ID,
+        debug: "Intl.NumberFormat Format Function",
+        flags: [INTL_HOST],
         installer: None,
         native: "",
     }
@@ -4122,7 +4188,7 @@ standard_builtin_catalog! {
         function: FunctionOrdinal(557) => BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         global_name: BIGINT_NAME,
         debug: "BigInt.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -4202,7 +4268,7 @@ standard_builtin_catalog! {
     NumberPrototypeToLocaleString {
         function: FunctionOrdinal(568) => "$builtin.Number.prototype.toLocaleString",
         debug: "Number.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -6089,15 +6155,29 @@ mod tests {
                 StandardBuiltinId::DatePrototypeToLocaleDateString,
                 StandardBuiltinId::DatePrototypeToLocaleString,
                 StandardBuiltinId::DatePrototypeToLocaleTimeString,
+                StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString,
                 StandardBuiltinId::IntlGetCanonicalLocales,
                 StandardBuiltinId::IntlLocaleConstructor,
                 StandardBuiltinId::IntlDateTimeFormatConstructor,
+                StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
                 StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
                 StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
                 StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
                 StandardBuiltinId::IntlDateTimeFormatBoundFormat,
+                StandardBuiltinId::BigIntPrototypeToLocaleString,
+                StandardBuiltinId::NumberPrototypeToLocaleString,
                 StandardBuiltinId::IntlLocalePrototypeMaximize,
                 StandardBuiltinId::IntlLocalePrototypeMinimize,
+                StandardBuiltinId::IntlNumberFormatConstructor,
+                StandardBuiltinId::IntlNumberFormatSupportedLocalesOf,
+                StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts,
+                StandardBuiltinId::IntlNumberFormatPrototypeFormatRange,
+                StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,
+                StandardBuiltinId::IntlNumberFormatBoundFormat,
             ]
         );
     }
@@ -6411,6 +6491,10 @@ mod tests {
                 (
                     Builtin::IntlDateTimeFormatConstructor,
                     Installer::IntlDateTimeFormat,
+                ),
+                (
+                    Builtin::IntlNumberFormatConstructor,
+                    Installer::IntlNumberFormat,
                 ),
                 (Builtin::RegExpConstructor, Installer::RegExp),
                 (Builtin::BigIntConstructor, Installer::BigInt),

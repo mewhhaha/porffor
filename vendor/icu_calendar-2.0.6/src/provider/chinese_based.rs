@@ -62,9 +62,10 @@ icu_provider::data_struct!(
 /// Byte 2:          ] | [   NY offset       ] | unused
 /// ```
 ///
-/// Where the New Year Offset is the offset from ISO Jan 21 of that year for Chinese New Year,
+/// Where the New Year Offset is the offset from ISO Jan 19 of that year for Chinese New Year,
 /// the month lengths are stored as 1 = 30, 0 = 29 for each month including the leap month.
-/// The largest possible offset is 33, which requires 6 bits of storage.
+/// The largest accepted offset is 34 (Feb 22), which requires 6 bits of storage.
+/// The final byte's high bit remains unused; the wire format is unchanged.
 ///
 /// <div class="stab unstable">
 /// 🚧 This code is considered unstable; it may change at any time, in breaking or non-breaking ways,
@@ -77,6 +78,23 @@ icu_provider::data_struct!(
 #[repr(C, packed)]
 pub struct PackedChineseBasedYearInfo(pub u8, pub u8, pub u8);
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum InvalidPackedChineseBasedYear {
+    NewYearOffset,
+    LeapOrdinal,
+    UnusedThirteenthMonth,
+}
+
+impl core::fmt::Display for InvalidPackedChineseBasedYear {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str(match self {
+            Self::NewYearOffset => "New Year offset must be between Jan 19 and Feb 22",
+            Self::LeapOrdinal => "leap month ordinal must be between 2 and 13",
+            Self::UnusedThirteenthMonth => "common year has a thirteenth month length",
+        })
+    }
+}
+
 impl PackedChineseBasedYearInfo {
     /// The first day of the ISO year on which Chinese New Year may occur
     ///
@@ -88,22 +106,21 @@ impl PackedChineseBasedYearInfo {
     /// could occur after the Winter Solstice if the solstice is pinned to December 20.
     const FIRST_NY: i64 = 18;
 
-    pub(crate) fn new(
+    pub(crate) fn try_new(
         month_lengths: [bool; 13],
         leap_month_idx: Option<u8>,
         ny_offset: i64,
-    ) -> Self {
-        debug_assert!(
-            !month_lengths[12] || leap_month_idx.is_some(),
-            "Last month length should not be set for non-leap years"
-        );
+    ) -> Result<Self, InvalidPackedChineseBasedYear> {
+        if !(Self::FIRST_NY..=52).contains(&ny_offset) {
+            return Err(InvalidPackedChineseBasedYear::NewYearOffset);
+        }
+        if leap_month_idx.is_some_and(|ordinal| !(2..=13).contains(&ordinal)) {
+            return Err(InvalidPackedChineseBasedYear::LeapOrdinal);
+        }
+        if month_lengths[12] && leap_month_idx.is_none() {
+            return Err(InvalidPackedChineseBasedYear::UnusedThirteenthMonth);
+        }
         let ny_offset = ny_offset - Self::FIRST_NY;
-        debug_assert!(ny_offset >= 0, "Year offset too small to store");
-        debug_assert!(ny_offset < 34, "Year offset too big to store");
-        debug_assert!(
-            leap_month_idx.map(|l| l <= 13).unwrap_or(true),
-            "Leap month indices must be 1 <= i <= 13"
-        );
         let mut all = 0u32; // last byte unused
 
         for (month, length_30) in month_lengths.iter().enumerate() {
@@ -116,7 +133,15 @@ impl PackedChineseBasedYearInfo {
         all |= (leap_month_idx as u32) << (8 + 5);
         all |= (ny_offset as u32) << (16 + 1);
         let le = all.to_le_bytes();
-        Self(le[0], le[1], le[2])
+        Ok(Self(le[0], le[1], le[2]))
+    }
+
+    pub(crate) fn validate(self) -> Result<Self, InvalidPackedChineseBasedYear> {
+        Self::try_new(
+            self.month_lengths(),
+            self.leap_month(),
+            i64::from(self.ny_offset()),
+        )
     }
 
     // Get the new year difference from the ISO new year
@@ -136,7 +161,6 @@ impl PackedChineseBasedYearInfo {
         months & (1 << (month - 1) as u16) != 0
     }
 
-    #[cfg(any(test, feature = "datagen"))]
     pub(crate) fn month_lengths(self) -> [bool; 13] {
         core::array::from_fn(|i| self.month_has_30_days(i as u8 + 1))
     }
@@ -150,7 +174,7 @@ impl PackedChineseBasedYearInfo {
         // for a 1 at the bit index at the next month. Subtracting 1 from it gets us
         // a bitmask for all months up to now
         let long_month_bits = months & ((1 << month as u16) - 1);
-        prev_month_lengths += long_month_bits.count_ones().try_into().unwrap_or(0);
+        prev_month_lengths += long_month_bits.count_ones() as u16;
         prev_month_lengths
     }
 }
@@ -187,10 +211,18 @@ mod serialization {
             D: Deserializer<'de>,
         {
             if deserializer.is_human_readable() {
-                SerdePackedChineseBasedYearInfo::deserialize(deserializer).map(Into::into)
+                let record = SerdePackedChineseBasedYearInfo::deserialize(deserializer)?;
+                Self::try_new(
+                    record.month_has_30_days,
+                    record.leap_month_idx,
+                    i64::from(record.ny_offset),
+                )
+                .map_err(serde::de::Error::custom)
             } else {
-                let data = <(u8, u8, u8)>::deserialize(deserializer)?;
-                Ok(PackedChineseBasedYearInfo(data.0, data.1, data.2))
+                let record = <(u8, u8, u8)>::deserialize(deserializer)?;
+                PackedChineseBasedYearInfo(record.0, record.1, record.2)
+                    .validate()
+                    .map_err(serde::de::Error::custom)
             }
         }
     }
@@ -219,16 +251,6 @@ mod serialization {
             }
         }
     }
-
-    impl From<SerdePackedChineseBasedYearInfo> for PackedChineseBasedYearInfo {
-        fn from(other: SerdePackedChineseBasedYearInfo) -> Self {
-            Self::new(
-                other.month_has_30_days,
-                other.leap_month_idx,
-                other.ny_offset as i64,
-            )
-        }
-    }
 }
 
 #[cfg(test)]
@@ -244,7 +266,8 @@ mod test {
             // Avoid bad invariants
             month_lengths[12] = false;
         }
-        let packed = PackedChineseBasedYearInfo::new(month_lengths, leap_month_idx, ny_offset);
+        let packed = PackedChineseBasedYearInfo::try_new(month_lengths, leap_month_idx, ny_offset)
+            .expect("valid packed year fixture");
 
         assert_eq!(
             ny_offset,
@@ -279,6 +302,7 @@ mod test {
         const RANDOM2: [bool; 13] = [
             false, true, true, true, true, false, true, true, true, false, false, true, false,
         ];
+        packed_roundtrip_single(SHORT, None, 52);
         packed_roundtrip_single(SHORT, None, 18 + 5);
         packed_roundtrip_single(SHORT, None, 18 + 10);
         packed_roundtrip_single(SHORT, Some(11), 18 + 15);

@@ -21,10 +21,12 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         ExprIr::ModuleEntryEvaluation(entry) => {
             expr_contains_this_before_super(entry.evaluation(), state)
         }
-        ExprIr::SynchronousModuleGraph(_)
+        ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::ModuleEvaluate(_)
-        | ExprIr::DeferredModuleEvaluate(_) => {}
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_) => {}
         ExprIr::ModuleNamespacePublish { namespace, .. } => {
             expr_contains_this_before_super(namespace, state)
         }
@@ -365,7 +367,8 @@ fn statement_contains_this_before_super(
             }
         }
         StatementIr::ModuleImportBinding(_) => {}
-        StatementIr::Empty
+        StatementIr::AsyncModuleInstantiation
+        | StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
@@ -615,12 +618,7 @@ fn statement_contains_this_before_super(
         }
         StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
             expr_contains_this_before_super(iterable, state);
-            for statement in plan
-                .before_await()
-                .iter()
-                .chain(std::iter::once(plan.await_statement()))
-                .chain(plan.after_await())
-            {
+            for statement in plan.body().statements() {
                 if state.saw_super {
                     break;
                 }

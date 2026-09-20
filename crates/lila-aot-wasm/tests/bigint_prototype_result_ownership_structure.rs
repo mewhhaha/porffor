@@ -237,7 +237,7 @@ fn prototype_result_authorities_are_exact_move_only_domains() {
         concat!(
             "structBigIntValueResult(());",
             "structBigIntRadixStringResult(());",
-            "structBigIntLocaleStringFallbackResult(());"
+            "structBigIntLocaleStringResult(());"
         )
     );
     let policy = normalized_rust(bounded(
@@ -250,7 +250,7 @@ fn prototype_result_authorities_are_exact_move_only_domains() {
         concat!(
             "ExactValue(BigIntValueResult),",
             "RadixString(BigIntRadixStringResult),",
-            "LocaleStringFallback(BigIntLocaleStringFallbackResult),}"
+            "LocaleString(BigIntLocaleStringResult),}"
         )
     );
 
@@ -258,7 +258,7 @@ fn prototype_result_authorities_are_exact_move_only_domains() {
     for (identifier, count) in [
         ("BigIntValueResult", 4),
         ("BigIntRadixStringResult", 5),
-        ("BigIntLocaleStringFallbackResult", 4),
+        ("BigIntLocaleStringResult", 4),
         ("BigIntPrototypeResultPolicy", 11),
     ] {
         assert_eq!(
@@ -272,8 +272,8 @@ fn prototype_result_authorities_are_exact_move_only_domains() {
         "impl Copy for BigIntValueResult",
         "impl Clone for BigIntRadixStringResult",
         "impl Copy for BigIntRadixStringResult",
-        "impl Clone for BigIntLocaleStringFallbackResult",
-        "impl Copy for BigIntLocaleStringFallbackResult",
+        "impl Clone for BigIntLocaleStringResult",
+        "impl Copy for BigIntLocaleStringResult",
         "impl Clone for BigIntPrototypeResultPolicy",
         "impl Copy for BigIntPrototypeResultPolicy",
     ] {
@@ -295,8 +295,8 @@ fn prototype_names_construct_their_exact_result_authorities() {
             "constPrototypeToString:Self=Self::Prototype(",
             "BigIntPrototypeResultPolicy::RadixString(BigIntRadixStringResult(()),));",
             "constPrototypeToLocaleString:Self=Self::Prototype(",
-            "BigIntPrototypeResultPolicy::LocaleStringFallback(",
-            "BigIntLocaleStringFallbackResult(())),);",
+            "BigIntPrototypeResultPolicy::LocaleString(",
+            "BigIntLocaleStringResult(())),);",
             "constPrototypeValueOf:Self=Self::Prototype(",
             "BigIntPrototypeResultPolicy::ExactValue(BigIntValueResult(()),));}"
         )
@@ -339,8 +339,8 @@ fn emitter_consumes_each_result_authority_once() {
             "bigint_tag_local,function,)?;}",
         ),
         concat!(
-            "BigIntPrototypeResultPolicy::LocaleStringFallback(result)=>{",
-            "self.emit_bigint_locale_string_fallback_result(result,bigint_payload_local,",
+            "BigIntPrototypeResultPolicy::LocaleString(result)=>{",
+            "self.emit_bigint_locale_string_result(result,bigint_payload_local,",
             "bigint_tag_local,function,)?;}",
         ),
     ] {
@@ -406,4 +406,17 @@ fn contract_and_task_record_the_move_only_boundary() {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
         assert!(TASK.contains(marker), "task marker `{marker}`");
     }
+}
+
+#[test]
+fn locale_result_uses_the_canonical_number_format_family_after_brand_validation() {
+    let locale = bounded(
+        PARENT_SOURCE,
+        "    fn emit_bigint_locale_string_result(",
+        "#[cfg(test)]",
+    );
+    assert!(locale.contains("self.emit_intrinsic_number_locale_format("));
+    assert!(locale.contains("TaggedLocals::new(bigint_payload_local, bigint_tag_local)"));
+    assert!(!locale.contains("emit_bigint_value_to_string_payload("));
+    assert!(!locale.contains("emit_value_to_number_payload"));
 }

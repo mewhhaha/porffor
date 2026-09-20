@@ -127,7 +127,7 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
             .lines()
             .filter(|line| line.trim_end().ends_with(','))
             .count(),
-        14
+        15
     );
     for (variant, offset) in [
         ("Object", "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET"),
@@ -148,6 +148,10 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
         (
             "IntlDateTimeFormat",
             "{\n                HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET\n            }",
+        ),
+        (
+            "IntlNumberFormat",
+            "HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET",
         ),
         ("Promise", "HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET"),
         (
@@ -179,9 +183,9 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
 fn every_resolved_ordinary_prototype_is_loaded_and_installed_as_one_witness() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (call, expected) in [
-        (".emit_load_required_resolved_realm_ordinary_prototype(", 5),
-        (".emit_install_resolved_realm_ordinary_prototype(", 5),
-        (".emit_required_new_target_realm_ordinary_prototype(", 4),
+        (".emit_load_required_resolved_realm_ordinary_prototype(", 4),
+        (".emit_install_resolved_realm_ordinary_prototype(", 4),
+        (".emit_required_new_target_realm_ordinary_prototype(", 5),
     ] {
         assert_eq!(
             recursive_rust_source_count(&source_root, call),
@@ -199,13 +203,13 @@ fn every_resolved_ordinary_prototype_is_loaded_and_installed_as_one_witness() {
         construct
             .matches("self.emit_load_required_resolved_realm_ordinary_prototype(")
             .count(),
-        4
+        3
     );
     assert_eq!(
         construct
             .matches("self.emit_install_resolved_realm_ordinary_prototype(")
             .count(),
-        4
+        3
     );
     assert_eq!(
         ERRORS_SOURCE

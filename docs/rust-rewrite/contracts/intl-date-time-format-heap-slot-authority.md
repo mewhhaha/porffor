@@ -1,18 +1,19 @@
 # Intl.DateTimeFormat heap-slot identity authority
 
-The passive Intl.DateTimeFormat record has exactly twenty-three capability-free
+The passive Intl.DateTimeFormat record has exactly twenty-four capability-free
 `IntlDateTimeFormatHeapSlot` identities in storage order. Locale, calendar,
-numbering system, time-zone identifier and bound formatter are the five traced
-payload fields; the remaining eighteen fields are untraced scalars. Every field
-is eight bytes wide. One private exhaustive metadata projection owns each
+numbering system, time-zone identifier, bound formatter and opaque provider plan
+are the six traced payload fields; the remaining eighteen fields are untraced scalars. Every field
+is eight bytes wide. `AvailableFormats` is an untraced closed bitset used to
+preserve range endpoint error order. One private exhaustive metadata projection owns each
 record name, slot name, offset, width and pointer classification, and the typed
 registry fixes their order.
 
 `TimeZoneFixedSeconds` stores signed seconds for fixed selections, while
 `TimeZoneKind` stores the closed named/fixed discriminator. The former cached
-GMT-name payload is removed and its slot is no longer a GC root. Names selected
-for individual endpoints are packed strings owned by the component locals and
-released with those locals. See the
+GMT-name payload is removed and its slot is no longer a GC root. The former `NeedDefaults` scalar is replaced by `PlanPayload`, a packed
+byte span retaining the provider recipe. Each format call receives owned partition
+bytes whose value spans remain live through result construction. See the
 [named-zone implementation](../intl-named-time-zones.md).
 
 The closed identity prevents callers from pairing a field name with an

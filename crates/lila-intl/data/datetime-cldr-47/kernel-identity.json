@@ -1,0 +1,387 @@
+{
+  "files": [
+    {
+      "bytes": 3506,
+      "path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",
+      "sha256": "289ec8de0100e551b3a1b18fa6cc4bde2488b948b213dfedf2eed819a4ae0b88"
+    },
+    {
+      "bytes": 576,
+      "path": "crates/lila-intl/data/datetime-cldr-47/selector.json",
+      "sha256": "cdbdc37fd59e9e29e60eedbc1aa2c1d42c7c1e996be54e22678c5b79fe6dde8e"
+    },
+    {
+      "bytes": 3280,
+      "path": "crates/lila-intl/data/zone-names-cldr-47/manifest.json",
+      "sha256": "51a23e38b7a70a0fd831c4c9779d72d9fc75bf85f4ac86ad23d4f82da7abafbd"
+    },
+    {
+      "bytes": 4292,
+      "path": "crates/lila-intl/src/datetime/input.rs",
+      "sha256": "36084a4e8daebb68fa8dd8783ebc7597ff5dd36f7a918f46b5159aa2dfccebfb"
+    },
+    {
+      "bytes": 12185,
+      "path": "crates/lila-intl/src/datetime.rs",
+      "sha256": "01068b7bd5fa96210d6cd5e52dc1ff1bed7586f9a1565736b75e74e639f6ff64"
+    },
+    {
+      "bytes": 25900,
+      "path": "crates/lila-intl/src/datetime_protocol.rs",
+      "sha256": "ec70f569f2afd911025ee4dc4e456e124956eb04988c04b1ad44eeda02475a83"
+    },
+    {
+      "bytes": 3230,
+      "path": "crates/lila-intl/src/provider/datetime/calendar.rs",
+      "sha256": "c044b06b68fdc4189dd379fc31cfa7543f5dbb332b4069d689e33563e6718657"
+    },
+    {
+      "bytes": 4840947,
+      "path": "crates/lila-intl/src/provider/datetime/generated/profile.json",
+      "sha256": "ec7edea93b764703e9559ca2e919549603d3e5ec392b7d462b08c7a739db9496"
+    },
+    {
+      "bytes": 6636,
+      "path": "crates/lila-intl/src/provider/datetime/locale.rs",
+      "sha256": "6f4f9e0f3216ef11caeeb11a6da9cd6c4ee60eef5be292bee595c614f71b79c7"
+    },
+    {
+      "bytes": 6755,
+      "path": "crates/lila-intl/src/provider/datetime/names.rs",
+      "sha256": "a59a51cd42514ac29bc5417f774a707ba34902e5783e7d2571faf99f4054a812"
+    },
+    {
+      "bytes": 11406,
+      "path": "crates/lila-intl/src/provider/datetime/pattern.rs",
+      "sha256": "4c017c635c5c54cceb0620be801c5a5768211a14582eedc7bd99e21ddf07be0f"
+    },
+    {
+      "bytes": 7050,
+      "path": "crates/lila-intl/src/provider/datetime/plan/adjustment.rs",
+      "sha256": "edab5e1174c702083c8490f6bf12c875908b594fcd679ac8699f98eef75e1e97"
+    },
+    {
+      "bytes": 9028,
+      "path": "crates/lila-intl/src/provider/datetime/plan/candidates.rs",
+      "sha256": "3cefd657bce401860255ada34e46713ffbe541456605156510971cca50ead636"
+    },
+    {
+      "bytes": 8397,
+      "path": "crates/lila-intl/src/provider/datetime/plan/components.rs",
+      "sha256": "2a10d60bda63679f07d87a3cebf95f52ac7719db6296b85aff6dc97ab19610e7"
+    },
+    {
+      "bytes": 6708,
+      "path": "crates/lila-intl/src/provider/datetime/plan.rs",
+      "sha256": "581bf63d4d45dbc347404393661ca81c0b96a781dfca627e59af887f30cc9194"
+    },
+    {
+      "bytes": 11574,
+      "path": "crates/lila-intl/src/provider/datetime/profile/construction.rs",
+      "sha256": "db0f626210b3f37e818cbf1374ae0535578a7c5b27371641f2b706a27b8adb41"
+    },
+    {
+      "bytes": 6441,
+      "path": "crates/lila-intl/src/provider/datetime/profile.rs",
+      "sha256": "3bfc1845af15d74dd77f65417a64f4057ce3adc0cb2963dc1764efe54f7f32fa"
+    },
+    {
+      "bytes": 7915,
+      "path": "crates/lila-intl/src/provider/datetime/ranges/selection.rs",
+      "sha256": "1b0389fc848970f127a5bd6203f15e211c822faca3ce92895b8299b321b34576"
+    },
+    {
+      "bytes": 6287,
+      "path": "crates/lila-intl/src/provider/datetime/ranges.rs",
+      "sha256": "d96191e176dbcadef75e0bbbb23c53d61d3b6df23cbddb335349f87e135ffe5f"
+    },
+    {
+      "bytes": 6570,
+      "path": "crates/lila-intl/src/provider/datetime/raw.rs",
+      "sha256": "a9ea76bf20195218ba2a7a5038fd729a5765bc2b1a92d09974a5f1db475bdd8a"
+    },
+    {
+      "bytes": 5975,
+      "path": "crates/lila-intl/src/provider/datetime/render/fields.rs",
+      "sha256": "30ea06792ae768dd1a190e49fa0713d55df45c457bec154e4d6d80d6d869d1b0"
+    },
+    {
+      "bytes": 4808,
+      "path": "crates/lila-intl/src/provider/datetime/render.rs",
+      "sha256": "1c7a45039fe06628495cbfa3c4851c11b36be57fc2556df405bdce02a8651975"
+    },
+    {
+      "bytes": 3791,
+      "path": "crates/lila-intl/src/provider/datetime/validation.rs",
+      "sha256": "9b5639222dcadef1f8b266cb648fc706bd83439fca518afe892757a7ff1e0057"
+    },
+    {
+      "bytes": 4692,
+      "path": "crates/lila-intl/src/provider/datetime/zones/validation.rs",
+      "sha256": "055a399a8ec1660ac59abf73c8595d34b0f6fac4fdafadf37392201a5f5254c4"
+    },
+    {
+      "bytes": 7725,
+      "path": "crates/lila-intl/src/provider/datetime/zones.rs",
+      "sha256": "89b84c20d8a202aa6261e33d0544e9ee36e07a4d8235245fbdb603e4d7509412"
+    },
+    {
+      "bytes": 4063,
+      "path": "crates/lila-intl/src/provider/datetime.rs",
+      "sha256": "45e7948aaa655cc60de559db91c3357284d5cfb7172c1b61159d63984ac8319b"
+    },
+    {
+      "bytes": 5056,
+      "path": "scripts/generate-intl-datetime-identity.py",
+      "sha256": "0823de90ceb4335192df05eeb99094bf132c6dfd474a63364755c0e7a93c5698"
+    },
+    {
+      "bytes": 14988,
+      "path": "scripts/generate-intl-datetime-profile.py",
+      "sha256": "b8834e5c5dfbd9ef2cee0cf2ea8a7cdf2fbec90465569e6adc6d14e3223c2224"
+    },
+    {
+      "bytes": 19605,
+      "path": "scripts/generate-intl-time-zone-names.py",
+      "sha256": "5c4c71683c3ec140c18488d1e5c2395ed3bb8be89f72d8e9390c71a4abaa2520"
+    },
+    {
+      "bytes": 13506,
+      "path": "scripts/intl_cldr_profile.py",
+      "sha256": "47204b2c51935e7df46150aa35ab04ebe5fe998307c213870a5cf28787d8e8ec"
+    },
+    {
+      "bytes": 3678,
+      "path": "scripts/intl_datetime_names.py",
+      "sha256": "cd6be0b30a7826952cccde379f4cb72e3d472e32169dd6d947c03b152cbf433d"
+    },
+    {
+      "bytes": 4931,
+      "path": "scripts/intl_datetime_patterns.py",
+      "sha256": "2ee9b7c1792c44522c3f5c5f62d1373081ce2f82b408424901a35162cdfa3210"
+    },
+    {
+      "bytes": 4642,
+      "path": "scripts/intl_datetime_zones.py",
+      "sha256": "93c71da59abea642239ded3ad7de0d870181e6c82ee85196cd61e92a54fa9773"
+    },
+    {
+      "bytes": 3323,
+      "path": "scripts/intl_ldml_schema.py",
+      "sha256": "d5c046d9060a741cd8d86fab179c56ad489e922007da238255e71c2c9ec12b3a"
+    },
+    {
+      "bytes": 6475,
+      "path": "scripts/intl_rbnf_fields.py",
+      "sha256": "8ffb8769e35eea2c9e052bc6daae179194ac87b3717e1aa260547f535ef9b7fb"
+    },
+    {
+      "bytes": 3266,
+      "path": "vendor/icu_calendar-2.0.6/Cargo.toml",
+      "sha256": "133164f2c7c66053988a55b15ca4364f8ae03ae52836f2094630cde3eaf9351c"
+    },
+    {
+      "bytes": 70416,
+      "path": "vendor/icu_calendar-2.0.6/src/any_calendar.rs",
+      "sha256": "9437638ef54108b3aab83702eeb60ba02da17f18938787c9997cd60de766ab97"
+    },
+    {
+      "bytes": 13336,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/buddhist.rs",
+      "sha256": "eac3e9ad36e24fdfc96b90775f7ef0e0ab3453f0c1ca4eb15559432910f275cf"
+    },
+    {
+      "bytes": 35659,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/chinese.rs",
+      "sha256": "34ea430df803d09634272c4f92bb337d488ef3951f7ffb4f09e0c7161cf20121"
+    },
+    {
+      "bytes": 6530,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/chinese_based/construction.rs",
+      "sha256": "39427b322421a06558c718ac41bd4049d015ab121c7e8ebc070bcc95ee2f376b"
+    },
+    {
+      "bytes": 8821,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/chinese_based/proleptic.rs",
+      "sha256": "df019d42f253fd509d2961db309b8c3689995da5c8c7fb5eda0c57d086b68c2a"
+    },
+    {
+      "bytes": 15867,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/chinese_based.rs",
+      "sha256": "30e5b9f4ecba3c383932f1da226387ec492524aef1d288a933b57471246a634b"
+    },
+    {
+      "bytes": 7274,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/coptic.rs",
+      "sha256": "2462e5f644e3dbeeef8f907f35cb4768ec629360783e327b584bbc1f34d6a5ff"
+    },
+    {
+      "bytes": 30892,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/dangi.rs",
+      "sha256": "861ff280e22a58d5093d4bab24cd1752b2ddba883e4dfca5576279fe0665bc25"
+    },
+    {
+      "bytes": 12933,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/ethiopian.rs",
+      "sha256": "34a9116c624c649909ff75dfe1920ea409d30b6d3ec7582ecce8f495abd66ed7"
+    },
+    {
+      "bytes": 13194,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/gregorian.rs",
+      "sha256": "0f17844e2e5e7b6e318f1ab45c0dea9115826a3234a137861f8ef3938bf7287a"
+    },
+    {
+      "bytes": 17580,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/hebrew.rs",
+      "sha256": "6d19e5219dd63e2ba7bac805653710b0cd84df758e7a85ab1944a8bef519e550"
+    },
+    {
+      "bytes": 29467,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/hijri/ummalqura_data.rs",
+      "sha256": "9e489ef9fd0fc7205213ca3c7ed1edb5523d8cf89d66d7e626a859b49dcbbe30"
+    },
+    {
+      "bytes": 62267,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/hijri.rs",
+      "sha256": "4409e122e2624a5fe03b0e802c1750e915281c077294c5942784cbcea32230c3"
+    },
+    {
+      "bytes": 15780,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/indian.rs",
+      "sha256": "3d93134cd78b1e49c264eb0d345038e6448bf9ced1d0e1d3067b9cb6c4d8550a"
+    },
+    {
+      "bytes": 19463,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/iso.rs",
+      "sha256": "101b81918a873cb58cdca2e98fa4349ca04c88b2cb6401c56244c7df44bebba9"
+    },
+    {
+      "bytes": 31935,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/japanese.rs",
+      "sha256": "80ae17bb05141e2d91065f49b2aa8a41d37f6ecafed676ed94fa6b047fc44bc2"
+    },
+    {
+      "bytes": 17054,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/julian.rs",
+      "sha256": "f5191def5442543bae6c1ae6a443ffd8ccd69c87361e21c035da52c190fac3d7"
+    },
+    {
+      "bytes": 1670,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/mod.rs",
+      "sha256": "77450c6949e36e8496350d3664bd35aead278f4898ba543acfd8b1ca90ce848d"
+    },
+    {
+      "bytes": 23407,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/persian.rs",
+      "sha256": "90b27551fe24de57d859c732ee034cc2cc4a60581472dc2ece174fa62f3deaef"
+    },
+    {
+      "bytes": 15402,
+      "path": "vendor/icu_calendar-2.0.6/src/cal/roc.rs",
+      "sha256": "c82aca51e24dd038cdc7a1b36d86b5c058f92753df20db8aac7282c057d6a079"
+    },
+    {
+      "bytes": 4500,
+      "path": "vendor/icu_calendar-2.0.6/src/calendar.rs",
+      "sha256": "976ef558a0574c717d214cb4d1464885ed79d0fc1f3668d775106f8eb66870be"
+    },
+    {
+      "bytes": 14348,
+      "path": "vendor/icu_calendar-2.0.6/src/calendar_arithmetic.rs",
+      "sha256": "f22cd14476b67e59c9b18d211c79bc2b9f0a5e9904d88add497cccd624c8d855"
+    },
+    {
+      "bytes": 16399,
+      "path": "vendor/icu_calendar-2.0.6/src/date.rs",
+      "sha256": "91a3b142b48783d6fd4e508bc9bf07026c668ec72f795c269379324507d230d3"
+    },
+    {
+      "bytes": 4871,
+      "path": "vendor/icu_calendar-2.0.6/src/duration.rs",
+      "sha256": "65bde57c0af6bd8b146b92bb45bb14f661c918defe6bd388b51569503ec8bd33"
+    },
+    {
+      "bytes": 2596,
+      "path": "vendor/icu_calendar-2.0.6/src/error.rs",
+      "sha256": "c01e5adebd4be2b6287173a02623a2ff20afa2269d9e2ba4ecc01b643c7189cf"
+    },
+    {
+      "bytes": 4381,
+      "path": "vendor/icu_calendar-2.0.6/src/ixdtf.rs",
+      "sha256": "691dd80767b1d9f4f5aa2202303b49df38f2cf6699c6976ba44d5aae74fa3073"
+    },
+    {
+      "bytes": 4938,
+      "path": "vendor/icu_calendar-2.0.6/src/lib.rs",
+      "sha256": "2a10cdd624c9dbce2d8490acaf7f115ce96219bf659dfcc0d6181c132968ed19"
+    },
+    {
+      "bytes": 12299,
+      "path": "vendor/icu_calendar-2.0.6/src/provider/chinese_based.rs",
+      "sha256": "a0d75b6f1a443f8c6d4bd388ebf766732cb53c5485673b064d771744077bd672"
+    },
+    {
+      "bytes": 6370,
+      "path": "vendor/icu_calendar-2.0.6/src/provider/hijri.rs",
+      "sha256": "bc2d77aae6c347ba2700381eb64abf1c8118a81a2ccd6f66be6eb5b8f4c10a7c"
+    },
+    {
+      "bytes": 11589,
+      "path": "vendor/icu_calendar-2.0.6/src/provider.rs",
+      "sha256": "89aabfc8fdae13f8e1d7ebfa14f54c9f0249cc17c4436ba24766873a5f4ad128"
+    },
+    {
+      "bytes": 7877,
+      "path": "vendor/icu_calendar-2.0.6/src/tests/continuity_test.rs",
+      "sha256": "d3c97c72efc0b23d0cdf55e2911f4962fa0f55e8261019a929f2fc7d8c6a680b"
+    },
+    {
+      "bytes": 224,
+      "path": "vendor/icu_calendar-2.0.6/src/tests/mod.rs",
+      "sha256": "0925663ff594ebac9892d652d3576a9bc1ed938b2e4ee7a6d23a641899e8bf5a"
+    },
+    {
+      "bytes": 12665,
+      "path": "vendor/icu_calendar-2.0.6/src/types.rs",
+      "sha256": "fced40c1477ca7d66edbea8597c21bf233deb7d3fe0e72addbff03a6291862fc"
+    },
+    {
+      "bytes": 23399,
+      "path": "vendor/icu_calendar-2.0.6/src/week.rs",
+      "sha256": "803b68991584f3cee05bf051db601c0207f266b9139fa27731d0bc55b1cae88d"
+    }
+  ],
+  "packages": [
+    {
+      "checksum": "5abbd6eeda6885048d357edc66748eea6e0268e3dd11f326fff5bd248d779c26",
+      "name": "calendrical_calculations",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.2.4"
+    },
+    {
+      "name": "icu_calendar",
+      "version": "2.0.6"
+    },
+    {
+      "checksum": "7219c8639ab936713a87b571eed2bc2615aa9137e8af6eb221446ee5644acc18",
+      "name": "icu_calendar_data",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.0"
+    },
+    {
+      "checksum": "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e",
+      "name": "serde",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.228"
+    },
+    {
+      "checksum": "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86",
+      "name": "serde_json",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.149"
+    }
+  ],
+  "provider_data_sha256": "fbe87a0c4cd4fbd0c60e464d84811db80aef89cff4f4f3bb4553fcd901b6a1b5",
+  "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
+  "schema_version": 1
+}

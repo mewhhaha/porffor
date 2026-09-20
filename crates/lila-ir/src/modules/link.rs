@@ -190,11 +190,11 @@ pub(crate) fn linked_script_source(
 
     // Eligibility uses the same complete discovered edge set as classification;
     // artifact components have already dropped unreachable referrers here.
-    if let Some(eligible) = super::synchronous_source::SynchronousInstantiationGraph::new(
+    if let Some(eligible) = super::synchronous_source::ModuleInstantiationGraph::new(
         graph,
         &super::dynamic::discover_components(graph),
     ) {
-        return super::synchronous_source::linked_synchronous_source(sources, eligible);
+        return super::synchronous_source::linked_module_execution_source(sources, eligible);
     }
 
     let mut diagnostics = Vec::new();
@@ -810,14 +810,16 @@ mod tests {
         assert_eq!(definitions.units.len(), 1);
         assert_eq!(definitions.initial_evaluation, [0]);
         assert_eq!(definitions.units[0].evaluation.module(), 0);
-        assert_eq!(definitions.units[0].evaluation.component_members(), [0]);
+        assert_eq!(
+            definitions.units[0].kind,
+            super::super::ModuleActivationKindIr::Synchronous
+        );
+        assert!(definitions.units[0].requests.is_empty());
         assert!(linked.source.source_text.contains("print(1);"));
     }
 
-    /// Top-level `await` links instead of being reported, and the merged text
-    /// is Script-legal because the whole body became an async arrow.
     #[test]
-    fn a_top_level_await_module_is_wrapped_in_an_async_body() {
+    fn top_level_await_owns_a_private_async_activation_and_evaluation_promise() {
         let sources = sources_of(
             &[("m", "const value = await 1;\nprint(value);")],
             0,
@@ -825,29 +827,24 @@ mod tests {
         );
         let mut graph = graph_of(&sources);
         let linked = linked_script_source(&sources, &mut graph).expect("top-level await links");
-
-        assert!(linked.source.source_text.starts_with("\"use strict\";"));
-        assert!(
-            linked
-                .source
-                .source_text
-                .contains("void (async () => {\nconst value = await 1;"),
-            "got {}",
-            linked.source.source_text
+        let definitions = linked
+            .definitions
+            .synchronous
+            .expect("canonical async graph");
+        assert_eq!(definitions.initial_evaluation, [0]);
+        assert_eq!(
+            definitions.units[0].kind,
+            super::super::ModuleActivationKindIr::Async
         );
-        assert!(
-            linked.source.source_text.trim_end().ends_with("})();"),
-            "got {}",
-            linked.source.source_text
-        );
+        assert!(linked.source.source_text.contains("const value = await 1;"));
+        assert!(matches!(
+            linked.definitions.entry,
+            Some(super::super::LinkedModuleEntry::CanonicalGraph(0))
+        ));
     }
 
-    /// `[[AsyncEvaluation]]` is transitive: an importer of an asynchronous
-    /// module is asynchronous too, so a graph whose *dependency* holds the
-    /// `await` is wrapped as a whole and the importer's body is emitted after
-    /// the `await` that must precede it.
     #[test]
-    fn an_importer_of_an_asynchronous_module_is_wrapped_and_ordered_after_it() {
+    fn source_tla_and_transitive_async_dependencies_have_distinct_activation_kinds() {
         let sources = sources_of(
             &[
                 ("a", "export const value = await 7;"),
@@ -858,28 +855,21 @@ mod tests {
         );
         let mut graph = graph_of(&sources);
         assert_eq!(graph.async_evaluation(), vec![true, true]);
-        assert_eq!(graph.pending_async_dependencies(1), 1);
-
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
-        let exporter = linked
-            .source
-            .source_text
-            .find("await 7")
-            .expect("exporter body is present");
-        let importer = linked
-            .source
-            .source_text
-            .find("print(value + 1);")
-            .expect("importer body is present");
-        assert!(
-            exporter < importer,
-            "the awaited dependency must precede its importer: {}",
-            linked.source.source_text
+        let definitions = linked.definitions.synchronous.unwrap();
+        assert_eq!(definitions.initial_evaluation, [1]);
+        assert_eq!(
+            definitions.units[0].kind,
+            super::super::ModuleActivationKindIr::Async
         );
-        assert!(
-            linked.source.source_text.contains("void (async () => {"),
-            "got {}",
-            linked.source.source_text
+        assert_eq!(
+            definitions.units[1].kind,
+            super::super::ModuleActivationKindIr::Synchronous
+        );
+        assert_eq!(definitions.units[1].requests[0].target(), 0);
+        assert_eq!(
+            definitions.units[1].requests[0].phase(),
+            super::super::ModuleRequestPhaseIr::Evaluation
         );
     }
 
@@ -906,7 +896,14 @@ mod tests {
             .iter()
             .find(|unit| unit.module == 1)
             .unwrap();
-        assert_eq!(entry.evaluation.dependencies(), [0]);
+        assert_eq!(
+            entry
+                .requests
+                .iter()
+                .map(super::super::ModuleExecutionRequestIr::target)
+                .collect::<Vec<_>>(),
+            [0]
+        );
         assert!(!linked.source.source_text.contains("import"));
     }
 

@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
+const ASYNC_FOR_OF_BODY_SOURCE: &str = include_str!("../../lila-ir/src/async_for_of_body.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_of.rs");
 const OBLIGATIONS_SOURCE: &str = include_str!("../../lila-ir/src/iterator_obligations.rs");
@@ -147,7 +148,7 @@ fn resumable_sync_for_of_emitter_has_one_private_child_owner() {
 }
 
 #[test]
-fn closed_plan_couples_the_iterator_record_body_split_states_and_environments() {
+fn closed_plan_couples_the_iterator_record_checked_body_states_and_environments() {
     assert!(IR_SOURCE.contains(
         "#[must_use = \"a resumable synchronous for-of plan must be attached to its statement\"]"
     ));
@@ -193,11 +194,7 @@ fn closed_plan_couples_the_iterator_record_body_split_states_and_environments() 
         "record: IteratorRecordIr",
         "head_environment: Option<ForInOfEnvironmentIr>",
         "iteration_environment: ResumableLoopIterationEnvironmentIr",
-        "before_await: Vec<StatementIr>",
-        "await_statement: Box<StatementIr>",
-        "after_await: Vec<StatementIr>",
-        "entry_state: u32",
-        "resume_state: u32",
+        "body: AsyncFunctionForOfBodyIr",
         "exit_state: u32",
     ] {
         assert!(plan.contains(field), "{field}");
@@ -210,7 +207,7 @@ fn closed_plan_couples_the_iterator_record_body_split_states_and_environments() 
     let head_derivation = bounded(
         plan,
         "let (value_storage, value_mode, iteration_environment, mut initialization) = match head {",
-        "        initialization.append(&mut before_await);",
+        "        initialization.append(&mut statements);",
     );
     for variant in [
         "AsyncFunctionForOfIteratorHeadIr::Binding(binding)",
@@ -226,17 +223,16 @@ fn closed_plan_couples_the_iterator_record_body_split_states_and_environments() 
     positions_in_order(
         plan,
         &[
-            "before_await.iter().any(statement_contains_suspension)",
-            "AwaitSequenceError::NestedSuspension",
-            "direct_await_sequence_resume_state(&await_statement, &after_await, entry_state)",
-            ".map_err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence)",
-            "let exit_state = resume_state",
-            ".checked_add(1)",
             "let (value_storage, value_mode, iteration_environment, mut initialization) = match head",
             "AsyncFunctionForOfIteratorHeadIr::PreparedAssignment",
             "AsyncFunctionForOfIteratorHeadIr::LexicalPattern",
             "AsyncFunctionForOfIteratorPlanError::CapturedTdzEnvironment",
-            "initialization.append(&mut before_await)",
+            "initialization.append(&mut statements)",
+            "AsyncFunctionForOfBodyIr::new(initialization, entry_state)",
+            ".map_err(AsyncFunctionForOfIteratorPlanError::InvalidBody)",
+            "let body_exit_state = body.exit_state()",
+            "let exit_state = body_exit_state",
+            ".checked_add(1)",
             "Ok(Self",
         ],
     );
@@ -327,7 +323,8 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
     positions_in_order(
         lowerer,
         &[
-            "Self::split_resumable_loop_body(body, false)",
+            "let statements = match body",
+            "flatten_suspending_lexical_blocks(statements)",
             "IteratorRecordIr::new(",
             "self.alloc_iterator_slot()",
             "self.alloc_next_method_slot()",
@@ -505,6 +502,58 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
 }
 
 #[test]
+fn checked_body_preserves_structure_and_rejects_unowned_continuations() {
+    let body = bounded(
+        ASYNC_FOR_OF_BODY_SOURCE,
+        "pub struct AsyncFunctionForOfBodyIr {",
+        "#[derive(Debug, Clone, PartialEq, Eq)]",
+    );
+    for field in [
+        "statements: Vec<StatementIr>",
+        "entry_state: u32",
+        "exit_state: u32",
+    ] {
+        assert!(body.contains(field));
+        assert!(!body.contains(&format!("pub {field}")));
+    }
+    assert!(ASYNC_FOR_OF_BODY_SOURCE.contains("pub(crate) fn new("));
+    assert!(!ASYNC_FOR_OF_BODY_SOURCE.contains("pub fn new("));
+    for owner in [
+        "StatementIr::AsyncAwait",
+        "StatementIr::Block",
+        "StatementIr::LexicalBlock",
+        "StatementIr::AsyncFunctionIf",
+        "StatementIr::TryCatch",
+        "StatementIr::TryFinally",
+        "StatementIr::TryCatchFinally",
+    ] {
+        assert!(
+            ASYNC_FOR_OF_BODY_SOURCE.contains(owner),
+            "continuation owner: {owner}"
+        );
+    }
+    for proof in [
+        "require_state(state, *suspend_state)?",
+        "require_state(successor(state)?, *resume_state)?",
+        "require_state(state, plan.entry_state)?",
+        "require_state(successor(try_end)?, plan.try_exit_state)?",
+        "AsyncFunctionForOfBodyError::TryClauseLayout",
+        "AsyncFunctionForOfBodyError::UnsupportedContinuation",
+        "AsyncFunctionForOfBodyError::AwaitRequired",
+    ] {
+        assert!(
+            ASYNC_FOR_OF_BODY_SOURCE.contains(proof),
+            "body proof: {proof}"
+        );
+    }
+    let statement_dispatch = ASYNC_FOR_OF_BODY_SOURCE
+        .split_once("    fn statement(")
+        .expect("checked statement dispatcher")
+        .1;
+    assert!(!statement_dispatch.contains("_ =>"));
+}
+
+#[test]
 fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
     let emitter = bounded(
         ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
@@ -577,7 +626,7 @@ fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
         &[
             "let entry_local_storage = match plan.value_storage()",
             "ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment)",
-            "self.emit_enter_lexical_environment(environment, function)?",
+            "self.emit_enter_resumable_lexical_environment(",
             "let (value_storage, value_is_entry_local) = match plan.value_storage()",
         ],
     );
@@ -585,7 +634,7 @@ fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
     let entry_write = bounded(
         emitter,
         "        let close_frame = self.open_frame(ControlFrameKind::Block, function);",
-        "        for statement in plan.before_await() {",
+        "        self.compile_async_statement_sequence(",
     );
     positions_in_order(
         entry_write,
@@ -631,7 +680,7 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
         &[
             "plan.entry_state()",
             "Instruction::I64GeU",
-            "plan.resume_state()",
+            "plan.body().exit_state()",
             "Instruction::I64LeU",
             "Instruction::I32And",
         ],
@@ -668,7 +717,7 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
             "self.write_binding_from_locals(\n            done_storage",
             "function.branch_if_to_label(break_frame.label);",
             "ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment)",
-            "self.emit_enter_lexical_environment(environment, function)?",
+            "self.emit_enter_resumable_lexical_environment(",
             "function.instruction(&Instruction::Else);",
             "let resumed_iterator_storage = self",
             "self.read_binding_to_locals(\n            resumed_iterator_storage",
@@ -686,12 +735,9 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
         &[
             "self.finally_stack.push(close_frame)",
             "self.write_binding_from_locals(",
-            "for statement in plan.before_await()",
-            "self.compile_statement(plan.await_statement(), function)?",
-            "Self::async_statement_exit_state(plan.await_statement())",
             "self.compile_async_statement_sequence(",
-            "plan.after_await(),",
-            "first_resume_state,",
+            "plan.body().statements(),",
+            "plan.entry_state(),",
             "HEAP_ASYNC_RESUME_STATE_OFFSET,",
             "self.finally_stack.pop()",
         ],
@@ -731,9 +777,7 @@ fn planner_adds_every_persistent_record_local_to_the_deepest_child() {
     );
     assert!(arm.contains("RESUMABLE_SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS"));
     assert!(arm.contains("+ count_expr_temp_locals(iterable)"));
-    assert!(arm.contains("plan.before_await()"));
-    assert!(arm.contains("std::iter::once(plan.await_statement())"));
-    assert!(arm.contains(".chain(plan.after_await())"));
+    assert!(compact(arm).contains("plan.body().statements().iter()"));
     assert!(arm.contains(".map(count_statement_temp_locals)"));
     assert!(arm.contains(".max(FOR_OF_ITERATOR_HELPER_TEMP_LOCALS)"));
     assert!(compact(PLANNING_SOURCE).contains(

@@ -375,16 +375,24 @@ pub(crate) enum RuntimeHelperId {
     /// index, value payload and value tag; params 4..6 are unused. This internal
     /// mutation neither invokes JavaScript nor changes the caller completion.
     ArrayAppendPresentIndex = 42,
+    /// Graph-owned operations reserve indices in every artifact; a graphless
+    /// artifact has unreachable bodies and no caller edges to these slots.
+    ModuleEvaluate = 43,
+    ModuleReady = 44,
+    ModuleGather = 45,
+    ModuleExecute = 46,
+    ModuleFulfilled = 47,
+    ModuleRejected = 48,
+    ModuleDeferredImport = 49,
     /// Only helper whose emission is conditional today. Keep conditional
-    /// helpers last; `conditional_helpers_are_last` is a compile-time check,
-    /// not a comment.
-    JsonStringifyValue = 43,
+    /// helpers last; `conditional_helpers_are_last` is a compile-time check.
+    JsonStringifyValue = 50,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 44] = [
+    pub(crate) const ALL: [Self; 51] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -428,6 +436,13 @@ impl RuntimeHelperId {
         Self::WithEnvironmentHasBinding,
         Self::RegExpCompiler,
         Self::ArrayAppendPresentIndex,
+        Self::ModuleEvaluate,
+        Self::ModuleReady,
+        Self::ModuleGather,
+        Self::ModuleExecute,
+        Self::ModuleFulfilled,
+        Self::ModuleRejected,
+        Self::ModuleDeferredImport,
         Self::JsonStringifyValue,
     ];
 
@@ -516,6 +531,13 @@ impl RuntimeHelperId {
             | Self::ValueToPropertyKey
             | Self::ObjectHasProperty
             | Self::WithEnvironmentHasBinding
+            | Self::ModuleEvaluate
+            | Self::ModuleReady
+            | Self::ModuleGather
+            | Self::ModuleExecute
+            | Self::ModuleFulfilled
+            | Self::ModuleRejected
+            | Self::ModuleDeferredImport
             | Self::JsonStringifyValue => JS_FUNCTION_TYPE_INDEX,
         }
     }
@@ -568,6 +590,13 @@ impl RuntimeHelperId {
             | Self::ValueToPrimitiveString
             | Self::ValueToPropertyKey
             | Self::ObjectHasProperty
+            | Self::ModuleEvaluate
+            | Self::ModuleReady
+            | Self::ModuleGather
+            | Self::ModuleExecute
+            | Self::ModuleFulfilled
+            | Self::ModuleRejected
+            | Self::ModuleDeferredImport
             | Self::WithEnvironmentHasBinding => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
@@ -629,6 +658,13 @@ impl RuntimeHelperId {
             Self::ValueToPropertyKey => "value_to_property_key",
             Self::ObjectHasProperty => "object_has_property",
             Self::WithEnvironmentHasBinding => "with_environment_has_binding",
+            Self::ModuleEvaluate => "module_evaluate",
+            Self::ModuleReady => "module_ready",
+            Self::ModuleGather => "module_gather",
+            Self::ModuleExecute => "module_execute",
+            Self::ModuleFulfilled => "module_fulfilled",
+            Self::ModuleRejected => "module_rejected",
+            Self::ModuleDeferredImport => "module_deferred_import",
             Self::JsonStringifyValue => "json_stringify_value",
         }
     }
@@ -752,7 +788,7 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 43 unconditional helpers include ArrayAppendPresentIndex;
+        // 50 reserved helpers include the seven graph-owned module operations;
         // JSON.stringify adds the only optional helper.
         let without_json = RuntimeHelperId::ALL
             .iter()
@@ -766,8 +802,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 43);
-        assert_eq!(with_json, 44);
+        assert_eq!(without_json, 50);
+        assert_eq!(with_json, 51);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in

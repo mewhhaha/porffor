@@ -40,7 +40,7 @@ impl ModuleEntryEvaluationIr {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum LinkedModuleEntry {
-    SynchronousGraph(ModuleUnitId),
+    CanonicalGraph(ModuleUnitId),
     RetainedDriver(ModuleEntryEvaluationKindIr),
 }
 
@@ -61,9 +61,9 @@ impl LinkedModuleEntry {
             panic!("trusted Module entry ends with an evaluation expression");
         };
         let operand = match self {
-            Self::SynchronousGraph(module) => {
+            Self::CanonicalGraph(module) => {
                 let evaluation = analysis
-                    .synchronous_modules
+                    .module_execution
                     .evaluations
                     .get(&(std::ptr::from_ref(expression) as usize))
                     .expect("the final operation evaluates the linked entry");
@@ -112,7 +112,7 @@ impl<'a> ModuleEntryEvaluationBoundary<'a> {
 
     pub(crate) fn lower(self, evaluation: TypedExpr) -> TypedExpr {
         let kind = match self.source {
-            LinkedModuleEntry::SynchronousGraph(_) => ModuleEntryEvaluationKindIr::Synchronous,
+            LinkedModuleEntry::CanonicalGraph(_) => ModuleEntryEvaluationKindIr::Promise,
             LinkedModuleEntry::RetainedDriver(kind) => kind,
         };
         TypedExpr::from_info(

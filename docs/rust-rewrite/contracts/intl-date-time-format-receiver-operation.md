@@ -1,5 +1,9 @@
 # Intl.DateTimeFormat receiver operation domain
 
+This records the earlier AOT formatter refactor. Its implementation-specific
+source census is superseded by the [DateTimeFormat provider boundary](../intl-datetime-provider.md).
+The historical evidence below is retained; it is not a current verification command.
+
 Status: implemented as a source-equivalent Wasm-AOT invariant boundary.
 
 ## Closed receiver policy

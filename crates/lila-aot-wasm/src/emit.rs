@@ -5,7 +5,7 @@ use lila_ir::DerivedConstructorActivationIr;
 use crate::functions::{
     emit_array_alloc_helper_function, emit_function_object_alloc_helper_function,
 };
-use crate::modules::synchronous_module_record_count;
+use crate::modules::module_execution_record_count;
 use crate::objects::{
     emit_object_append_accessor_property_helper_function,
     emit_object_append_data_property_helper_function, emit_plain_object_alloc_helper_function,
@@ -307,6 +307,13 @@ impl NumericErrorRealmSource {
             | RuntimeHelperId::RegExpMatcher
             | RuntimeHelperId::RegExpCompiler
             | RuntimeHelperId::ArrayAppendPresentIndex
+            | RuntimeHelperId::ModuleEvaluate
+            | RuntimeHelperId::ModuleReady
+            | RuntimeHelperId::ModuleGather
+            | RuntimeHelperId::ModuleExecute
+            | RuntimeHelperId::ModuleFulfilled
+            | RuntimeHelperId::ModuleRejected
+            | RuntimeHelperId::ModuleDeferredImport
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
@@ -390,6 +397,13 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::RegExpMatcher
             | RuntimeHelperId::RegExpCompiler
             | RuntimeHelperId::ArrayAppendPresentIndex
+            | RuntimeHelperId::ModuleEvaluate
+            | RuntimeHelperId::ModuleReady
+            | RuntimeHelperId::ModuleGather
+            | RuntimeHelperId::ModuleExecute
+            | RuntimeHelperId::ModuleFulfilled
+            | RuntimeHelperId::ModuleRejected
+            | RuntimeHelperId::ModuleDeferredImport
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
@@ -478,6 +492,13 @@ impl ObjectMutationErrorRealmSource {
             | RuntimeHelperId::RegExpMatcher
             | RuntimeHelperId::RegExpCompiler
             | RuntimeHelperId::ArrayAppendPresentIndex
+            | RuntimeHelperId::ModuleEvaluate
+            | RuntimeHelperId::ModuleReady
+            | RuntimeHelperId::ModuleGather
+            | RuntimeHelperId::ModuleExecute
+            | RuntimeHelperId::ModuleFulfilled
+            | RuntimeHelperId::ModuleRejected
+            | RuntimeHelperId::ModuleDeferredImport
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::ArrayWrite
@@ -541,6 +562,13 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::RegExpMatcher
             | RuntimeHelperId::RegExpCompiler
             | RuntimeHelperId::ArrayAppendPresentIndex
+            | RuntimeHelperId::ModuleEvaluate
+            | RuntimeHelperId::ModuleReady
+            | RuntimeHelperId::ModuleGather
+            | RuntimeHelperId::ModuleExecute
+            | RuntimeHelperId::ModuleFulfilled
+            | RuntimeHelperId::ModuleRejected
+            | RuntimeHelperId::ModuleDeferredImport
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
@@ -917,6 +945,7 @@ fn async_generator_contains_suspension(
             .flat_map(|prefix| prefix.statements())
             .any(|statement| async_generator_contains_suspension(statement, suspension)),
         StatementIr::AsyncAwait { .. } => matches!(suspension, AsyncGeneratorSuspension::Await),
+        StatementIr::AsyncModuleInstantiation => false,
         StatementIr::GeneratorYield { .. } => {
             matches!(suspension, AsyncGeneratorSuspension::Yield)
         }
@@ -1074,6 +1103,7 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
             .flat_map(|prefix| prefix.statements())
             .find_map(async_generator_dispatcher_unsupported_feature),
         StatementIr::ModuleImportBinding(_) => Some("module import binding"),
+        StatementIr::AsyncModuleInstantiation => Some("async module instantiation"),
         StatementIr::ModuleUnitOnce { .. } => Some("module unit evaluation"),
         StatementIr::AsyncFunctionIf { .. } => Some("plain async function branches"),
         StatementIr::Empty
@@ -1553,6 +1583,7 @@ fn emit_script_with_forced_builtins(
         script.prepared_dynamic_functions.clone(),
         script.prepared_scripts.clone(),
         module_unit_guard_count(script),
+        module_execution_record_count(script),
     );
     let emitted_standard_builtins = emitted_compiled_standard_builtins(&compiled_standard_builtins);
     let string_pool =
@@ -1659,7 +1690,7 @@ fn emit_script_with_forced_builtins(
             &ConstExpr::i32_const(0),
         );
     }
-    for _ in 0..synchronous_module_record_count(script) {
+    for _ in 0..module_execution_record_count(script) {
         globals.global(
             GlobalType {
                 val_type: ValType::I64,
@@ -2678,6 +2709,31 @@ fn emit_script_with_forced_builtins(
             value_to_property_key_helper_function
                 .expect("to-property-key helper must exist when heap is enabled"),
         );
+        for operation in crate::modules::ModuleRuntimeOperation::ALL {
+            let body = if crate::modules::module_execution_record_count(script) > 0 {
+                let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                    &string_pool,
+                    &function_metas,
+                    uses_heap,
+                    runtime_bootstrap_plan.clone(),
+                    heap_alloc_function_index,
+                    object_append_data_property_function_index,
+                    object_append_accessor_property_function_index,
+                    function_object_alloc_function_index,
+                    plain_object_alloc_function_index,
+                    array_alloc_function_index,
+                );
+                builder.compile_module_runtime_operation(operation)?
+            } else {
+                // No trusted module operation may occur without its graph witness.
+                // Keep indices stable without rooting unused async execution machinery.
+                let mut body = Function::new_with_locals_types([]);
+                body.instruction(&Instruction::Unreachable);
+                body.instruction(&Instruction::End);
+                body
+            };
+            helper_bodies.insert(operation.helper(), body);
+        }
         if let Some(json_stringify_value_helper_function) = json_stringify_value_helper_function {
             helper_bodies.insert(
                 RuntimeHelperId::JsonStringifyValue,
@@ -4056,6 +4112,19 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     fn compile(&mut self) -> Result<Function, EmitError> {
+        if self.functions.module_execution_record_count() == 0
+            && self.current_function_meta().is_some_and(|meta| {
+                matches!(
+                    meta.protocol,
+                    FunctionProtocolIr::ModuleActivation
+                        | FunctionProtocolIr::AsyncModuleActivation
+                )
+            })
+        {
+            return Err(EmitError::unsupported(
+                "private module activation requires its validated execution graph",
+            ));
+        }
         let mut function =
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
 
@@ -4170,6 +4239,69 @@ impl<'a> FunctionBuilder<'a> {
                 .new_target_payload_local()
                 .expect("resumable body must use the function call ABI");
             self.store_i64_const_at_offset(activation_local, initialized_offset, 1, &mut function);
+            function.instruction(&Instruction::End);
+        }
+        if self
+            .current_function_meta()
+            .is_some_and(|meta| meta.protocol == FunctionProtocolIr::AsyncModuleActivation)
+        {
+            let activation = self
+                .new_target_payload_local()
+                .expect("module activation uses the function ABI");
+            self.emit_load_async_module_entry_mode(activation, self.scratch_local, &mut function);
+            let mode = self.reserve_temp_local();
+            let state = self.reserve_temp_local();
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+            function.instruction(&Instruction::LocalSet(mode));
+            self.load_i64_to_local_from_offset(
+                activation,
+                HEAP_ASYNC_RESUME_STATE_OFFSET,
+                state,
+                &mut function,
+            );
+            function.instruction(&Instruction::LocalGet(mode));
+            function.instruction(&Instruction::I64Const(
+                AsyncModuleEntryMode::Execute.word() as i64
+            ));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            let final_state = self
+                .body
+                .statements
+                .iter()
+                .rev()
+                .find_map(Self::async_statement_exit_state)
+                .expect("an async module has an instantiation boundary");
+            function.instruction(&Instruction::LocalGet(state));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::LocalGet(state));
+            function.instruction(&Instruction::I64Const(i64::from(final_state)));
+            function.instruction(&Instruction::I64GtU);
+            function.instruction(&Instruction::I32Or);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Unreachable);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::LocalGet(state));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::Unreachable);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalGet(mode));
+            function.instruction(&Instruction::LocalSet(self.scratch_local));
+            self.release_temp_local(state);
+            self.release_temp_local(mode);
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+            function.instruction(&Instruction::I64Const(
+                AsyncModuleEntryMode::Allocate.word() as i64,
+            ));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.set_completion_kind(CompletionKind::Normal, &mut function);
+            self.emit_statement_result(&mut function, ValueKind::Undefined);
+            self.emit_return_current_completion(&mut function);
             function.instruction(&Instruction::End);
         }
         if let Some((resume_state_offset, initializing_state)) = suspended_initialization {
@@ -4684,6 +4816,13 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::RegExpMatcher
             | RuntimeHelperId::RegExpCompiler
             | RuntimeHelperId::ArrayAppendPresentIndex
+            | RuntimeHelperId::ModuleEvaluate
+            | RuntimeHelperId::ModuleReady
+            | RuntimeHelperId::ModuleGather
+            | RuntimeHelperId::ModuleExecute
+            | RuntimeHelperId::ModuleFulfilled
+            | RuntimeHelperId::ModuleRejected
+            | RuntimeHelperId::ModuleDeferredImport
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
             | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback

@@ -19,7 +19,7 @@ fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 #[test]
 fn async_function_activation_traces_its_defining_realm() {
     for marker in [
-        "pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 152;",
+        "pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 160;",
         "pub(crate) const HEAP_ASYNC_FUNCTION_REALM_OFFSET: u64 = 136;",
         "pub(crate) const HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT",
         "name: \"realm\"",

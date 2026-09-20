@@ -4,6 +4,13 @@ Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, lib
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
+The 2026-09-20 draft checkpoint preserves the current baseline repairs. Its
+frozen 2026-09-19 compiler passes workspace checking and builds; completed
+source/library and focused runtime checks report 2,829 passing tests and ten
+failures, with no ignored tests. Broader verification remains incomplete.
+See the [saved checkpoint and remaining failures](docs/rust-rewrite/completed-baseline-follow-up.md#saved-draft-checkpoint-2026-09-20).
+The published full-suite conformance counts remain unchanged.
+
 The direct Wasm `Intl.Locale` constructor applies core and Unicode-extension
 options in order, resolves pinned provider aliases before and after overrides,
 and exposes eight additional getters. Locale canonicalization preserves valid
@@ -16,13 +23,37 @@ now includes all 65 keyword-value aliases from pinned CLDR 47; broader Intl
 services remain open.
 Published conformance counts are unchanged.
 
-The direct Wasm `Intl.DateTimeFormat` path negotiates and renders all 77
-positional numbering systems in pinned CLDR 47 across numeric date/time fields,
-parts, ranges, fractional separators, and GMT display labels. Locale patterns
-remain `en`/`en-US`; Chinese calendars and Arabic locale defaults remain gaps.
-Named zones use pinned IANA transitions and CLDR English display names. Date
-locale methods share the formatter's initialization and field rendering. See the
-[numbering contract](docs/rust-rewrite/aot-intl-datetime-numbering.md).
+The direct Wasm `Intl.DateTimeFormat` path now uses a pure host provider for
+pinned CLDR 47 patterns, calendar fields and parts. Its locale profiles cover
+`en`/`en-US`, `ar`/`ar-EG` and Simplified Chinese, with Gregorian, ISO8601 and
+Chinese calendars and all 77 positional numbering systems. Date and Plain
+Temporal locale methods share the same constructor and formatting boundary.
+Named zones use pinned IANA transitions and localized CLDR display names.
+See the [provider contract](docs/rust-rewrite/intl-datetime-provider.md) and
+[pinned profile details](docs/rust-rewrite/intl-datetime-locale-kernel.md).
+The vendored Chinese/Dangi calendar uses a documented integer approximation
+for distant dates, joined continuously to retained modern calculations. Its
+[calendar-domain contract](docs/rust-rewrite/intl-calendar-domain.md) records
+the conversion model and verification limits. Product verification of this
+provider integration passes 16 focused runtime tests; its current pinned replay
+is pending and published conformance counts are unchanged.
+
+The `Intl.NumberFormat` implementation covers construction, scalar and range
+formatting, parts, resolved and supported locales, and Number/BigInt locale
+methods. JavaScript observations compile to Wasm; exact numeric operations and
+pinned CLDR 47 formatting run in the pure Rust provider through Intl ABI 5.
+See the [NumberFormat contract](docs/rust-rewrite/contracts/intl-numberformat-wasm.md)
+for option ordering, Realm ownership and provider limits. Focused product
+verification passes 15 of 16 tests; foreign-Realm locale-error ownership still
+fails. Published conformance counts are unchanged.
+
+Synchronous `using` loop heads in async functions and canonical async modules
+are admitted only when the complete eager loop region cannot suspend. Disposal,
+iterator closing and ordinary try/finally run before the next surrounding await;
+nested function owners keep their own suspension behavior. See the
+[resource-loop contract](docs/rust-rewrite/contracts/synchronous-resource-loop-regions.md).
+Focused verification passes eight of nine tests; the eager-class and nested
+function case still fails. Published conformance counts are unchanged.
 
 The public project and all current Rust packages, commands, environment
 variables, cache paths, diagnostics and host ABI names use the Lila identity.
@@ -50,7 +81,10 @@ environment records, and persistent realm-global declarations. Follow-up fixes
 preserve declaration and loop completions, realm array iteration, and numeric
 coercion order with arbitrary-precision BigInt results. Source arguments
 still undergo their observable runtime conversions; source text outside the
-prepared set remains an explicit Wasm-AOT capability rejection. See
+prepared set remains an explicit Wasm-AOT capability rejection. Classic-for
+`var` initializers in prepared sloppy direct eval use the caller environment
+shared by the loop condition, body and updates; the focused follow-up retains
+its original crash evidence and passes all 33 declaration-completion tests. See
 [the later cohort notes](docs/rust-rewrite/observed-later-failure-repairs.md) for
 the exact replay scope, verification and remaining limitations. The `2026-09-09`
 replay of those 1,012 recorded failures finished with 994 Success,
@@ -151,8 +185,13 @@ checks. CLI runs keep FIFO unhandled-rejection diagnostics.
 owns the actual evaluation result independently of unrelated Promise rejections,
 including `throw undefined`. Scripts and Modules both admit `Ignore`; a Module
 entry still pending after supported host work drains returns the typed host
-failure `IncompleteModuleEvaluation`. This foundation preserves the retained TLA
-driver and its existing scheduling and deferred-import limitations.
+failure `IncompleteModuleEvaluation`. Canonical graphs use the [async module lifecycle](docs/rust-rewrite/contracts/module-async-lifecycle.md),
+with runtime cycle roots, counted async parents and intrinsic deferred-import joins.
+DateTimeFormat selects supplied CLDR ASCII pattern alternates and preserves
+calendar year fields when selecting range patterns; its
+[locale kernel](docs/rust-rewrite/intl-datetime-locale-kernel.md) also completes
+era requests and applies context-free day-period selection. Regression
+verification passes all 16 focused provider tests; the pinned replay is pending.
 [Property descriptor Realm ownership](docs/rust-rewrite/property-descriptor-realm.md)
 keeps Proxy trap descriptor objects and definition errors in the executing
 method or class Realm, including foreign public-field definitions.
@@ -160,9 +199,14 @@ method or class Realm, including foreign public-field definitions.
 keep private Object and Reflect descriptor forwarding free of inherited-field
 reads and preserve TypedArray coercion throws separately from normal definition
 rejection.
-[Synchronous module instantiation](docs/rust-rewrite/contracts/module-instantiation.md)
+String construction now converts its argument before reading
+`NewTarget.prototype`, rejects Symbol construction, and creates conversion
+errors in the called String function's Realm. Bound constructors and foreign
+fallback prototypes share this path. All seven focused Wasm-AOT tests pass;
+see the [baseline repair evidence](docs/rust-rewrite/completed-baseline-follow-up.md).
+[Canonical module instantiation](docs/rust-rewrite/contracts/module-instantiation.md)
 adds private module environments, live import cells, and deferred readiness for
-synchronous Module-entry graphs, including evaluation cycles. Module aliases stay
+synchronous and TLA Module-entry graphs, including evaluation cycles. Module aliases stay
 out of the global object, and a cycle completes or caches its error across all
 entered members. Synchronous catch, finally, and resource scopes retain ordinary
 control flow after the private instantiation boundary. Canonical synchronous
@@ -171,7 +215,7 @@ ordered disposal, including nested function scopes. Module Test262 helpers
 execute as an independent global Script. Host globals referenced only by
 prepared Script, Function or module-prelude sources are included in entry
 initialization, while their declarations still wait for source execution;
-TLA, Script-entry and source-phase drivers still have scope and lifecycle gaps.
+Script-entry and source-phase drivers retain explicit scope and lifecycle gaps.
 The next batch adds [word boundaries and reverse whitespace](crates/lila-aot-wasm/docs/regexp-word-boundary.md),
 [case-insensitive backreference comparison](crates/lila-aot-wasm/docs/regexp-backreference-folding.md),
 correct forward non-whitespace movement across UTF-16 surrogate pairs,
@@ -245,7 +289,12 @@ Module entry completion passes 12/12, JSON reviver definitions 9/9, Reflect/Obje
 descriptors 9/9, Instant methods 19/19 and Array index storage 13/13. All nine
 unchanged saved reproductions pass. These results were refreshed on 2026-09-19;
 checkpoint nineteen also passes all 121 selected verification groups and both
-Arguments reproductions. Its paired 641-execution conformance replay is running.
+Arguments reproductions. Its complete paired conformance comparisons pass
+property definitions 231/231 (47 main failures repaired, 184 successes retained),
+Instant 229/229 (227 repaired, two retained), and Promise policy 28/28 (26 repaired,
+two retained). Modules remain 147/153 (54 repaired, 93 retained); six asynchronous
+deferred-module cases remain. All four comparisons finish without crashes or
+timeouts. These bounded results do not update the generated full-suite status.
 
 Computed legacy RegExp patterns now reach an emitted Wasm parser and compiler
 through the existing constructor and `compile` paths. It emits the same immutable
@@ -363,6 +412,11 @@ for the shared length contract. Element invocation and live indexed reads now
 use the shared property/invocation paths; see [the integration notes](docs/rust-rewrite/aot-array-to-locale-string.md)
 for retained regressions and verification gates. The generated full-suite status
 is unchanged.
+
+Each Realm now owns its canonical `%ThrowTypeError%` callable, shared by its
+unmapped Arguments `callee` accessors and restricted `Function.prototype`
+properties. Calling an extracted foreign accessor creates a TypeError in that
+accessor's Realm. See [the ownership and verification contract](docs/rust-rewrite/throw-type-error-realm.md).
 
 Arguments-backed `for-of` loops now use the existing Arguments-aware iterator
 lookup, including escaped aliases and async-disposable loop heads. The bounded
@@ -1543,6 +1597,17 @@ Recent focused progress through `2026-09-01`:
   above supersede the historical property- and pattern-head nonclaims. The
   iterator boundary is recorded in
   [`synchronous-array-for-of-iterator-protocol.md`](docs/rust-rewrite/contracts/synchronous-array-for-of-iterator-protocol.md).
+
+- Synchronous `for-of` in a plain async function retains structured body
+  continuations for blocks, conditionals and `try`/`catch`/`finally`, including
+  awaits inside catch and finally clauses. The checked body keeps clause
+  states contiguous and preserves captured iteration, body and catch scopes.
+  Iterator acquisition remains once-only; abrupt body completion closes the
+  iterator after nested finalizers. Direct `break`/`continue`, suspended head
+  operands, nested resumable loops and `for await` bodies with explicit awaits
+  remain separate unsupported shapes. See the
+  [continuation contract](docs/rust-rewrite/contracts/async-for-of-continuations.md)
+  for the exact scope and required verification; published status is unchanged.
 
 - A bare identifier in a `for await` head now writes its resolved outer
   Reference through a synthetic iterator-result slot instead of being declared

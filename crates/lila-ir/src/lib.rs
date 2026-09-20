@@ -54,7 +54,10 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::ToPrimitive;
 
 mod analysis;
+mod async_for_of_body;
 mod async_if;
+mod synchronous_loop_body;
+pub use synchronous_loop_body::{SynchronousLoopBodyError, SynchronousLoopBodyIr};
 /// Environment Record binding lifecycle (ECMA-262 9.1.1.1): the `Initialization`
 /// state that lives on `BindingInfo`, and the `$tdz.` name domain. See
 /// `docs/rust-rewrite/contracts/environment-record-tdz.md`.
@@ -98,6 +101,8 @@ mod source_call_flow_proof;
 mod task;
 mod well_known;
 pub(crate) use analysis::*;
+pub(crate) use async_for_of_body::AsyncFunctionForOfBodyError;
+pub use async_for_of_body::AsyncFunctionForOfBodyIr;
 pub use async_if::AsyncFunctionIfPlanIr;
 pub(crate) use binding_lifecycle::*;
 pub use builtins::{
@@ -144,9 +149,9 @@ pub use modules::{
     StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
 };
 pub use modules::{
-    DeferredModuleEvaluationIr, ModuleCellIr, ModuleEntryEvaluationIr, ModuleEntryEvaluationKindIr,
-    ModuleImportBindingIr, ModuleReadinessNodeIr, SynchronousModuleActivationIr,
-    SynchronousModuleEvaluationIr, SynchronousModuleGraphIr,
+    DeferredModuleEvaluationIr, ModuleActivationIr, ModuleActivationKindIr, ModuleCellIr,
+    ModuleEntryEvaluationIr, ModuleEntryEvaluationKindIr, ModuleEvaluationIr,
+    ModuleExecutionGraphIr, ModuleExecutionRequestIr, ModuleImportBindingIr, ModuleRequestPhaseIr,
 };
 pub use operations::{
     completion_abi_slot, completion_abi_slots, find_spec_operation, spec_operation_catalog,
@@ -403,12 +408,7 @@ mod tests {
                     statement: body, ..
                 } => collect(body, copies),
                 StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
-                    for statement in plan
-                        .before_await()
-                        .iter()
-                        .chain(std::iter::once(plan.await_statement()))
-                        .chain(plan.after_await())
-                    {
+                    for statement in plan.body().statements() {
                         collect(statement, copies);
                     }
                 }
@@ -676,12 +676,7 @@ mod tests {
                 }
                 StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
                     names.insert(plan.value_name().to_string());
-                    for statement in plan
-                        .before_await()
-                        .iter()
-                        .chain(std::iter::once(plan.await_statement()))
-                        .chain(plan.after_await())
-                    {
+                    for statement in plan.body().statements() {
                         collect(statement, names);
                     }
                 }
@@ -767,7 +762,8 @@ mod tests {
                         names.insert(name.to_string());
                     });
                 }
-                StatementIr::Empty
+                StatementIr::AsyncModuleInstantiation
+                | StatementIr::Empty
                 | StatementIr::AnnexBFunctionCopy { .. }
                 | StatementIr::DeclarationEvaluation(_)
                 | StatementIr::Expression(_)
@@ -904,10 +900,9 @@ mod tests {
                         });
                     environment_owns_binding
                         || plan
-                            .before_await()
+                            .body()
+                            .statements()
                             .iter()
-                            .chain(std::iter::once(plan.await_statement()))
-                            .chain(plan.after_await())
                             .any(|statement| statement_owns_binding(statement, name, slot))
                 }
                 StatementIr::Switch {
@@ -8038,6 +8033,21 @@ target[Symbol.iterator];"#,
         );
     }
 
+    fn direct_async_for_of_segments(
+        plan: &AsyncFunctionForOfIteratorPlanIr,
+    ) -> (&[StatementIr], &StatementIr, &[StatementIr]) {
+        let statements = plan.body().statements();
+        let first = statements
+            .iter()
+            .position(|statement| matches!(statement, StatementIr::AsyncAwait { .. }))
+            .expect("this fixture owns a direct await");
+        (
+            &statements[..first],
+            &statements[first],
+            &statements[first + 1..],
+        )
+    }
+
     #[test]
     fn plain_async_for_of_body_await_owns_a_synchronous_iterator_record() {
         let program =
@@ -8062,7 +8072,7 @@ target[Symbol.iterator];"#,
             );
         };
         assert_eq!(plan.entry_state(), 0);
-        assert_eq!(plan.resume_state(), 1);
+        assert_eq!(plan.body().exit_state(), 1);
         assert_eq!(plan.exit_state(), 2);
         assert!(matches!(
             plan.value_storage(),
@@ -8070,7 +8080,7 @@ target[Symbol.iterator];"#,
                 if binding.mode == BindingMode::Const && binding.name == plan.value_name()
         ));
         assert!(matches!(
-            plan.await_statement(),
+            direct_async_for_of_segments(plan).1,
             StatementIr::AsyncAwait {
                 suspend_state: 0,
                 resume_state: 1,
@@ -8096,8 +8106,8 @@ target[Symbol.iterator];"#,
                 function.owned_env_bindings
             );
         }
-        let yielded_value_use = plan
-            .after_await()
+        let yielded_value_use = direct_async_for_of_segments(plan)
+            .2
             .iter()
             .find_map(|statement| match statement {
                 StatementIr::Expression(value) => match &value.expr {
@@ -8142,14 +8152,14 @@ target[Symbol.iterator];"#,
                 if name == plan.value_name()
         ));
         assert!(matches!(
-            plan.before_await(),
+            direct_async_for_of_segments(plan).0,
             [StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::AssignIdentifier { value, .. },
                 ..
             })] if matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name())
         ));
         assert!(matches!(
-            plan.await_statement(),
+            direct_async_for_of_segments(plan).1,
             StatementIr::AsyncAwait { .. }
         ));
     }
@@ -8181,11 +8191,11 @@ target[Symbol.iterator];"#,
                 target, key, value, ..
             },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "static member head should be the sole pre-await write: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
 
@@ -8238,11 +8248,11 @@ target[Symbol.iterator];"#,
                 target, key, value, ..
             },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "computed member head should be the sole pre-await write: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
 
@@ -8291,11 +8301,11 @@ target[Symbol.iterator];"#,
                     value,
                 },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "private member head should be the sole pre-await write: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
 
@@ -8343,7 +8353,7 @@ target[Symbol.iterator];"#,
             &ResumableLoopIterationEnvironmentIr::StorageOnly
         );
         assert!(matches!(
-            plan.before_await(),
+            direct_async_for_of_segments(plan).0,
             [StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::ArrayDestructure {
                     evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
@@ -8370,24 +8380,30 @@ target[Symbol.iterator];"#,
             "the pre-await iterator value sink must remain entry-local: {:?}",
             function.owned_env_bindings
         );
-        assert!(plan.after_await().iter().any(|statement| {
-            matches!(
-                statement,
-                StatementIr::Expression(TypedExpr {
-                    expr: ExprIr::Identifier(name),
-                    ..
-                }) if name == "selected"
-            )
-        }));
-        assert!(plan.after_await().iter().any(|statement| {
-            matches!(
-                statement,
-                StatementIr::Expression(TypedExpr {
-                    expr: ExprIr::Identifier(name),
-                    ..
-                }) if name == "remaining"
-            )
-        }));
+        assert!(direct_async_for_of_segments(plan)
+            .2
+            .iter()
+            .any(|statement| {
+                matches!(
+                    statement,
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::Identifier(name),
+                        ..
+                    }) if name == "selected"
+                )
+            }));
+        assert!(direct_async_for_of_segments(plan)
+            .2
+            .iter()
+            .any(|statement| {
+                matches!(
+                    statement,
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::Identifier(name),
+                        ..
+                    }) if name == "remaining"
+                )
+            }));
     }
 
     #[test]
@@ -8470,11 +8486,11 @@ target[Symbol.iterator];"#,
         let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ObjectDestructure { value, pattern },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "nested object pattern must initialize before the body await: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
         assert!(matches!(
@@ -8526,11 +8542,11 @@ target[Symbol.iterator];"#,
             mode: BindingMode::Let,
             name: second,
             ..
-        }] = plan.before_await()
+        }] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "object BindingInitialization must precede the body await: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
         assert!(first.ends_with(".first"));
@@ -8592,10 +8608,12 @@ target[Symbol.iterator];"#,
             assert!(head_environment.tdz_environment.is_none());
             assert!(head_environment.iteration_environment.is_none());
 
-            let [StatementIr::DeclarationEvaluation(initialization)] = plan.before_await() else {
+            let [StatementIr::DeclarationEvaluation(initialization)] =
+                direct_async_for_of_segments(plan).0
+            else {
                 panic!(
                     "`{function_name}` must preserve one semantic initialization: {:?}",
-                    plan.before_await()
+                    direct_async_for_of_segments(plan).0
                 );
             };
             match (function_name, &initialization.expr) {
@@ -8668,11 +8686,11 @@ target[Symbol.iterator];"#,
                     ..
                 },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "assignment pattern should be the sole pre-await prefix: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
 
@@ -8865,10 +8883,10 @@ target[Symbol.iterator];"#,
                         *exit_state,
                     )),
                     StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some((
-                        plan.await_statement(),
-                        plan.after_await(),
+                        direct_async_for_of_segments(plan).1,
+                        direct_async_for_of_segments(plan).2,
                         plan.entry_state(),
-                        plan.resume_state(),
+                        plan.body().exit_state(),
                         plan.exit_state(),
                     )),
                     _ => None,

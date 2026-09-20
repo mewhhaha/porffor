@@ -86,6 +86,7 @@ mod heap_finalization_registry_record_layout;
 mod heap_host_boundary;
 mod heap_intl_date_time_format_layout;
 mod heap_intl_locale_layout;
+mod heap_intl_number_format_layout;
 mod heap_map_entry_layout;
 mod heap_map_iterator_layout;
 mod heap_map_record_layout;
@@ -912,6 +913,7 @@ mod tests {
             ("SuppressedError", "SUPPRESSED_ERROR"),
             ("IntlLocale", "INTL_LOCALE"),
             ("IntlDateTimeFormat", "INTL_DATE_TIME_FORMAT"),
+            ("IntlNumberFormat", "INTL_NUMBER_FORMAT"),
         ] {
             assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
             assert_eq!(

@@ -4,13 +4,13 @@
 )]
 
 use super::heap::{
-    HeapLayoutSlot, HEAP_INTL_DTF_BOUND_FORMAT_OFFSET, HEAP_INTL_DTF_CALENDAR_OFFSET,
-    HEAP_INTL_DTF_DATE_STYLE_OFFSET, HEAP_INTL_DTF_DAY_OFFSET, HEAP_INTL_DTF_DAY_PERIOD_OFFSET,
-    HEAP_INTL_DTF_ERA_OFFSET, HEAP_INTL_DTF_FRACTIONAL_SECOND_DIGITS_OFFSET,
-    HEAP_INTL_DTF_HOUR12_OFFSET, HEAP_INTL_DTF_HOUR_CYCLE_OFFSET, HEAP_INTL_DTF_HOUR_OFFSET,
-    HEAP_INTL_DTF_LOCALE_OFFSET, HEAP_INTL_DTF_MINUTE_OFFSET, HEAP_INTL_DTF_MONTH_OFFSET,
-    HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET, HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
-    HEAP_INTL_DTF_SECOND_OFFSET, HEAP_INTL_DTF_TIME_STYLE_OFFSET,
+    HeapLayoutSlot, HEAP_INTL_DTF_AVAILABLE_FORMATS_OFFSET, HEAP_INTL_DTF_BOUND_FORMAT_OFFSET,
+    HEAP_INTL_DTF_CALENDAR_OFFSET, HEAP_INTL_DTF_DATE_STYLE_OFFSET, HEAP_INTL_DTF_DAY_OFFSET,
+    HEAP_INTL_DTF_DAY_PERIOD_OFFSET, HEAP_INTL_DTF_ERA_OFFSET,
+    HEAP_INTL_DTF_FRACTIONAL_SECOND_DIGITS_OFFSET, HEAP_INTL_DTF_HOUR12_OFFSET,
+    HEAP_INTL_DTF_HOUR_CYCLE_OFFSET, HEAP_INTL_DTF_HOUR_OFFSET, HEAP_INTL_DTF_LOCALE_OFFSET,
+    HEAP_INTL_DTF_MINUTE_OFFSET, HEAP_INTL_DTF_MONTH_OFFSET, HEAP_INTL_DTF_NUMBERING_SYSTEM_OFFSET,
+    HEAP_INTL_DTF_PLAN_OFFSET, HEAP_INTL_DTF_SECOND_OFFSET, HEAP_INTL_DTF_TIME_STYLE_OFFSET,
     HEAP_INTL_DTF_TIME_ZONE_FIXED_SECONDS_OFFSET, HEAP_INTL_DTF_TIME_ZONE_KIND_OFFSET,
     HEAP_INTL_DTF_TIME_ZONE_NAME_OFFSET, HEAP_INTL_DTF_TIME_ZONE_OFFSET,
     HEAP_INTL_DTF_WEEKDAY_OFFSET, HEAP_INTL_DTF_YEAR_OFFSET,
@@ -39,7 +39,8 @@ pub(crate) enum IntlDateTimeFormatHeapSlot {
     TimeStyleCode,
     Hour12Code,
     BoundFormatPayload,
-    NeedDefaults,
+    PlanPayload,
+    AvailableFormats,
 }
 
 struct IntlDateTimeFormatHeapSlotMetadata {
@@ -207,10 +208,17 @@ impl IntlDateTimeFormatHeapSlot {
                 width: 8,
                 pointer: true,
             },
-            Self::NeedDefaults => IntlDateTimeFormatHeapSlotMetadata {
+            Self::PlanPayload => IntlDateTimeFormatHeapSlotMetadata {
                 record: "intl-date-time-format-record",
-                name: "need_defaults",
-                offset: HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET,
+                name: "plan_payload",
+                offset: HEAP_INTL_DTF_PLAN_OFFSET,
+                width: 8,
+                pointer: true,
+            },
+            Self::AvailableFormats => IntlDateTimeFormatHeapSlotMetadata {
+                record: "intl-date-time-format-record",
+                name: "available_formats",
+                offset: HEAP_INTL_DTF_AVAILABLE_FORMATS_OFFSET,
                 width: 8,
                 pointer: false,
             },
@@ -252,5 +260,6 @@ pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[IntlDateTimeFormatH
     IntlDateTimeFormatHeapSlot::TimeStyleCode,
     IntlDateTimeFormatHeapSlot::Hour12Code,
     IntlDateTimeFormatHeapSlot::BoundFormatPayload,
-    IntlDateTimeFormatHeapSlot::NeedDefaults,
+    IntlDateTimeFormatHeapSlot::PlanPayload,
+    IntlDateTimeFormatHeapSlot::AvailableFormats,
 ];

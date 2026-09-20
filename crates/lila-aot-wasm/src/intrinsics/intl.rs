@@ -136,6 +136,40 @@ const DATE_TIME_FORMAT_PROTOTYPE_PROPERTIES: &[IntlIntrinsicProperty] = &[
     },
 ];
 
+const NUMBER_FORMAT_CONSTRUCTOR_PROPERTIES: &[IntlIntrinsicProperty] = &[IntlIntrinsicProperty {
+    name: "supportedLocalesOf",
+    builtin: StandardBuiltinId::IntlNumberFormatSupportedLocalesOf,
+    kind: IntlIntrinsicPropertyKind::Method,
+}];
+
+const NUMBER_FORMAT_PROTOTYPE_PROPERTIES: &[IntlIntrinsicProperty] = &[
+    IntlIntrinsicProperty {
+        name: "format",
+        builtin: StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter,
+        kind: IntlIntrinsicPropertyKind::Getter,
+    },
+    IntlIntrinsicProperty {
+        name: "formatToParts",
+        builtin: StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "formatRange",
+        builtin: StandardBuiltinId::IntlNumberFormatPrototypeFormatRange,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "formatRangeToParts",
+        builtin: StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "resolvedOptions",
+        builtin: StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+];
+
 /// Namespace membership is separately proven by IntlNamespaceMembers. A newly
 /// catalogued constructor must also supply its complete intrinsic properties.
 pub(crate) fn intl_constructor_properties(
@@ -154,6 +188,12 @@ pub(crate) fn intl_constructor_properties(
             constructor: DATE_TIME_FORMAT_CONSTRUCTOR_PROPERTIES,
             prototype: DATE_TIME_FORMAT_PROTOTYPE_PROPERTIES,
         }),
+        StandardBuiltinId::IntlNumberFormatConstructor => Some(IntlConstructorProperties {
+            prototype_name: "Intl.NumberFormat",
+            prototype_slot: NonArrayRealmIntrinsicSlot::IntlNumberFormatPrototype,
+            constructor: NUMBER_FORMAT_CONSTRUCTOR_PROPERTIES,
+            prototype: NUMBER_FORMAT_PROTOTYPE_PROPERTIES,
+        }),
         _ => None,
     }
 }
@@ -168,6 +208,14 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn install_intl_date_time_format_constructor_intrinsics(
+        &mut self,
+        context: &IntrinsicInstall<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.install_intl_constructor_intrinsics(context, function)
+    }
+
+    pub(crate) fn install_intl_number_format_constructor_intrinsics(
         &mut self,
         context: &IntrinsicInstall<'_>,
         function: &mut Function,

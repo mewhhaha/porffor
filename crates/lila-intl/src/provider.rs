@@ -3,6 +3,19 @@ use core::fmt;
 use icu_locale::{LocaleCanonicalizer, LocaleExpander};
 use sha2::{Digest as _, Sha256};
 
+use crate::number_format::{
+    embedded_number_profiles, filter_number_locales, resolve_number_locale, InvalidNumberProfile,
+    NumberLocaleRequest, NumberProfiles, NumberSupportedLocalesRequest, PartitionLimits,
+    RangeNumberPartition, ResolvedNumberLocale, ScalarNumberPartition, NUMBER_FORMAT_DATA_SHA256,
+};
+use crate::number_operation::{format_number_parts_operation, format_number_range_parts_operation};
+use crate::{
+    FormatNumberParts, FormatNumberRangeParts, NumberFormatOperationError, NumberFormatRequest,
+    NumberRangeFormatRequest, NumberSupportedLocalesResult, ResolveNumberLocale,
+    SupportedNumberLocales,
+};
+
+mod datetime;
 mod keyword_aliases;
 mod language_domain;
 #[cfg(test)]
@@ -16,13 +29,17 @@ use time_zone_names::TimeZoneNames;
 use time_zone_snapshot::TimeZoneNameInput;
 
 use crate::{
-    CanonicalLocaleId, CanonicalizeLocale, EmptyIntlProfile, IntlDataDigest, IntlDataIdentity,
-    IntlDataPlacement, IntlOperationProvider, IntlProfilePlan, IntlProvider, IntlService,
-    IntlServiceSet, InvalidCanonicalLocaleId, InvalidTimeZoneData, LocaleTransformError,
-    LocaleTransformRequest, LocaleTransformResult, LookupNamedTimeZone, LookupNamedTimeZoneRequest,
-    LookupNamedTimeZoneResult, MaximizeLocale, MinimizeLocale, ResolveTimeZone,
-    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, TimeZoneResolveError, TimeZoneSelection,
-    UnknownTimeZone,
+    CanonicalLocaleId, CanonicalizeLocale, DateTimeFormatError, DateTimeFormatRequest,
+    DateTimeLocaleRequest, DateTimeLocaleResult, DateTimeParts, DateTimePlanRequest,
+    DateTimePlanResult, DateTimeRangeParts, DateTimeRangeRequest, DateTimeSupportedLocalesRequest,
+    DateTimeSupportedLocalesResult, EmptyIntlProfile, FormatDateTimeParts,
+    FormatDateTimeRangeParts, IntlDataDigest, IntlDataIdentity, IntlDataPlacement,
+    IntlOperationProvider, IntlProfilePlan, IntlProvider, IntlService, IntlServiceSet,
+    InvalidCanonicalLocaleId, InvalidTimeZoneData, LocaleTransformError, LocaleTransformRequest,
+    LocaleTransformResult, LookupNamedTimeZone, LookupNamedTimeZoneRequest,
+    LookupNamedTimeZoneResult, MaximizeLocale, MinimizeLocale, ResolveDateTimeLocale,
+    ResolveTimeZone, ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, SelectDateTimeFormat,
+    SupportedDateTimeLocales, TimeZoneResolveError, TimeZoneSelection, UnknownTimeZone,
 };
 
 /// Composite SHA-256 of exact locale, IANA transition/catalogue and CLDR name
@@ -30,14 +47,16 @@ use crate::{
 /// outer digest can remain stale when a component is regenerated.
 fn embedded_intl_data_digest() -> IntlDataDigest {
     let mut digest = Sha256::new();
-    digest.update(b"lila-intl-provider-v3\0");
+    digest.update(b"lila-intl-provider-v5\0");
     digest.update(keyword_aliases::PROVIDER_DATA_SHA256);
     digest.update(named_time_zones::PROVIDER_DATA_SHA256);
     digest.update(time_zone_names::PROVIDER_DATA_SHA256);
+    digest.update(datetime::PROVIDER_DATA_SHA256);
+    digest.update(NUMBER_FORMAT_DATA_SHA256);
     IntlDataDigest::from_sha256(digest.finalize().into())
 }
 
-/// Pure locale transforms and exact named/fixed time-zone snapshots.
+/// Pure locale transforms, time-zone snapshots, and date/time and number partitions.
 /// All data is pinned in the Rust host and is External to the Wasm artifact.
 pub struct EmbeddedIntlProvider {
     identity: IntlDataIdentity,
@@ -46,6 +65,8 @@ pub struct EmbeddedIntlProvider {
     reserved_language_rules: ReservedLanguageAliasRules,
     named_time_zones: NamedTimeZones,
     time_zone_names: TimeZoneNames,
+    date_time: datetime::DateTimeProvider,
+    numbers: &'static NumberProfiles,
 }
 
 impl fmt::Debug for EmbeddedIntlProvider {
@@ -69,6 +90,10 @@ impl EmbeddedIntlProvider {
                 .map_err(EmbeddedIntlProviderSetupError::TimeZoneData)?,
             time_zone_names: TimeZoneNames::from_pinned_data()
                 .map_err(EmbeddedIntlProviderSetupError::TimeZoneNameData)?,
+            date_time: datetime::DateTimeProvider::from_pinned_data()
+                .map_err(EmbeddedIntlProviderSetupError::DateTimeData)?,
+            numbers: embedded_number_profiles()
+                .map_err(EmbeddedIntlProviderSetupError::NumberData)?,
         })
     }
 }
@@ -79,7 +104,10 @@ impl EmbeddedIntlProvider {
 /// carry the exact provider identity without constructing the ICU canonicalizer
 /// it will never execute.
 pub fn embedded_intl_data_identity() -> Result<IntlDataIdentity, EmbeddedIntlProviderSetupError> {
-    let services = IntlServiceSet::EMPTY.with(IntlService::Locale);
+    let services = IntlServiceSet::EMPTY
+        .with(IntlService::Locale)
+        .with(IntlService::DateTimeFormat)
+        .with(IntlService::NumberFormat);
     let profile = IntlProfilePlan::minimal(services)
         .map_err(EmbeddedIntlProviderSetupError::EmptyProfile)?
         .with_operation::<LookupNamedTimeZone>()
@@ -188,6 +216,90 @@ impl IntlOperationProvider<ResolveTimeZone> for EmbeddedIntlProvider {
     }
 }
 
+impl IntlOperationProvider<ResolveDateTimeLocale> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: DateTimeLocaleRequest,
+    ) -> Result<DateTimeLocaleResult, DateTimeFormatError> {
+        self.date_time.resolve_locale(request)
+    }
+}
+
+impl IntlOperationProvider<SupportedDateTimeLocales> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: DateTimeSupportedLocalesRequest,
+    ) -> Result<DateTimeSupportedLocalesResult, DateTimeFormatError> {
+        self.date_time.supported_locales(request)
+    }
+}
+
+impl IntlOperationProvider<SelectDateTimeFormat> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: DateTimePlanRequest,
+    ) -> Result<DateTimePlanResult, DateTimeFormatError> {
+        self.date_time.select_plan(request)
+    }
+}
+
+impl IntlOperationProvider<FormatDateTimeParts> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: DateTimeFormatRequest,
+    ) -> Result<DateTimeParts, DateTimeFormatError> {
+        self.date_time.format_parts(request, &self.named_time_zones)
+    }
+}
+
+impl IntlOperationProvider<FormatDateTimeRangeParts> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: DateTimeRangeRequest,
+    ) -> Result<DateTimeRangeParts, DateTimeFormatError> {
+        self.date_time
+            .format_range_parts(request, &self.named_time_zones)
+    }
+}
+
+impl IntlOperationProvider<ResolveNumberLocale> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: NumberLocaleRequest,
+    ) -> Result<ResolvedNumberLocale, NumberFormatOperationError> {
+        Ok(resolve_number_locale(&request, self.numbers)?)
+    }
+}
+
+impl IntlOperationProvider<SupportedNumberLocales> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: NumberSupportedLocalesRequest,
+    ) -> Result<NumberSupportedLocalesResult, NumberFormatOperationError> {
+        Ok(NumberSupportedLocalesResult {
+            locales: filter_number_locales(&request, self.numbers)?,
+        })
+    }
+}
+
+impl IntlOperationProvider<FormatNumberParts> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: NumberFormatRequest,
+    ) -> Result<ScalarNumberPartition, NumberFormatOperationError> {
+        format_number_parts_operation(request, self.numbers, &PartitionLimits::HOST_ABI)
+    }
+}
+
+impl IntlOperationProvider<FormatNumberRangeParts> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: NumberRangeFormatRequest,
+    ) -> Result<RangeNumberPartition, NumberFormatOperationError> {
+        format_number_range_parts_operation(request, self.numbers, &PartitionLimits::HOST_ABI)
+    }
+}
+
 #[derive(Debug)]
 pub enum EmbeddedIntlProviderSetupError {
     EmptyProfile(EmptyIntlProfile),
@@ -195,6 +307,8 @@ pub enum EmbeddedIntlProviderSetupError {
     ReservedLanguageData(&'static str),
     TimeZoneData(InvalidTimeZoneData),
     TimeZoneNameData(InvalidTimeZoneData),
+    DateTimeData(DateTimeFormatError),
+    NumberData(InvalidNumberProfile),
 }
 
 impl fmt::Display for EmbeddedIntlProviderSetupError {
@@ -205,6 +319,12 @@ impl fmt::Display for EmbeddedIntlProviderSetupError {
             Self::TimeZoneData(error) => write!(f, "pinned IANA data is incompatible: {error}"),
             Self::TimeZoneNameData(error) => {
                 write!(f, "pinned time-zone name data is incompatible: {error}")
+            }
+            Self::DateTimeData(error) => {
+                write!(f, "pinned date/time data is incompatible: {error}")
+            }
+            Self::NumberData(error) => {
+                write!(f, "pinned number data is incompatible: {error}")
             }
             Self::ReservedLanguageData(reason) => write!(
                 f,
@@ -221,6 +341,8 @@ impl std::error::Error for EmbeddedIntlProviderSetupError {
             Self::InvalidDefaultLocale(error) => Some(error),
             Self::ReservedLanguageData(_) => None,
             Self::TimeZoneData(error) | Self::TimeZoneNameData(error) => Some(error),
+            Self::DateTimeData(error) => Some(error),
+            Self::NumberData(error) => Some(error),
         }
     }
 }

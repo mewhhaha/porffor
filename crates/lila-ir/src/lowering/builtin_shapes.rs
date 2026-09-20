@@ -6305,6 +6305,39 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::IntlNumberFormatConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                Self::fresh_constructed_instance_info(),
+            ),
+            StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlNumberFormatBoundFormat
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::TemporalPlainDateTimeConstructor
             | StandardBuiltinId::TemporalPlainDateTimeFrom
             | StandardBuiltinId::TemporalPlainDateTimePrototypeWith

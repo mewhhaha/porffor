@@ -1,7 +1,19 @@
 use core::{fmt, marker::PhantomData};
 
+use crate::number_format::{
+    NumberLocaleRequest, NumberSupportedLocalesRequest, RangeNumberPartition, ResolvedNumberLocale,
+    ScalarNumberPartition,
+};
 use crate::{
-    CanonicalLocaleId, IntlCapabilitySet, IntlDataCapability, IntlDataIdentity,
+    NumberFormatOperationError, NumberFormatRequest, NumberRangeFormatRequest,
+    NumberSupportedLocalesResult,
+};
+
+use crate::{
+    CanonicalLocaleId, DateTimeFormatError, DateTimeFormatRequest, DateTimeLocaleRequest,
+    DateTimeLocaleResult, DateTimeParts, DateTimePlanRequest, DateTimePlanResult,
+    DateTimeRangeParts, DateTimeRangeRequest, DateTimeSupportedLocalesRequest,
+    DateTimeSupportedLocalesResult, IntlCapabilitySet, IntlDataCapability, IntlDataIdentity,
     InvalidCanonicalLocaleId, LocaleId, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult,
     ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, TimeZoneId, TimeZoneResolveError,
 };
@@ -257,6 +269,89 @@ intl_operations! {
         response: ResolvedTimeZoneSnapshot,
         error: TimeZoneResolveError,
         capabilities: [IntlDataCapability::TimeZoneTransitions, IntlDataCapability::TimeZoneNames],
+    }
+    ResolveDateTimeLocale {
+        code: 5,
+        name: "resolve-date-time-locale",
+        request: DateTimeLocaleRequest,
+        response: DateTimeLocaleResult,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DateTimePatterns],
+    }
+    SupportedDateTimeLocales {
+        code: 6,
+        name: "supported-date-time-locales",
+        request: DateTimeSupportedLocalesRequest,
+        response: DateTimeSupportedLocalesResult,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::DateTimePatterns],
+    }
+    SelectDateTimeFormat {
+        code: 7,
+        name: "select-date-time-format",
+        request: DateTimePlanRequest,
+        response: DateTimePlanResult,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DateTimePatterns],
+    }
+    FormatDateTimeParts {
+        code: 8,
+        name: "format-date-time-parts",
+        request: DateTimeFormatRequest,
+        response: DateTimeParts,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DateTimePatterns,
+            IntlDataCapability::TimeZoneNames, IntlDataCapability::TimeZoneTransitions],
+    }
+    FormatDateTimeRangeParts {
+        code: 9,
+        name: "format-date-time-range-parts",
+        request: DateTimeRangeRequest,
+        response: DateTimeRangeParts,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DateTimePatterns,
+            IntlDataCapability::TimeZoneNames, IntlDataCapability::TimeZoneTransitions],
+    }
+    ResolveNumberLocale {
+        code: 10,
+        name: "resolve-number-locale",
+        request: NumberLocaleRequest,
+        response: ResolvedNumberLocale,
+        error: NumberFormatOperationError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::NumberingSystems,
+            IntlDataCapability::DecimalPatterns],
+    }
+    SupportedNumberLocales {
+        code: 11,
+        name: "supported-number-locales",
+        request: NumberSupportedLocalesRequest,
+        response: NumberSupportedLocalesResult,
+        error: NumberFormatOperationError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::DecimalPatterns],
+    }
+    FormatNumberParts {
+        code: 12,
+        name: "format-number-parts",
+        request: NumberFormatRequest,
+        response: ScalarNumberPartition,
+        error: NumberFormatOperationError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::NumberingSystems,
+            IntlDataCapability::DecimalPatterns, IntlDataCapability::PluralRules,
+            IntlDataCapability::UnitsAndCurrencies],
+    }
+    FormatNumberRangeParts {
+        code: 13,
+        name: "format-number-range-parts",
+        request: NumberRangeFormatRequest,
+        response: RangeNumberPartition,
+        error: NumberFormatOperationError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::NumberingSystems,
+            IntlDataCapability::DecimalPatterns, IntlDataCapability::PluralRules,
+            IntlDataCapability::UnitsAndCurrencies],
     }
 }
 
@@ -711,7 +806,10 @@ mod tests {
         assert_eq!(IntlHostOp::from_wire(3), Some(IntlHostOp::MinimizeLocale));
         assert_eq!(IntlHostOp::ResolveTimeZone.wire(), 4);
         assert_eq!(IntlHostOp::from_wire(4), Some(IntlHostOp::ResolveTimeZone));
-        assert_eq!(IntlHostOp::from_wire(5), None);
+        for operation in IntlHostOp::ALL {
+            assert_eq!(IntlHostOp::from_wire(operation.wire()), Some(*operation));
+        }
+        assert_eq!(IntlHostOp::from_wire(14), None);
 
         let read = IntlHostReadSpan::new(u32::MAX, u32::MAX);
         assert_eq!(IntlHostReadSpan::from_wire(read.wire()), read);

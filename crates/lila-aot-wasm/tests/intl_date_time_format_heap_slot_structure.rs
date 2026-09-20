@@ -53,7 +53,8 @@ fn intl_date_time_format_heap_slot_is_the_exact_capability_free_domain() {
             "TimeStyleCode,",
             "Hour12Code,",
             "BoundFormatPayload,",
-            "NeedDefaults,",
+            "PlanPayload,",
+            "AvailableFormats,",
         ]
     );
     assert!(!OWNER.contains("#[derive("));
@@ -73,7 +74,7 @@ fn intl_date_time_format_heap_slot_is_the_exact_capability_free_domain() {
 }
 
 #[test]
-fn one_exhaustive_projection_owns_twenty_three_exact_rows() {
+fn one_exhaustive_projection_owns_twenty_four_exact_rows() {
     let projection = bounded(
         OWNER,
         "    const fn metadata(&self) -> IntlDateTimeFormatHeapSlotMetadata {",
@@ -193,9 +194,15 @@ fn one_exhaustive_projection_owns_twenty_three_exact_rows() {
             true,
         ),
         (
-            "NeedDefaults",
-            "need_defaults",
-            "HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET",
+            "PlanPayload",
+            "plan_payload",
+            "HEAP_INTL_DTF_PLAN_OFFSET",
+            true,
+        ),
+        (
+            "AvailableFormats",
+            "available_formats",
+            "HEAP_INTL_DTF_AVAILABLE_FORMATS_OFFSET",
             false,
         ),
     ] {
@@ -210,7 +217,7 @@ fn one_exhaustive_projection_owns_twenty_three_exact_rows() {
         assert!(arm.contains("width: 8"));
         assert!(arm.contains(&format!("pointer: {pointer}")));
     }
-    assert_eq!(projection.matches("Self::").count(), 23);
+    assert_eq!(projection.matches("Self::").count(), 24);
     assert!(!projection.contains("_ =>"));
 }
 
@@ -244,7 +251,8 @@ fn typed_registry_preserves_date_time_format_slot_order() {
         "TimeStyleCode",
         "Hour12Code",
         "BoundFormatPayload",
-        "NeedDefaults",
+        "PlanPayload",
+        "AvailableFormats",
     ] {
         assert_eq!(
             registry
@@ -253,7 +261,7 @@ fn typed_registry_preserves_date_time_format_slot_order() {
             1
         );
     }
-    assert_eq!(registry.matches("IntlDateTimeFormatHeapSlot::").count(), 23);
+    assert_eq!(registry.matches("IntlDateTimeFormatHeapSlot::").count(), 24);
 }
 
 #[test]
@@ -274,7 +282,7 @@ fn intl_date_time_format_layout_has_one_private_owner() {
     }
     for invariant in [
         "IntlDateTimeFormatHeapSlot",
-        "five traced",
+        "six traced",
         "eighteen fields",
         "TimeZoneFixedSeconds",
         "TimeZoneKind",

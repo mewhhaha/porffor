@@ -1,13 +1,13 @@
 # Module entry completion
 
 A Module's entry evaluation has its own completion owner. An unrelated rejected
-Promise cannot stand in for that result. The existing synchronous evaluator and
-retained asynchronous driver remain the execution paths; this contract adds
-entry completion ownership without replacing their scheduling.
+Promise cannot stand in for that result. Canonical Module-entry graphs own an intrinsic Evaluate Promise even when every
+body is synchronous. Retained source-phase drivers keep their separate execution
+path. The host completion owner is shared by both.
 
 ## Trusted entry boundary
 
-The linker records one private entry operation. Canonical synchronous graphs
+The linker records one private entry operation. Canonical graphs
 identify their final `ModuleEvaluate` operation. Retained Module drivers identify
 their final private synchronous or asynchronous arrow call. The original Module
 parse, early errors, private source spans and independent global Script prelude
@@ -20,8 +20,8 @@ Promise result. The AOT emitter checks that a Module-entry graph and the private
 root operation have the same owner. Dependency collection, function reachability,
 global-property planning and throw inference traverse the actual operand.
 
-A synchronous entry yields `undefined` on success. An asynchronous entry adopts
-the exact intrinsic Promise returned by the retained driver, retaining its object
+A synchronous entry yields `undefined` on success. A Promise entry adopts
+the exact intrinsic Promise returned by Evaluate or the retained driver, retaining its object
 and result through a module-instance global. The passive heap-root inventory
 names this persistent root separately from module records; no executable
 collector or linear-memory tracing claim is added. Adoption marks that Promise handled
@@ -81,10 +81,10 @@ negative. Agent failures retain their existing aggregate classification.
 
 ## Scope and verification
 
-The retained driver still owns TLA execution order and its existing scope and
-cycle limitations. Deferred asynchronous dependency scheduling is unchanged;
-unsupported guards for those graphs remain. This foundation does not claim to
-repair async-defer cases or provide a new scheduler.
+Canonical TLA/deferred execution uses the [async lifecycle](module-async-lifecycle.md)
+with runtime DFS, completion capabilities and private reaction kinds. Script-entry
+and source-phase graphs retain their explicit admission boundaries. Host rejection
+policy never supplies or substitutes the module's evaluation completion.
 
 Focused verification targets:
 

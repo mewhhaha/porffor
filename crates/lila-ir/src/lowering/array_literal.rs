@@ -114,7 +114,7 @@ impl ScriptLowerer<'_> {
             );
             if let Some(&(module, mode)) = self
                 .analysis
-                .synchronous_modules
+                .module_execution
                 .publishers
                 .get(&initializer_pointer)
             {

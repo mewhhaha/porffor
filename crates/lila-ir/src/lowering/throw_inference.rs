@@ -29,7 +29,8 @@ impl<'a> ScriptLowerer<'a> {
             // blocks in, and until then no unit block exists to inspect.
             StatementIr::ModuleUnitOnce { .. } => Some(ValueInfo::new(ValueKind::Dynamic)),
             StatementIr::ModuleImportBinding(_) => None,
-            StatementIr::Empty
+            StatementIr::AsyncModuleInstantiation
+            | StatementIr::Empty
             | StatementIr::AnnexBFunctionCopy { .. }
             | StatementIr::Debugger
             | StatementIr::Break { .. }
@@ -337,12 +338,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
                 let mut info = self.infer_expr_throw_info(iterable);
-                for statement in plan
-                    .before_await()
-                    .iter()
-                    .chain(std::iter::once(plan.await_statement()))
-                    .chain(plan.after_await())
-                {
+                for statement in plan.body().statements() {
                     info = self.merge_optional_value_info(
                         info,
                         self.infer_statement_throw_info(statement),
@@ -467,10 +463,12 @@ impl<'a> ScriptLowerer<'a> {
             // `import()` rejects rather than throws, and reading `import.meta`
             // or a namespace object cannot throw.
             ExprIr::ModuleEntryEvaluation(entry) => self.infer_expr_throw_info(entry.evaluation()),
-            ExprIr::SynchronousModuleGraph(_)
+            ExprIr::ModuleExecutionGraph(_)
             | ExprIr::ModuleBindingRead(_)
             | ExprIr::ModuleEvaluate(_)
-            | ExprIr::DeferredModuleEvaluate(_) => Some(unknown_runtime_value_info()),
+            | ExprIr::DeferredModuleEvaluate(_)
+            | ExprIr::ModuleHasAsyncDependencies(_)
+            | ExprIr::ModuleDeferredImportEvaluate(_) => Some(unknown_runtime_value_info()),
             ExprIr::ModuleNamespacePublish { namespace, .. } => {
                 self.infer_expr_throw_info(namespace)
             }

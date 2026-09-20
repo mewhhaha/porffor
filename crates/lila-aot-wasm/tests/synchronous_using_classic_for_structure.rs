@@ -1,5 +1,6 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const LOOP_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_using_classic_for_head.js");
@@ -91,11 +92,7 @@ fn closed_initializer_keeps_the_classic_for_as_the_direct_control_owner() {
     assert!(!resource_init.contains("StatementIr::Block"));
     assert!(!resource_init.contains("ForInitIr::Lexical"));
 
-    let loop_lowering = bounded(
-        LOWERING_SOURCE,
-        "    fn lower_for_loop(",
-        "    /// The resume state a plain `async function` body",
-    );
+    let loop_lowering = LOOP_LOWERING_SOURCE;
     assert!(loop_lowering.contains("StatementIr::For {\n                init,"));
     assert!(!loop_lowering.contains("StatementIr::Block(Box::new(StatementIr::For"));
     assert!(CONTRACT.contains("The containing node remains `StatementIr::For`"));
@@ -110,6 +107,7 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
     );
     assert!(dispatch.contains("if let Some(ForInitIr::SyncDisposable(resources)) = init"));
     assert!(dispatch.contains("return self.compile_sync_disposable_for("));
+    assert!(dispatch.contains("SynchronousLoopBodyIr::new(body)"));
     assert_eq!(
         dispatch
             .matches("self.compile_classic_for_test(test, break_frame, function)?")
@@ -180,6 +178,8 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
         "    pub(crate) fn compile_switch(",
     );
     for boundary in [
+        "body: SynchronousLoopBodyIr<'_>",
+        "let body = body.statement()",
         "debug_assert!(!resources.is_empty())",
         "!environment.per_iteration_slots.is_empty()",
         "if let Some(environment) = &runtime_environment",

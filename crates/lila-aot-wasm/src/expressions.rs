@@ -1262,8 +1262,8 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
-            ExprIr::SynchronousModuleGraph(graph) => {
-                self.emit_synchronous_module_graph(graph, function)?
+            ExprIr::ModuleExecutionGraph(graph) => {
+                self.emit_module_execution_graph(graph, function)?
             }
             ExprIr::ModuleBindingRead(target) => {
                 self.emit_module_binding_read(
@@ -1275,7 +1275,25 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
             ExprIr::ModuleEvaluate(plan) => {
-                self.emit_synchronous_module_evaluate(
+                self.emit_module_evaluate(
+                    plan,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::ModuleHasAsyncDependencies(plan) => {
+                self.emit_module_has_async_dependencies(
+                    plan,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
+            ExprIr::ModuleDeferredImportEvaluate(plan) => {
+                self.emit_module_deferred_import_evaluate(
                     plan,
                     self.scratch_local,
                     self.result_tag_local,
@@ -3595,7 +3613,18 @@ impl<'a> FunctionBuilder<'a> {
                 return self.emit_module_binding_read(target, payload_local, tag_local, function)
             }
             ExprIr::ModuleEvaluate(plan) => {
-                return self.emit_synchronous_module_evaluate(
+                return self.emit_module_evaluate(plan, payload_local, tag_local, function)
+            }
+            ExprIr::ModuleHasAsyncDependencies(plan) => {
+                return self.emit_module_has_async_dependencies(
+                    plan,
+                    payload_local,
+                    tag_local,
+                    function,
+                )
+            }
+            ExprIr::ModuleDeferredImportEvaluate(plan) => {
+                return self.emit_module_deferred_import_evaluate(
                     plan,
                     payload_local,
                     tag_local,

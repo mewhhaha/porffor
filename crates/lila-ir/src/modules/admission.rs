@@ -53,7 +53,7 @@ fn link_sources(
 }
 
 /// Successful closures keep the ordinary single linking pass. A rejected graph
-/// is partitioned only when its Module entry has the canonical synchronous
+/// is partitioned only when its Module entry has the canonical execution
 /// driver; parser aborts, host contradictions and implementation limits remain
 /// compiler failures even if their source is reachable only dynamically.
 pub(crate) fn link_loaded_graph(
@@ -86,11 +86,10 @@ pub(crate) fn link_loaded_graph(
             ModuleParse::ScriptEntry(_) => return Err(original),
         };
         if record.as_ref().is_some_and(|record| {
-            record.has_top_level_await
-                || record
-                    .requested_modules
-                    .iter()
-                    .any(|request| request.phase() == ImportPhaseIr::Source)
+            record
+                .requested_modules
+                .iter()
+                .any(|request| request.phase() == ImportPhaseIr::Source)
                 || record
                     .dynamic_import_sites
                     .iter()

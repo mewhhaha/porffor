@@ -19,6 +19,7 @@ pub(crate) enum OrdinaryDefaultPrototype {
     RegExp,
     IntlLocale,
     IntlDateTimeFormat,
+    IntlNumberFormat,
     Promise,
     DisposableStack,
     AggregateError,
@@ -40,6 +41,7 @@ impl OrdinaryDefaultPrototype {
             Self::IntlDateTimeFormat => {
                 HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET
             }
+            Self::IntlNumberFormat => HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET,
             Self::Promise => HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
             Self::DisposableStack => HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
             Self::AggregateError => HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,

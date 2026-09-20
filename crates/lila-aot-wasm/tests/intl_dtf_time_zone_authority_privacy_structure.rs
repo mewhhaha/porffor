@@ -53,7 +53,7 @@ fn named_identifier_and_fixed_offset_authorities_are_shared_validated_domains() 
     assert!(DTF_SOURCE.contains("FixedTimeZoneOffset::MAX_HOUR"));
     assert!(DTF_SOURCE.contains("FixedTimeZoneOffset::MAX_MINUTE"));
     assert!(ZONE_SOURCE.contains("IntlHostOp::LookupNamedTimeZone"));
-    assert!(ZONE_SOURCE.contains("IntlHostOp::ResolveTimeZone"));
+    assert!(!ZONE_SOURCE.contains("IntlHostOp::ResolveTimeZone"));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn only_resolved_constructor_output_can_publish_all_zone_slots() {
     let lifecycle = normalized(bounded(
         DTF_SOURCE,
         "struct DtfCanonicalTimeZone {",
-        "/// The broken-down components of one side of a format.",
+        "impl FunctionBuilder<'_> {",
     ))
     .replace(",)", ")");
     assert!(!lifecycle.contains("derive(Clone"));
@@ -85,14 +85,14 @@ fn only_resolved_constructor_output_can_publish_all_zone_slots() {
     let resolver = normalized(bounded(
         DTF_SOURCE,
         "fn emit_intl_dtf_time_zone_option(",
-        "/// `UTCOffset[~SubMinutePrecision]`",
+        "fn emit_intl_dtf_parse_utc_offset(",
     ));
     assert!(resolver.contains("zone:DtfCanonicalTimeZone,"));
     assert!(resolver.contains(")->Result<DtfResolvedTimeZone,EmitError>{"));
     assert_eq!(resolver.matches("Ok(DtfResolvedTimeZone(zone))").count(), 1);
     assert_eq!(
         INITIALIZATION_SOURCE
-            .matches("time_zone.store(self, record_local, function);")
+            .matches("time_zone.store(self, record, function);")
             .count(),
         1
     );
@@ -105,24 +105,10 @@ fn only_resolved_constructor_output_can_publish_all_zone_slots() {
 }
 
 #[test]
-fn endpoint_snapshot_bypasses_plain_values_and_keeps_kind_out_of_gc_roots() {
-    let endpoint = normalized(bounded(
-        ZONE_SOURCE,
-        "pub(super) fn emit_dtf_components_in_time_zone(",
-        "fn emit_intl_dtf_time_zone_call(",
-    ));
-    let guarded = endpoint
-        .find("self.emit_dtf_if_nonzero(exact_time,function);")
-        .unwrap();
-    let snapshot = endpoint
-        .find("self.emit_intl_dtf_time_zone_snapshot(")
-        .unwrap();
-    let close = endpoint.find("Instruction::End").unwrap();
-    let components = endpoint
-        .find("self.emit_dtf_components_from_time(")
-        .unwrap();
-    assert!(guarded < snapshot && snapshot < close && close < components);
-    assert!(endpoint.contains("self.emit_dtf_set_const(offset_seconds,0,function);"));
+fn provider_resolves_exact_endpoints_and_zone_kind_remains_an_untraced_scalar() {
+    let input = include_str!("../src/builtins/intl_datetimeformat/provider_input.rs");
+    assert!(input.contains("self.emit_temporal_epoch_nanoseconds_pair("));
+    assert!(!input.contains("IntlHostOp::ResolveTimeZone"));
     let heap = normalized(HEAP_SOURCE);
     assert!(heap.contains("TimeZoneFixedSeconds"));
     assert!(heap.contains("TimeZoneKind"));

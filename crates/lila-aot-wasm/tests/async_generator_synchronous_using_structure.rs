@@ -1,8 +1,7 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
-const MODULE_LOWERING_SOURCE: &str =
-    include_str!("../../lila-ir/src/lowering/synchronous_modules.rs");
+const MODULE_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/module_execution.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
@@ -96,7 +95,9 @@ fn lowering_selects_owner_and_rejects_initializer_suspension_before_lowering() {
         "    pub(super) fn lower_module_instantiation_boundary(",
     );
     assert!(admission.contains("owner.sync_disposable_scope_owner()"));
-    assert!(admission.contains("owner.protocol == FunctionProtocolIr::ModuleActivation"));
+    assert!(admission.contains("matches!("));
+    assert!(admission.contains("FunctionProtocolIr::ModuleActivation"));
+    assert!(admission.contains("FunctionProtocolIr::AsyncModuleActivation"));
     assert!(admission.contains("owner.parent_owner_id.as_deref()"));
     assert!(admission.contains("return None;"));
 
@@ -214,7 +215,7 @@ fn state_walkers_include_async_generator_body_but_never_generator_offsets() {
     let async_entry = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn async_statement_entry_state(statement: &StatementIr) -> Option<u32> {",
-        "    fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {",
+        "    pub(crate) fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {",
     );
     assert!(async_entry.contains("SyncDisposableScopeExecutionIr::AsyncFunction(_)"));
     assert!(async_entry.contains("| SyncDisposableScopeExecutionIr::AsyncGenerator(_)"));

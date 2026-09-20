@@ -141,13 +141,20 @@ print(true);
 }
 
 #[test]
-fn range_endpoints_have_independent_names_and_repeated_time_collapses() {
+fn range_patterns_own_zone_names_and_repeated_time_collapses() {
     assert_zone_script(
         r#"
 var f=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hourCycle:'h23',timeZoneName:'short'});
 var start=1772953199000,end=1772953200000,parts=f.formatRangeToParts(start,end);
 var names=parts.filter(p=>p.type==='timeZoneName').map(p=>p.source+':'+p.value).join('|');
-if(names!=='startRange:EST|endRange:EDT')throw names;
+if(names!=='shared:ET')throw names;
+function zoneName(formatter,epoch){for(var part of formatter.formatToParts(epoch))if(part.type==='timeZoneName')return part.value;throw 'missing scalar zone';}
+if(zoneName(f,start)!=='EST'||zoneName(f,end)!=='EDT')throw 'scalar endpoint snapshots';
+var fallback=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',second:'2-digit',hourCycle:'h23',timeZoneName:'short'});
+var fallbackParts=fallback.formatRangeToParts(start,end);
+var fallbackNames=fallbackParts.filter(p=>p.type==='timeZoneName').map(p=>p.source+':'+p.value).join('|');
+if(fallbackNames!=='startRange:EST|endRange:EDT')throw fallbackNames;
+if(fallbackParts.map(p=>p.value).join('')!==fallback.formatRange(start,end))throw 'fallback range parts';
 if(parts.map(p=>p.value).join('')!==f.formatRange(start,end))throw 'range parts';
 var early=1793511000000,late=1793514600000;
 if(f.formatRange(early,late)!==f.format(early))throw 'repeated local time collapse';
@@ -170,11 +177,19 @@ var values=[
  new Temporal.PlainMonthDay(3,8)
 ];
 for(var value of values){
- var utc=new Intl.DateTimeFormat('en',{timeZone:'UTC'});
+ var utc=new Intl.DateTimeFormat('en',{calendar:'iso8601',timeZone:'UTC'});
  for(var zone of ['America/New_York','Australia/Lord_Howe','Pacific/Apia']){
-  var named=new Intl.DateTimeFormat('en',{timeZone:zone});
+  var named=new Intl.DateTimeFormat('en',{calendar:'iso8601',timeZone:zone});
   if(named.format(value)!==utc.format(value))throw zone;
   if(named.formatRange(value,value)!==utc.format(value))throw 'plain range';
+ }
+}
+var gregory=new Intl.DateTimeFormat('en',{calendar:'gregory',timeZone:'America/New_York'});
+for(var value of [values[4],values[5]]){
+ for(var method of ['format','formatToParts','formatRange','formatRangeToParts']){
+  var caught=false;
+  try { gregory[method](value,value); } catch(error) { if(!(error instanceof RangeError))throw error; caught=true; }
+  if(!caught)throw 'incompatible partial-date calendar '+method;
  }
 }
 print(true);
@@ -196,7 +211,7 @@ for(var style of styles){
  if(name('+05:30',style,'en-u-nu-arab')!==(long?'GMT+٠٥:٣٠':'GMT+٥:٣٠'))throw 'digits '+style;
 }
 if(name('UTC','short','en')!=='UTC'||name('UTC','long','en')!=='Coordinated Universal Time')throw 'named UTC';
-var fallback=new Intl.DateTimeFormat('ar',{timeZone:'Asia/Tokyo',timeZoneName:'long'});
+var fallback=new Intl.DateTimeFormat('zxx',{timeZone:'Asia/Tokyo',timeZoneName:'long'});
 if(fallback.resolvedOptions().locale!=='en-US')throw 'explicit locale fallback';
 print(true);
 "#,

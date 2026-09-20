@@ -100,13 +100,7 @@ fn intl_namespace_plan_has_one_private_child_owner() {
             !line.is_empty() && !line.starts_with("///") && !line.starts_with("#[") && *line != "}"
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        variants,
-        [
-            "Absent,",
-            "RootedWithDateTimeFormatFamily(IntlRootsSeeded),"
-        ]
-    );
+    assert_eq!(variants, ["Absent,", "RootedFamilies(IntlRootsSeeded),"]);
     assert!(plan_domain.contains("#[default]\n    Absent,"));
 }
 
@@ -114,7 +108,7 @@ fn intl_namespace_plan_has_one_private_child_owner() {
 fn intl_namespace_roots_and_policy_remain_parent_owned() {
     assert_eq!(
         PLANNING_SOURCE
-            .matches("const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 25] = [")
+            .matches("const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 33] = [")
             .count(),
         1
     );
@@ -129,17 +123,25 @@ fn intl_namespace_roots_and_policy_remain_parent_owned() {
 
     let roots_and_proof = bounded(
         PLANNING_SOURCE,
-        "const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 25] = [",
+        "const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 33] = [",
         "pub(crate) use intl_namespace::{IntlNamespaceMembers, IntlNamespacePlan};",
     );
     for method in [
         "StandardBuiltinId::IntlLocalePrototypeMaximize,",
         "StandardBuiltinId::IntlLocalePrototypeMinimize,",
+        "StandardBuiltinId::IntlNumberFormatConstructor,",
+        "StandardBuiltinId::IntlNumberFormatSupportedLocalesOf,",
+        "StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions,",
+        "StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter,",
+        "StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts,",
+        "StandardBuiltinId::IntlNumberFormatPrototypeFormatRange,",
+        "StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,",
+        "StandardBuiltinId::IntlNumberFormatBoundFormat,",
     ] {
         assert_eq!(
             roots_and_proof.matches(method).count(),
             1,
-            "parent must root the added Locale method exactly once: `{method}`",
+            "parent must root the Intl method exactly once: `{method}`",
         );
     }
     for proof in [

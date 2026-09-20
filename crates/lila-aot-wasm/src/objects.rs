@@ -3844,6 +3844,7 @@ impl<'a> FunctionBuilder<'a> {
             | FunctionProtocolIr::AsyncArrow
             | FunctionProtocolIr::AsyncGenerator
             | FunctionProtocolIr::ModuleActivation
+            | FunctionProtocolIr::AsyncModuleActivation
             | FunctionProtocolIr::ClassConstructor
             | FunctionProtocolIr::ClassMethod(_)
             | FunctionProtocolIr::ClassGetter

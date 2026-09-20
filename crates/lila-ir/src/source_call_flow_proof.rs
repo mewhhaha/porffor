@@ -84,6 +84,7 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
     match statement {
         StatementIr::ModuleImportBinding(_) => true,
         StatementIr::Empty => true,
+        StatementIr::AsyncModuleInstantiation => false,
         StatementIr::ModuleUnitOnce {
             module: _module,
             block: _block,
@@ -341,10 +342,12 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         } => false,
         ExprIr::ImportMeta { module: _module } => false,
         ExprIr::ModuleEntryEvaluation(_) => false,
-        ExprIr::SynchronousModuleGraph(_)
+        ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::ModuleEvaluate(_)
-        | ExprIr::DeferredModuleEvaluate(_) => false,
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_) => false,
         ExprIr::ModuleNamespacePublish { namespace, .. } => expr_preserves_caller_flow(namespace),
         ExprIr::ModuleNamespace { exports, .. } => expr_preserves_caller_flow(exports),
         ExprIr::ObjectLiteral(properties) => {

@@ -1459,13 +1459,19 @@ dependencies = [
 name = "lila-intl"
 version = "0.1.0"
 dependencies = [
+ "calendrical_calculations",
+ "icu_calendar",
  "icu_locale",
  "icu_locale_data",
  "icu_provider",
  "jiff-tzdb",
+ "serde",
+ "serde_json",
  "sha2",
  "timezone_provider",
+ "tinystr",
  "tzif",
+ "zerovec",
 ]
 
 [[package]]

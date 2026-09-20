@@ -7,7 +7,7 @@ use crate::*;
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkedScriptDefinitions {
-    pub(super) synchronous: Option<super::synchronous_definition::SynchronousModuleDefinitions>,
+    pub(super) synchronous: Option<super::synchronous_definition::ModuleExecutionDefinitions>,
     pub(super) entry: Option<super::LinkedModuleEntry>,
     defaults: DefaultExportDefinitions,
     namespaces: BTreeMap<(boa_ast::Position, boa_ast::Position), ModuleNamespaceModeIr>,

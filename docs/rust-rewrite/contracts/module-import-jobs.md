@@ -1,12 +1,12 @@
-# Contract: synchronous Module-entry dynamic imports
+# Contract: canonical Module-entry dynamic imports
 
-Only the canonical synchronous Module-entry driver uses these continuations.
-Graphs with top-level await, source-phase requests or a Script entry keep their
-existing driver and capability boundaries.
+Canonical Module-entry graphs, including top-level await, use these continuations.
+Graphs with source-phase requests or a Script entry keep their existing driver
+and capability boundaries.
 
 All graph activations and namespace identities are created before evaluation.
 Only the entry starts initial evaluation; it walks its static evaluation
-requests in source order using the existing SCC owner and cached completion.
+requests in source order using runtime DFS, cycle-root capabilities and cached completion.
 A dynamic-only target has no observable body effects until an import job reaches
 its evaluator. Repeated imports create distinct promises but share the module's
 namespace and evaluation completion, including exact thrown-value identity.
@@ -22,16 +22,21 @@ The [ContinueDynamicImport algorithm](https://tc39.es/proposal-defer-import-eval
 first attaches a reaction to LoadRequestedModules. For ordinary evaluation it
 then attaches a second reaction to Evaluate's promise, including when a
 synchronous body throws. A deferred import with no asynchronous dependencies
-settles in the first continuation. The generated driver uses Await of undefined
-for those internal reaction boundaries; it never reads mutable Promise.then or
-Promise.resolve. Cached evaluation throws survive the second continuation.
+settles in the first continuation. The generated driver uses ordinary Await of undefined for the load boundary.
+Its evaluation wait accepts an owned intrinsic Promise record directly, without
+PromiseResolve, constructor, species or then observations. Deferred imports gather
+async dependencies, start every selected Evaluate operation before attaching any
+join reactions, and wait for all successful occurrences; the join retains the
+first exact rejection. An empty gather adds no evaluation wait. Ordinary source
+Await continues to perform its specified PromiseResolve operation. Cached
+evaluation throws survive the second continuation.
 Direct host-load syntax rejection can settle immediately; transitive loading or
 link rejection belongs to the first continuation. These are distinct paths,
 not an unconditional delay applied to every outcome.
 
 The loaded source closure still contains every discoverable request and
 participates in artifact cache identity. A successful graph takes the existing
-single linking pass. When a synchronous graph has a language rejection,
+single linking pass. When an admitted canonical graph has a language rejection,
 `modules/admission` validates its static entry closure first, then each reachable
 dynamic root's static closure. Failed dynamic-only roots become explicit
 request-owned rejection records; their invalid bodies never become activations.

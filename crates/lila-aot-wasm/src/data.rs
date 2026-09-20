@@ -635,7 +635,6 @@ impl StringPool {
             "\\d+",
             "[a-z]",
             "RegExp legacy static accessor receiver must be RegExp",
-            "%ThrowTypeError%",
             "constructor",
             "withResolvers",
             "try",
@@ -2162,7 +2161,10 @@ impl StringPool {
                 }
             }
         }
-        for value in crate::builtins::intl_date_time_format_pool_strings() {
+        for value in crate::builtins::intl_date_time_format_pool_strings()
+            .into_iter()
+            .chain(crate::builtins::intl_number_format_pool_strings())
+        {
             pool.intern_string(&value);
         }
         for index in 0..=31 {
@@ -3308,7 +3310,8 @@ impl StringPool {
             }
             StatementIr::ModuleImportBinding(_) => self.uses_heap = true,
             StatementIr::ModuleUnitOnce { block, .. } => self.collect_block(block),
-            StatementIr::Empty
+            StatementIr::AsyncModuleInstantiation
+            | StatementIr::Empty
             | StatementIr::Debugger
             | StatementIr::Break { .. }
             | StatementIr::Continue { .. } => {}
@@ -3547,12 +3550,7 @@ impl StringPool {
                 self.collect_for_in_of_environment(plan.head_environment());
                 self.collect_resumable_iteration_environment(plan.iteration_environment());
                 self.collect_expr(iterable);
-                for statement in plan
-                    .before_await()
-                    .iter()
-                    .chain(std::iter::once(plan.await_statement()))
-                    .chain(plan.after_await())
-                {
+                for statement in plan.body().statements() {
                     self.collect_statement(statement);
                 }
             }
@@ -3761,13 +3759,15 @@ impl StringPool {
                 self.uses_heap = true;
                 self.collect_expr(entry.evaluation());
             }
-            ExprIr::SynchronousModuleGraph(_)
+            ExprIr::ModuleExecutionGraph(_)
             | ExprIr::ModuleBindingRead(_)
             | ExprIr::ModuleEvaluate(_)
-            | ExprIr::DeferredModuleEvaluate(_) => {
+            | ExprIr::DeferredModuleEvaluate(_)
+            | ExprIr::ModuleHasAsyncDependencies(_)
+            | ExprIr::ModuleDeferredImportEvaluate(_) => {
                 self.uses_heap = true;
                 self.intern_string("module binding accessed before initialization");
-                self.intern_string("module graph is already evaluating");
+                self.intern_string("deferred module is not ready for synchronous evaluation");
             }
             ExprIr::ModuleNamespacePublish { namespace, .. } => self.collect_expr(namespace),
             ExprIr::ImportMeta { .. } => self.uses_heap = true,

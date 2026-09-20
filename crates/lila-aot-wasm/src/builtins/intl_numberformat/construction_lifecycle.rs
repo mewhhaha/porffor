@@ -1,0 +1,126 @@
+use super::*;
+use crate::functions::OrdinaryDefaultPrototype;
+
+/// An allocated `Intl.NumberFormat` result that has not been branded or
+/// connected to its internal record.
+///
+/// The raw local is private and this state is deliberately non-`Copy`:
+/// `OrdinaryCreateFromConstructor` must happen before any locale or options
+/// observation, but an abrupt initialization must not publish that object.
+#[must_use]
+pub(super) struct ReservedIntlNumberFormatObjectLocal(u32);
+
+/// A reserved `Intl.NumberFormat` result whose complete represented record
+/// and internal brand have been installed.
+///
+/// Only this state can cross the constructor result boundary.
+#[must_use]
+pub(super) struct InitializedIntlNumberFormatObjectLocal(u32);
+
+impl<'a> FunctionBuilder<'a> {
+    /// Resolve `NewTarget.prototype` and reserve the ordinary result before
+    /// the first locale or options operation.
+    pub(super) fn emit_reserve_intl_number_format_object(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<ReservedIntlNumberFormatObjectLocal, EmitError> {
+        // Reserve the retained object first so both temporary prototype locals
+        // can be released in strict LIFO order while it stays live.
+        let object_payload_local = self.reserve_temp_local();
+        let prototype_payload_local = self.reserve_temp_local();
+        let prototype_tag_local = self.reserve_temp_local();
+        let prototype = TaggedLocals::new(prototype_payload_local, prototype_tag_local);
+        let result = (|| {
+            self.compile_new_target_to_locals(prototype.payload, prototype.tag, function)?;
+            function.instruction(&Instruction::LocalGet(prototype.tag));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            // A plain call uses the active builtin as NewTarget. Its immutable
+            // prototype property is the intrinsic in that function's Realm.
+            function.instruction(&Instruction::LocalGet(self.current_env_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+            function.instruction(&Instruction::GlobalGet(
+                INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::LocalGet(self.current_env_local));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalSet(prototype.payload));
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(prototype.tag));
+            self.emit_required_new_target_realm_ordinary_prototype(
+                prototype.payload,
+                prototype.tag,
+                OrdinaryDefaultPrototype::IntlNumberFormat,
+                prototype.payload,
+                prototype.tag,
+                function,
+            )?;
+            function.instruction(&Instruction::Else);
+            self.emit_new_target_prototype_to_locals(
+                INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+                NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
+                    OrdinaryDefaultPrototype::IntlNumberFormat,
+                ),
+                prototype.payload,
+                prototype.tag,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+            self.emit_alloc_plain_object_with_prototype_and_tag(
+                Some(prototype.payload),
+                Some(prototype.tag),
+                None,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalSet(object_payload_local));
+            Ok(())
+        })();
+        self.release_temp_local(prototype.tag);
+        self.release_temp_local(prototype.payload);
+        if let Err(error) = result {
+            self.release_temp_local(object_payload_local);
+            return Err(error);
+        }
+        Ok(ReservedIntlNumberFormatObjectLocal(object_payload_local))
+    }
+
+    /// Consume the unreachable reserved result after the NumberFormat record
+    /// is complete, then make the object eligible for publication.
+    pub(super) fn emit_initialize_intl_number_format_object(
+        &self,
+        reserved: ReservedIntlNumberFormatObjectLocal,
+        record_local: u32,
+        function: &mut Function,
+    ) -> InitializedIntlNumberFormatObjectLocal {
+        let object_payload_local = reserved.0;
+        self.store_i64_const_at_offset(
+            object_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            OBJECT_INTERNAL_BRAND_INTL_NUMBER_FORMAT,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            object_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        InitializedIntlNumberFormatObjectLocal(object_payload_local)
+    }
+
+    /// Publish the only NumberFormat lifecycle state allowed to escape.
+    pub(super) fn emit_publish_intl_number_format_object(
+        &mut self,
+        initialized: InitializedIntlNumberFormatObjectLocal,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(initialized.0));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.release_temp_local(initialized.0);
+    }
+}

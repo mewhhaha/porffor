@@ -7,8 +7,9 @@
 //! preserving static rejection. `graph_build` owns transitive assembly; `graph_resolution` owns
 //! `GetExportedNames` / `ResolveExport`; `graph_evaluation_classification` owns
 //! evaluation-mode classification and unsupported phase policy;
-//! `graph_evaluation_order` owns `InnerModuleEvaluation` order and
-//! strongly-connected components; `graph_async_evaluation` owns async-module
+//! `graph_evaluation_order` owns static order/component queries for linking
+//! and retained drivers; canonical execution selects components at runtime.
+//! `graph_async_evaluation` owns async-module
 //! propagation and pending-dependency queries; and `graph_materialization`
 //! owns the evaluation-to-runtime query boundary.
 //! `graph` retains the linked record and linking orchestration. `link` merges
@@ -82,4 +83,4 @@ pub(crate) use link::linked_script_source;
 
 pub(crate) use namespace_definition::LinkedScriptDefinitions;
 
-pub(crate) use synchronous_definition::SynchronousModuleAnalysis;
+pub(crate) use synchronous_definition::ModuleExecutionAnalysis;

@@ -98,11 +98,29 @@ enum PromiseResolveRealmAuthority<'a> {
     AsyncExecution(&'a AsyncExecutionRealmContext),
 }
 
+pub(crate) enum ModuleReactionContinuation {
+    Body,
+    Join,
+}
+
+impl ModuleReactionContinuation {
+    fn callback_kind(&self) -> PromiseReactionCallbackKind {
+        match self {
+            Self::Body => PromiseReactionCallbackKind::ModuleBody,
+            Self::Join => PromiseReactionCallbackKind::ModuleJoin,
+        }
+    }
+}
+
 enum PromiseReactionInitialization<'a> {
     Default,
     AsyncExecution {
         realm: &'a AsyncExecutionRealmContext,
         continuation: AsyncAwaitContinuation,
+    },
+    Module {
+        realm: &'a AsyncExecutionRealmContext,
+        continuation: ModuleReactionContinuation,
     },
 }
 
@@ -1502,6 +1520,18 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 continuation.reaction_callback_kind()
             }
+            PromiseReactionInitialization::Module {
+                realm,
+                continuation,
+            } => {
+                self.store_i64_local_at_offset(
+                    reaction_record_local,
+                    HEAP_PROMISE_REACTION_REALM_OFFSET,
+                    realm.realm_local,
+                    function,
+                );
+                continuation.callback_kind()
+            }
         };
         self.store_i64_const_at_offset(
             reaction_record_local,
@@ -1968,6 +1998,120 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    // These records were allocated by the compiler-owned module protocol. No
+    // source PromiseResolve, constructor, species or then property is observed.
+    fn emit_owned_promise_record_reactions(
+        &mut self,
+        context: u32,
+        record: u32,
+        initialization: PromiseReactionInitialization<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let fulfill = self.reserve_temp_local();
+        let reject = self.reserve_temp_local();
+        let payload = self.reserve_temp_local();
+        let tag = self.reserve_temp_local();
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag));
+        self.emit_initialize_promise_reaction(
+            fulfill,
+            context,
+            payload,
+            tag,
+            PromiseReactionType::Fulfill,
+            &initialization,
+            function,
+        )?;
+        self.emit_initialize_promise_reaction(
+            reject,
+            context,
+            payload,
+            tag,
+            PromiseReactionType::Reject,
+            &initialization,
+            function,
+        )?;
+        self.emit_route_promise_reaction_pair(record, fulfill, reject, payload, tag, function)?;
+        self.store_i64_const_at_offset(record, HEAP_PROMISE_IS_HANDLED_OFFSET, 1, function);
+        self.set_completion_kind(CompletionKind::Normal, function);
+        self.release_temp_local(tag);
+        self.release_temp_local(payload);
+        self.release_temp_local(reject);
+        self.release_temp_local(fulfill);
+        Ok(())
+    }
+
+    pub(crate) fn emit_module_promise_reactions(
+        &mut self,
+        context: u32,
+        record: u32,
+        realm: &AsyncExecutionRealmContext,
+        continuation: ModuleReactionContinuation,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_owned_promise_record_reactions(
+            context,
+            record,
+            PromiseReactionInitialization::Module {
+                realm,
+                continuation,
+            },
+            function,
+        )
+    }
+
+    pub(crate) fn emit_module_import_await_reactions(
+        &mut self,
+        activation: u32,
+        promise: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.store_i64_local_at_offset(
+            activation,
+            HEAP_ASYNC_ENV_OFFSET,
+            self.current_env_local,
+            function,
+        );
+        let realm =
+            self.emit_async_function_execution_realm_context_from_activation(activation, function);
+        let record = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            promise,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record,
+            function,
+        );
+        self.emit_owned_promise_record_reactions(
+            activation,
+            record,
+            PromiseReactionInitialization::AsyncExecution {
+                realm: &realm,
+                continuation: AsyncAwaitContinuation::AsyncFunction,
+            },
+            function,
+        )?;
+        self.release_temp_local(record);
+        self.release_async_execution_realm_context(realm);
+        Ok(())
+    }
+
+    pub(crate) fn emit_module_execution_realm_context(
+        &mut self,
+        record: u32,
+        function: &mut Function,
+    ) -> AsyncExecutionRealmContext {
+        let realm_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(record, MODULE_REALM_OFFSET, realm_local, function);
+        function.instruction(&Instruction::LocalGet(realm_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        AsyncExecutionRealmContext { realm_local }
+    }
+
     pub(crate) fn emit_async_await_reactions(
         &mut self,
         activation_local: u32,
@@ -2189,7 +2333,8 @@ impl<'a> FunctionBuilder<'a> {
 
         let resolve_realm_authority = match &initialization {
             PromiseReactionInitialization::Default => PromiseResolveRealmAuthority::CurrentFunction,
-            PromiseReactionInitialization::AsyncExecution { realm, .. } => {
+            PromiseReactionInitialization::AsyncExecution { realm, .. }
+            | PromiseReactionInitialization::Module { realm, .. } => {
                 PromiseResolveRealmAuthority::AsyncExecution(*realm)
             }
         };
@@ -3697,6 +3842,20 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         match kind {
+            PromiseReactionCallbackKind::ModuleBody => self.emit_run_module_body_reaction(
+                reaction_record_local,
+                reaction_is_rejected_local,
+                argument_payload_local,
+                argument_tag_local,
+                function,
+            ),
+            PromiseReactionCallbackKind::ModuleJoin => self.emit_run_module_join_reaction(
+                reaction_record_local,
+                reaction_is_rejected_local,
+                argument_payload_local,
+                argument_tag_local,
+                function,
+            ),
             PromiseReactionCallbackKind::Default => self.emit_run_default_promise_reaction_job(
                 reaction_record_local,
                 reaction_is_rejected_local,

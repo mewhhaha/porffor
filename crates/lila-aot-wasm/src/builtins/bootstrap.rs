@@ -308,6 +308,8 @@ impl<'a> FunctionBuilder<'a> {
                     &intrinsic_context,
                     function,
                 )?,
+            StandardBuiltinInstaller::IntlNumberFormat => self
+                .install_intl_number_format_constructor_intrinsics(&intrinsic_context, function)?,
             StandardBuiltinInstaller::Date => {
                 self.install_date_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -3304,6 +3306,19 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(
+            INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlNumberFormatPrototype,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         let regexp_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
         self.store_i64_const_at_offset(
@@ -3619,6 +3634,16 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::IntlDateTimeFormatConstructor,
                 INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::IntlNumberFormatConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::IntlNumberFormatConstructor,
+                INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

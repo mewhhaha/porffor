@@ -1,24 +1,21 @@
 //! Wasm emission for ES module graphs.
 //!
-//! A module graph is linked at compile time into the single `ScriptIr` the rest
-//! of the backend emits. Synchronous Module-entry graphs without source-phase
-//! requests carry private activation and cell operations. `synchronous`
-//! allocates all records and generator-backed environments, installs immutable
-//! indirect imports, publishes namespaces, and evaluates dependencies in request
-//! order. Entered members of an evaluation component remain Evaluating until
-//! its first active evaluator finalizes their shared completion or error.
+//! A validated Module-entry graph carries private activation, canonical cell and
+//! ordered phase-aware request operations. Allocation publishes every canonical
+//! environment before instantiation; runtime DFS owns cycle roots, cached
+//! Evaluate promises, async parents and exact rejection values. Source Await
+//! resumes the existing async ABI after a separate private instantiation phase.
 //!
-//! Asynchronous, Script-entry and source-phase graphs retain the merged-scope
-//! driver and its existing evaluation guards.
+//! Script-entry and source-phase graphs retain their explicit merged-driver
+//! admission boundary.
 //!
-//! What does need emission is the part that is genuinely dynamic:
+//! `synchronous` owns allocation/instantiation and canonical cells; `evaluation`
+//! and `completion` own runtime DFS and Promise completion; `traversal` owns
+//! pure readiness/gather walks. `entry_completion` projects the primary entry.
+//! The retained paths below emit `ModuleUnitOnce` and `import.meta` operations.
 //!
-//! * [`emit_module_unit_once`] — run a module's hoist or body block exactly
-//!   once, which is what makes cycles and repeated `import()` behave;
-//! * [`emit_import_meta`] — read the module's `import.meta` object.
-//!
-//! `import()` is *not* on that list, in either goal. The linker desugars every
-//! call site of a graph — `import(`, `import.defer(` and `import.source(` alike
+//! The linker desugars every `import()` call, in either goal, from every
+//! graph call site — `import(`, `import.defer(` and `import.source(` alike
 //! — into an ordinary call to a generated dispatcher function that `ToString`s
 //! the specifier, compares it against the specifiers compiled into the artifact
 //! and resolves or rejects a promise, so no `ImportCall` node reaches this
@@ -34,9 +31,14 @@
 //! in `objects::module_namespace`, alongside the internal methods it dispatches.
 
 use super::*;
+mod completion;
 mod entry_completion;
+mod evaluation;
+mod runtime;
 mod synchronous;
-pub(crate) use synchronous::synchronous_module_record_count;
+mod traversal;
+pub(crate) use runtime::ModuleRuntimeOperation;
+pub(crate) use synchronous::module_execution_record_count;
 
 /// Message every unimplemented module emission reports, so a module compile
 /// fails with one recognisable diagnostic rather than a generic backend error.

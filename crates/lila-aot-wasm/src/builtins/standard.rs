@@ -6,6 +6,7 @@ use super::binary_data::{
 };
 use super::date::DateLocaleFormat;
 use super::intl_datetimeformat::IntlDateTimeFormatPurpose;
+use super::intl_numberformat::NfFormatMode;
 use super::string::StringNormalizationForm;
 use super::temporal::{TemporalZonedDateTimePlainTarget, ZonedDateTimeField};
 use super::temporal_instant::{InstantArithmetic, InstantDifference};
@@ -4789,9 +4790,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(arg_payload_local);
             }
             StandardBuiltinId::ThrowTypeError => {
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "%ThrowTypeError%",
+                self.emit_throw_current_function_realm_type_error_without_message(
                     self.result_local,
                     self.result_tag_local,
                     function,
@@ -22431,6 +22430,30 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::IntlLocalePrototypeVariantsGetter => {
                 self.emit_intl_locale_variants_getter_builtin(function)?;
             }
+            StandardBuiltinId::IntlNumberFormatConstructor => {
+                self.emit_intl_number_format_constructor(function)?;
+            }
+            StandardBuiltinId::IntlNumberFormatSupportedLocalesOf => {
+                self.emit_intl_number_format_supported_locales_of(function)?;
+            }
+            StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => {
+                self.emit_intl_number_format_resolved_options(function)?;
+            }
+            StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => {
+                self.emit_intl_number_format_getter(function)?;
+            }
+            StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts => {
+                self.emit_intl_number_format_to_parts(function)?;
+            }
+            StandardBuiltinId::IntlNumberFormatPrototypeFormatRange => {
+                self.emit_intl_number_format_range(NfFormatMode::String, function)?;
+            }
+            StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => {
+                self.emit_intl_number_format_range(NfFormatMode::Parts, function)?;
+            }
+            StandardBuiltinId::IntlNumberFormatBoundFormat => {
+                self.emit_intl_number_format_bound_format(function)?;
+            }
             StandardBuiltinId::IntlDateTimeFormatConstructor => {
                 self.emit_intl_create_date_time_format(
                     IntlDateTimeFormatPurpose::Constructor,
@@ -27455,80 +27478,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_number_constructor_builtin(function)?
             }
             StandardBuiltinId::StringConstructor => {
-                let arg_payload_local = self.reserve_temp_local();
-                let arg_tag_local = self.reserve_temp_local();
-                let primitive_payload_local = self.reserve_temp_local();
-                let primitive_tag_local = self.reserve_temp_local();
-                let has_arg_local = self.reserve_temp_local();
-                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
-                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64GtU);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(has_arg_local));
-                function.instruction(&Instruction::LocalGet(has_arg_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::I64Const(self.strings.payload("")));
-                function.instruction(&Instruction::LocalSet(primitive_payload_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(primitive_tag_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(arg_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                // `String(symbol)` is special-cased by the spec to
-                // return `SymbolDescriptiveString(symbol)` directly,
-                // bypassing the generic (throwing) ToString path.
-                self.emit_symbol_descriptive_string_to_local(
-                    arg_payload_local,
-                    primitive_payload_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::Else);
-                // `emit_value_to_string_payload` routes non-string
-                // arguments through the shared outlined ToString
-                // helper, which hard-returns the whole (possibly
-                // inlined-at-this-call-site) function on a Symbol/
-                // ToPrimitive throw — that would escape past an
-                // enclosing in-function try/catch. Dispatch
-                // Object/Array/Arguments ToPrimitive ourselves and
-                // select the active-handler route at this call site's
-                // known nesting depth instead.
-                let string_arg_primitive_payload_local = self.reserve_temp_local();
-                let string_arg_primitive_tag_local = self.reserve_temp_local();
-                self.emit_tagged_to_primitive_locals(
-                    ToPrimitiveHint::String,
-                    arg_payload_local,
-                    arg_tag_local,
-                    string_arg_primitive_payload_local,
-                    string_arg_primitive_tag_local,
-                    ToPrimitiveAbruptRoute::ActiveHandler,
-                    function,
-                )?;
-                self.emit_primitive_to_string_payload(
-                    string_arg_primitive_payload_local,
-                    string_arg_primitive_tag_local,
-                    PrimitiveToStringAbruptRoute::ActiveHandler,
-                    function,
-                )?;
-                self.release_temp_local(string_arg_primitive_tag_local);
-                self.release_temp_local(string_arg_primitive_payload_local);
-                function.instruction(&Instruction::LocalSet(primitive_payload_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(primitive_tag_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(primitive_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::LocalGet(primitive_tag_local));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(has_arg_local);
-                self.release_temp_local(primitive_tag_local);
-                self.release_temp_local(primitive_payload_local);
-                self.release_temp_local(arg_tag_local);
-                self.release_temp_local(arg_payload_local);
+                self.emit_string_constructor_builtin(function)?;
             }
             StandardBuiltinId::ErrorConstructor => self.emit_error_constructor_builtin(function)?,
             StandardBuiltinId::ErrorIsError => self.emit_error_is_error_builtin(function)?,

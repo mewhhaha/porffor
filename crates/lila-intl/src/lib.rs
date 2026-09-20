@@ -7,10 +7,41 @@
 
 use core::{fmt, fmt::Write as _};
 
+mod datetime;
+mod datetime_protocol;
 mod identifiers;
+pub mod number_format;
+mod number_operation;
+mod number_protocol;
 mod protocol;
 mod provider;
 mod time_zone;
+
+pub use datetime::{
+    DateTimeCalendar, DateTimeComponents, DateTimeDefaults, DateTimeExactInput,
+    DateTimeFormatAvailability, DateTimeFormatError, DateTimeFormatMatcher, DateTimeFormatRequest,
+    DateTimeFractionalDigits, DateTimeHourCycle, DateTimeHourCyclePreference, DateTimeInput,
+    DateTimeIsoFields, DateTimeKeyword, DateTimeLocaleMatcher, DateTimeLocaleRequest,
+    DateTimeLocaleResult, DateTimeMonthWidth, DateTimeNumericWidth, DateTimePart, DateTimePartKind,
+    DateTimeParts, DateTimePlainInput, DateTimePlanRequest, DateTimePlanResult, DateTimeRangePart,
+    DateTimeRangeParts, DateTimeRangeRequest, DateTimeRangeSource, DateTimeRequired, DateTimeStyle,
+    DateTimeStyleSelection, DateTimeStyles, DateTimeSupportedLocalesRequest,
+    DateTimeSupportedLocalesResult, DateTimeTextWidth, DateTimeValueKind, EncodedDateTimePlan,
+};
+pub use datetime_protocol::{
+    DateTimeWireError, DATE_TIME_COMPONENT_COUNT, DATE_TIME_INPUT_BYTES,
+    DATE_TIME_WIRE_HEADER_BYTES, DATE_TIME_WIRE_VERSION,
+};
+
+pub use number_operation::{
+    NumberFormatOperationError, NumberFormatRequest, NumberRangeFormatRequest,
+    NumberSupportedLocalesResult,
+};
+pub use number_protocol::{
+    NumberConfigurationWord, NumberNumericKind, NumberPrecisionKind, NumberWireError,
+    NUMBER_APPROXIMATELY_SIGN_CODE, NUMBER_CONFIGURATION_WORDS, NUMBER_WIRE_HEADER_BYTES,
+    NUMBER_WIRE_VERSION,
+};
 
 pub use time_zone::{
     FixedTimeZoneOffset, InvalidTimeZoneData, InvalidTimeZoneRequest, LookupNamedTimeZoneRequest,
@@ -29,11 +60,14 @@ pub use identifiers::{
     TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
 };
 pub use protocol::{
-    CanonicalizeLocale, IntlHostCallOutcome, IntlHostOp, IntlHostReadSpan, IntlHostWriteSpan,
+    CanonicalizeLocale, FormatDateTimeParts, FormatDateTimeRangeParts, FormatNumberParts,
+    FormatNumberRangeParts, IntlHostCallOutcome, IntlHostOp, IntlHostReadSpan, IntlHostWriteSpan,
     IntlKernel, IntlOperation, IntlOperationHandle, IntlOperationProvider, IntlProvider,
     IntlProviderIdentityMismatch, LocaleTransformError, LocaleTransformRequest,
     LocaleTransformResult, LookupNamedTimeZone, MaximizeLocale, MinimizeLocale,
-    MissingIntlCapabilities, ResolveTimeZone, UnknownTimeZone, UnsupportedLocale,
+    MissingIntlCapabilities, ResolveDateTimeLocale, ResolveNumberLocale, ResolveTimeZone,
+    SelectDateTimeFormat, SupportedDateTimeLocales, SupportedNumberLocales, UnknownTimeZone,
+    UnsupportedLocale,
 };
 pub use provider::{
     embedded_intl_data_identity, EmbeddedIntlProvider, EmbeddedIntlProviderSetupError,
@@ -77,10 +111,10 @@ macro_rules! closed_string_domain {
 
 pub const INTL_DATA_SCHEMA_VERSION: IntlDataSchemaVersion = IntlDataSchemaVersion(1);
 
-/// Host-call ABI3 adds named-zone identity and exact-instant snapshot operations.
+/// Host-call ABI5 adds typed NumberFormat locale and partition operations.
 /// Artifact identity includes this value so an incompatible host is rejected
 /// before instantiation, independently of the pinned ICU/CLDR data identity.
-pub const INTL_HOST_CALL_ABI_VERSION: u16 = 3;
+pub const INTL_HOST_CALL_ABI_VERSION: u16 = 5;
 
 /// Canonical Wasm custom section carrying the Intl provider identity expected
 /// by a compiled artifact.
@@ -152,6 +186,7 @@ impl IntlService {
             Self::NumberFormat => common
                 .with(IntlDataCapability::NumberingSystems)
                 .with(IntlDataCapability::DecimalPatterns)
+                .with(IntlDataCapability::PluralRules)
                 .with(IntlDataCapability::UnitsAndCurrencies),
             Self::DateTimeFormat => common
                 .with(IntlDataCapability::Calendars)
@@ -724,7 +759,7 @@ mod tests {
                 .expect("identity is canonical UTF-8"),
             concat!(
                 "schema=1\n",
-                "host-call-abi=3\n",
+                "host-call-abi=5\n",
                 "profile=minimal\n",
                 "services=Locale\n",
                 "capabilities=likely-subtags,locale-aliases,parent-locales\n",

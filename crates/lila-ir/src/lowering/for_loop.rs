@@ -2,6 +2,21 @@ use super::*;
 
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_for_loop(&mut self, for_loop: &ForLoop) -> (StatementIr, ValueKind) {
+        if matches!(for_loop.init(), Some(ForLoopInitializer::Lexical(lexical))
+            if matches!(lexical.declaration(), LexicalDeclaration::Using(_)))
+        {
+            let Some(region) =
+                super::synchronous_resource_loop::SynchronousResourceLoop::classic(for_loop)
+            else {
+                self.unsupported("suspension inside a synchronous resource loop");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            return region.lower(self);
+        }
+        self.lower_for_loop_region(for_loop)
+    }
+
+    pub(super) fn lower_for_loop_region(&mut self, for_loop: &ForLoop) -> (StatementIr, ValueKind) {
         let async_disposable_head = Self::async_disposable_for_head(for_loop);
         if async_disposable_head.is_some() {
             let loop_has_suspension = Self::async_disposable_for_has_source_suspension(for_loop);

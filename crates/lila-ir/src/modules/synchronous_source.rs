@@ -1,28 +1,23 @@
-//! Source assembly for the compiler-private synchronous module activation protocol.
+//! Source assembly for the compiler-private module activation protocol.
 
 use super::link::LinkedScriptSource;
 use super::module_key::ANONYMOUS_MODULE_KEY;
 use super::namespace::push_js_string_literal;
 use super::record::{import_meta_binding, rewrite_import_meta, DefaultExportFormIr};
 use super::source::DefaultExportRewrite;
-use super::synchronous_definition::{SynchronousModuleDefinitions, SynchronousUnitDefinition};
+use super::synchronous_definition::{ModuleExecutionDefinitions, ModuleUnitDefinition};
 use crate::*;
 
 /// Validated eligibility for the private allocation/instantiation path. The
-/// source builder requires this witness, so asynchronous, source-phase and
-/// Script-entry graphs cannot accidentally enter synchronous evaluation.
-pub(super) struct SynchronousInstantiationGraph<'a> {
+/// source builder requires this witness, so source-phase and
+/// Script-entry graphs retain their explicit admission boundary.
+pub(super) struct ModuleInstantiationGraph<'a> {
     graph: &'a ModuleGraphIr,
 }
 
-impl<'a> SynchronousInstantiationGraph<'a> {
+impl<'a> ModuleInstantiationGraph<'a> {
     pub(super) fn new(graph: &'a ModuleGraphIr, components: &[DynamicComponentIr]) -> Option<Self> {
         let eligible = !graph.entry_is_script
-            && graph
-                .units
-                .iter()
-                .enumerate()
-                .all(|(index, _)| !graph.has_tla(index as u32))
             && graph
                 .units
                 .iter()
@@ -33,9 +28,9 @@ impl<'a> SynchronousInstantiationGraph<'a> {
     }
 }
 
-pub(super) fn linked_synchronous_source(
+pub(super) fn linked_module_execution_source(
     sources: &ModuleGraphSources,
-    eligible: SynchronousInstantiationGraph<'_>,
+    eligible: ModuleInstantiationGraph<'_>,
 ) -> Result<LinkedScriptSource, Vec<IrDiagnostic>> {
     let graph = eligible.graph;
     let diagnostics = graph.check_dynamic_import_linkable();
@@ -43,26 +38,37 @@ pub(super) fn linked_synchronous_source(
         return Err(diagnostics);
     }
     let mut text = String::from("\"use strict\";\n");
-    text.push_str(&graph.synchronous_dynamic_import_prelude());
+    text.push_str(&graph.module_execution_dynamic_import_prelude());
     text.push('\n');
     let graph_start_line = source_line_number(&text);
     let mut definitions = Vec::new();
-    let components = super::link::evaluation_components(graph);
-    let component_of_unit = graph.component_of_unit();
     text.push_str("[\n");
     for (module, _, unit) in graph.materialized_units() {
-        let mut dependencies = Vec::new();
-        for request in &unit.record.requested_modules {
-            if request.phase() == ImportPhaseIr::Evaluation {
-                let target = graph
-                    .resolve_request(module, request)
-                    .expect("linked dependency resolves");
-                if !dependencies.contains(&target) {
-                    dependencies.push(target);
-                }
-            }
-        }
-        let readiness = readiness_graph(graph, module);
+        let requests = unit
+            .record
+            .requested_modules
+            .iter()
+            .map(|request| {
+                let phase = match request.phase() {
+                    ImportPhaseIr::Evaluation => super::ModuleRequestPhaseIr::Evaluation,
+                    ImportPhaseIr::Defer => super::ModuleRequestPhaseIr::Defer,
+                    ImportPhaseIr::Source => {
+                        unreachable!("validated execution graph excludes source phase")
+                    }
+                };
+                super::ModuleExecutionRequestIr::new(
+                    phase,
+                    graph
+                        .resolve_request(module, request)
+                        .expect("linked dependency resolves"),
+                )
+            })
+            .collect();
+        let kind = if unit.record.has_top_level_await {
+            super::ModuleActivationKindIr::Async
+        } else {
+            super::ModuleActivationKindIr::Synchronous
+        };
         let imports = unit.resolved_imports.clone();
         let namespaces = unit
             .namespaces
@@ -97,7 +103,7 @@ pub(super) fn linked_synchronous_source(
                     unit.record.key.as_str()
                 ))]
             })?;
-        text.push_str("[async () => {\n\"use strict\";\n");
+        text.push_str("async () => {\n\"use strict\";\n");
         for import in &unit.record.import_entries {
             text.push_str("const ");
             text.push_str(import.local_name.spec_name());
@@ -123,19 +129,16 @@ pub(super) fn linked_synchronous_source(
         // Trusted metadata turns this boundary into a private suspension.
         text.push_str("0;\n");
         text.push_str(&body);
-        text.push_str("\n;\n}, () => 0],\n");
-        definitions.push(SynchronousUnitDefinition {
+        text.push_str("\n;\n},\n");
+        definitions.push(ModuleUnitDefinition {
             module,
             imports,
             namespaces,
             has_import_meta: unit.record.import_meta_uses() > 0,
             default_export: unit.record.default_export_form(),
-            evaluation: super::SynchronousModuleEvaluationIr::new(
-                module,
-                dependencies,
-                components[component_of_unit[module as usize]].clone(),
-            ),
-            readiness,
+            evaluation: super::ModuleEvaluationIr::new(module),
+            kind,
+            requests,
         });
     }
     text.push_str("];\n");
@@ -163,14 +166,14 @@ pub(super) fn linked_synchronous_source(
         .iter()
         .map(|unit| {
             (
-                super::dynamic::synchronous_evaluator_name(unit.module),
+                super::dynamic::module_evaluator_name(unit.module),
                 unit.evaluation.clone(),
             )
         })
         .collect();
     let mut linked = super::LinkedScriptDefinitions::default();
-    linked.entry = Some(super::LinkedModuleEntry::SynchronousGraph(graph.entry));
-    linked.synchronous = Some(SynchronousModuleDefinitions {
+    linked.entry = Some(super::LinkedModuleEntry::CanonicalGraph(graph.entry));
+    linked.synchronous = Some(ModuleExecutionDefinitions {
         graph_span: (
             boa_ast::Position::new(graph_start_line, 1),
             boa_ast::Position::new(graph_end_line, 2),
@@ -179,6 +182,24 @@ pub(super) fn linked_synchronous_source(
         record_count: graph.units.len() as u32,
         dispatcher_namespaces,
         dispatcher_evaluations,
+        dispatcher_async_dependencies: graph
+            .materialized_units()
+            .map(|(module, _, _)| {
+                (
+                    super::dynamic::module_async_dependencies_name(module),
+                    super::ModuleEvaluationIr::new(module),
+                )
+            })
+            .collect(),
+        dispatcher_deferred_imports: graph
+            .materialized_units()
+            .map(|(module, _, _)| {
+                (
+                    super::dynamic::module_deferred_import_name(module),
+                    super::ModuleEvaluationIr::new(module),
+                )
+            })
+            .collect(),
         initial_evaluation,
     });
     Ok(LinkedScriptSource {
@@ -203,33 +224,4 @@ fn source_line_number(source: &str) -> u32 {
         .filter(|character| matches!(character, '\r' | '\n' | '\u{2028}' | '\u{2029}'))
         .count();
     1 + (terminators - source.matches("\r\n").count()) as u32
-}
-
-fn readiness_graph(graph: &ModuleGraphIr, root: u32) -> Vec<super::ModuleReadinessNodeIr> {
-    let mut pending = vec![root];
-    let mut seen = BTreeSet::new();
-    let mut nodes = Vec::new();
-    while let Some(module) = pending.pop() {
-        if !seen.insert(module) {
-            continue;
-        }
-        let mut dependencies = Vec::new();
-        for request in &graph.unit(module).record.requested_modules {
-            if request.phase() == ImportPhaseIr::Source {
-                continue;
-            }
-            let target = graph
-                .resolve_request(module, request)
-                .expect("linked dependency resolves");
-            if !dependencies.contains(&target) {
-                dependencies.push(target);
-                pending.push(target);
-            }
-        }
-        nodes.push(super::ModuleReadinessNodeIr {
-            module,
-            dependencies,
-        });
-    }
-    nodes
 }

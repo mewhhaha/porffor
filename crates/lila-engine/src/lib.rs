@@ -37,8 +37,12 @@ mod cache;
 mod execution_failure;
 pub use execution_failure::WasmExecutionFailureKind;
 use execution_failure::{finish_wasm_execution, EngineExecutionFailure};
+mod intl_datetime_host;
+#[cfg(test)]
+mod intl_host_probe;
 mod intl_host_request;
 mod intl_locale_host;
+mod intl_number_host;
 mod intl_time_zone_host;
 mod module_loader;
 mod wasmtime_policy;
@@ -1649,6 +1653,47 @@ fn wasm_intl_call(
         IntlHostOp::ResolveTimeZone => {
             intl_time_zone_host::resolve_time_zone(caller, request_span_wire, result_span_wire)
         }
+        IntlHostOp::ResolveDateTimeLocale => intl_datetime_host::call::<
+            lila_intl::ResolveDateTimeLocale,
+        >(caller, request_span_wire, result_span_wire),
+        IntlHostOp::SupportedDateTimeLocales => intl_datetime_host::call::<
+            lila_intl::SupportedDateTimeLocales,
+        >(
+            caller, request_span_wire, result_span_wire
+        ),
+        IntlHostOp::SelectDateTimeFormat => intl_datetime_host::call::<
+            lila_intl::SelectDateTimeFormat,
+        >(caller, request_span_wire, result_span_wire),
+        IntlHostOp::FormatDateTimeParts => {
+            intl_datetime_host::call::<lila_intl::FormatDateTimeParts>(
+                caller,
+                request_span_wire,
+                result_span_wire,
+            )
+        }
+        IntlHostOp::FormatDateTimeRangeParts => intl_datetime_host::call::<
+            lila_intl::FormatDateTimeRangeParts,
+        >(
+            caller, request_span_wire, result_span_wire
+        ),
+        IntlHostOp::ResolveNumberLocale => {
+            intl_number_host::call::<lila_intl::ResolveNumberLocale>(
+                caller,
+                request_span_wire,
+                result_span_wire,
+            )
+        }
+        IntlHostOp::SupportedNumberLocales => intl_number_host::call::<
+            lila_intl::SupportedNumberLocales,
+        >(caller, request_span_wire, result_span_wire),
+        IntlHostOp::FormatNumberParts => intl_number_host::call::<lila_intl::FormatNumberParts>(
+            caller,
+            request_span_wire,
+            result_span_wire,
+        ),
+        IntlHostOp::FormatNumberRangeParts => intl_number_host::call::<
+            lila_intl::FormatNumberRangeParts,
+        >(caller, request_span_wire, result_span_wire),
     }
 }
 
@@ -34447,3 +34492,6 @@ mod runtime_regexp_compiler_tests;
 
 #[cfg(test)]
 mod array_present_index_tests;
+
+#[cfg(test)]
+mod module_async_runtime_tests;

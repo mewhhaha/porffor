@@ -1,8 +1,7 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
-const MODULE_LOWERING_SOURCE: &str =
-    include_str!("../../lila-ir/src/lowering/synchronous_modules.rs");
+const MODULE_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/module_execution.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
@@ -96,7 +95,9 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
         "    pub(super) fn lower_module_instantiation_boundary(",
     );
     assert!(admission.contains("owner.sync_disposable_scope_owner()"));
-    assert!(admission.contains("owner.protocol == FunctionProtocolIr::ModuleActivation"));
+    assert!(admission.contains("matches!("));
+    assert!(admission.contains("FunctionProtocolIr::ModuleActivation"));
+    assert!(admission.contains("FunctionProtocolIr::AsyncModuleActivation"));
     assert!(admission.contains("owner.parent_owner_id.as_deref()"));
     assert!(admission.contains("return None;"));
 

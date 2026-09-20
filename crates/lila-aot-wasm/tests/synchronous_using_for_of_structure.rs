@@ -138,7 +138,8 @@ fn backend_consumes_each_closed_head_and_disposes_before_loop_continue_or_close(
     );
     assert!(head_witness.contains("pub(crate) enum SyncForOfIteratorHead<'a>"));
     assert!(head_witness.contains("Assignment(&'a ForOfAssignmentIr)"));
-    assert!(head_witness.contains("SyncDisposable(&'a SyncDisposableForOfHeadIr)"));
+    assert!(head_witness.contains("head: &'a SyncDisposableForOfHeadIr"));
+    assert!(head_witness.contains("body: SynchronousLoopBodyIr<'a>"));
     assert!(!head_witness.contains("derive(Clone"));
     assert!(!head_witness.contains("derive(Copy"));
 
@@ -192,7 +193,8 @@ fn backend_consumes_each_closed_head_and_disposes_before_loop_continue_or_close(
         assert!(dispatch.contains("ForOfIteratorHeadIr::Assignment {"));
         assert!(dispatch.contains("ForOfIteratorHeadIr::SyncDisposable(head)"));
         assert!(dispatch.contains("SyncForOfIteratorHead::Assignment(binding)"));
-        assert!(dispatch.contains("SyncForOfIteratorHead::SyncDisposable(head)"));
+        assert!(dispatch.contains("SyncForOfIteratorHead::SyncDisposable {"));
+        assert!(dispatch.contains("SynchronousLoopBodyIr::new(body)"));
         assert!(dispatch.contains("self.compile_for_of_iterator("));
     }
 

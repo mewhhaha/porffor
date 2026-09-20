@@ -14,7 +14,7 @@ use lila_ir::{
     IdentifierWriteReferenceIr, ObjectDestructuringPatternIr,
     PlainGeneratorSyncDisposableCapabilityIr, ResumableLoopIterationEnvironmentIr,
     SyncDisposableForOfHeadIr, SyncDisposableResourceIr, SyncDisposableResourcesIr,
-    SyncDisposableScopeExecutionIr,
+    SyncDisposableScopeExecutionIr, SynchronousLoopBodyIr,
 };
 
 mod annex_b_function_copy;
@@ -280,7 +280,10 @@ impl ActivationSyncDisposeOwner<'_> {
 #[must_use = "a synchronous iterator head must consume its iteration lifecycle"]
 pub(crate) enum SyncForOfIteratorHead<'a> {
     Assignment(&'a ForOfAssignmentIr),
-    SyncDisposable(&'a SyncDisposableForOfHeadIr),
+    SyncDisposable {
+        head: &'a SyncDisposableForOfHeadIr,
+        body: SynchronousLoopBodyIr<'a>,
+    },
 }
 
 #[must_use = "a synchronous for-of iteration must finish assignment or disposal"]
@@ -1466,6 +1469,7 @@ impl<'a> FunctionBuilder<'a> {
         match statement {
             StatementIr::ResumableClassDefinition(plan) => Some(plan.entry_state()),
             StatementIr::AsyncFunctionIf { plan, .. } => Some(plan.entry_state()),
+            StatementIr::AsyncModuleInstantiation => Some(0),
             StatementIr::AsyncAwait { suspend_state, .. } => Some(*suspend_state),
             StatementIr::GeneratorYield { suspend_state, .. } => Some(*suspend_state),
             StatementIr::GeneratorLoop { entry_state, .. }
@@ -1543,10 +1547,11 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {
+    pub(crate) fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {
         match statement {
             StatementIr::ResumableClassDefinition(plan) => Some(plan.exit_state()),
             StatementIr::AsyncFunctionIf { plan, .. } => Some(plan.exit_state()),
+            StatementIr::AsyncModuleInstantiation => Some(1),
             StatementIr::AsyncAwait { resume_state, .. } => Some(*resume_state),
             StatementIr::GeneratorYield { resume_state, .. } => Some(*resume_state),
             StatementIr::GeneratorLoop { exit_state, .. }
@@ -3029,6 +3034,55 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::End);
                 }
             }
+            StatementIr::AsyncModuleInstantiation => {
+                assert!(
+                    self.current_function_meta().is_some_and(
+                        |meta| meta.protocol == FunctionProtocolIr::AsyncModuleActivation
+                    )
+                );
+                let activation = self
+                    .new_target_payload_local()
+                    .expect("module activation uses the function ABI");
+                self.load_i64_to_local_from_offset(
+                    activation,
+                    HEAP_ASYNC_RESUME_STATE_OFFSET,
+                    self.scratch_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_load_async_module_entry_mode(activation, self.scratch_local, function);
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+                function.instruction(&Instruction::I64Const(
+                    AsyncModuleEntryMode::Instantiate.word() as i64,
+                ));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Unreachable);
+                function.instruction(&Instruction::End);
+                self.store_i64_const_at_offset(
+                    activation,
+                    HEAP_ASYNC_RESUME_STATE_OFFSET,
+                    1,
+                    function,
+                );
+                self.store_i64_local_at_offset(
+                    activation,
+                    HEAP_ASYNC_ENV_OFFSET,
+                    self.current_env_local,
+                    function,
+                );
+                self.emit_store_async_module_entry_mode(
+                    activation,
+                    AsyncModuleEntryMode::Execute,
+                    function,
+                );
+                self.set_completion_kind(CompletionKind::Normal, function);
+                self.emit_statement_result(function, ValueKind::Undefined);
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+            }
             StatementIr::AsyncAwait {
                 value,
                 suspend_state,
@@ -3065,12 +3119,23 @@ impl<'a> FunctionBuilder<'a> {
                     u64::from(*resume_state),
                     function,
                 );
-                self.emit_async_await_reactions(
-                    activation_local,
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
+                if matches!(
+                    value.expr,
+                    ExprIr::ModuleEvaluate(_) | ExprIr::ModuleDeferredImportEvaluate(_)
+                ) {
+                    self.emit_module_import_await_reactions(
+                        activation_local,
+                        self.result_local,
+                        function,
+                    )?;
+                } else {
+                    self.emit_async_await_reactions(
+                        activation_local,
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                }
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(self.result_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -3780,7 +3845,14 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 ForOfIteratorHeadIr::SyncDisposable(head) => {
                     self.compile_for_of_iterator(
-                        SyncForOfIteratorHead::SyncDisposable(head),
+                        SyncForOfIteratorHead::SyncDisposable {
+                            head,
+                            body: SynchronousLoopBodyIr::new(body).map_err(|error| {
+                                EmitError::unsupported(format!(
+                                    "invalid synchronous resource loop body: {error:?}"
+                                ))
+                            })?,
+                        },
                         iterable,
                         body,
                         lexical_environment.as_ref(),
@@ -3974,7 +4046,14 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 ForOfIteratorHeadIr::SyncDisposable(head) => {
                     self.compile_for_of_iterator(
-                        SyncForOfIteratorHead::SyncDisposable(head),
+                        SyncForOfIteratorHead::SyncDisposable {
+                            head,
+                            body: SynchronousLoopBodyIr::new(body).map_err(|error| {
+                                EmitError::unsupported(format!(
+                                    "invalid synchronous resource loop body: {error:?}"
+                                ))
+                            })?,
+                        },
                         iterable,
                         body,
                         lexical_environment.as_ref(),
@@ -7515,7 +7594,11 @@ impl<'a> FunctionBuilder<'a> {
                 resources,
                 test,
                 update,
-                body,
+                SynchronousLoopBodyIr::new(body).map_err(|error| {
+                    EmitError::unsupported(format!(
+                        "invalid synchronous resource loop body: {error:?}"
+                    ))
+                })?,
                 lexical_environment,
                 labels,
                 function,
@@ -7784,21 +7867,12 @@ impl<'a> FunctionBuilder<'a> {
         resources: &SyncDisposableResourcesIr,
         test: Option<&TypedExpr>,
         update: Option<&TypedExpr>,
-        body: &StatementIr,
+        body: SynchronousLoopBodyIr<'_>,
         lexical_environment: Option<&ForLexicalEnvironmentIr>,
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if self.current_function_meta().is_some_and(|meta| {
-            !matches!(
-                meta.protocol.source_execution_kind(),
-                FunctionExecutionKind::Ordinary
-            )
-        }) {
-            return Err(EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: synchronous using for head in a resumable body",
-            ));
-        }
+        let body = body.statement();
         if lexical_environment
             .is_some_and(|environment| !environment.per_iteration_slots.is_empty())
         {
@@ -10331,18 +10405,10 @@ impl<'a> FunctionBuilder<'a> {
         labels: &[String],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if matches!(&head, SyncForOfIteratorHead::SyncDisposable(_))
-            && self.current_function_meta().is_some_and(|meta| {
-                !matches!(
-                    meta.protocol.source_execution_kind(),
-                    FunctionExecutionKind::Ordinary
-                )
-            })
-        {
-            return Err(EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: synchronous using for-of head in a resumable body",
-            ));
-        }
+        let body = match &head {
+            SyncForOfIteratorHead::Assignment(_) => body,
+            SyncForOfIteratorHead::SyncDisposable { body, .. } => body.statement(),
+        };
 
         let iterable_payload_local = self.reserve_temp_local();
         let iterable_tag_local = self.reserve_temp_local();
@@ -10373,7 +10439,7 @@ impl<'a> FunctionBuilder<'a> {
             SyncForOfIteratorHead::Assignment(binding) => {
                 SyncForOfIterationLifecycleLocals::Assignment(binding)
             }
-            SyncForOfIteratorHead::SyncDisposable(head) => {
+            SyncForOfIteratorHead::SyncDisposable { head, .. } => {
                 SyncForOfIterationLifecycleLocals::SyncDisposable {
                     head,
                     acquired: self.reserve_sync_disposable_resource_locals(function),

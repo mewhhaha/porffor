@@ -1,6 +1,6 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower, BindingMode, EnvironmentIdentifierOperationIr, ExprIr, ForOfIteratorHeadIr,
+    lower, BindingMode, EnvironmentIdentifierOperationIr, ExprIr, ForInitIr, ForOfIteratorHeadIr,
     PreparedScriptKind, StatementIr, TypedExpr,
 };
 
@@ -131,5 +131,117 @@ fn owned_eval_loop_heads_keep_their_declared_storage() {
         let (mode, name, _) = loop_head(statement);
         assert_eq!(mode, BindingMode::Var);
         assert_eq!(name, "value");
+    }
+}
+
+#[test]
+fn borrowed_classic_for_head_publishes_declarations_in_source_order() {
+    let program = lower(
+        &parse(
+            "eval('for (var first = 7, untouched, second = first;;) { break; }');",
+            ParseOptions::script(),
+        )
+        .unwrap(),
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.unwrap();
+    let unit = script
+        .prepared_script_units()
+        .find(|unit| matches!(unit.kind, PreparedScriptKind::DirectEval(_)))
+        .expect("prepared direct eval unit");
+    assert_eq!(
+        unit.declarations.var_names,
+        ["first", "untouched", "second"]
+    );
+    let StatementIr::For {
+        init: Some(ForInitIr::Statements(statements)),
+        ..
+    } = &unit.body.statements[0]
+    else {
+        panic!("borrowed classic heads must use declaration evaluation");
+    };
+    let [StatementIr::LexicalBlock(declarations)] = statements.as_slice() else {
+        panic!("initialized declarations must retain their source order");
+    };
+    assert_eq!(declarations.len(), 2, "uninitialized var performs no write");
+    let (first, value) = environment_assignment(&declarations[0]);
+    assert_eq!(first, "first");
+    assert!(matches!(value.expr, ExprIr::Number(bits) if bits == 7f64.to_bits()));
+    let (second, value) = environment_assignment(&declarations[1]);
+    assert_eq!(second, "second");
+    assert!(matches!(
+        &value.expr,
+        ExprIr::EnvironmentIdentifier(reference)
+            if reference.name == "first"
+                && matches!(reference.operation, EnvironmentIdentifierOperationIr::Read)
+    ));
+}
+
+#[test]
+fn borrowed_classic_for_without_an_initializer_only_instantiates_its_var() {
+    let program = lower(
+        &parse(
+            "eval('for (var value; false;) {}');",
+            ParseOptions::script(),
+        )
+        .unwrap(),
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.unwrap();
+    let unit = script
+        .prepared_script_units()
+        .find(|unit| matches!(unit.kind, PreparedScriptKind::DirectEval(_)))
+        .expect("prepared direct eval unit");
+    assert_eq!(unit.declarations.var_names, ["value"]);
+    let StatementIr::For {
+        init: Some(ForInitIr::Statements(statements)),
+        ..
+    } = &unit.body.statements[0]
+    else {
+        panic!("borrowed classic heads must use declaration evaluation");
+    };
+    assert!(
+        matches!(statements.as_slice(), [StatementIr::LexicalBlock(declarations)] if declarations.is_empty())
+    );
+}
+
+#[test]
+fn owned_classic_for_heads_keep_their_declared_storage() {
+    for (source, direct) in [
+        (
+            "eval('\"use strict\"; for (var value = 7; false;) {}');",
+            true,
+        ),
+        ("(0, eval)('for (var value = 7; false;) {}');", false),
+    ] {
+        let program = lower(&parse(source, ParseOptions::script()).unwrap());
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.unwrap();
+        let unit = script
+            .prepared_script_units()
+            .find(|unit| match unit.kind {
+                PreparedScriptKind::DirectEval(_) => direct,
+                PreparedScriptKind::IndirectEval => !direct,
+                PreparedScriptKind::RealmScript => false,
+            })
+            .expect("prepared eval unit of the intended kind");
+        let statement = unit
+            .body
+            .statements
+            .iter()
+            .find(|statement| matches!(statement, StatementIr::For { .. }))
+            .expect("prepared eval retains its loop");
+        let StatementIr::For {
+            init: Some(ForInitIr::Var(declarations)),
+            ..
+        } = statement
+        else {
+            panic!("owned classic head retains its declaration storage");
+        };
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(declarations[0].name, "value");
+        assert!(
+            matches!(declarations[0].init.as_ref().map(|value| &value.expr), Some(ExprIr::Number(bits)) if *bits == 7f64.to_bits())
+        );
     }
 }

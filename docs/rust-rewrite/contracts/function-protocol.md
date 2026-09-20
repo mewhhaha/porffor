@@ -18,6 +18,7 @@ generated lowering use only these rows:
 | `Async` | ordinary | async | absent | none |
 | `AsyncArrow` | arrow | async | absent | none |
 | `ModuleActivation` | arrow | generator | absent | none |
+| `AsyncModuleActivation` | arrow | async | absent | none |
 | `AsyncGenerator` | ordinary | async-generator | absent | none |
 | `ClassConstructor` | ordinary | ordinary | present | constructor |
 | `ClassMethod(k)` | ordinary | any execution kind `k` | absent | method |
@@ -39,7 +40,11 @@ module lexical `this` and `arguments`, while the generator ABI owns persistent
 environment cells and one instantiation suspension. Only exact trusted linker
 positions can create this protocol; ordinary async arrows keep their source
 protocol. Neither the activation function nor its generator object escapes to
-JavaScript. See [module instantiation](module-instantiation.md).
+JavaScript. AsyncModuleActivation uses the corresponding async ABI with closed
+Allocate/Instantiate/Execute modes; it retains ordinary async source semantics,
+while instantiation creates neither source effects nor await jobs. Its canonical
+invocation environment remains distinct from the suspended current lexical chain.
+See [module instantiation](module-instantiation.md).
 
 ## Boundaries that stay separate
 

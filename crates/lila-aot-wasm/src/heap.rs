@@ -56,6 +56,10 @@ use super::heap_intl_date_time_format_layout::{
 #[cfg(test)]
 use super::heap_intl_locale_layout::{IntlLocaleHeapSlot, HEAP_INTL_LOCALE_RECORD_LAYOUT};
 #[cfg(test)]
+use super::heap_intl_number_format_layout::{
+    IntlNumberFormatHeapSlot, HEAP_INTL_NUMBER_FORMAT_RECORD_LAYOUT,
+};
+#[cfg(test)]
 use super::heap_map_entry_layout::{MapEntryHeapSlot, HEAP_MAP_ENTRY_LAYOUT};
 #[cfg(test)]
 use super::heap_map_iterator_layout::{MapIteratorHeapSlot, HEAP_MAP_ITERATOR_RECORD_LAYOUT};
@@ -279,7 +283,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 320;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 512;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 520;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -320,7 +324,9 @@ pub(crate) const HEAP_TEMPORAL_DURATION_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_TEMPORAL_PLAIN_TIME_RECORD_SIZE: u64 = 48;
 pub(crate) const HEAP_TEMPORAL_PLAIN_DATE_TIME_RECORD_SIZE: u64 = 80;
 pub(crate) const HEAP_INTL_LOCALE_RECORD_SIZE: u64 = 40;
-pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 184;
+pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 192;
+pub(crate) const HEAP_INTL_NUMBER_FORMAT_RECORD_SIZE: u64 =
+    40 + lila_intl::NUMBER_CONFIGURATION_WORDS as u64 * 8;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
@@ -333,7 +339,7 @@ pub(crate) const HEAP_PENDING_JOB_RECORD_SIZE: u64 = 56;
 pub(crate) const HEAP_ATOMICS_ASYNC_WAITER_RECORD_SIZE: u64 = 48;
 #[allow(dead_code)]
 pub(crate) const HEAP_PROMISE_CAPABILITY_RECORD_SIZE: u64 = 48;
-pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 152;
+pub(crate) const HEAP_ASYNC_ACTIVATION_RECORD_SIZE: u64 = 160;
 #[allow(dead_code)]
 pub(crate) const HEAP_ASYNC_GENERATOR_ACTIVATION_RECORD_SIZE: u64 = 216;
 #[allow(dead_code)]
@@ -712,6 +718,7 @@ pub(crate) const HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET: u64 = 480;
 pub(crate) const HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET: u64 = 488;
 pub(crate) const HEAP_REALM_INTRINSICS_TEMPORAL_INSTANT_PROTOTYPE_OFFSET: u64 = 496;
 pub(crate) const HEAP_REALM_INTRINSICS_TEMPORAL_DURATION_PROTOTYPE_OFFSET: u64 = 504;
+pub(crate) const HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET: u64 = 512;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -785,6 +792,14 @@ pub(crate) const HEAP_INTL_LOCALE_SCRIPT_OFFSET: u64 = 16;
 pub(crate) const HEAP_INTL_LOCALE_REGION_OFFSET: u64 = 24;
 pub(crate) const HEAP_INTL_LOCALE_BASE_NAME_OFFSET: u64 = 32;
 
+/// NumberFormat references precede the closed NumberConfigurationWord vector.
+pub(crate) const HEAP_INTL_NF_LOCALE_OFFSET: u64 = 0;
+pub(crate) const HEAP_INTL_NF_DATA_LOCALE_OFFSET: u64 = 8;
+pub(crate) const HEAP_INTL_NF_NUMBERING_SYSTEM_OFFSET: u64 = 16;
+pub(crate) const HEAP_INTL_NF_STYLE_TEXT_OFFSET: u64 = 24;
+pub(crate) const HEAP_INTL_NF_BOUND_FORMAT_OFFSET: u64 = 32;
+pub(crate) const HEAP_INTL_NF_WORDS_OFFSET: u64 = 40;
+
 /// `Intl.DateTimeFormat` internal slots (ECMA-402 11.5, Table 8).
 ///
 /// The four string slots hold string payloads; every remaining slot holds a
@@ -812,10 +827,10 @@ pub(crate) const HEAP_INTL_DTF_TIME_STYLE_OFFSET: u64 = 136;
 pub(crate) const HEAP_INTL_DTF_HOUR12_OFFSET: u64 = 144;
 /// Memoised `[[BoundFormat]]` function object payload, 0 until first read.
 pub(crate) const HEAP_INTL_DTF_BOUND_FORMAT_OFFSET: u64 = 152;
-/// `needDefaults` as computed by `CreateDateTimeFormat`: 1 when the options
-/// bag named no date/time component and no dateStyle/timeStyle, so the
-/// Temporal `toLocaleString` path may substitute the type's own defaults.
-pub(crate) const HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET: u64 = 160;
+/// Packed offset/length of the stateless provider plan, including the original
+/// component selection and the caller's required/default context.
+pub(crate) const HEAP_INTL_DTF_PLAN_OFFSET: u64 = 160;
+pub(crate) const HEAP_INTL_DTF_AVAILABLE_FORMATS_OFFSET: u64 = 184;
 /// Signed offset seconds for a fixed-offset formatter; zero for a named zone.
 /// Named offsets are selected for each exact input instant by the provider.
 pub(crate) const HEAP_INTL_DTF_TIME_ZONE_FIXED_SECONDS_OFFSET: u64 = 168;
@@ -1310,7 +1325,8 @@ impl PromiseReactionType {
 // word.
 //
 // Promise reactions use the default ECMAScript handler path or one of five
-// internal async-continuation paths. Keeping the wire word and its job-realm
+// internal async-continuation paths plus module body/join continuations.
+// Keeping the wire word and its job-realm
 // policy on one type means a new continuation cannot be initialized without
 // also selecting how it runs and which realm a queued job carries.
 promise_wire_domain!(PromiseReactionCallbackKind, 0, {
@@ -1320,6 +1336,8 @@ promise_wire_domain!(PromiseReactionCallbackKind, 0, {
     AsyncGeneratorAwait = 3,
     AsyncGeneratorYield = 4,
     AsyncGeneratorYieldReturn = 5,
+    ModuleBody = 6,
+    ModuleJoin = 7,
 });
 
 /// Where a Promise reaction job obtains its host job realm.
@@ -1341,7 +1359,9 @@ impl PromiseReactionCallbackKind {
             | Self::AsyncGeneratorAwaitReturn
             | Self::AsyncGeneratorAwait
             | Self::AsyncGeneratorYield
-            | Self::AsyncGeneratorYieldReturn => PromiseReactionRealmSource::Captured,
+            | Self::AsyncGeneratorYieldReturn
+            | Self::ModuleBody
+            | Self::ModuleJoin => PromiseReactionRealmSource::Captured,
         }
     }
 }
@@ -1383,6 +1403,42 @@ pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET: u64 = 120;
 pub(crate) const HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET: u64 = 128;
 pub(crate) const HEAP_ASYNC_FUNCTION_REALM_OFFSET: u64 = 136;
 pub(crate) const HEAP_ASYNC_INVOCATION_ENV_OFFSET: u64 = 144;
+const HEAP_ASYNC_MODULE_ENTRY_MODE_OFFSET: u64 = 152;
+
+promise_wire_domain!(AsyncModuleEntryMode, 0, {
+    Allocate = 0,
+    Instantiate = 1,
+    Execute = 2,
+});
+
+promise_wire_domain!(ModuleEvaluationState, 0, {
+    Linked = 0,
+    Evaluating = 1,
+    EvaluatingAsync = 2,
+    Evaluated = 3,
+});
+
+promise_wire_domain!(ModuleEvaluationCompletion, 0, {
+    Empty = 0,
+    Normal = 1,
+    Throw = 2,
+});
+
+promise_wire_domain!(ModuleBodyState, 0, {
+    NotStarted = 0,
+    Executing = 1,
+    Completed = 2,
+});
+
+promise_wire_domain!(ModuleActivationKind, 0, {
+    Synchronous = 0,
+    Async = 1,
+});
+
+promise_wire_domain!(ModuleRequestPhase, 0, {
+    Evaluation = 0,
+    Defer = 1,
+});
 
 // The completion with which an ordinary async function resumes after Await.
 //
@@ -1802,6 +1858,7 @@ pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;
 /// `[[DisposableState]]` is intentionally not the async brand. The five
 /// AsyncDisposableStack wrong-receiver witnesses depend on this distinction.
 pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;
+pub(crate) const OBJECT_INTERNAL_BRAND_INTL_NUMBER_FORMAT: u64 = 41;
 /// The closed `[[GeneratorState]]` domain persisted in a synchronous
 /// generator record.
 ///
@@ -2254,13 +2311,150 @@ pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
 ];
 
 pub(crate) const MODULE_ACTIVATION_OFFSET: u64 = 0;
-pub(crate) const MODULE_EVALUATOR_OFFSET: u64 = 8;
+pub(crate) const MODULE_FUNCTION_OFFSET: u64 = 8;
 pub(crate) const MODULE_STATE_OFFSET: u64 = 16;
 pub(crate) const MODULE_ERROR_TAG_OFFSET: u64 = 24;
 pub(crate) const MODULE_ERROR_PAYLOAD_OFFSET: u64 = 32;
 pub(crate) const MODULE_NAMESPACE_CELL_OFFSET: u64 = 40;
 pub(crate) const MODULE_DEFERRED_NAMESPACE_CELL_OFFSET: u64 = 56;
-pub(crate) const MODULE_RECORD_SIZE: u64 = 72;
+pub(crate) const MODULE_ENVIRONMENT_OFFSET: u64 = 72;
+pub(crate) const MODULE_ACTIVATION_KIND_OFFSET: u64 = 80;
+pub(crate) const MODULE_CYCLE_ROOT_OFFSET: u64 = 88;
+pub(crate) const MODULE_EVALUATION_PROMISE_OFFSET: u64 = 96;
+pub(crate) const MODULE_DFS_INDEX_OFFSET: u64 = 104;
+pub(crate) const MODULE_DFS_ANCESTOR_OFFSET: u64 = 112;
+pub(crate) const MODULE_ASYNC_ORDER_OFFSET: u64 = 120;
+pub(crate) const MODULE_PENDING_ASYNC_DEPENDENCIES_OFFSET: u64 = 128;
+pub(crate) const MODULE_ASYNC_PARENTS_HEAD_OFFSET: u64 = 136;
+pub(crate) const MODULE_ASYNC_PARENTS_TAIL_OFFSET: u64 = 144;
+pub(crate) const MODULE_REQUESTS_OFFSET: u64 = 152;
+pub(crate) const MODULE_REQUEST_COUNT_OFFSET: u64 = 160;
+pub(crate) const MODULE_GRAPH_OFFSET: u64 = 168;
+pub(crate) const MODULE_COMPLETION_OFFSET: u64 = 176;
+pub(crate) const MODULE_BODY_STATE_OFFSET: u64 = 184;
+pub(crate) const MODULE_REALM_OFFSET: u64 = 192;
+pub(crate) const MODULE_RECORD_SIZE: u64 = 200;
+
+pub(crate) const MODULE_GRAPH_COUNT_OFFSET: u64 = 0;
+pub(crate) const MODULE_GRAPH_RECORDS_OFFSET: u64 = 8;
+pub(crate) const MODULE_GRAPH_NEXT_ASYNC_ORDER_OFFSET: u64 = 16;
+pub(crate) const MODULE_GRAPH_PARENT_BUDGET_OFFSET: u64 = 24;
+pub(crate) const MODULE_GRAPH_PARENT_COUNT_OFFSET: u64 = 32;
+pub(crate) const MODULE_GRAPH_RECORD_SIZE: u64 = 40;
+#[allow(dead_code)]
+pub(crate) const HEAP_MODULE_GRAPH_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "module-graph",
+        name: "count",
+        offset: MODULE_GRAPH_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-graph",
+        name: "records",
+        offset: MODULE_GRAPH_RECORDS_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-graph",
+        name: "next-async-order",
+        offset: MODULE_GRAPH_NEXT_ASYNC_ORDER_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-graph",
+        name: "parent-budget",
+        offset: MODULE_GRAPH_PARENT_BUDGET_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-graph",
+        name: "parent-count",
+        offset: MODULE_GRAPH_PARENT_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+];
+pub(crate) const MODULE_REQUEST_PHASE_OFFSET: u64 = 0;
+pub(crate) const MODULE_REQUEST_TARGET_OFFSET: u64 = 8;
+pub(crate) const MODULE_REQUEST_SIZE: u64 = 16;
+#[allow(dead_code)]
+pub(crate) const HEAP_MODULE_REQUEST_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "module-request",
+        name: "phase",
+        offset: MODULE_REQUEST_PHASE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-request",
+        name: "target",
+        offset: MODULE_REQUEST_TARGET_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+pub(crate) const MODULE_PARENT_MODULE_OFFSET: u64 = 0;
+pub(crate) const MODULE_PARENT_NEXT_OFFSET: u64 = 8;
+pub(crate) const MODULE_PARENT_SIZE: u64 = 16;
+#[allow(dead_code)]
+pub(crate) const HEAP_MODULE_PARENT_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "module-parent",
+        name: "module",
+        offset: MODULE_PARENT_MODULE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-parent",
+        name: "next",
+        offset: MODULE_PARENT_NEXT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
+pub(crate) const MODULE_JOIN_PROMISE_OFFSET: u64 = 0;
+pub(crate) const MODULE_JOIN_PROMISE_RECORD_OFFSET: u64 = 8;
+pub(crate) const MODULE_JOIN_REMAINING_OFFSET: u64 = 16;
+pub(crate) const MODULE_JOIN_REALM_OFFSET: u64 = 24;
+pub(crate) const MODULE_JOIN_RECORD_SIZE: u64 = 32;
+#[allow(dead_code)]
+pub(crate) const HEAP_MODULE_JOIN_LAYOUT: &[HeapLayoutSlot] = &[
+    HeapLayoutSlot {
+        record: "module-join",
+        name: "promise",
+        offset: MODULE_JOIN_PROMISE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-join",
+        name: "promise-record",
+        offset: MODULE_JOIN_PROMISE_RECORD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-join",
+        name: "remaining",
+        offset: MODULE_JOIN_REMAINING_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-join",
+        name: "realm",
+        offset: MODULE_JOIN_REALM_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+];
 
 #[allow(dead_code)]
 pub(crate) const HEAP_MODULE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
@@ -2273,8 +2467,8 @@ pub(crate) const HEAP_MODULE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
     },
     HeapLayoutSlot {
         record: "module-record",
-        name: "evaluator",
-        offset: MODULE_EVALUATOR_OFFSET,
+        name: "function",
+        offset: MODULE_FUNCTION_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -2324,6 +2518,118 @@ pub(crate) const HEAP_MODULE_RECORD_LAYOUT: &[HeapLayoutSlot] = &[
         record: "module-record",
         name: "deferred-namespace-payload",
         offset: MODULE_DEFERRED_NAMESPACE_CELL_OFFSET + ENV_SLOT_PAYLOAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "environment",
+        offset: MODULE_ENVIRONMENT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "activation-kind",
+        offset: MODULE_ACTIVATION_KIND_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "cycle-root",
+        offset: MODULE_CYCLE_ROOT_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "evaluation-promise",
+        offset: MODULE_EVALUATION_PROMISE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "dfs-index",
+        offset: MODULE_DFS_INDEX_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "dfs-ancestor",
+        offset: MODULE_DFS_ANCESTOR_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "async-order",
+        offset: MODULE_ASYNC_ORDER_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "pending-async-dependencies",
+        offset: MODULE_PENDING_ASYNC_DEPENDENCIES_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "async-parents-head",
+        offset: MODULE_ASYNC_PARENTS_HEAD_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "async-parents-tail",
+        offset: MODULE_ASYNC_PARENTS_TAIL_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "requests",
+        offset: MODULE_REQUESTS_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "request-count",
+        offset: MODULE_REQUEST_COUNT_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "graph",
+        offset: MODULE_GRAPH_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "completion",
+        offset: MODULE_COMPLETION_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "body-state",
+        offset: MODULE_BODY_STATE_OFFSET,
+        width: 8,
+        pointer: false,
+    },
+    HeapLayoutSlot {
+        record: "module-record",
+        name: "realm",
+        offset: MODULE_REALM_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -2695,6 +3001,13 @@ pub(crate) const HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT: &[HeapLayoutSlot] = &[
         offset: HEAP_ASYNC_INVOCATION_ENV_OFFSET,
         width: 8,
         pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "async-function-activation",
+        name: "module_entry_mode",
+        offset: HEAP_ASYNC_MODULE_ENTRY_MODE_OFFSET,
+        width: 8,
+        pointer: false,
     },
 ];
 
@@ -3675,6 +3988,13 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         record: "realm-intrinsics",
         name: "%Temporal.Duration.prototype%",
         offset: HEAP_REALM_INTRINSICS_TEMPORAL_DURATION_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Intl.NumberFormat.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -5037,6 +5357,126 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
+    pub(crate) fn emit_load_module_state_strict(
+        &self,
+        record: u32,
+        value: u32,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(record, MODULE_STATE_OFFSET, value, function);
+        function.instruction(&Instruction::LocalGet(value));
+        function.instruction(&Instruction::I64Const(
+            ModuleEvaluationState::ALL.len() as i64
+        ));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_load_module_completion_strict(
+        &self,
+        record: u32,
+        value: u32,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(record, MODULE_COMPLETION_OFFSET, value, function);
+        function.instruction(&Instruction::LocalGet(value));
+        function.instruction(&Instruction::I64Const(
+            ModuleEvaluationCompletion::ALL.len() as i64,
+        ));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_load_module_body_state_strict(
+        &self,
+        record: u32,
+        value: u32,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(record, MODULE_BODY_STATE_OFFSET, value, function);
+        function.instruction(&Instruction::LocalGet(value));
+        function.instruction(&Instruction::I64Const(ModuleBodyState::ALL.len() as i64));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_load_module_activation_kind_strict(
+        &self,
+        record: u32,
+        value: u32,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(record, MODULE_ACTIVATION_KIND_OFFSET, value, function);
+        function.instruction(&Instruction::LocalGet(value));
+        function.instruction(&Instruction::I64Const(
+            ModuleActivationKind::ALL.len() as i64
+        ));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_load_module_request_phase_strict(
+        &self,
+        record: u32,
+        value: u32,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(record, MODULE_REQUEST_PHASE_OFFSET, value, function);
+        function.instruction(&Instruction::LocalGet(value));
+        function.instruction(&Instruction::I64Const(ModuleRequestPhase::ALL.len() as i64));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+    }
+
+    pub(crate) fn emit_store_async_module_entry_mode(
+        &self,
+        activation: u32,
+        mode: AsyncModuleEntryMode,
+        function: &mut Function,
+    ) {
+        self.store_i64_const_at_offset(
+            activation,
+            HEAP_ASYNC_MODULE_ENTRY_MODE_OFFSET,
+            mode.word(),
+            function,
+        );
+    }
+
+    pub(crate) fn emit_load_async_module_entry_mode(
+        &mut self,
+        activation: u32,
+        mode: u32,
+        function: &mut Function,
+    ) {
+        self.load_i64_to_local_from_offset(
+            activation,
+            HEAP_ASYNC_MODULE_ENTRY_MODE_OFFSET,
+            mode,
+            function,
+        );
+        for expected in AsyncModuleEntryMode::ALL {
+            function.instruction(&Instruction::LocalGet(mode));
+            function.instruction(&Instruction::I64Const(expected.word() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+        }
+        function.instruction(&Instruction::Unreachable);
+        for _ in AsyncModuleEntryMode::ALL {
+            function.instruction(&Instruction::End);
+        }
+    }
+
     /// Store the completion with which an ordinary async function resumes.
     ///
     /// The activation offset and wire word stay inside this boundary so a
@@ -5167,6 +5607,92 @@ mod tests {
     use wasmparser::{Operator, Parser, Payload};
 
     #[test]
+    fn module_execution_layouts_own_every_lifecycle_word_and_pointer() {
+        assert_eq!(
+            AsyncModuleEntryMode::ALL.map(AsyncModuleEntryMode::word),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            ModuleEvaluationState::ALL.map(ModuleEvaluationState::word),
+            [0, 1, 2, 3]
+        );
+        assert_eq!(
+            ModuleEvaluationCompletion::ALL.map(ModuleEvaluationCompletion::word),
+            [0, 1, 2]
+        );
+        assert_eq!(ModuleBodyState::ALL.map(ModuleBodyState::word), [0, 1, 2]);
+        assert_eq!(
+            ModuleActivationKind::ALL.map(ModuleActivationKind::word),
+            [0, 1]
+        );
+        assert_eq!(
+            ModuleRequestPhase::ALL.map(ModuleRequestPhase::word),
+            [0, 1]
+        );
+        let expected = [
+            ("activation", true),
+            ("function", true),
+            ("state", false),
+            ("error-tag", false),
+            ("error-payload", true),
+            ("namespace-tag", false),
+            ("namespace-payload", true),
+            ("deferred-namespace-tag", false),
+            ("deferred-namespace-payload", true),
+            ("environment", true),
+            ("activation-kind", false),
+            ("cycle-root", true),
+            ("evaluation-promise", true),
+            ("dfs-index", false),
+            ("dfs-ancestor", false),
+            ("async-order", false),
+            ("pending-async-dependencies", false),
+            ("async-parents-head", true),
+            ("async-parents-tail", true),
+            ("requests", true),
+            ("request-count", false),
+            ("graph", true),
+            ("completion", false),
+            ("body-state", false),
+            ("realm", true),
+        ];
+        assert_eq!(HEAP_MODULE_RECORD_LAYOUT.len(), expected.len());
+        for (index, (slot, (name, pointer))) in
+            HEAP_MODULE_RECORD_LAYOUT.iter().zip(expected).enumerate()
+        {
+            assert_eq!(
+                (slot.name, slot.offset, slot.width, slot.pointer),
+                (name, index as u64 * 8, 8, pointer)
+            );
+        }
+        for (layout, expected_pointers) in [
+            (HEAP_MODULE_GRAPH_LAYOUT, vec![8]),
+            (HEAP_MODULE_REQUEST_LAYOUT, vec![8]),
+            (HEAP_MODULE_PARENT_LAYOUT, vec![0, 8]),
+            (HEAP_MODULE_JOIN_LAYOUT, vec![0, 8, 24]),
+        ] {
+            assert_eq!(
+                layout
+                    .iter()
+                    .filter(|slot| slot.pointer)
+                    .map(|slot| slot.offset)
+                    .collect::<Vec<_>>(),
+                expected_pointers
+            );
+        }
+        for (name, offset, pointer) in [
+            ("lexical_environment", 80, true),
+            ("invocation_environment", 144, true),
+            ("module_entry_mode", 152, false),
+        ] {
+            assert!(HEAP_ASYNC_FUNCTION_ACTIVATION_LAYOUT
+                .iter()
+                .any(|slot| slot.name == name && slot.offset == offset && slot.pointer == pointer));
+        }
+        assert_ne!(HEAP_ASYNC_ENV_OFFSET, HEAP_ASYNC_INVOCATION_ENV_OFFSET);
+        assert_eq!(HEAP_ASYNC_ACTIVATION_RECORD_SIZE, 160);
+    }
+    #[test]
     fn promise_reaction_wire_domains_and_realm_policies_are_stable() {
         assert_eq!(
             PromiseReactionType::ALL.map(PromiseReactionType::word),
@@ -5178,12 +5704,14 @@ mod tests {
         );
         assert_eq!(
             PromiseReactionCallbackKind::ALL.map(PromiseReactionCallbackKind::word),
-            [0, 1, 2, 3, 4, 5]
+            [0, 1, 2, 3, 4, 5, 6, 7]
         );
         assert_eq!(
             PromiseReactionCallbackKind::ALL.map(PromiseReactionCallbackKind::realm_source),
             [
                 PromiseReactionRealmSource::HandlerOrNull,
+                PromiseReactionRealmSource::Captured,
+                PromiseReactionRealmSource::Captured,
                 PromiseReactionRealmSource::Captured,
                 PromiseReactionRealmSource::Captured,
                 PromiseReactionRealmSource::Captured,
@@ -5246,7 +5774,7 @@ mod tests {
             .split_once("pub(crate) fn emit_load_promise_state_strict(")
             .expect("strict Promise-state decoder should exist")
             .1
-            .split_once("/// Store the completion with which an ordinary async function resumes.")
+            .split_once("pub(crate) fn emit_load_module_state_strict(")
             .expect("strict Promise-state decoder should have a stable boundary")
             .0;
         assert_eq!(decoder.matches("HEAP_PROMISE_STATE_OFFSET").count(), 1);
@@ -5309,8 +5837,8 @@ mod tests {
             promise_source
                 .matches("emit_route_promise_reaction_pair(")
                 .count(),
-            4,
-            "the one definition must serve ordinary then, await and async-generator return-await"
+            5,
+            "the shared router serves then, ordinary await, async-generator return-await and owned module records"
         );
         assert!(!promise_source.contains("state: u64"));
     }
@@ -5719,7 +6247,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 512);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 520);
         assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
         assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);
@@ -5833,6 +6361,10 @@ mod tests {
         let intl_date_time_format_layout = HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT
             .iter()
             .map(IntlDateTimeFormatHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let intl_number_format_layout = HEAP_INTL_NUMBER_FORMAT_RECORD_LAYOUT
+            .iter()
+            .map(IntlNumberFormatHeapSlot::layout)
             .collect::<Vec<_>>();
         let object_entry_layout = HEAP_OBJECT_ENTRY_LAYOUT
             .iter()
@@ -5953,6 +6485,10 @@ mod tests {
         assert_layout(HEAP_OBJECT_HEADER_LAYOUT, HEAP_HEADER_SIZE);
         assert_layout(HEAP_GENERATOR_OBJECT_LAYOUT, HEAP_HEADER_SIZE);
         assert_layout(HEAP_MODULE_RECORD_LAYOUT, MODULE_RECORD_SIZE);
+        assert_layout(HEAP_MODULE_GRAPH_LAYOUT, MODULE_GRAPH_RECORD_SIZE);
+        assert_layout(HEAP_MODULE_REQUEST_LAYOUT, MODULE_REQUEST_SIZE);
+        assert_layout(HEAP_MODULE_PARENT_LAYOUT, MODULE_PARENT_SIZE);
+        assert_layout(HEAP_MODULE_JOIN_LAYOUT, MODULE_JOIN_RECORD_SIZE);
         assert_layout(
             HEAP_GENERATOR_DELEGATE_RECORD_LAYOUT,
             HEAP_GENERATOR_DELEGATE_RECORD_SIZE,
@@ -6062,6 +6598,10 @@ mod tests {
             &intl_date_time_format_layout,
             HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE,
         );
+        assert_layout(
+            &intl_number_format_layout,
+            HEAP_INTL_NUMBER_FORMAT_RECORD_SIZE,
+        );
         assert_layout(&map_iterator_layout, HEAP_MAP_ITERATOR_RECORD_SIZE);
         assert_layout(&set_record_layout, HEAP_SET_RECORD_SIZE);
         assert_layout(&set_entry_layout, HEAP_SET_ENTRY_SIZE);
@@ -6129,6 +6669,10 @@ mod tests {
             .iter()
             .map(IntlDateTimeFormatHeapSlot::layout)
             .collect::<Vec<_>>();
+        let intl_number_format_layout = HEAP_INTL_NUMBER_FORMAT_RECORD_LAYOUT
+            .iter()
+            .map(IntlNumberFormatHeapSlot::layout)
+            .collect::<Vec<_>>();
         let object_entry_layout = HEAP_OBJECT_ENTRY_LAYOUT
             .iter()
             .map(ObjectEntryHeapSlot::layout)
@@ -6173,6 +6717,10 @@ mod tests {
                 .filter(|slot| slot.pointer)
                 .count()
             + intl_date_time_format_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + intl_number_format_layout
                 .iter()
                 .filter(|slot| slot.pointer)
                 .count()
@@ -6745,7 +7293,15 @@ mod tests {
         );
         for name in [
             "activation",
-            "evaluator",
+            "function",
+            "environment",
+            "cycle-root",
+            "evaluation-promise",
+            "async-parents-head",
+            "async-parents-tail",
+            "requests",
+            "graph",
+            "realm",
             "error-payload",
             "namespace-payload",
             "deferred-namespace-payload",
@@ -7033,12 +7589,39 @@ mod tests {
     }
 
     #[test]
+    fn number_format_record_owns_every_wire_word_and_pointer() {
+        let slots = HEAP_INTL_NUMBER_FORMAT_RECORD_LAYOUT
+            .iter()
+            .map(IntlNumberFormatHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(slots.len(), 5 + lila_intl::NUMBER_CONFIGURATION_WORDS);
+        assert_eq!(HEAP_INTL_NUMBER_FORMAT_RECORD_SIZE, 176);
+        assert_layout(&slots, HEAP_INTL_NUMBER_FORMAT_RECORD_SIZE);
+        assert!(slots[..5].iter().all(|slot| slot.pointer));
+        for word in lila_intl::NumberConfigurationWord::ALL {
+            let slot = &slots[5 + word.index()];
+            assert_eq!(slot.offset, HEAP_INTL_NF_WORDS_OFFSET + word.offset());
+            assert_eq!(slot.width, 8);
+            assert!(!slot.pointer);
+        }
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT
+            .iter()
+            .any(|slot| slot.name == "%Intl.NumberFormat.prototype%"
+                && slot.pointer
+                && slot.offset == HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET));
+        assert_ne!(
+            OBJECT_INTERNAL_BRAND_INTL_NUMBER_FORMAT,
+            OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT
+        );
+    }
+
+    #[test]
     fn intl_date_time_format_heap_slot_identities_own_layout_metadata() {
         let layouts = HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT
             .iter()
             .map(IntlDateTimeFormatHeapSlot::layout)
             .collect::<Vec<_>>();
-        assert_eq!(layouts.len(), 23);
+        assert_eq!(layouts.len(), 24);
 
         for (slot, name, offset, pointer) in [
             (
@@ -7155,8 +7738,14 @@ mod tests {
             ),
             (
                 &layouts[22],
-                "need_defaults",
-                HEAP_INTL_DTF_NEED_DEFAULTS_OFFSET,
+                "plan_payload",
+                HEAP_INTL_DTF_PLAN_OFFSET,
+                true,
+            ),
+            (
+                &layouts[23],
+                "available_formats",
+                HEAP_INTL_DTF_AVAILABLE_FORMATS_OFFSET,
                 false,
             ),
         ] {

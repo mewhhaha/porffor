@@ -40,6 +40,7 @@ pub use module_graph::{
     lower_module_graph_with_prelude, lower_script_graph,
     lower_script_graph_with_host_surface_policy,
 };
+mod module_execution;
 mod new_expression;
 mod object_environment_logical;
 mod ordinary_property_compound;
@@ -54,7 +55,7 @@ mod static_json_parse;
 mod static_string_binding_facts;
 mod super_property_mutation;
 mod switch_statement;
-mod synchronous_modules;
+mod synchronous_resource_loop;
 mod throw_inference;
 mod try_statement;
 mod while_loop;
@@ -4570,11 +4571,6 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         list: &[Variable],
     ) -> Option<SyncDisposableResourcesIr> {
-        let owner = self.admit_sync_disposable_scope_owner()?;
-        if owner != SyncDisposableScopeOwnerPlan::Immediate {
-            self.unsupported("using declaration in a generator or async function");
-            return None;
-        }
         if list.is_empty() {
             self.unsupported("empty using declaration");
             return None;
@@ -4914,10 +4910,11 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_var_init(&mut self, declaration: &VarDeclaration) -> Option<ForInitIr> {
-        // Patterns and with-environment references need the statement lowering;
-        // VarDeclaratorIr can only write directly to its declared storage. The
-        // names remain hoisted to the enclosing variable environment.
-        if !self.with_environment_chain.is_empty()
+        // Borrowed eval variables, patterns and with-environment references
+        // need declaration lowering: VarDeclaratorIr only writes owned storage.
+        // Hoisting still belongs to the enclosing variable environment.
+        if self.borrows_direct_eval_variable_environment()
+            || !self.with_environment_chain.is_empty()
             || declaration
                 .0
                 .as_ref()
@@ -6220,7 +6217,7 @@ impl<'a> ScriptLowerer<'a> {
                         .init()
                         .and_then(|init| {
                             self.analysis
-                                .synchronous_modules
+                                .module_execution
                                 .imports
                                 .get(&(std::ptr::from_ref(init) as usize))
                         })
@@ -7692,7 +7689,7 @@ impl<'a> ScriptLowerer<'a> {
             .filter(|entry| entry.owns(expression))
         {
             let evaluation = match entry.source() {
-                modules::LinkedModuleEntry::SynchronousGraph(_) => self
+                modules::LinkedModuleEntry::CanonicalGraph(_) => self
                     .lower_synchronous_module_expression(entry.operand())
                     .expect("trusted entry has a synchronous evaluation operation"),
                 modules::LinkedModuleEntry::RetainedDriver(_) => {
@@ -20609,7 +20606,7 @@ impl<'a> ScriptLowerer<'a> {
         let expression = Self::unwrap_parenthesized_expr(expression);
         if self
             .analysis
-            .synchronous_modules
+            .module_execution
             .imports
             .contains_key(&(std::ptr::from_ref(expression) as usize))
         {

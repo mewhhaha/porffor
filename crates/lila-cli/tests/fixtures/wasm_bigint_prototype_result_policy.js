@@ -6,37 +6,49 @@ if (heap.toString(16) !== "100000000000000000000") {
 }
 
 if ((255n).toLocaleString("en-US") !== "255") {
-  throw "immediate locale fallback";
+  throw "immediate locale result";
 }
 if (heap.toLocaleString("en-US", { useGrouping: false }) !==
     "1208925819614629174706176") {
-  throw "heap locale fallback";
+  throw "heap locale result";
 }
 if (Object(255n).toLocaleString("en-US") !== "255") {
-  throw "boxed locale fallback";
+  throw "boxed locale result";
 }
 
 let localeTouches = 0;
 let optionsTouches = 0;
 const localeSentinel = {};
 const optionsSentinel = {};
-const untouchedLocales = new Proxy({}, {
+const throwingLocales = new Proxy({}, {
   get: function() {
     localeTouches += 1;
     throw localeSentinel;
   }
 });
-const untouchedOptions = new Proxy({}, {
+const throwingOptions = new Proxy({}, {
   get: function() {
     optionsTouches += 1;
     throw optionsSentinel;
   }
 });
-if ((255n).toLocaleString(untouchedLocales, untouchedOptions) !== "255") {
-  throw "locale reserved arguments result";
+let localeAbruptIdentity = false;
+try {
+  (255n).toLocaleString(throwingLocales, throwingOptions);
+} catch (error) {
+  localeAbruptIdentity = error === localeSentinel;
 }
-if (localeTouches !== 0 || optionsTouches !== 0) {
-  throw "locale reserved arguments observed";
+if (!localeAbruptIdentity || localeTouches !== 1 || optionsTouches !== 0) {
+  throw "locale abrupt identity and observation order";
+}
+let optionsAbruptIdentity = false;
+try {
+  (255n).toLocaleString("en-US", throwingOptions);
+} catch (error) {
+  optionsAbruptIdentity = error === optionsSentinel;
+}
+if (!optionsAbruptIdentity || localeTouches !== 1 || optionsTouches !== 1) {
+  throw "options abrupt identity and one observation";
 }
 
 if ((255n).valueOf() !== 255n) throw "primitive exact value";

@@ -4157,6 +4157,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_store_realm_function_prototype(&realm_functions, function);
+        self.emit_initialize_realm_throw_type_error(&realm_functions, function)?;
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(iterator_prototype_local));
         self.emit_alloc_plain_object_with_prototype(

@@ -1,4 +1,4 @@
-//! AOT module instantiation records for synchronous module graphs.
+//! Validated execution records for compiled Module-entry graphs.
 
 use crate::{FunctionId, ModuleNamespaceModeIr, ModuleUnitId};
 
@@ -15,19 +15,124 @@ pub enum ModuleCellIr {
     },
 }
 
-/// One private execution owner and its dependency evaluator.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SynchronousModuleActivationIr {
-    pub module: ModuleUnitId,
-    pub function: FunctionId,
-    pub evaluator: FunctionId,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleActivationKindIr {
+    Synchronous,
+    Async,
 }
 
-/// Allocation precedes all instantiation; all instantiation precedes evaluation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleRequestPhaseIr {
+    Evaluation,
+    Defer,
+}
+
+/// One original request. Phase and occurrence order survive linking.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SynchronousModuleGraphIr {
-    pub record_count: u32,
-    pub activations: Vec<SynchronousModuleActivationIr>,
+pub struct ModuleExecutionRequestIr {
+    phase: ModuleRequestPhaseIr,
+    target: ModuleUnitId,
+}
+
+impl ModuleExecutionRequestIr {
+    pub(super) const fn new(phase: ModuleRequestPhaseIr, target: ModuleUnitId) -> Self {
+        Self { phase, target }
+    }
+    pub const fn phase(&self) -> ModuleRequestPhaseIr {
+        self.phase
+    }
+    pub const fn target(&self) -> ModuleUnitId {
+        self.target
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleActivationIr {
+    module: ModuleUnitId,
+    function: FunctionId,
+    kind: ModuleActivationKindIr,
+    requests: Vec<ModuleExecutionRequestIr>,
+}
+
+impl ModuleActivationIr {
+    pub(super) fn new(
+        module: ModuleUnitId,
+        function: FunctionId,
+        kind: ModuleActivationKindIr,
+        requests: Vec<ModuleExecutionRequestIr>,
+    ) -> Self {
+        Self {
+            module,
+            function,
+            kind,
+            requests,
+        }
+    }
+    pub const fn module(&self) -> ModuleUnitId {
+        self.module
+    }
+    pub fn function(&self) -> &FunctionId {
+        &self.function
+    }
+    pub const fn kind(&self) -> ModuleActivationKindIr {
+        self.kind
+    }
+    pub fn requests(&self) -> &[ModuleExecutionRequestIr] {
+        &self.requests
+    }
+}
+
+/// Allocation precedes all instantiation; every request targets an owned record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleExecutionGraphIr {
+    record_count: u32,
+    activations: Vec<ModuleActivationIr>,
+}
+
+impl ModuleExecutionGraphIr {
+    pub(super) fn new(record_count: u32, activations: Vec<ModuleActivationIr>) -> Self {
+        assert!(
+            !activations.is_empty(),
+            "an execution graph owns at least its entry"
+        );
+        let functions: std::collections::BTreeSet<_> = activations
+            .iter()
+            .map(ModuleActivationIr::function)
+            .collect();
+        assert_eq!(
+            functions.len(),
+            activations.len(),
+            "each module has its own compiled lexical owner"
+        );
+        let modules: std::collections::BTreeSet<_> =
+            activations.iter().map(ModuleActivationIr::module).collect();
+        assert_eq!(
+            modules.len(),
+            activations.len(),
+            "a module has one activation"
+        );
+        assert!(
+            modules.iter().all(|&module| module < record_count),
+            "module IDs fit the record vector"
+        );
+        assert!(
+            activations
+                .iter()
+                .flat_map(ModuleActivationIr::requests)
+                .all(|request| modules.contains(&request.target())),
+            "every requested module has an activation"
+        );
+        Self {
+            record_count,
+            activations,
+        }
+    }
+    pub const fn record_count(&self) -> u32 {
+        self.record_count
+    }
+    pub fn activations(&self) -> &[ModuleActivationIr] {
+        &self.activations
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,62 +141,98 @@ pub struct ModuleImportBindingIr {
     pub target: ModuleCellIr,
 }
 
+/// Evaluation topology is a runtime property, never a static SCC schedule.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SynchronousModuleEvaluationIr {
+pub struct ModuleEvaluationIr {
     module: ModuleUnitId,
-    dependencies: Vec<ModuleUnitId>,
-    component_members: Vec<ModuleUnitId>,
 }
 
-impl SynchronousModuleEvaluationIr {
-    pub(super) fn new(
-        module: ModuleUnitId,
-        dependencies: Vec<ModuleUnitId>,
-        component_members: Vec<ModuleUnitId>,
-    ) -> Self {
-        assert!(
-            component_members.contains(&module),
-            "an evaluator belongs to its component"
-        );
-        assert_eq!(
-            component_members
-                .iter()
-                .collect::<std::collections::BTreeSet<_>>()
-                .len(),
-            component_members.len(),
-            "a component contains each module once"
-        );
-        Self {
-            module,
-            dependencies,
-            component_members,
-        }
+impl ModuleEvaluationIr {
+    pub(super) const fn new(module: ModuleUnitId) -> Self {
+        Self { module }
     }
-
     pub const fn module(&self) -> ModuleUnitId {
         self.module
-    }
-
-    /// Evaluation-phase dependencies in original request order.
-    pub fn dependencies(&self) -> &[ModuleUnitId] {
-        &self.dependencies
-    }
-
-    /// The complete static evaluation SCC, including this module.
-    pub fn component_members(&self) -> &[ModuleUnitId] {
-        &self.component_members
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeferredModuleEvaluationIr {
-    pub module: ModuleUnitId,
-    /// Transitive requested modules, including deferred edges, deduplicated.
-    pub readiness: Vec<ModuleReadinessNodeIr>,
+    module: ModuleUnitId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModuleReadinessNodeIr {
-    pub module: ModuleUnitId,
-    pub dependencies: Vec<ModuleUnitId>,
+impl DeferredModuleEvaluationIr {
+    pub(super) const fn new(module: ModuleUnitId) -> Self {
+        Self { module }
+    }
+    pub const fn module(&self) -> ModuleUnitId {
+        self.module
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requests_preserve_phase_and_occurrence_order() {
+        let requests = vec![
+            ModuleExecutionRequestIr::new(ModuleRequestPhaseIr::Defer, 0),
+            ModuleExecutionRequestIr::new(ModuleRequestPhaseIr::Evaluation, 0),
+        ];
+        let graph = ModuleExecutionGraphIr::new(
+            1,
+            vec![ModuleActivationIr::new(
+                0,
+                "module".into(),
+                ModuleActivationKindIr::Async,
+                requests.clone(),
+            )],
+        );
+        assert_eq!(graph.activations()[0].requests(), requests);
+    }
+
+    #[test]
+    #[should_panic(expected = "every requested module has an activation")]
+    fn missing_request_activation_is_rejected() {
+        ModuleExecutionGraphIr::new(
+            2,
+            vec![ModuleActivationIr::new(
+                0,
+                "module".into(),
+                ModuleActivationKindIr::Synchronous,
+                vec![ModuleExecutionRequestIr::new(
+                    ModuleRequestPhaseIr::Evaluation,
+                    1,
+                )],
+            )],
+        );
+    }
+    #[test]
+    #[should_panic(expected = "at least its entry")]
+    fn an_execution_graph_cannot_be_empty() {
+        ModuleExecutionGraphIr::new(0, Vec::new());
+    }
+
+    #[test]
+    #[should_panic(expected = "its own compiled lexical owner")]
+    fn distinct_modules_cannot_share_one_source_activation_function() {
+        ModuleExecutionGraphIr::new(
+            2,
+            vec![
+                ModuleActivationIr::new(
+                    0,
+                    "owner".into(),
+                    ModuleActivationKindIr::Synchronous,
+                    Vec::new(),
+                ),
+                ModuleActivationIr::new(
+                    1,
+                    "owner".into(),
+                    ModuleActivationKindIr::Async,
+                    Vec::new(),
+                ),
+            ],
+        );
+    }
 }

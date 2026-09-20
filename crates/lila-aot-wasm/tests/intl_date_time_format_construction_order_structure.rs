@@ -75,7 +75,7 @@ fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
         .split_once("pub(crate) fn emit_intl_create_date_time_format(")
         .expect("DateTimeFormat constructor should exist")
         .1
-        .split_once("fn emit_intl_dtf_note_component_present(")
+        .split_once("pub(super) fn emit_dtf_requested_locales(")
         .expect("DateTimeFormat constructor should be bounded")
         .0;
 

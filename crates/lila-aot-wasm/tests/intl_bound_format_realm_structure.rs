@@ -1,5 +1,6 @@
 const FUNCTIONS: &str = include_str!("../src/functions.rs");
 const CLOSURE: &str = include_str!("../src/functions/current_builtin_realm_closure.rs");
+const RENDERER: &str = include_str!("../src/builtins/intl_datetimeformat/provider_render.rs");
 const FORMATTER: &str = include_str!("../src/builtins/intl_datetimeformat.rs");
 
 #[test]
@@ -24,7 +25,7 @@ fn format_cache_materializes_in_getter_realm_and_reads_canonical_capture() {
         .split_once("pub(crate) fn emit_intl_date_time_format_format_getter(")
         .expect("format getter")
         .1
-        .split_once("impl<'a> FunctionBuilder<'a>")
+        .split_once("fn emit_dtf_if_code_eq(")
         .expect("next formatter implementation")
         .0;
     assert!(getter.contains("self.emit_current_builtin_realm_closure_value("));
@@ -37,7 +38,7 @@ fn format_cache_materializes_in_getter_realm_and_reads_canonical_capture() {
     let cached_write = getter.rfind("HEAP_INTL_DTF_BOUND_FORMAT_OFFSET").unwrap();
     assert!(cached_read < materialize && materialize < cached_write);
 
-    let body = FORMATTER
+    let body = RENDERER
         .split_once("pub(crate) fn emit_intl_date_time_format_bound_format(")
         .expect("bound format body")
         .1

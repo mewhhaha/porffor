@@ -44,7 +44,7 @@ for (var foreign of [first, second]) {
   if (!namespace.writable || namespace.enumerable || !namespace.configurable) throw 'namespace descriptor';
   if (Object.getOwnPropertyNames(foreign.Intl).join(',') !== Object.getOwnPropertyNames(Intl).join(',')) throw 'namespace members';
   if (Object.prototype.toString.call(foreign.Intl) !== '[object Intl]') throw 'namespace tag';
-  for (var name of ['getCanonicalLocales','Locale','DateTimeFormat']) {
+  for (var name of ['getCanonicalLocales','Locale','DateTimeFormat','NumberFormat']) {
     var local = foreign.Intl[name], original = Intl[name];
     var descriptor = Object.getOwnPropertyDescriptor(foreign.Intl, name);
     if (typeof local !== 'function' || local === original ||
@@ -89,7 +89,7 @@ fn intl_constructor_fallback_uses_the_new_target_realm() {
         r#"
 var foreign = __lilaCreateRealm().global;
 var bound = foreign.Array.bind(null);
-for (var name of ['Locale','DateTimeFormat']) {
+for (var name of ['Locale','DateTimeFormat','NumberFormat']) {
   var constructor = Intl[name], other = foreign.Intl[name];
   var args = name === 'Locale' ? ['en'] : ['en-US', {timeZone:'UTC'}];
   var direct = Reflect.construct(other,args);

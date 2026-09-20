@@ -68,17 +68,22 @@ fn a_static_path_to_the_same_invalid_target_rejects_before_evaluation() {
 }
 
 #[test]
-fn malformed_dynamic_target_does_not_admit_the_tla_driver() {
+fn malformed_dynamic_target_rejects_only_its_import_in_a_canonical_tla_graph() {
     let program = lower_module_graph(&sources(&[
         ("entry.js", "await 0; import('./invalid.js');"),
         ("invalid.js", "invalid syntax!"),
     ]));
-    assert!(!program.is_wasm_supported());
-    assert!(program.script.is_none());
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().unwrap();
     assert_eq!(
-        program.diagnostics[0].code(),
-        Some(EarlyErrorCode::ModuleSyntax)
+        script.module_entry_evaluation().unwrap().kind(),
+        lila_ir::ModuleEntryEvaluationKindIr::Promise
     );
+    assert!(script
+        .functions
+        .iter()
+        .any(|owner| owner.protocol == lila_ir::FunctionProtocolIr::AsyncModuleActivation));
+    assert_eq!(program.modules.as_ref().unwrap().units.len(), 1);
 }
 
 #[test]
