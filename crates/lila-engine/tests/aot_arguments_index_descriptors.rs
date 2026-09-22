@@ -3,6 +3,100 @@ use lila_engine::{
     ObservedCompletion, RealmBuilder, RunOptions,
 };
 
+#[test]
+fn special_named_getters_preserve_receivers_presence_and_exact_abrupt_values() {
+    assert_arguments_output(
+        r#"
+function make(value) { return arguments; }
+for (var key of ['length', 'callee']) {
+  var args = make(1), receiver = {marker: 42}, reads = 0;
+  Object.defineProperty(args, key, {get() { reads++; return this.marker; }, configurable: true});
+  assert(Reflect.get(args, key, receiver) === 42 && reads === 1, 'explicit getter receiver');
+  var child = Object.create(args); child.marker = 43;
+  assert(Reflect.get(child, key) === 43 && reads === 2, 'inherited Arguments descriptor');
+  Object.defineProperty(args, key, {get: undefined});
+  assert(Reflect.get(args, key, receiver) === undefined && reads === 2, 'undefined getter shadows');
+  var prototype = {};
+  Object.defineProperty(prototype, key, {get() { reads++; return this.marker; }});
+  Object.setPrototypeOf(args, prototype);
+  assert(Reflect.get(args, key, receiver) === undefined && reads === 2, 'own accessor shadows prototype');
+  assert(delete args[key], 'delete configurable special property');
+  assert(Reflect.get(args, key, receiver) === 42 && reads === 3, 'deleted special property inherits');
+  Object.defineProperty(args, key, {get() { throw undefined; }});
+  var completed = false, caught = false;
+  try { Reflect.get(child, key, receiver); completed = true; }
+  catch (error) { caught = error === undefined; }
+  assert(caught && !completed, 'undefined getter throw retained');
+}
+var strictArgs = (function() { 'use strict'; return arguments; })();
+var symbol = Symbol('callee'); strictArgs[symbol] = 9;
+assert(Reflect.get(strictArgs, symbol) === 9, 'symbol spelling is not a special key');
+print('ok');
+"#,
+    );
+}
+
+#[test]
+fn special_named_setters_use_the_target_descriptor_and_explicit_receiver() {
+    assert_arguments_output(
+        r#"
+function make(value) { return arguments; }
+for (var key of ['length', 'callee']) {
+  var args = make(1), receiver = {}, calls = 0, seen;
+  Object.defineProperty(args, key, {set(value) { calls++; seen = this; this.stored = value; }, configurable: true});
+  assert(Reflect.set(args, key, 7, receiver), 'setter success');
+  assert(calls === 1 && seen === receiver && receiver.stored === 7, 'explicit setter receiver');
+  var child = Object.create(args);
+  assert(Reflect.set(child, key, 8) && seen === child && child.stored === 8, 'inherited Arguments setter');
+  Object.defineProperty(args, key, {set: undefined});
+  assert(!Reflect.set(args, key, 9, receiver) && !Reflect.set(args, key, 9), 'missing setter false');
+  Object.defineProperty(args, key, {value: 10, writable: false});
+  assert(!Reflect.set(args, key, 11, receiver) && !Reflect.set(args, key, 11), 'nonwritable source false');
+  assert(Reflect.get(args, key) === 10 && !Object.hasOwn(receiver, key), 'rejected write leaves both objects');
+  var marker = {};
+  Object.defineProperty(args, key, {set() { throw marker; }});
+  var thrown;
+  try { Reflect.set(args, key, 12, receiver); } catch (error) { thrown = error; }
+  assert(thrown === marker, 'setter throw identity');
+}
+print('ok');
+"#,
+    );
+}
+
+#[test]
+fn special_named_receiver_updates_use_the_canonical_descriptor_slots() {
+    assert_arguments_output(
+        r#"
+function make(value) { return arguments; }
+for (var key of ['length', 'callee']) {
+  var args = make(1), source = {}, setterCalls = 0;
+  Object.defineProperty(source, key, {value: 1, writable: true});
+  Object.defineProperty(args, key, {value: 2, writable: true, enumerable: false, configurable: true});
+  assert(Reflect.set(source, key, 3, args), 'receiver data update');
+  var descriptor = Object.getOwnPropertyDescriptor(args, key);
+  assert(descriptor.value === 3 && !descriptor.enumerable && descriptor.configurable, 'receiver attributes preserved');
+  assert(Reflect.set(args, key, 4) && Reflect.get(args, key) === 4, 'same receiver storage');
+  Object.defineProperty(args, key, {set() { setterCalls++; }});
+  assert(!Reflect.set(source, key, 5, args) && setterCalls === 0, 'receiver accessor is not called');
+  assert(delete args[key], 'delete before create');
+  assert(Reflect.set(source, key, 6, args), 'create missing receiver property');
+  descriptor = Object.getOwnPropertyDescriptor(args, key);
+  assert(descriptor.value === 6 && descriptor.writable && descriptor.enumerable && descriptor.configurable, 'created ordinary attributes');
+  Object.preventExtensions(args);
+  var hidden = false;
+  var proxy = new Proxy(args, {getOwnPropertyDescriptor() { return undefined; }});
+  try { Reflect.getOwnPropertyDescriptor(proxy, key); }
+  catch (error) { hidden = error instanceof TypeError; }
+  assert(hidden, 'proxy cannot hide a recreated nonextensible own property');
+  assert(delete args[key], 'delete configurable property on nonextensible receiver');
+  assert(!Reflect.set(source, key, 7, args) && !Object.hasOwn(args, key), 'nonextensible receiver rejects creation');
+}
+print('ok');
+"#,
+    );
+}
+
 fn assert_arguments_output(source: &str) {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compiler worker");
     let source = format!(

@@ -975,8 +975,9 @@ Outstanding findings at this saved checkpoint:
   ownership assertions, and two host-import assertions. Constant-only programs
   currently pull in Intl and clock support through builtin dependencies; the
   dependency expansion requires investigation and repair.
-- NumberFormat's foreign constructor creates the wrong-Realm error for a null
-  locale list. The existing primitive-option/abrupt-completion fixture fails.
+- NumberFormat's foreign constructor fails the error-Realm assertion for a null
+  locale list in the primitive-option/abrupt-completion fixture. The subsequent
+  investigation below corrects the initial attribution to error allocation.
 - Two thrower tests fail. Isolated diagnostics show `Reflect.get` and
   `Reflect.set` on an unmapped Arguments `callee` return instead of invoking
   the accessor. A prepared foreign Function with a destructuring parameter
@@ -995,3 +996,126 @@ They are local evidence, not files committed to the PR. Focused runtime results
 can be refreshed with `cargo test --release --locked -j2 -p lila-engine --test
 <target> -- --test-threads=2`, using the target names above and
 `LILA_MODULE_MEMORY_CACHE_ENTRIES=1`. Published full-suite status is unchanged.
+
+## Historical-failure replay and checkpoint repairs, 2026-09-22
+
+The frozen-main comparison now covers all 14,402 historical failing execution
+identities. Its two disjoint selections were audited against every saved native
+snapshot and transcript, with no duplicate or omitted execution identities.
+Main passes 4,699; the remaining outcomes are 8,347 Bug, 480 Crash and 876
+NotImplemented. The 14,352-execution selection contains 353 recorded timeouts.
+These are results for the historical failure selection; the original 87,641
+successes were not rerun and published full-suite counts remain unchanged.
+
+The reference compiler binary SHA-256 is
+`04c2d07e071a21893e21795a978367f92d3f2fc753a3b878e4653f0623b292e1`.
+All 2,916 source-manifest entries match main commit
+`2abe452111099c84d8c0dbb8dab15db1a4de7aa1`; its source manifest SHA-256 is
+`6d74ac0a9c9619d9ea1c911669f0bd1804be584dea6b12cf03807393209e7102`.
+The Test262 pin is unchanged. The local audit is retained in
+`target/failure-review/completed-baseline-20260914/batch22-main-replay-audit`.
+
+The largest remaining path families on this reference are Temporal (4,552),
+RegExp (666), dynamic import (533), NumberFormat (494), DurationFormat (222)
+and Locale (192). These are triage groups, not shared-root-cause counts or
+measurements of the current PR compiler.
+
+Checkpoint diagnostics identified separate causes for the latest failures:
+
+- Reflect's Arguments `length`/`callee` path must honor the source descriptor,
+  retain the explicit receiver and update the dedicated receiver slots with
+  their attributes and presence marker.
+- Isolated Function parameter parsing incorrectly rejects a completed final
+  object or array binding pattern while checking for an optional initializer.
+- Activation-owned disposal storage must resolve through the current lexical
+  environment depth. Synthetic class element calls need a real active function
+  while preserving the class definition's captured environments.
+- The NumberFormat null-locale error has the correct foreign prototype.
+  Constructor throw inference omits possible body completions, allowing a later
+  string throw to narrow the catch binding and miscompile its property reads.
+- Runtime bootstrap pulls primitive locale methods and their Intl/clock
+  dependencies into literal-only scripts. A conservative lowered-IR proof can
+  omit an unobservable bootstrap while preserving the ordinary expression
+  emitter and the experimental Wasm GC requirement. Expressions that still
+  lower through generic coercion operations retain the runtime, including
+  numeric arithmetic on literals; their value regressions remain covered.
+
+The first `batch22` checkpoint completed 11 focused groups with 79 passes and
+eight failures, with no ignored tests. It stopped before broad verification.
+The failures exposed a second end-of-input lookahead in object binding patterns,
+an invalid fixture declaring the same private name in static and instance
+elements, computed Number/BigInt method-call exclusions, and an over-wide new
+import-elision assertion for coercive IR. The value tests and the existing
+literal-only import assertions remain intact.
+
+Computed Number and BigInt calls now use ordinary property-key conversion and
+receiver-preserving indirect calls. Their regressions cover Symbol identity,
+primitive getter/call receivers, base/key/getter/argument order and abrupt
+completion identity.
+
+The corrected `batch22r1` completed 129 of 198 planned groups with 2,857
+passes and seven failures, with no ignored tests. Its failures were five source
+guards that still assumed the earlier async disposal layout and two library
+assertions that assumed every script allocated the runtime heap. Those guards
+now check the current ownership boundaries, and the heap assertions cover both
+runtime-free and allocating programs without weakening their layout checks.
+
+## Saved checkpoint, 2026-09-22
+
+The frozen `batch22r2` compiler completes all 198 planned source/library and
+runtime groups with 3,446 passing tests, two failures and zero ignored tests.
+Every group ran on this checkpoint; no earlier group result was reused.
+Its 13 initial changed-path groups pass all 92 tests. All 129 source/library
+groups pass, with 2,864 passing tests. These are subsets of the 3,446 total,
+not additional tests. Release workspace all-target checking, CLI/native builds,
+the optional `spec-exec-oracle` feature check, formatting and the generated
+shortcut-status check also pass.
+
+The compiler was built from parent `715fc58c5c48a7d2388858a11fdcdbac7c5e4ed3`
+with uncommitted repairs. Its binary SHA-256 is
+`ecedbbe6a6538c43552c0ceb2796b78c722b5ea1dfa4809b850e30536a2f728c`;
+its 4,129-input source manifest SHA-256 is
+`42aafe466381f1d9d57cc45441ce0bf5badf51b2a0bbf5fe75e22821bf474d80`.
+Every frozen source input and test executable was verified after the final
+group, before this documentation update. The Test262 pin remains
+`aa55200d1310384c5cf69ea95b2a2ecba457007b`.
+
+The two remaining native failures are:
+
+- `intl_host_imports::a_program_without_provider_callers_omits_the_intl_import`
+  still finds an Intl import for the original `1 + 1` fixture. The new
+  literal-only proof does not yet admit its coercive arithmetic IR. The
+  original assertion is retained.
+- `language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct`
+  fails the original captured-main-lexical Symbol update assertion. Its exact
+  CLI fixture remains intact; error ownership and binding identity are being
+  isolated before the repair.
+
+A separate arithmetic review reproduced a `typeof` bug: static result types
+can suppress operand effects and thrown values. Three of four small CLI probes
+fail on this frozen compiler; these probes are separate from the native counts
+above. They cover unary conversion, comma-expression effects and abrupt
+completion, with an arithmetic control. Repairs and candidate execution remain
+pending at this saved checkpoint.
+
+Current native verification includes all 16 NumberFormat tests, 16
+DateTimeFormat provider tests, six thrower-Realm tests, 13 async resource-loop
+tests and eight Arguments descriptor tests. All pass. No result from the
+prepared 1,300-execution pinned replay is claimed on this compiler; it has not
+run. Earlier pinned replay counts remain separate evidence. This checkpoint
+preserves the work in PR #52 and does not close all historical failures.
+
+Immutable compiler/source manifests, exact test membership, executable and
+transcript hashes, and the completed-run audit remain under
+`target/failure-review/completed-baseline-20260914`, including
+`batch22r2-checkpoint-result.json`, `batch22r2-test-verdicts.json` and
+`batch22r2-typeof-before`. To refresh the changed paths, run
+`cargo check --release --workspace --all-targets --locked -j2`, then
+`LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p
+lila-engine --test aot_intl_numberformat --test aot_intl_datetime_provider
+--test aot_throw_type_error_realm --test aot_async_resource_loops --test
+aot_arguments_index_descriptors -- --test-threads=2`. The two failing targets
+are refreshed with `cargo test --release --locked -j2 -p lila-aot-wasm --test
+intl_host_imports` and `cargo test --release --locked -j2 -p lila-cli --test cli
+language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct
+-- --exact`.

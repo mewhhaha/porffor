@@ -93,6 +93,34 @@ fn eager_resource_loop_clauses_compose_inside_a_resumable_iterator_body() {
     ));
 }
 
+#[test]
+fn captured_source_blocks_cannot_overwrite_activation_disposal_storage() {
+    script(include_str!(
+        "fixtures/async_resource_loops/captured-block-nested-capability.js"
+    ));
+}
+
+#[test]
+fn nested_disposal_preserves_captured_iteration_bindings() {
+    script(include_str!(
+        "fixtures/async_resource_loops/captured-resource-head-nested-capability.js"
+    ));
+}
+
+#[test]
+fn synthetic_class_calls_preserve_lexical_home_and_private_environments() {
+    script(include_str!(
+        "fixtures/async_resource_loops/class-element-context.js"
+    ));
+}
+
+#[test]
+fn foreign_class_elements_keep_the_defining_execution_realm() {
+    script(include_str!(
+        "fixtures/async_resource_loops/class-element-realm.js"
+    ));
+}
+
 struct Modules(PathBuf);
 impl Drop for Modules {
     fn drop(&mut self) {

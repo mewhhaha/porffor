@@ -220,22 +220,40 @@ fn lowering_selects_the_plain_async_owner_before_minting_one_finalizer() {
     let finish = bounded(
         ASYNC_LOWERING_SOURCE,
         "pub(super) fn finish_disposable_scopes(",
-        "pub(super) fn lower_await_using_declaration(",
+        "fn allocate_async_disposable_finalizer(",
     );
     positions_in_order(
         finish,
         &[
             "for (mut prefix, scope) in segments.into_iter().rev()",
             "LoweredDisposableScopeIr::Async(scope) =>",
+            "self.allocate_async_disposable_finalizer(scope.execution.entry_state())",
+            "StatementIr::AsyncDisposableScope",
+            "execution: scope.execution.finalize(finalizer)",
+        ],
+    );
+    assert_eq!(
+        finish
+            .matches("allocate_async_disposable_finalizer(")
+            .count(),
+        1
+    );
+    let allocate_finalizer = bounded(
+        ASYNC_LOWERING_SOURCE,
+        "fn allocate_async_disposable_finalizer(",
+        "pub(super) fn lower_async_disposable_for_init(",
+    );
+    positions_in_order(
+        allocate_finalizer,
+        &[
             "let dispose_state = self",
             "let resume_state = dispose_state",
             "let exit_state = resume_state",
             "self.current_async_resume_state = Some(exit_state)",
-            "AsyncDisposableFinalizerPlanIr::new(",
-            "StatementIr::AsyncDisposableScope",
+            "AsyncDisposableFinalizerPlanIr::new(entry_state, dispose_state, resume_state, exit_state)",
         ],
     );
-    assert!(finish.matches("checked_add(1)").count() >= 3);
+    assert_eq!(allocate_finalizer.matches("checked_add(1)").count(), 3);
     assert!(IR_TEST_SOURCE
         .contains("fn plain_async_function_await_using_owns_closed_finalizer_states()"));
     assert!(LOWERING_SOURCE.contains("mod async_disposable;"));
@@ -244,21 +262,20 @@ fn lowering_selects_the_plain_async_owner_before_minting_one_finalizer() {
 #[test]
 fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
     for declaration in [
-        "struct ActivationAsyncDisposeCapabilityStorage",
-        "struct ActiveActivationAsyncDisposeCapabilityLocals",
-        "struct AcquiredAsyncDisposableResourceLocals",
-        "struct DisposingActivationAsyncDisposeCapability",
-        "struct ActiveAsyncDisposePendingCompletion",
+        "#[must_use = \"an async DisposeCapability storage proof must reach its consuming finalizer\"]\nstruct ActivationAsyncDisposeCapabilityStorage",
+        "#[must_use = \"an active async DisposeCapability must be published before acquisition\"]\nstruct ActiveActivationAsyncDisposeCapabilityLocals",
+        "#[must_use = \"an acquired async resource must be published or released\"]\nstruct AcquiredAsyncDisposableResourceLocals",
+        "#[must_use = \"a detached async DisposeCapability must finish its parked LIFO walk\"]\nstruct DisposingActivationAsyncDisposeCapability",
+        "#[must_use = \"a parked async-dispose completion must be restored exactly once\"]\nstruct ActiveAsyncDisposePendingCompletion",
+        "#[must_use = \"an async DisposeCapability owner must reach its consuming finalizer\"]\nenum ActivationAsyncDisposeOwner<'a>",
     ] {
-        assert!(CONTROL_FLOW_SOURCE.contains(declaration));
+        assert!(CONTROL_FLOW_SOURCE.contains(declaration), "{declaration}");
     }
     let typestates = bounded(
         CONTROL_FLOW_SOURCE,
         "struct ActivationAsyncDisposeCapabilityStorage",
         "enum ActivationSyncDisposeOwner",
     );
-    assert_eq!(typestates.matches("#[must_use").count(), 6);
-    assert!(typestates.contains("enum ActivationAsyncDisposeOwner<'a>"));
     assert!(!typestates.contains("Clone"));
     assert!(!typestates.contains("Copy"));
 
@@ -290,7 +307,7 @@ fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
     );
     assert!(compile.contains("ActivationAsyncDisposeOwner::from_execution(execution)"));
     assert!(compile.contains("meta.protocol.execution_kind() == owner.execution_kind()"));
-    assert!(compile.contains("owned_env_slot(owner.binding_name())"));
+    assert!(compile.contains("activation_owned_binding_storage(owner.binding_name())"));
     assert!(!compile.contains("allocate_binding(owner.binding_name"));
     positions_in_order(
         compile,
@@ -311,16 +328,29 @@ fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
 
 #[test]
 fn acquisition_registers_before_binding_and_fallback_stays_distinct() {
+    let initialize_empty = bounded(
+        CONTROL_FLOW_SOURCE,
+        "fn initialize_empty_activation_async_dispose_capability(",
+        "fn release_active_activation_async_dispose_capability(",
+    );
+    positions_in_order(
+        initialize_empty,
+        &[
+            "ActivationAsyncDisposeCapabilityState::Pending.word()",
+            "write_binding_from_locals(storage.binding, capability.object, object_tag, function)",
+            "Ok(capability)",
+        ],
+    );
     let initialize = bounded(
         CONTROL_FLOW_SOURCE,
         "fn initialize_activation_async_dispose_capability(",
-        "fn reserve_async_disposable_resource_locals(",
+        "fn initialize_empty_activation_async_dispose_capability(",
     );
     positions_in_order(
         initialize,
         &[
-            "ActivationAsyncDisposeCapabilityState::Pending.word()",
-            "write_binding_from_locals(storage.binding, capability.object, object_tag, function)",
+            "let capability = self.initialize_empty_activation_async_dispose_capability(",
+            "resources.len()",
             "for resource in resources.iter()",
             "compile_expr_to_locals(",
             "emit_propagate_throw_from_locals_if_needed(",

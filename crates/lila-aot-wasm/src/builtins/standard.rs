@@ -19,7 +19,6 @@ use crate::control_flow::IteratorFlatMapInnerState;
 use crate::functions::{
     FunctionRealmRevokedRoute, NewTargetPrototypeFallback, OrdinaryDefaultPrototype,
 };
-use crate::operations::PrimitiveToStringAbruptRoute;
 
 const ITERATOR_ZIP_MODE_SHORTEST: u64 = 0.0_f64.to_bits();
 const ITERATOR_ZIP_MODE_LONGEST: u64 = 1.0_f64.to_bits();

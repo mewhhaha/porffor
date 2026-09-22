@@ -36,6 +36,13 @@ unnamed function expression for combined early errors. It retains the canonical
 a parser capability failure or compiler diagnostic remains a compilation
 failure. The caller does not inherit that function body's parse error.
 
+A completed object or array binding pattern may end the isolated parameter
+input. Checking for its optional initializer treats that end of input as no
+initializer, just as for a binding identifier. This does not append a synthetic
+delimiter or combine the fragments before validation: incomplete patterns,
+missing initializer expressions and combined strict-mode errors remain syntax
+errors.
+
 Each independent unit uses the ordinary parser, analysis, spec IR, lowering and
 Wasm function emission. Shared allocation counters keep nested function,
 environment and private-name identities distinct across units. The temporary
@@ -59,9 +66,10 @@ source generation outside the prepared registry remains unsupported. Direct
 eval additionally requires its caller records and invocation context, described
 by [the direct-eval contract](prepared-direct-eval.md).
 
-The focused verification targets are `lila-ir --test prepared_dynamic_function`
-and `lila-engine --test aot_prepared_dynamic_function`. They cover independent
+The focused verification targets are `lila-front --test dynamic_function_preparation`,
+`lila-ir --test prepared_dynamic_function` and
+`lila-engine --test aot_prepared_dynamic_function`. They cover independent
 scope, fresh functions, nested closures/source units, all four execution
-protocols, deferred errors, argument coercion order and reflection. Their
-execution results belong to the coordinated batch checkpoint; merely adding
-them does not establish a conformance count.
+protocols, binding-pattern parameters, deferred errors, argument coercion order
+and reflection. Their execution results belong to the coordinated batch
+checkpoint; merely adding them does not establish a conformance count.

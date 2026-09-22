@@ -843,13 +843,12 @@ impl<'a> ScriptLowerer<'a> {
                 info = self.merge_optional_value_info(info, self.infer_expr_throw_info(input));
                 self.merge_optional_value_info(info, self.infer_expr_throw_info(reviver))
             }
-            ExprIr::Construct { callee, args, .. } => {
-                let mut info = self.infer_expr_throw_info(callee);
-                for arg in args {
-                    info = self.merge_optional_value_info(info, self.infer_expr_throw_info(arg));
-                }
-                info
-            }
+            // [[Construct]] can throw any language value independently of
+            // callee/argument evaluation: the constructor body, prototype
+            // lookup, or a Proxy construct trap can all complete abruptly.
+            // A later explicit throw must not narrow the catch binding to
+            // that value and specialize reads of an earlier constructor throw.
+            ExprIr::Construct { .. } => Some(unknown_runtime_value_info()),
             ExprIr::CallMethod {
                 receiver,
                 key,

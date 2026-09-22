@@ -262,7 +262,7 @@ fn async_generator_scope_disposes_before_request_dispatch_and_queue_drain() {
     for marker in [
         "owner.execution_kind()",
         "owner.binding_name()",
-        "BindingStorage::EnvSlot { slot, hops: 0 }",
+        "activation_owned_binding_storage(owner.binding_name())",
         "ActivationSyncDisposeOwner::AsyncGenerator(_) =>",
         "Self::async_statement_entry_state",
         "Self::async_statement_exit_state",
@@ -281,6 +281,7 @@ fn async_generator_scope_disposes_before_request_dispatch_and_queue_drain() {
         assert!(scope.contains(marker), "missing lifecycle marker: {marker}");
     }
     assert!(!scope.contains("self.allocate_binding("));
+    assert!(!scope.contains("BindingStorage::EnvSlot { slot, hops: 0 }"));
     assert_before(
         scope,
         "initialize_activation_sync_dispose_capability(",

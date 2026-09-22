@@ -1114,8 +1114,7 @@ impl<'a> ScriptLowerer<'a> {
                                     )
                                 }
                             } else {
-                                return self
-                                    .unsupported_expr("indirect call: dynamic number property");
+                                self.lower_object_property_key(receiver.clone(), access.field())
                             }
                         }
                         ValueKind::Boolean => {
@@ -1185,8 +1184,7 @@ impl<'a> ScriptLowerer<'a> {
                                     );
                                 }
                             } else {
-                                return self
-                                    .unsupported_expr("indirect call: dynamic bigint property");
+                                self.lower_object_property_key(receiver.clone(), access.field())
                             }
                         }
                         ValueKind::Symbol => {

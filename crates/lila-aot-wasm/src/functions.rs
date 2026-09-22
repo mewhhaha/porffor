@@ -8698,12 +8698,46 @@ impl<'a> FunctionBuilder<'a> {
             meta.class_element_execution_kind,
             ClassElementExecutionKind::None
         );
+        let element_function_local = self.reserve_temp_local();
+        let element_context_local = self.reserve_temp_local();
+        let captured_value_local = self.reserve_temp_local();
+        self.emit_function_value_payload(meta, function)?;
+        function.instruction(&Instruction::LocalSet(element_function_local));
+        self.load_i64_to_local_from_offset(
+            element_function_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            element_context_local,
+            function,
+        );
+        // Generated element bodies use ordinary entry, including Arguments
+        // construction. Keep its active function distinct while retaining the
+        // class definition's lexical, home-object and private environments.
+        for offset in [
+            HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET,
+            HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET,
+            HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET,
+            HEAP_CLASS_FUNCTION_CONTEXT_FIELD_KEYS_OFFSET,
+            HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET,
+        ] {
+            self.load_i64_to_local_from_offset(
+                class_context_local,
+                offset,
+                captured_value_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                element_context_local,
+                offset,
+                captured_value_local,
+                function,
+            );
+        }
         let argc_local = self.reserve_temp_local();
         let argv_local = self.reserve_temp_local();
         self.emit_pre_evaluated_arg_vector(args, argc_local, argv_local, function)?;
         self.emit_direct_js_call_with_environment(
             meta,
-            Some(class_context_local),
+            Some(element_context_local),
             this_locals,
             argc_local,
             argv_local,
@@ -8713,6 +8747,9 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
+        self.release_temp_local(captured_value_local);
+        self.release_temp_local(element_context_local);
+        self.release_temp_local(element_function_local);
         Ok(())
     }
 

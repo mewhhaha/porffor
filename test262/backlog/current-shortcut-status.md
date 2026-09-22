@@ -33,8 +33,8 @@ also groups legitimate adaptations and diagnostic observations by task.
 | Input | SHA-256 |
 | --- | --- |
 | `test262/backlog/shortcut-allowlist.tsv` | `b1584b1159c5898caea05ba00d0143f0345fbc7d30fe33c349dbf3f8bd76e60c` |
-| `test262/backlog/shortcut-inventory.md` | `f5cfc831282f6741cd9dbfc4d85f49a74c112f6ef0cc62ce123c5126a56b200b` |
-| `crates/lila-test262/src/lib.rs` | `7df2b27567c8c78bc4057cf59360603f14271833c3ca20b7e7dc46833b15e34c` |
+| `test262/backlog/shortcut-inventory.md` | `bb20b9c3f33f1e555e398031a287424bc20bf79b9a17acd50620a49c8f3f4f27` |
+| `crates/lila-test262/src/lib.rs` | `80dfd9384ff4696edaae06b794e615075cbc0aae16e9f4775603bed1631bacb7` |
 
 Run `bash scripts/audit-test262-shortcuts.sh --check` before regenerating this
 report. CI runs that source-level audit as well as `--check` on this generator.

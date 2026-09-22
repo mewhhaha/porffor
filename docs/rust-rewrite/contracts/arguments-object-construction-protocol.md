@@ -96,6 +96,27 @@ Internal Wasm callables retain their existing strict/unmapped object, while the
 script main builder uses `Absent`. User-function builder creation is fallible,
 and the public emitter propagates protocol-construction errors.
 
+## Synthetic class-element calls
+
+Static blocks and field initializer bodies use the ordinary function-entry
+protocol. A class definition's shared context carries its lexical environment,
+home object, computed field keys and private environment; it is not an active
+function identity. Before a direct class-element call, the backend materializes
+the exact synthetic function and copies that definition context into the fresh
+function context. The canonical function allocator supplies the active function
+and its defining Realm. The definition context is not mutated or reused as an
+invocation identity.
+
+This preserves the required nonzero active-function invariant used when an
+unmapped Arguments object's poison accessors load `%ThrowTypeError%`. The
+former static-block call passed a shared context whose active-function word was
+zero and trapped at that invariant. Static blocks still execute their ordinary
+entry path; the fix does not omit Arguments construction or substitute a
+caller's Realm when internal state is missing.
+
+The static-block FunctionDeclarationInstantiation requirement follows
+[EvaluateClassStaticBlockBody](https://tc39.es/ecma262/multipage/ecmascript-language-functions-and-classes.html#sec-runtime-semantics-evaluateclassstaticblockbody).
+
 ## Enforced invariants
 
 1. A function has either no own arguments object or exactly one present object

@@ -3,6 +3,8 @@ const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const LOOP_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
+const STATEMENT_COMPLETION_SOURCE: &str =
+    include_str!("../src/control_flow/statement_completion.rs");
 const FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_using_classic_for_head.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/synchronous-using-classic-for.md");
@@ -103,7 +105,7 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
     let dispatch = bounded(
         CONTROL_FLOW_SOURCE,
         "    pub(crate) fn compile_for(",
-        "    fn compile_sync_disposable_for(",
+        "    fn compile_classic_for_test(",
     );
     assert!(dispatch.contains("if let Some(ForInitIr::SyncDisposable(resources)) = init"));
     assert!(dispatch.contains("return self.compile_sync_disposable_for("));
@@ -129,7 +131,7 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
         "    fn compile_classic_for_update(",
     );
     for boundary in [
-        "self.compile_truthy_i32(test, function)?",
+        "self.compile_iteration_condition(test, function)?",
         "self.emit_propagate_throw_from_locals_if_needed(",
         "self.result_local",
         "self.result_tag_local",
@@ -152,14 +154,13 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
     let update = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn compile_classic_for_update(",
-        "    fn compile_sync_disposable_for(",
+        "    fn compile_async_disposable_for(",
     );
     for boundary in [
+        "self.save_statement_list_value(function)",
         "self.compile_expr_payload(update, function)?",
         "function.instruction(&Instruction::Drop)",
-        "self.emit_propagate_throw_from_locals_if_needed(",
-        "self.result_local",
-        "self.result_tag_local",
+        "self.restore_statement_list_value(saved, function)",
     ] {
         assert!(
             update.contains(boundary),
@@ -168,8 +169,62 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
     }
     assert_before(
         update,
+        "self.save_statement_list_value(function)",
+        "self.compile_expr_payload(update, function)?",
+    );
+    assert_before(
+        update,
+        "self.compile_expr_payload(update, function)?",
         "function.instruction(&Instruction::Drop)",
+    );
+    assert_before(
+        update,
+        "function.instruction(&Instruction::Drop)",
+        "self.restore_statement_list_value(saved, function)",
+    );
+
+    let restore = bounded(
+        STATEMENT_COMPLETION_SOURCE,
+        "    pub(crate) fn restore_statement_list_value(",
+        "    pub(super) fn compile_iteration_condition(",
+    );
+    for boundary in [
         "self.emit_propagate_throw_from_locals_if_needed(",
+        "self.result_local",
+        "self.result_tag_local",
+        "Instruction::LocalGet(saved.payload)",
+        "Instruction::LocalGet(saved.tag)",
+    ] {
+        assert!(
+            restore.contains(boundary),
+            "missing completion boundary: {boundary}"
+        );
+    }
+    assert_before(
+        restore,
+        "self.emit_propagate_throw_from_locals_if_needed(",
+        "Instruction::LocalGet(saved.payload)",
+    );
+    assert_before(
+        restore,
+        "self.emit_propagate_throw_from_locals_if_needed(",
+        "Instruction::LocalGet(saved.tag)",
+    );
+
+    let condition = bounded(
+        STATEMENT_COMPLETION_SOURCE,
+        "    pub(super) fn compile_iteration_condition(",
+        "\n    }\n}",
+    );
+    assert_before(
+        condition,
+        "self.save_statement_list_value(function)",
+        "self.compile_truthy_i32(condition, function)?",
+    );
+    assert_before(
+        condition,
+        "self.compile_truthy_i32(condition, function)?",
+        "self.restore_statement_list_value(saved, function)",
     );
 
     let lifecycle = bounded(

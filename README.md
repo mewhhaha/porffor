@@ -4,11 +4,13 @@ Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, lib
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
-The 2026-09-20 draft checkpoint preserves the current baseline repairs. Its
-frozen 2026-09-19 compiler passes workspace checking and builds; completed
-source/library and focused runtime checks report 2,829 passing tests and ten
-failures, with no ignored tests. Broader verification remains incomplete.
-See the [saved checkpoint and remaining failures](docs/rust-rewrite/completed-baseline-follow-up.md#saved-draft-checkpoint-2026-09-20).
+The 2026-09-22 checkpoint preserves the current baseline repairs in PR #52.
+Its frozen compiler passes workspace checking and builds; all 198 planned
+source/library and runtime groups completed with 3,446 passing tests, two
+failures and no ignored tests. The two failures concern scalar arithmetic's
+runtime imports and a captured Symbol update. The prepared 1,300-execution
+pinned replay remains pending.
+See the [saved checkpoint, remaining findings and refresh commands](docs/rust-rewrite/completed-baseline-follow-up.md#saved-checkpoint-2026-09-22).
 The published full-suite conformance counts remain unchanged.
 
 The direct Wasm `Intl.Locale` constructor applies core and Unicode-extension
@@ -44,16 +46,17 @@ methods. JavaScript observations compile to Wasm; exact numeric operations and
 pinned CLDR 47 formatting run in the pure Rust provider through Intl ABI 5.
 See the [NumberFormat contract](docs/rust-rewrite/contracts/intl-numberformat-wasm.md)
 for option ordering, Realm ownership and provider limits. Focused product
-verification passes 15 of 16 tests; foreign-Realm locale-error ownership still
-fails. Published conformance counts are unchanged.
+verification passes all 16 tests after preserving arbitrary constructor
+throws in catch inference. Published conformance counts are unchanged.
 
 Synchronous `using` loop heads in async functions and canonical async modules
 are admitted only when the complete eager loop region cannot suspend. Disposal,
 iterator closing and ordinary try/finally run before the next surrounding await;
 nested function owners keep their own suspension behavior. See the
 [resource-loop contract](docs/rust-rewrite/contracts/synchronous-resource-loop-regions.md).
-Focused verification passes eight of nine tests; the eager-class and nested
-function case still fails. Published conformance counts are unchanged.
+Focused verification passes all 13 tests, including captured disposal storage,
+class-element environments and foreign Realms. Published conformance counts
+are unchanged.
 
 The public project and all current Rust packages, commands, environment
 variables, cache paths, diagnostics and host ABI names use the Lila identity.

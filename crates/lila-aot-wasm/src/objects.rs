@@ -17,6 +17,7 @@ use lila_ir::property_descriptor::{
     ValidatedDescriptor, TO_PROPERTY_DESCRIPTOR_ORDER,
 };
 
+mod arguments_properties;
 mod has_property;
 mod module_namespace;
 
@@ -12714,6 +12715,19 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(numeric_index_payload_local);
         self.release_temp_local(numeric_key_tag_local);
 
+        self.emit_arguments_special_property_get(
+            TaggedLocals::new(current_local, current_tag_local),
+            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+            key_local,
+            found_local,
+            TaggedLocals::new(payload_local, tag_local),
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+
         function.instruction(&Instruction::LocalGet(current_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -12725,78 +12739,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
         self.emit_string_payload_equality_i32(key_local, self.scratch_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // Arguments share Array element storage, but their configurable length
-        // lives in a separate property descriptor. An absent descriptor must
-        // continue the same prototype walk with the original Get receiver.
         function.instruction(&Instruction::LocalGet(current_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
         function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            current_local,
-            HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET,
-            descriptor_kind_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // Commit presence before invoking an accessor. Both normal and abrupt
-        // calls then leave the walk without reading any prototype or element.
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(found_local));
-        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
-        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            current_local,
-            HEAP_ARGUMENTS_LENGTH_VALUE_OFFSET,
-            payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            current_local,
-            HEAP_ARGUMENTS_LENGTH_VALUE_TAG_OFFSET,
-            tag_local,
-            function,
-        );
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            current_local,
-            HEAP_ARGUMENTS_LENGTH_GETTER_PAYLOAD_OFFSET,
-            getter_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            current_local,
-            HEAP_ARGUMENTS_LENGTH_GETTER_TAG_OFFSET,
-            getter_tag_local,
-            function,
-        );
-        self.emit_is_callable_i32(getter_tag_local, getter_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            getter_payload_local,
-            getter_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
-            &[],
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
         self.emit_array_length(current_local, payload_local, tag_local, function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(found_local));
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_string_index_0_to_4_or_minus_one(key_local, index_local, function);
         function.instruction(&Instruction::LocalGet(index_local));
@@ -16522,6 +16472,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
+        self.emit_arguments_special_property_receiver_set(
+            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+            key_local,
+            TaggedLocals::new(value_payload_local, value_tag_local),
+            found_local,
+            result_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(0));
+
         // Array/Arguments-index receiver writes use their indexed
         // [[DefineOwnProperty]] storage, not the named-property side table.
         // Preserve existing descriptors and report blocked additions as
@@ -17090,44 +17053,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::LocalSet(current_tag_local));
 
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(receiver_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(target_payload_local));
-        function.instruction(&Instruction::LocalGet(receiver_payload_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_string_payload_equality_i32(key_local, self.scratch_local, function);
-        function.instruction(&Instruction::I64Const(self.strings.payload("callee")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_string_payload_equality_i32(key_local, self.scratch_local, function);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_arguments_property_write(
-            target_payload_local,
-            key_local,
-            key_tag_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(found_local));
-        function.instruction(&Instruction::End);
-
         // Array's `length` is an own data property regardless of the receiver.
         // Its writable attribute belongs to the source descriptor; a distinct
         // receiver is handled by OrdinarySet's receiver-side data-property path.
@@ -17388,6 +17313,21 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_arguments_special_property_set(
+            TaggedLocals::new(current_payload_local, current_tag_local),
+            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+            TaggedLocals::new(key_local, key_tag_local),
+            TaggedLocals::new(value_payload_local, value_tag_local),
+            found_local,
+            result_local,
+            allow_receiver_generic_write_fallback,
+            function,
+        )?;
         function.instruction(&Instruction::End);
 
         // Dense and sparse Array/Arguments indices live outside the

@@ -121,6 +121,19 @@ updates use the Arguments named-property table. Using `HEAP_PTR_OFFSET`/
 its indexed-entry buffer and is a representation error, not an acceptable
 shortcut.
 
+The ordinary property walk also projects the dedicated `length` and `callee`
+descriptors before reading indexed or named storage. Their closed property enum
+owns each descriptor, value and accessor offset. A present accessor without a
+getter shadows the prototype; an absent descriptor continues the walk.
+Accessors receive the original Get or Set receiver, including when an Arguments
+object is a prototype, and retain exact abrupt values.
+
+Receiver-side Set updates those same dedicated slots. An existing writable data
+property retains its attributes; an accessor or non-writable data property
+rejects the update without invoking a receiver setter. A missing property is
+created with ordinary data attributes only if the receiver is extensible. This
+prevents duplicate `length` or `callee` entries in the named-property table.
+
 ## Encoded invariants
 
 - `ArgumentsIndexMappingLocals` is private-field, non-`Copy`, and
@@ -181,11 +194,12 @@ reproducer is the all-false data definition used by
 `built-ins/Object/defineProperty/15.2.3.6-4-292.js` and
 `15.2.3.6-4-293.js`. The repair does not change the pinned tests or harness.
 
-This bounded lane does not claim complete special-property closure. Arguments
-`length` and `callee` retain their separate write branches and remain follow-up
-audit surfaces. `Symbol.isConcatSpreadable` boolean coercion and delete
-semantics are likewise explicitly deferred rather than evidence supplied by
-the ordinary named `[[Set]]` route.
+The same native target covers explicit and inherited `length`/`callee` accessors,
+missing accessors, exact thrown values, receiver data attributes, deletion and
+non-extensible receiver creation. These witnesses do not establish complete
+special-property conformance. Direct `length` and `callee` writes retain their
+separate entry points. `Symbol.isConcatSpreadable` boolean coercion and delete
+semantics remain separate audit surfaces.
 
 The focused current-pin witnesses are
 `built-ins/Object/defineProperties/15.2.3.7-6-a-279.js` and

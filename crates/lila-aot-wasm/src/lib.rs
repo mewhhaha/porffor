@@ -749,6 +749,7 @@ mod tests {
     #[test]
     fn construct_fallback_requires_resolved_realm_intrinsics() {
         let source = include_str!("functions.rs");
+        let string_constructor = include_str!("builtins/string/constructor.rs");
         let ordinary_prototypes =
             include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
         let domain = ordinary_prototypes
@@ -787,11 +788,27 @@ mod tests {
             .expect("resolved-realm ordinary-prototype consumer should be bounded")
             .0;
 
-        for (variant, offset) in [
-            ("Object", "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET"),
-            ("String", "HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET"),
-            ("Number", "HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET"),
-            ("Boolean", "HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET"),
+        for (variant, offset, constructor) in [
+            (
+                "Object",
+                "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET",
+                construct,
+            ),
+            (
+                "String",
+                "HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET",
+                string_constructor,
+            ),
+            (
+                "Number",
+                "HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET",
+                construct,
+            ),
+            (
+                "Boolean",
+                "HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET",
+                construct,
+            ),
         ] {
             assert_eq!(
                 domain.matches(&format!("    {variant},")).count(),
@@ -806,7 +823,7 @@ mod tests {
                 "{variant} must map exhaustively to its realm-intrinsic slot"
             );
             assert_eq!(
-                construct
+                constructor
                     .matches(&format!("OrdinaryDefaultPrototype::{variant}"))
                     .count(),
                 1,
@@ -824,13 +841,13 @@ mod tests {
             construct
                 .matches("emit_load_required_resolved_realm_ordinary_prototype(")
                 .count(),
-            4
+            3
         );
         assert_eq!(
             construct
                 .matches("emit_install_resolved_realm_ordinary_prototype(")
                 .count(),
-            4
+            3
         );
         assert_eq!(
             construct
@@ -930,7 +947,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            14,
+            15,
             "the closed domain count must include disposal, aggregate errors and Intl prototypes"
         );
     }
@@ -4902,8 +4919,13 @@ pick(true);"#,
     fn runtime_gc_root_follows_the_actual_fixed_and_template_globals() {
         let cases = [
             (
-                "fixed globals only",
+                "runtime-free completion globals",
                 "1;",
+                THROW_ERROR_CONSTRUCTOR_NAME_NO_HEAP_GLOBAL_INDEX + 1,
+            ),
+            (
+                "heap globals without templates",
+                "({ value: 1 });",
                 GLOBAL_INDEX_REGISTRY.len() as u32,
             ),
             (
@@ -4923,18 +4945,66 @@ pick(true);"#,
                 .unwrap_or_else(|error| panic!("{label} source should emit: {error}"));
             expect_valid_module(&artifact, 0);
 
+            let mut module_types = Vec::new();
             let mut global_count = 0_u32;
             let mut reference_globals = Vec::new();
             for payload in Parser::new(0).parse_all(&artifact.bytes) {
-                let Payload::GlobalSection(reader) = payload.expect("module should parse") else {
-                    continue;
-                };
-                for (index, global) in reader.into_iter().enumerate() {
-                    let global = global.expect("global should decode");
-                    global_count += 1;
-                    if matches!(global.ty.content_type, wasmparser::ValType::Ref(_)) {
-                        reference_globals.push(index as u32);
+                match payload.expect("module should parse") {
+                    Payload::TypeSection(reader) => {
+                        for group in reader {
+                            module_types
+                                .extend(group.expect("runtime types should decode").into_types());
+                        }
                     }
+                    Payload::GlobalSection(reader) => {
+                        for (index, global) in reader.into_iter().enumerate() {
+                            let global = global.expect("global should decode");
+                            global_count += 1;
+                            let wasmparser::ValType::Ref(reference_type) = global.ty.content_type
+                            else {
+                                continue;
+                            };
+                            reference_globals.push(index as u32);
+                            assert!(global.ty.mutable, "{label}: root must be mutable");
+                            assert!(!global.ty.shared, "{label}: root must be per-instance");
+                            assert!(
+                                reference_type.is_nullable(),
+                                "{label}: root must clear to null"
+                            );
+                            let wasmparser::HeapType::Concrete(anchor_type) =
+                                reference_type.heap_type()
+                            else {
+                                panic!("{label}: root must retain its concrete anchor type");
+                            };
+                            let anchor_index =
+                                anchor_type.as_module_index().expect("anchor module index");
+                            let anchor = module_types[anchor_index as usize].unwrap_struct();
+                            assert_eq!(anchor.fields.len(), 1, "{label}: one anchor ABI field");
+                            assert!(
+                                !anchor.fields[0].mutable,
+                                "{label}: immutable anchor ABI field"
+                            );
+                            assert_eq!(
+                                anchor.fields[0].element_type,
+                                wasmparser::StorageType::Val(wasmparser::ValType::I32),
+                                "{label}: anchor ABI field is i32"
+                            );
+                            let mut init = global.init_expr.get_operators_reader();
+                            assert!(
+                                matches!(
+                                    init.read().expect("root initializer should decode"),
+                                    Operator::RefNull { hty: wasmparser::HeapType::Concrete(initializer_type) }
+                                        if initializer_type.as_module_index() == Some(anchor_index)
+                                ),
+                                "{label}: root initializes with the same typed null"
+                            );
+                            assert!(matches!(
+                                init.read().expect("root initializer should end"),
+                                Operator::End
+                            ));
+                        }
+                    }
+                    _ => {}
                 }
             }
 
@@ -5710,27 +5780,153 @@ setterReceiver === receiver;
 
     #[test]
     fn preseeded_string_bytes_and_literal_payloads_are_stable() {
-        let artifact = emit_script("\",\";").expect("emit should work");
-        let data = data_segment_bytes(&artifact.bytes);
-        let mut expected_prefix = vec![b' '; 11];
-        expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
-        assert!(
-            data.starts_with(&expected_prefix),
-            "unexpected data prefix: {:?}",
-            &data[..data.len().min(32)]
-        );
-        assert!(
-            contains_i64_const(
-                &artifact.bytes,
-                ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
-            ),
-            "comma literal payload should be emitted as packed offset/len"
-        );
-        let globals = global_init_i64s(&artifact.bytes);
-        assert!(
-            globals.contains(&(align_heap_start(data.len()) as i64)),
-            "heap ptr global should start after static data"
-        );
+        for (label, source, expected_heap) in [
+            ("runtime-free literal", "\",\";", false),
+            ("allocating object", "({ value: \",\" });", true),
+        ] {
+            let artifact = emit_script(source).expect("emit should work");
+            expect_valid_module(&artifact, 0);
+            let data = data_segment_bytes(&artifact.bytes);
+            let mut expected_prefix = vec![b' '; 11];
+            expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
+            assert!(
+                data.starts_with(&expected_prefix),
+                "{label}: unexpected data prefix: {:?}",
+                &data[..data.len().min(32)]
+            );
+            assert!(
+                contains_i64_const(
+                    &artifact.bytes,
+                    ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
+                ),
+                "{label}: comma literal payload should be emitted as packed offset/len"
+            );
+
+            let heap_start = align_heap_start(data.len()) as i64;
+            let mut static_segments = 0;
+            let mut pointer_slot_initializer = None;
+            let mut first_function = true;
+            let mut main_heap_start_store = false;
+            let mut pointer_reads = 0;
+            let mut pointer_writes = 0;
+            for payload in Parser::new(0).parse_all(&artifact.bytes) {
+                match payload.expect("module should parse") {
+                    Payload::DataSection(reader) => {
+                        for segment in reader {
+                            let segment = segment.expect("static segment should decode");
+                            static_segments += 1;
+                            let wasmparser::DataKind::Active {
+                                memory_index,
+                                offset_expr,
+                            } = segment.kind
+                            else {
+                                panic!("{label}: pooled strings must occupy an active segment");
+                            };
+                            assert_eq!(
+                                memory_index, 0,
+                                "{label}: pooled strings use private memory"
+                            );
+                            let mut offset = offset_expr.get_operators_reader();
+                            assert!(
+                                matches!(
+                                    offset.read().expect("static offset should decode"),
+                                    Operator::I32Const { value } if value == STATIC_DATA_OFFSET as i32
+                                ),
+                                "{label}: static segment must retain its prescribed offset"
+                            );
+                            assert!(matches!(
+                                offset.read().expect("static offset should end"),
+                                Operator::End
+                            ));
+                        }
+                    }
+                    Payload::GlobalSection(reader) => {
+                        for (index, global) in reader.into_iter().enumerate() {
+                            let global = global.expect("global should decode");
+                            if index as u32 != HEAP_PTR_GLOBAL_INDEX {
+                                continue;
+                            }
+                            assert_eq!(global.ty.content_type, wasmparser::ValType::I64);
+                            assert!(global.ty.mutable && !global.ty.shared);
+                            let mut init = global.init_expr.get_operators_reader();
+                            let Operator::I64Const { value } =
+                                init.read().expect("slot initializer should decode")
+                            else {
+                                panic!("{label}: pointer/diagnostic slot must initialize to an i64 constant");
+                            };
+                            pointer_slot_initializer = Some(value);
+                            assert!(matches!(
+                                init.read().expect("slot initializer should end"),
+                                Operator::End
+                            ));
+                        }
+                    }
+                    Payload::CodeSectionEntry(body) => {
+                        let mut previous_constant = None;
+                        for operator in body
+                            .get_operators_reader()
+                            .expect("operators should decode")
+                        {
+                            match operator.expect("operator should decode") {
+                                Operator::I64Const { value } => previous_constant = Some(value),
+                                Operator::GlobalGet { global_index }
+                                    if global_index == HEAP_PTR_GLOBAL_INDEX =>
+                                {
+                                    pointer_reads += 1;
+                                    previous_constant = None;
+                                }
+                                Operator::GlobalSet { global_index }
+                                    if global_index == HEAP_PTR_GLOBAL_INDEX =>
+                                {
+                                    pointer_writes += 1;
+                                    main_heap_start_store |=
+                                        first_function && previous_constant == Some(heap_start);
+                                    previous_constant = None;
+                                }
+                                _ => previous_constant = None,
+                            }
+                        }
+                        first_function = false;
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(
+                static_segments, 1,
+                "{label}: one pooled static-data segment"
+            );
+            if expected_heap {
+                assert_eq!(
+                    pointer_slot_initializer,
+                    Some(heap_start),
+                    "heap pointer starts after aligned static data"
+                );
+                assert!(
+                    main_heap_start_store,
+                    "main resets its allocator after static data"
+                );
+                assert!(
+                    pointer_reads > 0 && pointer_writes > 1,
+                    "the allocating fixture retains heap allocation beyond initialization"
+                );
+            } else {
+                assert_eq!(
+                    pointer_slot_initializer,
+                    Some(0),
+                    "runtime-free slot is unused throw metadata"
+                );
+                assert_eq!(
+                    global_init_i64s(&artifact.bytes),
+                    [0],
+                    "runtime-free scalar layout has no allocator state"
+                );
+                assert_eq!(
+                    (pointer_reads, pointer_writes),
+                    (0, 0),
+                    "runtime-free code must not use the diagnostic slot as a heap pointer"
+                );
+            }
+        }
     }
 
     fn regexp_descriptor_from_pool(

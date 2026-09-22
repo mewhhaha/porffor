@@ -319,6 +319,7 @@ fn dynamic_arguments_named_writes_never_enter_ordinary_object_storage() {
     );
     assert!(receiver_write.contains("emit_is_array_named_entry_backed_tag_i32("));
     assert!(receiver_write.contains("HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET"));
+    assert!(receiver_write.contains("self.emit_arguments_special_property_receiver_set("));
 
     let ordinary_set = function_source(
         OBJECTS_SOURCE,
@@ -326,8 +327,8 @@ fn dynamic_arguments_named_writes_never_enter_ordinary_object_storage() {
     );
     assert!(ordinary_set.contains("ValueKind::Arguments.tag() as i64"));
     assert!(ordinary_set.contains("self.strings.payload(\"length\")"));
-    assert!(ordinary_set.contains("self.strings.payload(\"callee\")"));
-    assert!(ordinary_set.contains("self.emit_arguments_property_write("));
+    assert!(ordinary_set.contains("self.emit_arguments_special_property_set("));
+    assert!(!ordinary_set.contains("self.emit_arguments_property_write("));
     assert!(ordinary_set.contains("emit_is_array_named_entry_backed_tag_i32("));
     assert!(ordinary_set.contains("HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET"));
     let indexed_source = ordinary_set

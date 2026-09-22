@@ -6492,10 +6492,6 @@ mod tests {
                     Builtin::IntlDateTimeFormatConstructor,
                     Installer::IntlDateTimeFormat,
                 ),
-                (
-                    Builtin::IntlNumberFormatConstructor,
-                    Installer::IntlNumberFormat,
-                ),
                 (Builtin::RegExpConstructor, Installer::RegExp),
                 (Builtin::BigIntConstructor, Installer::BigInt),
                 (Builtin::NumberConstructor, Installer::Number),
@@ -6520,6 +6516,10 @@ mod tests {
                 (
                     Builtin::DisposableStackConstructor,
                     Installer::DisposableStack,
+                ),
+                (
+                    Builtin::IntlNumberFormatConstructor,
+                    Installer::IntlNumberFormat,
                 ),
             ]
         );

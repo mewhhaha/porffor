@@ -2,6 +2,51 @@ use lila_front::{parse, ParseOptions};
 use lila_ir::{lower, DynamicFunctionKind, PreparedDynamicFunctionOutcome};
 
 #[test]
+fn final_binding_patterns_prepare_compiled_function_units_for_each_constructor_kind() {
+    for (constructor, kind) in [
+        ("Function", DynamicFunctionKind::Ordinary),
+        (
+            "(function* () {}).constructor",
+            DynamicFunctionKind::Generator,
+        ),
+        (
+            "(async function () {}).constructor",
+            DynamicFunctionKind::Async,
+        ),
+        (
+            "(async function* () {}).constructor",
+            DynamicFunctionKind::AsyncGenerator,
+        ),
+    ] {
+        for parameters in ["{value}", "[value]"] {
+            let parsed = parse(
+                format!("var Constructor = {constructor}; Constructor('{parameters}', 'return value;');"),
+                ParseOptions::script(),
+            )
+            .unwrap();
+            let program = lower(&parsed);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            assert!(
+                program
+                    .script
+                    .unwrap()
+                    .prepared_dynamic_functions
+                    .iter()
+                    .any(|prepared| {
+                        prepared.kind == kind
+                            && prepared.arguments == [parameters, "return value;"]
+                            && matches!(
+                                prepared.outcome,
+                                PreparedDynamicFunctionOutcome::Compiled { .. }
+                            )
+                    }),
+                "{kind:?}({parameters}) must compile instead of deferring a SyntaxError"
+            );
+        }
+    }
+}
+
+#[test]
 fn nested_global_constructor_calls_keep_finite_body_and_parameter_candidates() {
     for body in ["x = await 42", "x = yield"] {
         for caller in ["function", "async function*"] {

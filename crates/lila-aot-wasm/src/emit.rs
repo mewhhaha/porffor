@@ -35,6 +35,7 @@ use super::*;
 use lila_intl::{embedded_intl_data_identity, INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION};
 
 mod completion_exit;
+mod runtime_requirement;
 pub(crate) use completion_exit::CompletionExit;
 #[cfg(test)]
 mod async_generator_dispatcher_tests;
@@ -884,8 +885,11 @@ fn emit_script(
     script: &ScriptIr,
     promise_rejection_policy: PromiseRejectionPolicy,
 ) -> Result<WasmArtifact, EmitError> {
+    let uses_heap = runtime_requirement::requires_runtime(script);
     let mut prepared_script = script.clone();
-    super::builtins::append_empty_dynamic_function_bodies(&mut prepared_script);
+    if uses_heap {
+        super::builtins::append_empty_dynamic_function_bodies(&mut prepared_script);
+    }
     let script = &prepared_script;
     for function in script.functions.iter().filter(|function| {
         function.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
@@ -916,7 +920,7 @@ fn emit_script(
     let mut forced = ForcedBuiltins::default();
     loop {
         let (artifact, touched_stubbed) =
-            emit_script_with_forced_builtins(script, &forced, promise_rejection_policy)?;
+            emit_script_with_forced_builtins(script, &forced, uses_heap, promise_rejection_policy)?;
         if touched_stubbed.standard.is_empty()
             && touched_stubbed.host.is_empty()
             && !touched_stubbed.number_pow_import
@@ -1401,9 +1405,9 @@ struct ForcedBuiltins {
 fn emit_script_with_forced_builtins(
     script: &ScriptIr,
     forced: &ForcedBuiltins,
+    uses_heap: bool,
     promise_rejection_policy: PromiseRejectionPolicy,
 ) -> Result<(WasmArtifact, ForcedBuiltins), EmitError> {
-    let uses_heap = true;
     let references_agent_host = script
         .host_builtins
         .iter()
@@ -1452,7 +1456,7 @@ fn emit_script_with_forced_builtins(
     let stubbed_host_builtins = HostBuiltinId::ALL
         .iter()
         .copied()
-        .filter(|builtin| !compiled_host_builtins.contains(builtin))
+        .filter(|builtin| uses_heap && !compiled_host_builtins.contains(builtin))
         .collect::<Vec<_>>();
     // The main job checkpoint reports unhandled Promise rejections through the
     // same line-oriented host ABI as `print`. Its import therefore belongs to
@@ -1474,7 +1478,10 @@ fn emit_script_with_forced_builtins(
     let uses_number_pow_import = forced.number_pow_import;
     let mut compiled_standard_builtins = Vec::new();
     let mut stubbed_standard_builtins = Vec::new();
-    for builtin in StandardBuiltinId::all_functions() {
+    for builtin in StandardBuiltinId::all_functions()
+        .iter()
+        .filter(|_| uses_heap)
+    {
         if !forced.standard.contains(builtin) && should_stub_standard_builtin(script, *builtin) {
             stubbed_standard_builtins.push(*builtin);
         } else {
@@ -1552,8 +1559,11 @@ fn emit_script_with_forced_builtins(
             || name.contains("Temporal.PlainMonthDay")
             || name.contains("Temporal.ZonedDateTime")
     });
-    let runtime_bootstrap_plan =
-        RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins);
+    let runtime_bootstrap_plan = if uses_heap {
+        RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins)
+    } else {
+        RuntimeBootstrapPlan::default()
+    };
     let has_shared_stub =
         !stubbed_standard_builtins.is_empty() || !stubbed_host_builtins.is_empty();
     let host_import_function_indices = HostImportFunctionIndices::new(
@@ -4131,17 +4141,19 @@ impl<'a> FunctionBuilder<'a> {
         self.push_scope();
         self.initialize_runtime_gc_anchor_root(&mut function);
         self.ensure_heap_ptr_after_static_data(&mut function);
-        self.init_current_realm(&mut function)?;
-        self.init_current_env(&mut function)?;
-        self.initialize_direct_eval_execution_context(&mut function)?;
-        if let FunctionModuleState::PreparedScript(unit) = self.module_state {
-            self.emit_instantiate_prepared_script_declarations(unit, &mut function)?;
+        if self.uses_heap {
+            self.init_current_realm(&mut function)?;
+            self.init_current_env(&mut function)?;
+            self.initialize_direct_eval_execution_context(&mut function)?;
+            if let FunctionModuleState::PreparedScript(unit) = self.module_state {
+                self.emit_instantiate_prepared_script_declarations(unit, &mut function)?;
+            }
+            self.init_runtime_roots(&mut function)?;
+            self.emit_initialize_main_global_lexicals(&mut function)?;
+            self.init_script_global_object(&mut function)?;
+            self.init_template_objects(&mut function)?;
+            self.bind_captured_bindings(&mut function);
         }
-        self.init_runtime_roots(&mut function)?;
-        self.emit_initialize_main_global_lexicals(&mut function)?;
-        self.init_script_global_object(&mut function)?;
-        self.init_template_objects(&mut function)?;
-        self.bind_captured_bindings(&mut function);
         let suspended_initialization =
             self.current_function_meta()
                 .and_then(|meta| match meta.protocol.execution_kind() {

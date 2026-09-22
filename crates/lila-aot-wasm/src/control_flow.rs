@@ -6681,8 +6681,7 @@ impl<'a> FunctionBuilder<'a> {
             ));
         }
         let binding = self
-            .owned_env_slot(owner.binding_name())
-            .map(|slot| BindingStorage::EnvSlot { slot, hops: 0 })
+            .activation_owned_binding_storage(owner.binding_name())
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "activation-backed synchronous DisposeCapability is missing its owned binding",
