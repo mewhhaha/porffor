@@ -18,7 +18,9 @@ pub(crate) mod direct_eval_invocation;
 mod eval_intrinsic;
 mod function_name;
 mod function_realm;
+mod generator_instance_prototype;
 pub(crate) use function_name::FunctionNamePrefix;
+use generator_instance_prototype::GeneratorInstanceFamily;
 mod indirect_call;
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
@@ -5704,12 +5706,9 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
-            let generator_prototype_local = self.reserve_temp_local();
-            self.emit_alloc_plain_object_with_prototype(
-                None,
-                Some(GENERATOR_PROTOTYPE_GLOBAL_INDEX),
-                function,
-            )?;
+            // The instance is unobservable until parameter initialization
+            // completes; its [[Prototype]] is selected only after that.
+            self.emit_alloc_plain_object_with_prototype(None, None, function)?;
             function.instruction(&Instruction::LocalSet(payload_local));
             self.store_i64_const_at_offset(
                 payload_local,
@@ -5874,39 +5873,19 @@ impl<'a> FunctionBuilder<'a> {
                 0,
                 function,
             );
-            let generator_prototype_tag_local = self.reserve_temp_local();
-            self.load_i64_to_local_from_offset(
+            self.emit_install_generator_instance_prototype(
+                GeneratorInstanceFamily::Generator,
                 callee_payload_local,
-                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                generator_prototype_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                callee_payload_local,
-                HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-                generator_prototype_tag_local,
-                function,
-            );
-            self.emit_is_heap_object_like_tag_i32(generator_prototype_tag_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::GlobalGet(GENERATOR_PROTOTYPE_GLOBAL_INDEX));
-            function.instruction(&Instruction::LocalSet(generator_prototype_local));
-            function.instruction(&Instruction::End);
-            self.store_i64_local_at_offset(
+                callee_tag_local,
                 payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                generator_prototype_local,
                 function,
-            );
-            self.release_temp_local(generator_prototype_tag_local);
+            )?;
             self.release_temp_local(initialization_tag_local);
             self.release_temp_local(initialization_payload_local);
             function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
             self.set_completion_kind(CompletionKind::Normal, function);
             self.emit_return_current_completion(function);
-            self.release_temp_local(generator_prototype_local);
             function.instruction(&Instruction::End);
         }
 
@@ -5918,14 +5897,10 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
             let async_generator_activation_local = self.reserve_temp_local();
-            let async_generator_prototype_local = self.reserve_temp_local();
-            let async_generator_prototype_tag_local = self.reserve_temp_local();
 
-            self.emit_alloc_plain_object_with_prototype(
-                None,
-                Some(ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX),
-                function,
-            )?;
+            // The instance is unobservable until parameter initialization
+            // completes; its [[Prototype]] is selected only after that.
+            self.emit_alloc_plain_object_with_prototype(None, None, function)?;
             function.instruction(&Instruction::LocalSet(payload_local));
             self.store_i64_const_at_offset(
                 payload_local,
@@ -6046,39 +6021,18 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(initialization_tag_local);
             self.release_temp_local(initialization_payload_local);
 
-            self.load_i64_to_local_from_offset(
+            self.emit_install_generator_instance_prototype(
+                GeneratorInstanceFamily::AsyncGenerator,
                 callee_payload_local,
-                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                async_generator_prototype_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                callee_payload_local,
-                HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-                async_generator_prototype_tag_local,
-                function,
-            );
-            self.emit_is_heap_object_like_tag_i32(async_generator_prototype_tag_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::GlobalGet(
-                ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(async_generator_prototype_local));
-            function.instruction(&Instruction::End);
-            self.store_i64_local_at_offset(
+                callee_tag_local,
                 payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                async_generator_prototype_local,
                 function,
-            );
+            )?;
             function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
             self.set_completion_kind(CompletionKind::Normal, function);
             self.emit_return_current_completion(function);
 
-            self.release_temp_local(async_generator_prototype_tag_local);
-            self.release_temp_local(async_generator_prototype_local);
             self.release_temp_local(async_generator_activation_local);
             function.instruction(&Instruction::End);
         }

@@ -6646,13 +6646,13 @@ ordinary_default_prototype_domain="$(sed -n '/^pub(crate) enum OrdinaryDefaultPr
 require_text_regex_count \
   "$ordinary_default_prototype_domain" \
   '^[[:space:]]{4}([[:alnum:]]+|MessageError\(ErrorMessageConstructorKind\)),[[:space:]]*$' \
-  15 \
+  17 \
   'complete ordinary default-prototype domain'
 ordinary_default_prototype_offsets="$(sed -n '/^impl OrdinaryDefaultPrototype {$/,/^}$/p' "$wasm_required_resolved_realm_ordinary_prototype")"
 if grep -Eq '(^|[^[:alnum:]])_[[:space:]]*=>' <<<"$ordinary_default_prototype_offsets"; then
   fail "$wasm_required_resolved_realm_ordinary_prototype must map every ordinary default prototype exhaustively"
 fi
-for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError IntlLocale IntlDateTimeFormat IntlNumberFormat; do
+for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError IntlLocale IntlDateTimeFormat IntlNumberFormat Generator AsyncGenerator; do
   require_text_regex_count \
     "$ordinary_default_prototype_offsets" \
     "Self::${ordinary_default_prototype_variant}(\\(kind\\))?[[:space:]]*=>" \
@@ -6686,7 +6686,7 @@ done
 for required_ordinary_prototype_call_census in \
   'emit_load_required_resolved_realm_ordinary_prototype 4' \
   'emit_install_resolved_realm_ordinary_prototype 4' \
-  'emit_required_new_target_realm_ordinary_prototype 5'
+  'emit_required_new_target_realm_ordinary_prototype 6'
 do
   set -- $required_ordinary_prototype_call_census
   require_tree_regex_count \

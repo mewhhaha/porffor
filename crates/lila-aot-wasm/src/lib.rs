@@ -930,6 +930,8 @@ mod tests {
             ("IntlLocale", "INTL_LOCALE"),
             ("IntlDateTimeFormat", "INTL_DATE_TIME_FORMAT"),
             ("IntlNumberFormat", "INTL_NUMBER_FORMAT"),
+            ("Generator", "GENERATOR"),
+            ("AsyncGenerator", "ASYNC_GENERATOR"),
         ] {
             assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
             assert_eq!(
@@ -946,8 +948,8 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            15,
-            "the closed domain count must include disposal, aggregate errors and Intl prototypes"
+            17,
+            "the closed domain count must include disposal, aggregate errors, Intl and generator prototypes"
         );
     }
 

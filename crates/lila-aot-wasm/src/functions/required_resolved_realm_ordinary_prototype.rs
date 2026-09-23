@@ -3,6 +3,10 @@ use super::*;
 /// The ordinary-object intrinsic prototypes selected by
 /// `GetPrototypeFromConstructor` in constructor fallback paths.
 ///
+/// `Generator` and `AsyncGenerator` are the defaults that generator body
+/// evaluation passes to `OrdinaryCreateFromConstructor` with the generator
+/// function itself as the constructor.
+///
 /// `%Array.prototype%` is deliberately absent because it has an Array layout
 /// and a distinct representation tag. Keeping this domain closed prevents a
 /// caller from pairing an arbitrary realm-intrinsic offset with an entry-realm
@@ -24,6 +28,8 @@ pub(crate) enum OrdinaryDefaultPrototype {
     DisposableStack,
     AggregateError,
     SuppressedError,
+    Generator,
+    AsyncGenerator,
 }
 
 impl OrdinaryDefaultPrototype {
@@ -46,6 +52,8 @@ impl OrdinaryDefaultPrototype {
             Self::DisposableStack => HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
             Self::AggregateError => HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
             Self::SuppressedError => HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
+            Self::Generator => HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET,
+            Self::AsyncGenerator => HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET,
         }
     }
 }
