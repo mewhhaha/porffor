@@ -67,9 +67,12 @@ function catchesStrictArrayIndexWriteAfterNestedFinally(target) {
     caught = error;
     trace += "catch";
   }
+  // PutValue (6.2.5.6) throws a TypeError when [[Set]] returns false under a
+  // strict Reference; the message is implementation-defined and pins the one
+  // the failed-Set route publishes, so the catch provably received that error.
   return trace === "inner-finally,outer-finally,catch"
     && caught instanceof TypeError
-    && caught.message === "Cannot assign to array index";
+    && caught.message === "Cannot assign to property";
 }
 
 var internalStrictArrayIndexFinallyThrew =
