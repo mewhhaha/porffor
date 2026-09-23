@@ -93,7 +93,7 @@ fn prepared_identifier_write_cannot_spell_an_environment_reference() {
     let declaration = bounded(
         CONTROL_FLOW_SOURCE,
         "#[must_use = \"a prepared identifier write must be consumed by its write\"]",
-        "\nimpl<'a> FunctionBuilder<'a> {",
+        "enum DestructuringIteratorStepKind {",
     );
     assert!(!declaration.contains("#[derive("));
     assert_eq!(

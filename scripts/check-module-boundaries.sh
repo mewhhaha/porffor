@@ -5600,10 +5600,10 @@ do
   fi
 done
 require_fixed_string_count "$enumerable_own_properties_file" 'enum EnumerableOwnProperties {' 1 'closed enumerable-own-properties domain'
-require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties' 12 'enumerable-own-properties policy uses'
+require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties' 13 'enumerable-own-properties policy uses'
 require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Keys' 4 'keys policy uses'
-require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Entries' 3 'entries policy uses'
-require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Values' 3 'values policy uses'
+require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Entries' 4 'entries policy uses'
+require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Values' 4 'values policy uses'
 require_fixed_string_count \
   "$enumerable_own_properties_file" \
   'compile_object_enumerable_own_properties_builtin(' \
@@ -5617,9 +5617,11 @@ require_regex_count \
 enumerable_own_properties_body="$(sed -n \
   '/^    fn compile_object_enumerable_own_properties_builtin(/,/^    pub(in crate::builtins) fn compile_object_keys_builtin(/p' \
   "$enumerable_own_properties_file")"
-if [ "$(grep -Fc 'match &mode {' <<<"$enumerable_own_properties_body" || true)" -ne 2 ] \
-  || grep -Eq 'match mode|mode[[:space:]]*[!=]=|^[[:space:]]*_ =>|unreachable!\(' <<<"$enumerable_own_properties_body"; then
-  fail 'enumerable-own-properties compiler must borrow and exhaustively project both policy decisions'
+# Three exhaustive decisions: the nullish diagnostic, whether Get runs, and
+# the result projection. `matches!` would hide a wildcard arm.
+if [ "$(grep -Fc 'match &mode {' <<<"$enumerable_own_properties_body" || true)" -ne 3 ] \
+  || grep -Eq 'match mode|mode[[:space:]]*[!=]=|matches!\(|^[[:space:]]*_ =>|unreachable!\(' <<<"$enumerable_own_properties_body"; then
+  fail 'enumerable-own-properties compiler must borrow and exhaustively project all three policy decisions'
 fi
 for enumerable_own_properties_capability in Clone Copy Debug PartialEq Eq PartialOrd Ord Hash Default
 do

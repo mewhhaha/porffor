@@ -520,6 +520,25 @@ impl DestructuringIteratorLocals {
     }
 }
 
+/// An identifier PutValue that needs no runtime environment lookup. An
+/// environment Reference is resolved before the value is read and prepared as
+/// `PreparedDestructuringTarget::EnvironmentIdentifier`, so this domain cannot
+/// spell it and the write cannot meet it again.
+#[must_use = "a prepared identifier write must be consumed by its write"]
+enum PreparedIdentifierWrite<'a> {
+    MutableBinding {
+        storage_name: &'a str,
+    },
+    IgnoreImmutableBinding,
+    Throw {
+        error: IdentifierWriteErrorIr,
+    },
+    Global {
+        referenced_name: &'a str,
+        strictness: Strictness,
+    },
+}
+
 enum DestructuringIteratorStepKind {
     Elision,
     Value,
@@ -559,25 +578,6 @@ enum PreparedDestructuringPropertyKey<'a> {
         raw_key: &'a TypedExpr,
         payload_local: u32,
         tag_local: u32,
-    },
-}
-
-/// An identifier PutValue that needs no runtime environment lookup. An
-/// environment Reference is resolved before the value is read and prepared as
-/// `PreparedDestructuringTarget::EnvironmentIdentifier`, so this domain cannot
-/// spell it and the write cannot meet it again.
-#[must_use = "a prepared identifier write must be consumed by its write"]
-enum PreparedIdentifierWrite<'a> {
-    MutableBinding {
-        storage_name: &'a str,
-    },
-    IgnoreImmutableBinding,
-    Throw {
-        error: IdentifierWriteErrorIr,
-    },
-    Global {
-        referenced_name: &'a str,
-        strictness: Strictness,
     },
 }
 
