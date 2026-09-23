@@ -6119,9 +6119,28 @@ locales.length === 1 && locales[0] === "he-IL";
                 .emit_wasm(&unit)
                 .unwrap_or_else(|err| panic!("{label} should emit wasm: {err:?}"));
             let (imports, exports) = wasm_import_export_names(&artifact.bytes);
+            // Every case declares a binding, allocates an object or throws, so
+            // the conservative runtime-free proof
+            // (`lila-aot-wasm/src/emit/runtime_requirement.rs`) retains the
+            // ordinary Realm bootstrap. That fixes the import surface:
+            // - `reject_dynamic_source` is mandatory in every artifact
+            //   (contracts/dynamic-source-capability.md);
+            // - `print_line_utf8` belongs to every heap-backed module, because
+            //   the job checkpoint reports unhandled rejections through it;
+            // - `intl_call` and `wall_clock_millis` come from the bootstrap's
+            //   intrinsics: Number/BigInt.prototype.toLocaleString are ECMA-402
+            //   provider callers that root the Intl namespace, whose
+            //   DateTimeFormat reads the clock.
+            // The runtime-free counterpart below locks the elided surface.
             assert_eq!(
                 imports,
-                ["lila_host::agent_can_suspend"],
+                [
+                    "lila_host::agent_can_suspend",
+                    "lila_host::intl_call",
+                    "lila_host::print_line_utf8",
+                    "lila_host::reject_dynamic_source",
+                    "lila_host::wall_clock_millis",
+                ],
                 "{label} imports: {imports:?}"
             );
             for export in [
@@ -6164,6 +6183,37 @@ locales.length === 1 && locales[0] === "he-IL";
             assert_eq!(tag.value_kind(), expected_kind, "{label} result kind");
             assert_eq!(completion_kind, 0, "{label} completion kind");
         }
+
+        // Scalar arithmetic on literals is admitted by the runtime-free proof:
+        // no Realm bootstrap, so only the two unconditional imports remain.
+        let scalar = "40 + 2;";
+        let scalar_engine = engine();
+        let unit = scalar_engine
+            .compile_script(scalar, CompileOptions::default())
+            .expect("scalar arithmetic should compile");
+        let artifact = scalar_engine
+            .emit_wasm(&unit)
+            .expect("scalar arithmetic should emit wasm");
+        let (imports, _) = wasm_import_export_names(&artifact.bytes);
+        assert_eq!(
+            imports,
+            [
+                "lila_host::agent_can_suspend",
+                "lila_host::reject_dynamic_source",
+            ],
+            "runtime-free imports: {imports:?}"
+        );
+        let outcome = scalar_engine
+            .run_compiled_unit(
+                &unit,
+                scalar,
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("scalar arithmetic should run");
+        assert!(outcome.note.contains("number(42"), "note: {}", outcome.note);
 
         let err = engine()
             .run_script(
@@ -10441,30 +10491,79 @@ typeRealm + "|" + rangeRealm + "|" + getterRealm;
     }
 
     #[test]
+    fn wasm_backend_compiles_aot_known_direct_eval_source() {
+        // `eval("1")` was the slice `wasm_emit_reports_unsupported_slice_precisely`
+        // locked as unsupported until the prepared direct-eval registry gave
+        // AOT-known sources their caller-environment seam
+        // (docs/rust-rewrite/contracts/prepared-direct-eval.md). The source is
+        // compiled ahead of time; no evaluator is emitted.
+        for (source, expected) in [
+            ("eval(\"1\");", "number(1)"),
+            (
+                "var x = 5; function f() { var x = 7; return eval(\"x + 1\"); } f();",
+                "number(8)",
+            ),
+        ] {
+            let engine = engine();
+            let unit = engine
+                .compile_script(source, CompileOptions::default())
+                .expect("script compile should succeed");
+            engine.emit_wasm(&unit).unwrap_or_else(|err| {
+                panic!("AOT-known direct eval should emit `{source}`: {err:?}")
+            });
+            let outcome = engine
+                .run_compiled_unit(
+                    &unit,
+                    source,
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| {
+                    panic!("AOT-known direct eval should run `{source}`: {err:?}")
+                });
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
+        }
+    }
+
+    #[test]
     fn wasm_emit_reports_unsupported_slice_precisely() {
-        // Destructured object parameters (the case this test previously
-        // locked as unsupported) now compile and run correctly on this
-        // branch — see `wasm_backend_supports_destructured_object_parameter`
-        // above for that positive coverage. Generic `eval` remains a product
-        // capability boundary ("compile
-        // JavaScript directly to Wasm; do not ship interpreter-in-Wasm") while
-        // the permitted AOT-known subset still lacks its caller-environment
-        // seam. Its typed diagnostic is less likely to go stale than a random
-        // parameter-shape gap.
+        // Destructured object parameters and then AOT-known direct eval were
+        // the slices this test used to lock; both now compile (see
+        // `wasm_backend_supports_destructured_object_parameter` and
+        // `wasm_backend_compiles_aot_known_direct_eval_source`). The remaining
+        // compile-time dynamic-source gap is a realm Script whose source text
+        // is not known ahead of time. Lila does not ship an evaluator in the
+        // artifact, so emission must report that typed gap rather than succeed
+        // or fail with a generic message.
+        let source = format!(
+            "{REALM_EVAL}(String(unknownSource));",
+            REALM_EVAL = lila_ir::REALM_EVAL_SCRIPT_NAME
+        );
         let unit = engine()
-            .compile_script("eval(\"1\");", CompileOptions::default())
+            .compile_script(&source, test262_compile_options())
             .expect("script compile should succeed");
         let err = engine()
             .emit_wasm(&unit)
             .expect_err("unsupported slice should fail");
-        assert!(err
-            .message()
-            .contains("unsupported in lila wasm-aot first slice"));
+        assert!(
+            err.message()
+                .contains("unsupported in lila wasm-aot first slice"),
+            "err: {}",
+            err.message()
+        );
         assert_eq!(
             err.ir_diagnostic()
                 .and_then(IrDiagnostic::unsupported_feature),
             Some(lila_ir::UnsupportedFeature::DynamicSource(
-                lila_ir::DynamicSourceGap::aot_known_source(lila_ir::DynamicSourceKind::DirectEval),
+                lila_ir::DynamicSourceGap::runtime_source(
+                    lila_ir::DynamicSourceKind::RealmEvalScript
+                ),
             )),
         );
     }
@@ -20247,27 +20346,67 @@ defaultEvaluations === 1
     }
 
     #[test]
-    fn wasm_backend_rejects_unsupported_object_literal_method_forms() {
-        for source in [
-            "({ get x(v) { return v; } })",
-            "({ set x() {} })",
-            "({ f() { return super.x; } })",
-        ] {
-            let err = match engine().run_script(
+    fn wasm_backend_object_literal_method_forms_follow_the_specification() {
+        // Accessor arity is an early error: a getter takes no parameters and a
+        // setter exactly one.
+        for source in ["({ get x(v) { return v; } })", "({ set x() {} })"] {
+            let err = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err("invalid accessor arity must be an early error");
+            assert!(
+                err.message().contains("parse error"),
+                "source: {source}, err: {}",
+                err.message()
+            );
+        }
+
+        // `super` in an object-literal method used to be locked as
+        // unsupported. It now compiles; the method's [[HomeObject]] is the
+        // literal, so `super.x` reads from the literal's current prototype
+        // with the caller's `this`, survives being detached, reads through a
+        // null prototype as a TypeError, and `super.y = v` writes to `this`.
+        let source = r#"
+var obj = { f() { return super.x; } };
+var results = [obj.f() === undefined];
+Object.setPrototypeOf(obj, { x: 1 });
+results.push(obj.f() === 1);
+var withGetter = { tag: "receiver", g() { return super.x; } };
+Object.setPrototypeOf(withGetter, { get x() { return this.tag; } });
+results.push(withGetter.g() === "receiver");
+results.push({ tag: "detached", g: withGetter.g }.g() === "detached");
+Object.setPrototypeOf(withGetter, null);
+try { withGetter.g(); results.push(false); }
+catch (error) { results.push(error.constructor === TypeError); }
+var parent = {};
+var writer = { m() { super.y = 5; return this.y; } };
+Object.setPrototypeOf(writer, parent);
+results.push(writer.m() === 5 && Object.getOwnPropertyNames(parent).length === 0);
+results.join();
+"#;
+        let outcome = engine()
+            .run_script(
                 source,
                 CompileOptions::default(),
                 RunOptions {
                     backend: ExecutionBackend::WasmAot,
                     ..RunOptions::default()
                 },
-            ) {
-                Ok(outcome) => panic!(
-                    "unsupported object literal form should stay unsupported for `{source}`: {outcome:?}"
-                ),
-                Err(err) => err,
-            };
-            assert!(!err.message().trim().is_empty());
-        }
+            )
+            .unwrap_or_else(|err| panic!("object-literal super should run: {err:?}"));
+        assert!(
+            outcome
+                .note
+                .contains("string(true,true,true,true,true,true)"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]
@@ -24203,12 +24342,37 @@ resultIsArray();
     }
 
     #[test]
-    fn wasm_backend_rejects_phase_twenty_eight_remaining_builtin_tails() {
-        // Runtime source compilation remains unsupported. These literal cases
-        // are permitted future AOT work, but stay rejected until the real
-        // target-realm environment seam replaces the old zero-argument fake.
-        for source in ["Function(\"return 1\");", "new Function(\"return 1\");"] {
-            let err = engine()
+    fn wasm_backend_runs_phase_twenty_eight_builtin_tails() {
+        // Literal Function-constructor sources used to be rejected here with
+        // `DynamicSourceGap::aot_known_source(Function(Ordinary))`. They now
+        // compile ahead of time through the prepared dynamic-function registry
+        // (docs/rust-rewrite/contracts/prepared-dynamic-functions.md): the
+        // source goes through the ordinary parser, early errors, lowering and
+        // Wasm codegen, and CreateDynamicFunction's observable results are
+        // checked here. Sources that are only known at run time remain a typed
+        // runtime capability rejection, covered by
+        // tests/aot_dynamic_source_capability.rs.
+        for (source, expected) in [
+            ("Function(\"return 1\")();", "number(1)"),
+            ("new Function(\"return 1\")();", "number(1)"),
+            ("new Function(\"a\", \"b\", \"return a + b\")(2, 3);", "number(5)"),
+            (
+                "var f = Function(\"return 1\"); \
+                 [typeof f, f.name, f.length, typeof f.prototype, \
+                  Object.getPrototypeOf(f) === Function.prototype, \
+                  f !== Function(\"return 1\")].join();",
+                "string(function,anonymous,0,object,true,true)",
+            ),
+            (
+                "Function(\"return 1\").toString() === \"function anonymous(\\n) {\\nreturn 1\\n}\";",
+                "boolean(true)",
+            ),
+            (
+                "try { Function(\"return +\"); false; } catch (e) { e.constructor === SyntaxError; }",
+                "boolean(true)",
+            ),
+        ] {
+            let outcome = engine()
                 .run_script(
                     source,
                     CompileOptions::default(),
@@ -24217,24 +24381,13 @@ resultIsArray();
                         ..RunOptions::default()
                     },
                 )
-                .expect_err("phase 26 builtin tail should stay unsupported");
+                .unwrap_or_else(|err| {
+                    panic!("an AOT-known Function source should run for `{source}`: {err:?}")
+                });
             assert!(
-                err.message()
-                    .contains("unsupported in lila wasm-aot first slice"),
-                "source: {source}, err: {}",
-                err.message()
-            );
-            assert_eq!(
-                err.ir_diagnostic()
-                    .and_then(IrDiagnostic::unsupported_feature),
-                Some(lila_ir::UnsupportedFeature::DynamicSource(
-                    lila_ir::DynamicSourceGap::aot_known_source(
-                        lila_ir::DynamicSourceKind::Function(
-                            lila_ir::DynamicFunctionKind::Ordinary,
-                        ),
-                    ),
-                )),
-                "source: {source}",
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
             );
         }
 
@@ -24355,14 +24508,77 @@ resultIsArray();
     }
 
     #[test]
-    fn wasm_backend_rejects_phase_twenty_four_still_unsupported_edges() {
-        for source in [
-            "let H; if (true) { H = function() {}; } else { H = print; } class C extends H {} new C();",
-            "let H; if (true) { H = null; } else { H = Object; } class C extends H {} new C();",
-            "new.target;",
-            "class C { #x; m(obj) { delete obj.#x; } }",
-            "class C extends Object { m() { delete super.x; } }",
+    fn wasm_backend_phase_twenty_four_class_edges_follow_the_specification() {
+        // These edges used to be locked as unsupported. The two class
+        // definitions below now compile and are checked against their
+        // specified results instead.
+        for (source, expected) in [
+            // A heritage chosen at run time between an ordinary constructor and
+            // a non-constructor still yields an ordinary derived instance.
+            (
+                "let H; if (true) { H = function() {}; } else { H = print; } class C extends H {} \
+                 let c = new C(); \
+                 c instanceof C && c instanceof H && Object.getPrototypeOf(C) === H \
+                 && Object.getPrototypeOf(C.prototype) === H.prototype;",
+                "boolean(true)",
+            ),
+            // `delete super.x` is valid syntax; the delete operator throws a
+            // ReferenceError for a super Reference only when evaluated, after
+            // the Reference and any computed key have been evaluated, including
+            // when the home object's prototype is null.
+            (
+                "class C extends Object { m() { delete super.x; } } \
+                 let count = 0; \
+                 class D { static m() { delete super[(count++, 'x')]; } } \
+                 Object.setPrototypeOf(D, null); \
+                 let results = []; \
+                 for (let call of [() => new C().m(), () => D.m()]) { \
+                   try { call(); results.push('returned'); } \
+                   catch (error) { results.push(error.constructor === ReferenceError); } \
+                 } \
+                 results.join() + ':' + count;",
+                "string(true,true:1)",
+            ),
         ] {
+            let outcome = engine()
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_or_else(|err| panic!("class edge should run for `{source}`: {err:?}"));
+            assert!(
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
+            );
+        }
+
+        // `extends null` installs %Function.prototype% as the constructor
+        // parent, so the implicit `super(...args)` of the derived default
+        // constructor throws a TypeError.
+        let err = engine()
+            .run_script(
+                "let H; if (true) { H = null; } else { H = Object; } class C extends H {} new C();",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("constructing a class that extends null should throw");
+        assert_eq!(
+            err.wasm_javascript_exception_constructor_name(),
+            Some("TypeError"),
+            "err: {}",
+            err.message()
+        );
+
+        // Early errors remain parse-time SyntaxErrors.
+        for source in ["new.target;", "class C { #x; m(obj) { delete obj.#x; } }"] {
             let err = engine()
                 .run_script(
                     source,
@@ -24372,13 +24588,11 @@ resultIsArray();
                         ..RunOptions::default()
                     },
                 )
-                .expect_err("unsupported class edge should stay unsupported");
-            let message = err.message();
+                .expect_err("an early error must reject the script");
             assert!(
-                message.contains("unsupported in lila wasm-aot first slice")
-                    || message.contains("parse error")
-                    || message.contains("TypeError"),
-                "source: {source}, err: {message}"
+                err.message().contains("parse error"),
+                "source: {source}, err: {}",
+                err.message()
             );
         }
     }
@@ -32566,12 +32780,21 @@ try {
     }
 
     #[test]
-    fn wasm_backend_rejects_phase_twenty_nine_remaining_delete_edges() {
-        for source in [
-            "Error.stack",
-            "Function.prototype.toString.call({}); Error.stack;",
+    fn wasm_backend_reads_error_constructor_stack_as_an_ordinary_property() {
+        // `stack` is not an ECMA-262 property of any Error constructor, of
+        // %Function.prototype% or of %Object.prototype%. These reads used to be
+        // rejected as an unsupported compiler slice; they are ordinary [[Get]]s
+        // that find nothing unless the program defines the property itself.
+        for (source, expected) in [
+            ("Error.stack", "undefined(undefined)"),
+            (
+                "TypeError.stack === undefined && !('stack' in Error) \
+                 && !Object.getOwnPropertyNames(Error).includes('stack');",
+                "boolean(true)",
+            ),
+            ("Error.stack = 5; Error.stack;", "number(5)"),
         ] {
-            let err = engine()
+            let outcome = engine()
                 .run_script(
                     source,
                     CompileOptions::default(),
@@ -32580,15 +32803,38 @@ try {
                         ..RunOptions::default()
                     },
                 )
-                .expect_err("phase 29 delete tail should stay unsupported");
+                .unwrap_or_else(|err| panic!("`{source}` should run: {err:?}"));
             assert!(
-                err.message()
-                    .contains("unsupported in lila wasm-aot first slice")
-                    || err.message().contains("parse error"),
-                "source: {source}, err: {}",
-                err.message()
+                outcome.note.contains(expected),
+                "source: {source}, note: {}",
+                outcome.note
             );
         }
+
+        // Function.prototype.toString throws a TypeError for a non-callable
+        // receiver, before `Error.stack` is reached.
+        let err = engine()
+            .run_script(
+                "Function.prototype.toString.call({}); Error.stack;",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("a non-callable toString receiver should throw");
+        assert_eq!(
+            err.wasm_javascript_exception_constructor_name(),
+            Some("TypeError"),
+            "err: {}",
+            err.message()
+        );
+        assert!(
+            err.message()
+                .contains("Function.prototype.toString receiver is not callable"),
+            "err: {}",
+            err.message()
+        );
     }
 
     #[test]

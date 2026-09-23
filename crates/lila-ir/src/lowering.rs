@@ -12830,16 +12830,12 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    // `is_error_prototype_expr` used to sit here: a second hand-kept nine-row
-    // list of the same closed domain, with zero call sites anywhere in the
-    // workspace. AGENTS.md: code unreachable from the product path should fail
-    // to build, not merely fail to run. It was deleted rather than migrated.
-
-    fn is_error_constructor_expr(&self, expr: &TypedExpr) -> bool {
-        NativeErrorKind::ALL
-            .into_iter()
-            .any(|kind| self.is_builtin_reference_expr(expr, kind.as_str()))
-    }
+    // `is_error_prototype_expr` and `is_error_constructor_expr` used to sit
+    // here. The latter's only caller rejected `Error.stack` (and every native
+    // error constructor's `.stack`) as an unsupported compiler slice. ECMA-262
+    // defines no `stack` property on those constructors or their prototypes, so
+    // the read is an ordinary [[Get]] that yields undefined unless the program
+    // defined the property itself; it now lowers like any other property read.
 
     fn property_access_field_is_proven_numeric(&self, field: &PropertyAccessField) -> bool {
         let PropertyAccessField::Expr(expr) = field else {
@@ -13226,9 +13222,6 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
                 return result;
-            }
-            if name == "stack" && self.is_error_constructor_expr(&target) {
-                return self.unsupported_expr("Error.stack");
             }
             if name == "call"
                 && self.function_prototype_call_is_intrinsic(&target)
