@@ -61,12 +61,17 @@ impl<'a> FunctionBuilder<'a> {
     pub(super) fn emit_alloc_reflect_descriptor_object(
         &mut self,
         prototype: ReflectDescriptorObjectPrototypeLocal,
+        fields: &DescriptorObjectFields,
         descriptor_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let ReflectDescriptorObjectPrototypeLocal(prototype_local) = prototype;
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(descriptor_payload_local));
+        self.emit_from_property_descriptor(
+            DescriptorObjectPrototype::ObjectPrototypeLocal(prototype_local),
+            fields,
+            descriptor_payload_local,
+            function,
+        )?;
         self.release_temp_local(prototype_local);
         Ok(())
     }

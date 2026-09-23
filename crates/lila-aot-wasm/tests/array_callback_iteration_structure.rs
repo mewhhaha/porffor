@@ -194,6 +194,9 @@ fn internal_array_result_descriptor_has_no_observable_prototype() {
         "fn emit_array_target_create_data_property_or_throw(",
         "pub(crate) fn compile_array_prototype_fill_builtin(",
     );
-    assert!(body.contains("self.emit_alloc_plain_object_with_prototype(None, None, function)"));
+    // The private null-prototype carrier is the 6.2.6.4 owner's
+    // `DescriptorObjectPrototype::PrivateCarrier` form.
+    assert!(body.contains("self.emit_create_data_property_descriptor_carrier("));
+    assert!(!body.contains("emit_alloc_plain_object_with_prototype("));
     assert!(!body.contains("OBJECT_PROTOTYPE_GLOBAL_INDEX"));
 }

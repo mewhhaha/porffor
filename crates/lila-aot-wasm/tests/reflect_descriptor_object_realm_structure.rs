@@ -336,16 +336,19 @@ fn reflect_define_property_consumes_the_proof_at_its_only_descriptor_allocation(
         true,
     );
     assert!(consumer.starts_with(
-        "&mutself,prototype:ReflectDescriptorObjectPrototypeLocal,descriptor_payload_local:u32,function:&mutFunction,)->Result<(),EmitError>{letReflectDescriptorObjectPrototypeLocal(prototype_local)=prototype;"
+        "&mutself,prototype:ReflectDescriptorObjectPrototypeLocal,fields:&DescriptorObjectFields,descriptor_payload_local:u32,function:&mutFunction,)->Result<(),EmitError>{letReflectDescriptorObjectPrototypeLocal(prototype_local)=prototype;"
     ));
+    // The 6.2.6.4 owner allocates the object and creates its fields; the
+    // prototype proof is consumed as that allocation's prototype.
     positions_in_order(
         &consumer,
         &[
-            "emit_alloc_plain_object_with_prototype(Some(prototype_local),None,function)",
-            "LocalSet(descriptor_payload_local)",
+            "emit_from_property_descriptor(DescriptorObjectPrototype::ObjectPrototypeLocal(prototype_local),fields,descriptor_payload_local,function,)",
             "release_temp_local(prototype_local)",
         ],
     );
+    assert!(!consumer.contains("emit_alloc_plain_object_with_prototype("));
+    assert!(!consumer.contains("emit_object_define_"));
 
     let define_property = rust_code(
         bounded(
@@ -368,6 +371,8 @@ fn reflect_define_property_consumes_the_proof_at_its_only_descriptor_allocation(
         1
     );
     assert!(!define_property.contains("Some(OBJECT_PROTOTYPE_GLOBAL_INDEX)"));
+    assert!(!define_property.contains("emit_object_define_enumerable_data("));
+    assert!(!define_property.contains("emit_object_define_data("));
 }
 
 #[test]

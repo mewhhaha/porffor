@@ -12370,8 +12370,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         let descriptor_payload_local = self.reserve_temp_local();
         let descriptor_tag_local = self.reserve_temp_local();
-        let bool_payload_local = self.reserve_temp_local();
-        let bool_tag_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
         let define_property_payload_local = self.reserve_temp_local();
         let define_property_tag_local = self.reserve_temp_local();
@@ -12380,30 +12378,13 @@ impl<'a> FunctionBuilder<'a> {
         // This carrier is internal to CreateDataProperty, not a public
         // FromPropertyDescriptor result. Inherited get/set properties must
         // not participate when ObjectDefineProperty consumes its fields.
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(descriptor_payload_local));
+        self.emit_create_data_property_descriptor_carrier(
+            TaggedLocals::new(value_payload_local, value_tag_local),
+            descriptor_payload_local,
+            function,
+        )?;
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(descriptor_tag_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(bool_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(bool_tag_local));
-        for (name, payload, tag) in [
-            ("value", value_payload_local, value_tag_local),
-            ("writable", bool_payload_local, bool_tag_local),
-            ("enumerable", bool_payload_local, bool_tag_local),
-            ("configurable", bool_payload_local, bool_tag_local),
-        ] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.emit_object_define_data(
-                descriptor_payload_local,
-                self.scratch_local,
-                payload,
-                tag,
-                function,
-            )?;
-        }
         let define_property_meta = self
             .functions
             .get(&StandardBuiltinId::ObjectDefineProperty.function_id())
@@ -12442,8 +12423,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(define_property_tag_local);
         self.release_temp_local(define_property_payload_local);
         self.release_temp_local(key_tag_local);
-        self.release_temp_local(bool_tag_local);
-        self.release_temp_local(bool_payload_local);
         self.release_temp_local(descriptor_tag_local);
         self.release_temp_local(descriptor_payload_local);
         function.instruction(&Instruction::Else);

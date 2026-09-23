@@ -1,10 +1,12 @@
 use super::super::*;
+use crate::objects::{DescriptorFlag, DescriptorObjectFields, DescriptorObjectPrototype};
 use crate::objects::{
     ObjectPreventExtensionsRequest, PreventExtensionsResultLocal,
     PreventExtensionsTraversalTargetLocals, PropertyKeyLocals, ProxyHandlerLocals,
     ProxyOwnKeysTrapLocals, ProxyOwnKeysTrapResultLocals, ProxyRevocationRoute,
     ProxySetValueLocals, ProxySlotLocals, ProxyTargetLocals, TaggedLocals,
 };
+use lila_ir::property_descriptor::Presence;
 
 mod descriptor_object_prototype;
 
@@ -1452,74 +1454,29 @@ impl<'a> FunctionBuilder<'a> {
         // Materialize the converted fields for a possible Proxy trap. The
         // original attributes object must not be read again during forwarding.
         let descriptor_prototype = self.emit_reflect_descriptor_object_prototype(function);
+        let runtime_value = |present, payload, tag| Presence::Runtime {
+            present,
+            value: TaggedLocals::new(payload, tag),
+        };
+        let runtime_flag = |present, payload| Presence::Runtime {
+            present,
+            value: DescriptorFlag::BooleanPayload(payload),
+        };
         self.emit_alloc_reflect_descriptor_object(
             descriptor_prototype,
+            &DescriptorObjectFields {
+                value: runtime_value(value_present_local, value_payload_local, value_tag_local),
+                writable: runtime_flag(writable_present_local, writable_payload_local),
+                get: runtime_value(getter_present_local, getter_payload_local, getter_tag_local),
+                set: runtime_value(setter_present_local, setter_payload_local, setter_tag_local),
+                enumerable: runtime_flag(enumerable_present_local, enumerable_payload_local),
+                configurable: runtime_flag(configurable_present_local, configurable_payload_local),
+            },
             descriptor_payload_local,
             function,
         )?;
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(descriptor_tag_local));
-        for (key_local, present_local, payload_local, tag_local, boolean_value) in [
-            (
-                value_key_local,
-                value_present_local,
-                value_payload_local,
-                value_tag_local,
-                false,
-            ),
-            (
-                writable_key_local,
-                writable_present_local,
-                writable_payload_local,
-                writable_tag_local,
-                true,
-            ),
-            (
-                get_key_local,
-                getter_present_local,
-                getter_payload_local,
-                getter_tag_local,
-                false,
-            ),
-            (
-                set_key_local,
-                setter_present_local,
-                setter_payload_local,
-                setter_tag_local,
-                false,
-            ),
-            (
-                enumerable_key_local,
-                enumerable_present_local,
-                enumerable_payload_local,
-                enumerable_tag_local,
-                true,
-            ),
-            (
-                configurable_key_local,
-                configurable_present_local,
-                configurable_payload_local,
-                configurable_tag_local,
-                true,
-            ),
-        ] {
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            if boolean_value {
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(tag_local));
-            }
-            self.emit_object_define_enumerable_data(
-                descriptor_payload_local,
-                key_local,
-                payload_local,
-                tag_local,
-                function,
-            )?;
-            function.instruction(&Instruction::End);
-        }
 
         self.emit_function_value_payload(&object_define_meta, function)?;
         function.instruction(&Instruction::LocalSet(object_define_payload_local));

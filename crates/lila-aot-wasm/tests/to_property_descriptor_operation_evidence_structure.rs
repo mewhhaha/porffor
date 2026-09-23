@@ -347,11 +347,40 @@ fn present_descriptor_materializer_consumes_and_releases_every_field() {
             .count(),
         1
     );
+    // Field creation belongs to the 6.2.6.4 owner, which alone chooses the
+    // CreateDataPropertyOrThrow attributes. The materializer hands it every
+    // field once, with the three flags reduced to their ToBoolean payloads,
+    // and releases the Realm prototype only after the object exists.
+    assert!(!materializer.contains("emit_object_define_enumerable_data("));
+    assert!(!materializer.contains("emit_object_define_data("));
+    assert!(!materializer.contains("emit_alloc_plain_object_with_prototype("));
     assert_eq!(
         materializer
-            .matches("self.release_temp_local(field_key_local);")
+            .matches("self.emit_from_property_descriptor(")
             .count(),
         1
+    );
+    assert_eq!(
+        materializer
+            .matches("DescriptorFlag::boolean_value_presence(")
+            .count(),
+        3
+    );
+    positions_in_order(
+        materializer,
+        &[
+            "let descriptor = reserved_descriptor.descriptor.as_partial();",
+            "value: descriptor.value,",
+            "writable: DescriptorFlag::boolean_value_presence(descriptor.writable),",
+            "get: descriptor.get,",
+            "set: descriptor.set,",
+            "enumerable: DescriptorFlag::boolean_value_presence(descriptor.enumerable),",
+            "configurable: DescriptorFlag::boolean_value_presence(descriptor.configurable),",
+            "self.emit_from_property_descriptor(",
+            "DescriptorObjectPrototype::ObjectPrototypeLocal(prototype_local),",
+            "self.release_temp_local(prototype_local);",
+            "} = reserved_descriptor.descriptor.into_partial();",
+        ],
     );
 }
 
