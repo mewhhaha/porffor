@@ -1180,6 +1180,34 @@ fn run_wasm_backend_uses_created_realm_builtin_function_prototypes() {
     assert!(stdout.contains("number(123"), "{stdout}");
 }
 
+/// Built-in constructors that allocate their own result read
+/// `Get(newTarget, "prototype")` once, at their own spec step (Date and the
+/// Temporal constructors after argument coercion), and BigInt, Symbol and
+/// %TypedArray% never read it. A bound function forwards `Construct` to its
+/// target, so only the target reads it.
+#[test]
+fn run_wasm_backend_reads_builtin_construct_new_target_prototype_once() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_builtin_construct_prototype_read_order.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
 #[test]
 fn run_wasm_backend_supports_function_prototype_symbol_has_instance() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

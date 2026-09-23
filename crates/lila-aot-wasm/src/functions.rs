@@ -2393,9 +2393,29 @@ impl<'a> FunctionBuilder<'a> {
             .functions
             .get(&StandardBuiltinId::BooleanConstructor.function_id())
             .map(|meta| meta.table_index as i64);
+        // Built-in [[Construct]] bodies that obtain their own result object
+        // (or throw) must be entered before the generic OrdinaryCreateFrom-
+        // Constructor below: that path performs an observable
+        // Get(newTarget, "prototype") and the callee would then perform its
+        // own, at its own spec step. Date and the Temporal constructors read
+        // it only after argument coercion; BigInt, Symbol and %TypedArray%
+        // throw before reading it at all; a bound function forwards
+        // Construct(target, args, newTarget) and never reads it itself.
         let direct_returning_constructor_table_indices: Vec<i64> = [
             StandardBuiltinId::StringConstructor,
             StandardBuiltinId::FunctionConstructor,
+            StandardBuiltinId::DateConstructor,
+            StandardBuiltinId::TemporalInstantConstructor,
+            StandardBuiltinId::TemporalPlainDateConstructor,
+            StandardBuiltinId::TemporalPlainTimeConstructor,
+            StandardBuiltinId::TemporalPlainDateTimeConstructor,
+            StandardBuiltinId::TemporalPlainYearMonthConstructor,
+            StandardBuiltinId::TemporalPlainMonthDayConstructor,
+            StandardBuiltinId::TemporalDurationConstructor,
+            StandardBuiltinId::BigIntConstructor,
+            StandardBuiltinId::SymbolConstructor,
+            StandardBuiltinId::TypedArrayConstructor,
+            StandardBuiltinId::BoundFunctionInvoker,
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
             StandardBuiltinId::Float16ArrayConstructor,

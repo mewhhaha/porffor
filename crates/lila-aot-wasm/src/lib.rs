@@ -1878,6 +1878,62 @@ mod tests {
                 .count(),
             1
         );
+
+        // The ordering above is only observable if [[Construct]] enters the
+        // Date body directly: the shared dispatcher's generic path performs
+        // its own Get(newTarget, "prototype") before any argument coercion.
+        let direct_returning_domain = include_str!("functions.rs")
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        assert_eq!(
+            direct_returning_domain
+                .matches("StandardBuiltinId::DateConstructor,")
+                .count(),
+            1,
+            "Date must route to its body before generic prototype Get and allocation"
+        );
+    }
+
+    /// Built-in constructors that allocate their own result (or throw before
+    /// reading NewTarget.prototype) must not pass through the dispatcher's
+    /// generic OrdinaryCreateFromConstructor: it would add an observable
+    /// Get(newTarget, "prototype") ahead of their own spec-ordered one.
+    #[test]
+    fn self_allocating_builtin_constructors_bypass_generic_construct_allocation() {
+        let direct_returning_domain = include_str!("functions.rs")
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        for builtin in [
+            "DateConstructor",
+            "TemporalInstantConstructor",
+            "TemporalPlainDateConstructor",
+            "TemporalPlainTimeConstructor",
+            "TemporalPlainDateTimeConstructor",
+            "TemporalPlainYearMonthConstructor",
+            "TemporalPlainMonthDayConstructor",
+            "TemporalDurationConstructor",
+            "TemporalZonedDateTimeConstructor",
+            "BigIntConstructor",
+            "SymbolConstructor",
+            "TypedArrayConstructor",
+            "BoundFunctionInvoker",
+        ] {
+            assert_eq!(
+                direct_returning_domain
+                    .matches(&format!("StandardBuiltinId::{builtin},"))
+                    .count(),
+                1,
+                "{builtin} must be entered directly by [[Construct]]"
+            );
+        }
     }
 
     #[test]
