@@ -2207,9 +2207,13 @@ pub enum ExprIr {
     DeleteValue {
         expr: Box<TypedExpr>,
     },
+    /// `delete` of an identifier that resolves to a binding which cannot be
+    /// deleted: a declarative binding or a non-configurable global. Always
+    /// `false`. An identifier that may name a global object property lowers
+    /// to [`ExprIr::DeleteGlobalProperty`] instead, because only the runtime
+    /// global object knows whether the property exists.
     DeleteIdentifier {
         name: String,
-        kind: DeleteIdentifierKindIr,
     },
     DeleteGlobalProperty {
         name: String,
@@ -2465,12 +2469,6 @@ pub enum JsonStaticValueIr {
     String { value: String, source: String },
     Array(Vec<JsonStaticValueIr>),
     Object(Vec<(String, JsonStaticValueIr)>),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeleteIdentifierKindIr {
-    NonDeletable,
-    Missing,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5547,12 +5545,9 @@ impl IrSummaryCounts {
                 self.deletes += 1;
                 self.visit_expr(expr);
             }
-            ExprIr::DeleteIdentifier { kind, .. } => {
+            ExprIr::DeleteIdentifier { .. } => {
                 self.deletes += 1;
                 self.identifier_deletes += 1;
-                if matches!(kind, DeleteIdentifierKindIr::Missing) {
-                    self.global_deletes += 1;
-                }
             }
             ExprIr::DeleteGlobalProperty { .. } => {
                 self.deletes += 1;

@@ -179,10 +179,7 @@ impl<'a> ScriptLowerer<'a> {
         {
             return TypedExpr::from_info(
                 ValueInfo::new(ValueKind::Boolean),
-                ExprIr::DeleteIdentifier {
-                    name,
-                    kind: DeleteIdentifierKindIr::NonDeletable,
-                },
+                ExprIr::DeleteIdentifier { name },
             );
         }
         if let Some(info) = self.lookup_global_property_info(&name).cloned() {
@@ -202,18 +199,20 @@ impl<'a> ScriptLowerer<'a> {
             if info.proven_present {
                 return TypedExpr::from_info(
                     ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::DeleteIdentifier {
-                        name,
-                        kind: DeleteIdentifierKindIr::NonDeletable,
-                    },
+                    ExprIr::DeleteIdentifier { name },
                 );
             }
         }
+        // Not a declared binding and not proven present: whether the global
+        // object has the property is a runtime fact (`globalThis.x = 1` or a
+        // computed write can create it). Global DeleteBinding asks the object,
+        // whose [[Delete]] of an absent property is `true`.
+        self.record_global_property_delete(&name);
         TypedExpr::from_info(
             ValueInfo::new(ValueKind::Boolean),
-            ExprIr::DeleteIdentifier {
+            ExprIr::DeleteGlobalProperty {
                 name,
-                kind: DeleteIdentifierKindIr::Missing,
+                strictness: Strictness::Sloppy,
             },
         )
     }

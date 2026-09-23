@@ -422,10 +422,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             expr_preserves_caller_flow(expr)
         }
         ExprIr::DeleteValue { expr: _expr } => false,
-        ExprIr::DeleteIdentifier {
-            name: _name,
-            kind: _kind,
-        } => false,
+        ExprIr::DeleteIdentifier { name: _name } => false,
         ExprIr::DeleteGlobalProperty {
             name: _name,
             strictness: _strictness,
