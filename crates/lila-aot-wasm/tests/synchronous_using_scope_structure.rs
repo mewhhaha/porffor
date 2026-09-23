@@ -49,13 +49,14 @@ fn ir_owns_one_statically_nonempty_synchronous_dispose_capability() {
 #[test]
 fn lowering_nests_reached_suffixes_without_generic_finally_or_double_initialization() {
     let marker = bounded(
-        LOWERING_SOURCE,
-        "enum LoweredStatementListItemIr {",
+        ASYNC_LOWERING_SOURCE,
+        "pub(super) enum LoweredStatementListItemIr {",
         "impl LoweredStatementListItemIr {",
     );
     assert!(marker.contains("SyncDisposableScope {"));
     assert!(marker.contains("execution: SyncDisposableScopeExecutionIr"));
     assert!(marker.contains("resources: SyncDisposableResourcesIr"));
+    assert!(!LOWERING_SOURCE.contains("enum LoweredStatementListItemIr {"));
 
     let finish = bounded(
         ASYNC_LOWERING_SOURCE,

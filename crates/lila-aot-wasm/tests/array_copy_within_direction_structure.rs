@@ -19,7 +19,7 @@ fn copy_within_body() -> &'static str {
     bounded(
         ARRAY_SOURCE,
         "    pub(crate) fn compile_array_prototype_copy_within_builtin(",
-        "    #[allow(clippy::too_many_arguments)]\n    pub(crate) fn emit_array_at_from_locals(",
+        "    #[allow(clippy::too_many_arguments)]\n    fn emit_array_at_from_locals(",
     )
 }
 

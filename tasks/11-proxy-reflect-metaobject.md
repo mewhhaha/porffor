@@ -655,9 +655,11 @@ green with the workspace's existing warnings.
 
 The `[[OwnPropertyKeys]]` acquisition boundary now distinguishes its trap
 scratch from its trap-result scratch with non-copyable
-`ProxyOwnKeysTrapLocals` and `ProxyOwnKeysTrapResultLocals` roles. All four
+`ProxyOwnKeysTrapLocals` and `ProxyOwnKeysTrapResultLocals` roles. All three
 Object/Reflect producers pass the result authority through the sole acquisition
-and consume it once in their typed post-trap validator; existing distinct target
+and consume it once in their typed post-trap validator (`Object.keys`, `values`
+and `entries` reach the `Reflect.ownKeys` producer through their shared
+EnumerableOwnProperties owner); existing distinct target
 and handler roles close the remaining adjacent-pair transpositions. The robust
 Rust-lexical census and ownership chain are pinned by
 `proxy_own_keys_handler_protocol_structure`; the bounded source contract is

@@ -206,11 +206,12 @@ fn lowering_exhaustively_intercepts_simple_updates_before_decomposed_property_ac
         "PropertyAccess::Simple(access) =>",
         "self.lower_ordinary_property_numeric_update(op, access)",
         "PropertyAccess::Super(access) => self.lower_super_property_numeric_update(op, access)",
-        "PropertyAccess::Private(_) => self.unsupported_expr(\"private field update target\")",
+        "PropertyAccess::Private(access) => self.lower_private_numeric_update(op, access)",
     ] {
         assert!(dispatch.contains(marker), "dispatch lost {marker}");
     }
     assert!(!dispatch.contains("_ =>"));
+    assert!(!dispatch.contains("unsupported_expr("));
     assert!(!IR_SOURCE.contains("\n    PropertyUpdate {"));
     assert!(!LOWERING_SOURCE.contains("ExprIr::PropertyUpdate"));
 }

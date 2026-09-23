@@ -1,5 +1,11 @@
 const DATE_SOURCE: &str = include_str!("../src/builtins/date.rs");
 const DATE_STRING_PARSE_SOURCE: &str = include_str!("../src/builtins/date/date_string_parse.rs");
+const DATE_PARSE_COMPONENTS_SOURCE: &str =
+    include_str!("../src/builtins/date/date_string_parse/components.rs");
+const DATE_PARSE_CURSOR_SOURCE: &str =
+    include_str!("../src/builtins/date/date_string_parse/cursor.rs");
+const DATE_PARSE_DISPLAY_SOURCE: &str =
+    include_str!("../src/builtins/date/date_string_parse/display.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CLI_DATE_SOURCE: &str = include_str!("../../lila-cli/tests/cli/date.rs");
 const DATE_PARSE_FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_date_parse.js");
@@ -31,11 +37,16 @@ fn date_string_parse_has_one_private_file_owner_and_exact_visibility() {
     assert!(!DATE_SOURCE.contains("\npub mod date_string_parse;\n"));
     assert!(!DATE_SOURCE.contains("\npub(crate) mod date_string_parse;\n"));
     assert!(!DATE_SOURCE.contains("\nmod date_string_parse {\n"));
-    assert!(DATE_STRING_PARSE_SOURCE.starts_with("use super::*;\n\n"));
+    assert!(DATE_STRING_PARSE_SOURCE.starts_with(concat!(
+        "use super::*;\n\n",
+        "mod components;\n",
+        "mod cursor;\n",
+        "mod display;\n\n",
+        "use components::{DateParseComponents, DateParseForm};\n",
+        "use cursor::DateParseCursor;\n\n",
+    )));
 
     let expected_methods = [
-        "fn emit_date_iso_expect_byte(",
-        "fn emit_date_iso_decimal(",
         "pub(crate) fn emit_date_parse_iso_string(",
         "pub(crate) fn emit_date_parse_string(",
     ];
@@ -60,20 +71,54 @@ fn date_string_parse_has_one_private_file_owner_and_exact_visibility() {
     );
     assert!(!DATE_STRING_PARSE_SOURCE.contains("pub(super) fn "));
     assert!(!DATE_STRING_PARSE_SOURCE.contains("pub fn "));
+
+    // The cursor, component and display-syntax helpers are private to the
+    // parser module: nothing in them is visible beyond `date_string_parse`.
+    for helper in [
+        DATE_PARSE_COMPONENTS_SOURCE,
+        DATE_PARSE_CURSOR_SOURCE,
+        DATE_PARSE_DISPLAY_SOURCE,
+    ] {
+        assert!(helper.starts_with("use super::*;\n"));
+        assert!(!helper.contains("pub(crate) "));
+        assert!(!helper.contains("pub(in "));
+        assert!(!helper.contains("pub fn "));
+        assert!(!helper.contains("pub struct "));
+        assert!(!helper.contains("pub enum "));
+        assert!(!helper.contains("\nmod "));
+    }
+    assert_eq!(
+        DATE_PARSE_DISPLAY_SOURCE
+            .matches("    pub(super) fn emit_date_parse_display_string(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        DATE_PARSE_DISPLAY_SOURCE.matches("pub(super) fn ").count(),
+        1
+    );
+    for retired in ["emit_date_iso_expect_byte(", "emit_date_iso_decimal("] {
+        for source in [
+            DATE_SOURCE,
+            DATE_STRING_PARSE_SOURCE,
+            DATE_PARSE_COMPONENTS_SOURCE,
+            DATE_PARSE_CURSOR_SOURCE,
+            DATE_PARSE_DISPLAY_SOURCE,
+            STANDARD_SOURCE,
+        ] {
+            assert!(!source.contains(retired), "retired helper `{retired}`");
+        }
+    }
 }
 
 #[test]
 fn date_string_parse_internal_and_external_call_maps_are_closed() {
     assert_eq!(
-        DATE_STRING_PARSE_SOURCE
-            .matches("self.emit_date_iso_expect_byte(")
-            .count(),
-        8
+        DATE_STRING_PARSE_SOURCE.matches("cursor.expect(").count(),
+        2
     );
     assert_eq!(
-        DATE_STRING_PARSE_SOURCE
-            .matches("self.emit_date_iso_decimal(")
-            .count(),
+        DATE_STRING_PARSE_SOURCE.matches("cursor.decimal(").count(),
         10
     );
     assert_eq!(
@@ -84,9 +129,36 @@ fn date_string_parse_internal_and_external_call_maps_are_closed() {
     );
     assert_eq!(
         DATE_STRING_PARSE_SOURCE
+            .matches("self.emit_date_parse_display_string(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        DATE_STRING_PARSE_SOURCE
             .matches("self.emit_date_parse_string(")
             .count(),
         0
+    );
+    for helper in [
+        DATE_PARSE_COMPONENTS_SOURCE,
+        DATE_PARSE_CURSOR_SOURCE,
+        DATE_PARSE_DISPLAY_SOURCE,
+    ] {
+        assert!(!helper.contains("self.emit_date_parse_iso_string("));
+        assert!(!helper.contains("self.emit_date_parse_string("));
+        assert!(!helper.contains("self.emit_date_parse_display_string("));
+    }
+    ordered(
+        bounded(
+            DATE_STRING_PARSE_SOURCE,
+            "    pub(crate) fn emit_date_parse_string(",
+            "\n    }\n}",
+        ),
+        &[
+            "self.emit_date_parse_iso_string(source, dest_payload_local, function);",
+            "function.instruction(&Instruction::F64Ne);",
+            "self.emit_date_parse_display_string(source, dest_payload_local, function);",
+        ],
     );
     assert_eq!(
         STANDARD_SOURCE
@@ -95,8 +167,10 @@ fn date_string_parse_internal_and_external_call_maps_are_closed() {
         2
     );
     assert!(!STANDARD_SOURCE.contains("emit_date_parse_iso_string("));
+    assert!(!STANDARD_SOURCE.contains("emit_date_parse_display_string("));
     assert!(!DATE_SOURCE.contains("emit_date_parse_string("));
     assert!(!DATE_SOURCE.contains("emit_date_parse_iso_string("));
+    assert!(!DATE_SOURCE.contains("emit_date_parse_display_string("));
 
     let date_parse = bounded(
         STANDARD_SOURCE,

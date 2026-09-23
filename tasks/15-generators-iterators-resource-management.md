@@ -905,6 +905,13 @@ private-reference-order CLI witnesses pass `3/3`. No Test262 cohort or semantic
 golden was run because this invariant claims no new destructuring,
 IteratorClose or conformance behavior.
 
+The prepared-source work later added `EnvironmentIdentifier`, making the target
+seven-variant, but left `AssignmentIdentifier` carrying the IR Reference, so the
+write re-matched its disposition and rejected the already-prepared environment
+case with `unreachable!`. `AssignmentIdentifier` now carries the private,
+must-use `PreparedIdentifierWrite` domain, which cannot spell the environment
+case; the parallel IR discriminant is gone again.
+
 Batch AE made the then-two-variant synchronous iterator error authority
 capability-free. Iterator acquisition and stepping owned their selection, and
 every internal protocol check, iterator-completion helper, and exhaustive

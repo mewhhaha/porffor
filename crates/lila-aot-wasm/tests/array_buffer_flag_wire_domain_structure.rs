@@ -6,6 +6,7 @@ const OBJECTS: &str = include_str!("../src/objects.rs");
 const BINARY_DATA: &str = include_str!("../src/builtins/binary_data.rs");
 const STANDARD: &str = include_str!("../src/builtins/standard.rs");
 const UINT8_ARRAY_CODECS: &str = include_str!("../src/builtins/uint8array_codecs.rs");
+const TYPED_ARRAY_FILL: &str = include_str!("../src/builtins/typed_array_fill.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -121,8 +122,8 @@ fn array_buffer_flag_is_one_capability_free_four_row_wire_authority() {
 #[test]
 fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag"), 32);
-    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag::"), 30);
+    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag"), 33);
+    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag::"), 31);
     for old_name in [
         "ARRAY_BUFFER_FLAG_RESIZABLE",
         "ARRAY_BUFFER_FLAG_SHARED",
@@ -140,18 +141,25 @@ fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
     assert_eq!(BINARY_DATA.matches("ArrayBufferFlag::").count(), 6);
     assert_eq!(STANDARD.matches("ArrayBufferFlag::").count(), 17);
     assert_eq!(UINT8_ARRAY_CODECS.matches("ArrayBufferFlag::").count(), 1);
+    assert_eq!(TYPED_ARRAY_FILL.matches("ArrayBufferFlag::").count(), 1);
     assert_eq!(HEAP.matches("ArrayBufferFlag::").count(), 4);
     assert_eq!(
-        [OBJECTS, BINARY_DATA, STANDARD, UINT8_ARRAY_CODECS]
-            .into_iter()
-            .map(|source| {
-                source
-                    .lines()
-                    .filter(|line| line.contains("ArrayBufferFlag::") && line.contains(".word()"))
-                    .count()
-            })
-            .sum::<usize>(),
-        26
+        [
+            OBJECTS,
+            BINARY_DATA,
+            STANDARD,
+            UINT8_ARRAY_CODECS,
+            TYPED_ARRAY_FILL,
+        ]
+        .into_iter()
+        .map(|source| {
+            source
+                .lines()
+                .filter(|line| line.contains("ArrayBufferFlag::") && line.contains(".word()"))
+                .count()
+        })
+        .sum::<usize>(),
+        27
     );
 }
 
@@ -228,6 +236,24 @@ fn every_product_projection_stays_with_its_single_algorithm_owner() {
         ["Immutable"]
     );
     assert!(write_validation.contains("self.emit_throw_current_function_realm_type_error("));
+
+    let typed_array_fill = TYPED_ARRAY_FILL
+        .split_once("    pub(super) fn compile_typed_array_prototype_fill_builtin(")
+        .expect("TypedArray.prototype.fill owner")
+        .1;
+    assert_eq!(
+        projection_sequence(typed_array_fill, "ArrayBufferFlag::"),
+        ["Immutable"]
+    );
+    let immutable_rejection = typed_array_fill
+        .split_once("ArrayBufferFlag::Immutable.word() as i64")
+        .expect("fill rejects immutable backing buffers")
+        .1;
+    assert!(immutable_rejection
+        .split_once("self.emit_typed_array_witness(")
+        .expect("fill witnesses the receiver after the immutable check")
+        .0
+        .contains("self.emit_throw_current_function_realm_type_error("));
 }
 
 #[test]

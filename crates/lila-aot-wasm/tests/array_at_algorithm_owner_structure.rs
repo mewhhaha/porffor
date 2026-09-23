@@ -96,23 +96,74 @@ fn removed_direct_at_owner_cannot_be_called() {
         1
     );
 
-    let standard_arm = bounded(
+    assert_eq!(
+        rust_source
+            .matches("fn compile_typed_array_prototype_at_builtin(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        rust_source
+            .matches("fn compile_array_like_at_builtin(")
+            .count(),
+        1
+    );
+
+    let array_arm = bounded(
+        STANDARD_SOURCE,
+        "            StandardBuiltinId::ArrayPrototypeAt => {",
+        "            StandardBuiltinId::TypedArrayPrototypeAt => {",
+    );
+    assert_eq!(
+        array_arm
+            .matches("self.compile_array_prototype_at_builtin(function)?;")
+            .count(),
+        1
+    );
+    assert!(!array_arm.contains("ArrayAtReceiverPolicy"));
+
+    let typed_arm = bounded(
         STANDARD_SOURCE,
         "            StandardBuiltinId::TypedArrayPrototypeAt => {",
         "            StandardBuiltinId::ArrayPrototypeToReversed => {",
     );
     assert_eq!(
-        standard_arm
-            .matches("self.compile_array_prototype_at_builtin(")
+        typed_arm
+            .matches("self.compile_typed_array_prototype_at_builtin(function)?;")
             .count(),
         1
+    );
+    assert!(!typed_arm.contains("ArrayAtReceiverPolicy"));
+
+    let array_entry = bounded(
+        ARRAY_SOURCE,
+        "    pub(super) fn compile_array_prototype_at_builtin(",
+        "    pub(super) fn compile_typed_array_prototype_at_builtin(",
     );
     assert_eq!(
-        standard_arm
-            .matches("ArrayAtReceiverPolicy::TypedArray,")
+        array_entry
+            .matches(
+                "self.compile_array_like_at_builtin(ArrayAtReceiverPolicy::GenericArrayLike, function)"
+            )
             .count(),
         1
     );
+    assert!(!array_entry.contains("ArrayAtReceiverPolicy::TypedArray"));
+
+    let typed_entry = bounded(
+        ARRAY_SOURCE,
+        "    pub(super) fn compile_typed_array_prototype_at_builtin(",
+        "    fn compile_array_like_at_builtin(",
+    );
+    assert_eq!(
+        typed_entry
+            .matches(
+                "self.compile_array_like_at_builtin(ArrayAtReceiverPolicy::TypedArray, function)"
+            )
+            .count(),
+        1
+    );
+    assert!(!typed_entry.contains("ArrayAtReceiverPolicy::GenericArrayLike"));
 }
 
 #[test]
@@ -140,7 +191,7 @@ fn shared_call_boundary_and_canonical_compiler_own_argument_and_index_order() {
 
     let canonical = bounded(
         ARRAY_SOURCE,
-        "    pub(crate) fn compile_array_prototype_at_builtin(",
+        "    fn compile_array_like_at_builtin(",
         "    pub(crate) fn compile_array_prototype_to_reversed_builtin(",
     );
     assert_eq!(
@@ -160,10 +211,14 @@ fn shared_call_boundary_and_canonical_compiler_own_argument_and_index_order() {
         "self.emit_builtin_arg_to_locals(0,",
         "self.emit_array_at_from_locals(",
     );
+    assert_eq!(
+        canonical.matches("            receiver_policy,\n").count(),
+        1
+    );
 
     let algorithm = bounded(
         ARRAY_SOURCE,
-        "    pub(crate) fn emit_array_at_from_locals(",
+        "    fn emit_array_at_from_locals(",
         "    pub(crate) fn emit_array_includes_from_locals(",
     );
     assert_before(

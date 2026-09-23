@@ -3,6 +3,7 @@ use std::path::Path;
 
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
+const MODULE_NAMESPACE_SOURCE: &str = include_str!("../src/objects/module_namespace.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/stored-property-attributes.md");
 const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
@@ -101,7 +102,7 @@ fn every_external_producer_names_its_kind_and_attributes() {
         rust_source
             .matches("StoredPropertyAttributes::Data {")
             .count(),
-        14
+        16
     );
     assert_eq!(
         rust_source
@@ -121,6 +122,23 @@ fn every_external_producer_names_its_kind_and_attributes() {
     assert!(HEAP_SOURCE.contains("    const fn of_accessor("));
     assert!(!HEAP_SOURCE.contains("pub(crate) const fn of_data("));
     assert!(!HEAP_SOURCE.contains("pub(crate) const fn of_accessor("));
+
+    // Module namespace [[GetOwnProperty]]: @@toStringTag is a frozen data
+    // property, and every export is writable, enumerable and non-configurable.
+    let namespace = normalized(MODULE_NAMESPACE_SOURCE);
+    assert_eq!(namespace.matches("StoredPropertyAttributes::").count(), 2);
+    for producer in [
+        concat!(
+            "StoredPropertyAttributes::Data{writable:false,enumerable:false,",
+            "configurable:false,}.descriptor_word().as_i64()"
+        ),
+        concat!(
+            "StoredPropertyAttributes::Data{writable:true,enumerable:true,",
+            "configurable:false,}.descriptor_word().as_i64()"
+        ),
+    ] {
+        assert_eq!(namespace.matches(producer).count(), 1, "{producer}");
+    }
 
     let function_allocation = bounded(
         FUNCTIONS_SOURCE,

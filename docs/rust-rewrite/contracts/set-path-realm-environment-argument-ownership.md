@@ -3,7 +3,8 @@
 `SetPathRealmEnvironmentArgument` is the private two-row authority that emits
 parameter 6 for the outlined object-mutation helpers. A trusted standard
 builtin or set-path helper source emits the current environment; the global
-fallback emits zero. The value represents exactly one helper ABI argument, so
+fallback emits the source Realm's function context in source bodies and zero
+elsewhere. The value represents exactly one helper ABI argument, so
 it has no clone, copy, debug, comparison, default, conversion, or
 representation capability and is consumed by one exhaustive match.
 
@@ -15,8 +16,8 @@ Realm domains and from `ProxyRevocationRoute`.
 The lexical structure guard pins the attribute-free two-row declaration, all
 11 identifier mentions, the complete source projection, both exhaustive unit
 observations, the sole product consumer, and the exact route census. The
-consumer emits exactly one helper ABI argument: either
-`LocalGet(current_env_local)` or `I64Const(0)`. Any second consuming observation
+consumer emits exactly one helper ABI argument: `LocalGet(current_env_local)`,
+the source Realm's function-context payload, or `I64Const(0)`. Any second consuming observation
 of the same authority now fails to compile, while an extra recomputation fails
 the guarded route census.
 

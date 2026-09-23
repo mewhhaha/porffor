@@ -99,12 +99,15 @@ fn bare_identifier_prefix_uses_the_checked_reference_write_path() {
     ] {
         assert!(prefix.contains(required), "missing `{required}`");
     }
+    // The head assignment is completion-neutral: ForIn/OfBodyEvaluation's
+    // loop value comes from the body, never from the per-iteration binding.
     assert_eq!(
         prefix
-            .matches("StatementIr::Expression(assignment)")
+            .matches("StatementIr::DeclarationEvaluation(assignment)")
             .count(),
         1
     );
+    assert!(!prefix.contains("StatementIr::Expression("));
     assert!(!prefix.contains("self.declare_binding("));
 }
 

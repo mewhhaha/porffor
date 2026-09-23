@@ -12,9 +12,13 @@ or require a reader to remember which value was selected. The existing
 `DataSide`/`AccessorSide` typestate remains the authority for which descriptor
 fields may coexist: only the data builder exposes the writable pair.
 
-The module-namespace source emitter uses `enumerable()` and
-`non_configurable()` for its export accessors. Rendering order, descriptor
-presence, completion defaults and generated JavaScript are unchanged.
+Module namespace exports no longer pass through this builder: the namespace
+cell is a linker-recognized export-reader table, and the backend module
+namespace exotic object owns the writable, enumerable, non-configurable export
+attributes as labelled `StoredPropertyAttributes` fields. The only descriptor
+`modules/namespace.rs` still renders is the module source object's complete
+`@@toStringTag` data descriptor, whose attributes are 6.2.6.6 defaults rather
+than per-call selections.
 
 ```sh
 cargo test -p lila-ir --test descriptor_source_text_attribute_selection_structure

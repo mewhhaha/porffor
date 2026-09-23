@@ -1,6 +1,7 @@
 const MODULE_SOURCE: &str = include_str!("../src/module.rs");
 const OWNER_SOURCE: &str = include_str!("../src/module/error_prototype_location.rs");
 const ERRORS_SOURCE: &str = include_str!("../src/builtins/errors.rs");
+const RUNTIME_ERROR_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const BOUND_ALLOCATION_SOURCE: &str = include_str!("../src/functions/bound_function_allocation.rs");
 
@@ -101,20 +102,29 @@ fn error_prototype_location_authority_is_exhaustive_and_single_sourced() {
 
 #[test]
 fn error_prototype_location_accessors_keep_the_reviewed_caller_census() {
+    // The runtime-error emitters moved from `builtins/errors.rs` into its
+    // private `runtime_error` child; the parent keeps no accessor call.
+    for accessor in [
+        "error_prototype_global_index(",
+        "error_realm_prototype_offset(",
+        "error_realm_prototype_entries(",
+    ] {
+        assert_eq!(ERRORS_SOURCE.matches(accessor).count(), 0, "{accessor}");
+    }
     assert_eq!(
-        ERRORS_SOURCE
+        RUNTIME_ERROR_SOURCE
             .matches("error_prototype_global_index(")
             .count(),
         5
     );
     assert_eq!(
-        ERRORS_SOURCE
+        RUNTIME_ERROR_SOURCE
             .matches("error_realm_prototype_offset(")
             .count(),
-        2
+        1
     );
     assert_eq!(
-        ERRORS_SOURCE
+        RUNTIME_ERROR_SOURCE
             .matches("error_realm_prototype_entries(")
             .count(),
         0

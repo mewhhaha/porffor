@@ -55,6 +55,7 @@ fn prepared_target_is_one_private_must_use_capability_free_domain() {
     for variant in [
         "Binding {",
         "AssignmentIdentifier(",
+        "EnvironmentIdentifier {",
         "Property {",
         "Private {",
         "NestedArray(",
@@ -66,6 +67,8 @@ fn prepared_target_is_one_private_must_use_capability_free_domain() {
             "variant `{variant}`"
         );
     }
+    assert!(declaration.contains("AssignmentIdentifier(PreparedIdentifierWrite<'a>),"));
+    assert!(!declaration.contains("IdentifierWriteReferenceIr"));
     for capability in [
         "Clone",
         "Copy",
@@ -80,6 +83,77 @@ fn prepared_target_is_one_private_must_use_capability_free_domain() {
         assert!(!CONTROL_FLOW_SOURCE.contains(&format!(
             "impl {capability} for PreparedDestructuringTarget"
         )));
+        assert!(!CONTROL_FLOW_SOURCE
+            .contains(&format!("impl {capability} for PreparedIdentifierWrite")));
+    }
+}
+
+#[test]
+fn prepared_identifier_write_cannot_spell_an_environment_reference() {
+    let declaration = bounded(
+        CONTROL_FLOW_SOURCE,
+        "#[must_use = \"a prepared identifier write must be consumed by its write\"]",
+        "\nimpl<'a> FunctionBuilder<'a> {",
+    );
+    assert!(!declaration.contains("#[derive("));
+    assert_eq!(
+        without_whitespace(declaration),
+        "enumPreparedIdentifierWrite<'a>{MutableBinding{storage_name:&'astr,},\
+         IgnoreImmutableBinding,Throw{error:IdentifierWriteErrorIr,},\
+         Global{referenced_name:&'astr,strictness:Strictness,},}"
+    );
+
+    let preparation = bounded(
+        CONTROL_FLOW_SOURCE,
+        "            DestructuringTargetIr::AssignmentIdentifier(reference) => {",
+        "            DestructuringTargetIr::AssignmentProperty {",
+    );
+    assert!(preparation.contains("match reference.write_disposition() {"));
+    assert!(!preparation.contains("if let IdentifierWriteDisposition"));
+    for (disposition, prepared) in [
+        (
+            "Environment",
+            "PreparedDestructuringTarget::EnvironmentIdentifier",
+        ),
+        ("MutableBinding", "PreparedIdentifierWrite::MutableBinding"),
+        (
+            "IgnoreImmutableBinding",
+            "PreparedIdentifierWrite::IgnoreImmutableBinding",
+        ),
+        ("Throw", "PreparedIdentifierWrite::Throw"),
+        ("Global", "PreparedIdentifierWrite::Global"),
+    ] {
+        assert_eq!(
+            preparation
+                .matches(&format!("IdentifierWriteDisposition::{disposition}"))
+                .count(),
+            1,
+            "disposition `{disposition}`"
+        );
+        assert_eq!(preparation.matches(prepared).count(), 1, "`{prepared}`");
+    }
+
+    let write = bounded(
+        CONTROL_FLOW_SOURCE,
+        "            PreparedDestructuringTarget::AssignmentIdentifier(write) => {",
+        "            PreparedDestructuringTarget::Property {",
+    );
+    assert!(write.contains("match write {"));
+    assert!(!write.contains("IdentifierWriteDisposition"));
+    assert!(!write.contains("write_disposition()"));
+    for variant in [
+        "MutableBinding",
+        "IgnoreImmutableBinding",
+        "Throw",
+        "Global",
+    ] {
+        assert_eq!(
+            write
+                .matches(&format!("PreparedIdentifierWrite::{variant}"))
+                .count(),
+            1,
+            "consumed identifier write `{variant}`"
+        );
     }
 }
 
@@ -115,6 +189,7 @@ fn preparation_exhaustively_constructs_the_matching_target_variant() {
     for variant in [
         "Binding",
         "AssignmentIdentifier",
+        "EnvironmentIdentifier",
         "Property",
         "Private",
         "NestedArray",
@@ -148,6 +223,7 @@ fn write_consumes_only_the_prepared_target_without_a_parallel_ir_discriminant() 
     for variant in [
         "Binding",
         "AssignmentIdentifier",
+        "EnvironmentIdentifier",
         "Property",
         "Private",
         "NestedArray",
@@ -202,7 +278,8 @@ fn focused_evidence_covers_direct_property_nested_and_private_writes() {
     for evidence in [CONTRACT, TASK] {
         assert!(evidence.contains("PreparedDestructuringTarget"));
         assert!(evidence.contains("must-use"));
-        assert!(evidence.contains("six-variant"));
+        assert!(evidence.contains("seven-variant"));
+        assert!(evidence.contains("PreparedIdentifierWrite"));
         assert!(without_whitespace(evidence).contains("parallelIRdiscriminant"));
         assert!(evidence.contains("Batch AD"));
     }

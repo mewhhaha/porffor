@@ -339,7 +339,8 @@ fn fallback_invariants_results_and_release_order_remain_owned_by_existing_paths(
 fn module_boundary_and_written_contract_pin_the_typed_acquisition() {
     for marker in [
         "GetPrototypeOf, SetPrototypeOf,",
-        "\"$proxy_slot_reader\" 9 'live-Proxy-slot reader definition/internal call'",
+        "\"$proxy_slot_reader\" 8 'live-Proxy-slot reader definition/internal call'",
+        "objects/has_property.rs \"$proxy_slot_reader\" 1 'shared HasProperty live-Proxy-slot reader call'",
         "proxy_set_prototype_of_dispatch=\"$(sed -n",
         "Proxy SetPrototypeOf must retain $required_proxy_set_prototype_of_seam",
         "Proxy SetPrototypeOf must not reconstruct or bypass $forbidden_proxy_set_prototype_of_seam",

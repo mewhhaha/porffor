@@ -7,6 +7,9 @@ const REQUIRED_ORDINARY_PROTOTYPE_SOURCE: &str =
     include_str!("../src/functions/required_resolved_realm_ordinary_prototype.rs");
 const ERRORS_SOURCE: &str = include_str!("../src/builtins/errors.rs");
 const PROMISE_SOURCE: &str = include_str!("../src/builtins/promise.rs");
+const FUNCTION_CONSTRUCTOR_SOURCE: &str = include_str!("../src/builtins/function/constructor.rs");
+const DYNAMIC_FUNCTION_CONSTRUCTOR_SOURCE: &str =
+    include_str!("../src/builtins/function/dynamic_constructor.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -448,7 +451,7 @@ fn function_realm_router_handles_revoked_then_invalid_before_resolving() {
 }
 
 #[test]
-fn all_five_get_function_realm_results_are_immediately_routed() {
+fn all_seven_get_function_realm_results_are_immediately_routed() {
     let generic_construct = concat!(
         "letprototype_realm_result=self.emit_get_function_realm(",
         "new_target_payload_local,new_target_tag_local,function);",
@@ -475,6 +478,13 @@ fn all_five_get_function_realm_results_are_immediately_routed() {
         "callback_payload_local,callback_tag_local,function);",
         "letresolved_realm=self.emit_route_function_realm_result(",
         "realm_result,FunctionRealmRevokedRoute::UseCurrentRealm,function,)?;"
+    );
+    let dynamic_function = concat!(
+        "letrealm_result=self.emit_get_function_realm(",
+        "new_target_payload_local,new_target_tag_local,function);",
+        "letprototype_realm=self.emit_route_function_realm_result(",
+        "realm_result,FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn{",
+        "payload_local:self.result_local,tag_local:self.result_tag_local,},function,)?;"
     );
     let typed_array = concat!(
         "letprototype_realm_result=self.emit_get_function_realm(",
@@ -504,6 +514,16 @@ fn all_five_get_function_realm_results_are_immediately_routed() {
         "    fn emit_promise_job_callback_realm_to_local(",
         "    fn emit_promise_reaction_job_realm_to_local(",
     );
+    let ordinary_dynamic_function_owner = bounded(
+        FUNCTION_CONSTRUCTOR_SOURCE,
+        "    pub(super) fn emit_ordinary_dynamic_function_allocation(",
+        "\n}",
+    );
+    let derived_dynamic_function_owner = bounded(
+        DYNAMIC_FUNCTION_CONSTRUCTOR_SOURCE,
+        "    fn emit_derived_dynamic_function_allocation(",
+        "\n}",
+    );
     let standard_owner = STANDARD_SOURCE
         .split_once("    pub(crate) fn compile_standard_builtin(")
         .expect("compile_standard_builtin owner")
@@ -516,6 +536,8 @@ fn all_five_get_function_realm_results_are_immediately_routed() {
         (required_ordinary_owner, required_ordinary),
         (required_error_owner, required_error),
         (promise_current_owner, promise_current),
+        (ordinary_dynamic_function_owner, dynamic_function),
+        (derived_dynamic_function_owner, dynamic_function),
         (standard_owner, typed_array),
     ] {
         let owner = normalize_rust(owner);
@@ -533,11 +555,11 @@ fn all_five_get_function_realm_results_are_immediately_routed() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_route_in_rust_sources(&source_root, ".emit_get_function_realm("),
-        5
+        7
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, ".emit_route_function_realm_result("),
-        5
+        7
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "FunctionBuilder::emit_get_function_realm"),
@@ -559,7 +581,7 @@ fn all_five_get_function_realm_results_are_immediately_routed() {
             &source_root,
             "FunctionRealmRevokedRoute::ThrowTypeErrorAndReturn",
         ),
-        4
+        6
     );
     assert_eq!(
         count_route_in_rust_sources(

@@ -4,6 +4,8 @@ use std::path::Path;
 const PROMISE_SOURCE: &str = include_str!("../src/builtins/promise.rs");
 const PROMISE_COMBINATOR_ALGORITHM_ERROR_REALM_SOURCE: &str =
     include_str!("../src/builtins/promise/promise_combinator_algorithm_error_realm.rs");
+const PROMISE_KEYED_COMBINATOR_MODE_SOURCE: &str =
+    include_str!("../src/builtins/promise/promise_keyed_combinator_mode.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/functions.rs");
 const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_promise_combinator_algorithm_error_realm.js");
@@ -111,13 +113,18 @@ fn promise_combinator_algorithm_error_realm_context_is_private_paired_and_non_co
             <= 150
     );
 
-    for (method, parent_calls) in [
-        ("emit_promise_combinator_algorithm_error_realm_context(", 3),
-        ("emit_throw_promise_combinator_type_error(", 14),
-        ("emit_throw_promise_combinator_range_error(", 1),
+    for (method, parent_calls, keyed_calls) in [
+        (
+            "emit_promise_combinator_algorithm_error_realm_context(",
+            2,
+            1,
+        ),
+        ("emit_throw_promise_combinator_type_error(", 12, 2),
+        ("emit_throw_promise_combinator_range_error(", 1, 0),
         (
             "release_promise_combinator_algorithm_error_realm_context(",
-            3,
+            2,
+            1,
         ),
     ] {
         assert_eq!(
@@ -131,6 +138,16 @@ fn promise_combinator_algorithm_error_realm_context_is_private_paired_and_non_co
             PROMISE_SOURCE.matches(method).count(),
             parent_calls,
             "the parent must retain the exact {method} caller census",
+        );
+        assert_eq!(
+            PROMISE_KEYED_COMBINATOR_MODE_SOURCE.matches(method).count(),
+            keyed_calls,
+            "the keyed combinator child must retain the exact {method} caller census",
+        );
+        assert_eq!(
+            count_in_rust_sources(&source_root, method),
+            1 + parent_calls + keyed_calls,
+            "no owner beyond the parent and keyed child may call {method}",
         );
     }
 }
@@ -190,9 +207,9 @@ fn promise_combinators_have_exact_three_factory_fifteen_borrow_three_release_lif
         "fn emit_promise_keyed_reject_current_throw(",
     );
     let keyed = between(
-        PROMISE_SOURCE,
+        PROMISE_KEYED_COMBINATOR_MODE_SOURCE,
         "fn emit_promise_keyed(",
-        "pub(crate) fn emit_promise_all(",
+        "\n    }\n}\n",
     );
     let standard = between(
         PROMISE_SOURCE,
@@ -265,8 +282,22 @@ fn promise_combinator_error_consumers_use_only_the_typed_prototypes() {
         PROMISE_SOURCE
             .matches("emit_throw_promise_combinator_type_error(")
             .count(),
-        14,
-        "the parent must retain fourteen TypeError branches"
+        12,
+        "the parent must retain twelve race and standard-combinator TypeError branches"
+    );
+    assert_eq!(
+        PROMISE_KEYED_COMBINATOR_MODE_SOURCE
+            .matches("emit_throw_promise_combinator_type_error(")
+            .count(),
+        2,
+        "the keyed combinator child must retain the other two of fourteen TypeError branches"
+    );
+    assert_eq!(
+        PROMISE_KEYED_COMBINATOR_MODE_SOURCE
+            .matches("emit_throw_promise_combinator_range_error(")
+            .count(),
+        0,
+        "keyed combinators have no max-length RangeError branch"
     );
     assert_eq!(
         PROMISE_SOURCE

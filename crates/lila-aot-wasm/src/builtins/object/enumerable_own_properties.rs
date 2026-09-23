@@ -190,19 +190,23 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
 
-        if !matches!(mode, EnumerableOwnProperties::Keys) {
-            self.emit_object_read_with_key_tag(
-                object_payload_local,
-                object_tag_local,
-                object_payload_local,
-                object_tag_local,
-                own_key_payload_local,
-                Some(own_key_tag_local),
-                value_payload_local,
-                value_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion_if_throw(function);
+        match &mode {
+            // Spec step 4.a.ii: a `key` result never calls Get.
+            EnumerableOwnProperties::Keys => {}
+            EnumerableOwnProperties::Entries | EnumerableOwnProperties::Values => {
+                self.emit_object_read_with_key_tag(
+                    object_payload_local,
+                    object_tag_local,
+                    object_payload_local,
+                    object_tag_local,
+                    own_key_payload_local,
+                    Some(own_key_tag_local),
+                    value_payload_local,
+                    value_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion_if_throw(function);
+            }
         }
         match &mode {
             EnumerableOwnProperties::Keys => {

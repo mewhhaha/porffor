@@ -1,5 +1,5 @@
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
-const ERRORS_SOURCE: &str = include_str!("../src/builtins/errors.rs");
+const RUNTIME_ERROR_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 
 fn declaration_source<'a>(source: &'a str, signature: &str, next: &str) -> &'a str {
     let start = source.find(signature).expect("declaration signature");
@@ -112,8 +112,8 @@ fn ordinary_and_stored_validators_share_the_closed_predicate_emitter() {
         }
         assert!(!body.contains("Presence::Absent | Presence::Present"));
     }
-    assert!(stored.contains("(descriptor.get, stored.getter)"));
-    assert!(stored.contains("(descriptor.set, stored.setter)"));
+    assert!(stored.contains("(descriptor.get, stored.getter.0)"));
+    assert!(stored.contains("(descriptor.set, stored.setter.0)"));
     assert!(stored.contains("DescriptorCompatibilityPredicate::from_presence(&field)"));
 }
 
@@ -138,7 +138,7 @@ fn fresh_runtime_errors_append_properties_without_recursive_validation() {
         "pub(crate) fn emit_runtime_error_object(",
         "fn emit_throw_runtime_error_with_prototype_local_kind(",
     ] {
-        let body = function_source(ERRORS_SOURCE, signature);
+        let body = function_source(RUNTIME_ERROR_SOURCE, signature);
         assert_eq!(
             body.matches("emit_object_append_data_property_with_flags(")
                 .count(),

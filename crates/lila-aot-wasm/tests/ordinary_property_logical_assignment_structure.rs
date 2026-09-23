@@ -5,6 +5,8 @@ const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const THROW_INFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/lowering/throw_inference.rs");
 const BUILTIN_CALL_INFO_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/builtin_call_info.rs");
+const DEFINE_PROPERTY_CALL_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/define_property_call.rs");
 const ASSIGNMENT_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const REFERENCE_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_compound.rs");
@@ -173,7 +175,7 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
             "let receiver_shapes_are_known = possible_receiver_values",
             "let mut possible_getters = PropertyHookTargets::from_known(known_getters);",
             "let mut possible_setters = PropertyHookTargets::from_known(known_setters);",
-            "for receiver in &possible_receiver_values",
+            "self.ordinary_property_mutation_authorities(&possible_receiver_values);",
             "let key_may_call_user_code = Self::property_key_may_call_user_code(&referenced_name);",
             "self.possible_unknown_accessor_functions()",
             "possible_getters.extend_targets(unknown_getters);",
@@ -183,11 +185,39 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
             "possible_setters.extend_known(self.dynamically_installed_setters.iter().cloned());",
             "include_all_planned_source(self.analysis.planned_source_function_ids.clone())",
             "possible_receiver_values: possible_receiver_values.into_boxed_slice(),",
+            "possible_mutation_authorities,",
             "unknown_property_hooks_possible:",
             "possible_getters,",
             "possible_setters,",
         ],
     );
+
+    let authorities = bounded(
+        REFERENCE_LOWERING_SOURCE,
+        "    pub(super) fn ordinary_property_mutation_authorities(",
+        "\n    }\n",
+    );
+    assert!(authorities.contains("possible_receivers: &[ValueInfo],"));
+    assert!(authorities.contains("for receiver in possible_receivers {"));
+
+    // Global-object and prototype-state invalidation is owned by the
+    // authority projection that every possible write records first.
+    let authority_effects = bounded(
+        REFERENCE_LOWERING_SOURCE,
+        "    pub(super) fn record_ordinary_property_mutation_authority_effects(",
+        "    pub(super) fn record_ordinary_property_possible_write(",
+    );
+    for marker in [
+        "self.invalidate_possible_global_property_value_info(name);",
+        "self.invalidate_all_possible_global_property_value_infos();",
+        "self.number_prototype_to_string_state = PrototypeToStringState::Unknown;",
+        "self.boolean_prototype_to_string_state = PrototypeToStringState::Unknown;",
+    ] {
+        assert!(
+            authority_effects.contains(marker),
+            "mutation-authority invalidation lost {marker}"
+        );
+    }
 
     let possible_write = bounded(
         REFERENCE_LOWERING_SOURCE,
@@ -195,20 +225,21 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
         "    fn possible_shape_accessors(",
     );
     for marker in [
-        "self.invalidate_possible_global_property_value_info(name);",
-        "self.invalidate_all_possible_global_property_value_infos();",
-        "self.number_prototype_to_string_state = PrototypeToStringState::Unknown;",
-        "self.boolean_prototype_to_string_state = PrototypeToStringState::Unknown;",
+        "self.record_ordinary_property_mutation_authority_effects(",
+        "&metadata.possible_mutation_authorities,",
         "self.possible_ordinary_property_setters(metadata, intervening_user_code);",
         "let setter_may_call_user_code = metadata.unknown_property_hooks_possible",
         "self.invalidate_unknown_user_code_effects();",
         "for receiver in &metadata.possible_receiver_values",
         "self.invalidate_ordinary_property_shape_aliases(receiver);",
-        "fn shape_contains_alias(shape: &HeapShape, alias: &ValueInfo) -> bool",
-        "shape.properties.values().any(property_contains_alias)",
-        ".is_some_and(|prototype| shape_contains_alias(prototype, alias))",
+        "fn invalidate_nested_aliases(",
+        "for property in shape.properties.values_mut()",
+        "invalidate_value_alias(value, alias, canonical_targets);",
+        ".is_some_and(|prototype| alias.heap_shape.as_deref() == Some(prototype))",
+        "invalidate_nested_aliases(prototype, alias, canonical_targets);",
         "HeapShape::Array(shape) => {",
-        ".any(|info| value_contains_alias(info, alias))",
+        "invalidate_value_alias(element, alias, canonical_targets);",
+        "self.visit_live_heap_shape_roots(clear_if_alias_is_reachable);",
     ] {
         assert!(
             possible_write.contains(marker),
@@ -228,7 +259,7 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
     assert!(REFERENCE_LOWERING_SOURCE.contains("self.analysis.planned_source_function_ids.clone()"));
     assert!(REFERENCE_LOWERING_SOURCE.contains("fn property_key_may_call_user_code("));
     assert!(LOWERING_SOURCE.contains("self.dynamically_installed_getters"));
-    assert!(BUILTIN_CALL_INFO_SOURCE.contains("self.read_object_shape(descriptor, \"get\")"));
+    assert!(DEFINE_PROPERTY_CALL_SOURCE.contains("self.read_object_shape(descriptor, \"get\")"));
     assert!(LOWERING_SOURCE.contains("fn invalidate_unknown_user_code_effects(&mut self)"));
     assert!(LOWERING_SOURCE.contains(".extend(lowerer.dynamically_installed_getters)"));
     assert!(LOWERING_SOURCE.contains("unknown_user_code_effects_observed"));
@@ -473,7 +504,7 @@ fn exhaustive_consumers_and_budget_name_the_fused_lifecycle() {
         PLANNING_SOURCE
             .matches("ExprIr::OrdinaryPropertyLogicalAssignment(assignment) =>")
             .count(),
-        6
+        4
     );
     assert_eq!(
         PLANNING_SOURCE

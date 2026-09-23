@@ -194,7 +194,8 @@ fn rejected_forwarding_returns_before_target_observation_or_emission() {
     assert!(source_capture < argument_lowering);
     assert!(argument_lowering < preflight);
     assert!(preflight < emission);
-    assert!(CALL_SOURCE.lines().count() <= 3_100);
+    // Mirrors the raw-line budget in scripts/check-module-boundaries.sh.
+    assert!(CALL_SOURCE.lines().count() <= 3_112);
 }
 
 #[test]

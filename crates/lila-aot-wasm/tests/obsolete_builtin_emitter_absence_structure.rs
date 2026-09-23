@@ -46,7 +46,7 @@ fn live_neighboring_emitters_remain_owned_and_reachable() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (name, expected) in [
         ("emit_date_positive_mod", 13),
-        ("emit_date_make_time", 6),
+        ("emit_date_make_time", 4),
         ("emit_throw_if_array_buffer_immutable", 6),
         (
             "emit_string_match_all_global_ascii_word_iterator_from_string_locals_from_start",

@@ -204,8 +204,12 @@ fn lowering_intercepts_all_eager_access_operators_before_generic_reference_decom
             "self.lower_ordinary_property_reference_plan(access)",
             "self.record_ordinary_property_get(&metadata);",
             "let possible_getters = Self::possible_ordinary_property_getters(&metadata);",
+            "let rhs_effect_accounting = self.prepare_potentially_effectful_expression(rhs);",
             "let rhs = self.lower_expression(rhs);",
-            "let possible_setters = self.possible_ordinary_property_setters(&metadata, true);",
+            "let coercion_may_call_user_code =",
+            "self.ordinary_property_numeric_coercion_may_call_user_code(&metadata);",
+            "let possible_setters =",
+            "self.possible_ordinary_property_setters(&metadata, coercion_may_call_user_code);",
             "let old_value_binding =",
             "plan.eager_compound_assignment(",
             "possible_getters",
@@ -399,7 +403,7 @@ fn exhaustive_consumers_and_temp_budget_name_every_fused_phase() {
         PLANNING_SOURCE
             .matches("ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) =>")
             .count(),
-        7,
+        5,
         "every planning traversal must name the fused node"
     );
 }

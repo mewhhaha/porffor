@@ -1,5 +1,5 @@
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
-const ERRORS_SOURCE: &str = include_str!("../src/builtins/errors.rs");
+const RUNTIME_ERROR_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const SET_PATH_REALM_SOURCE: &str = include_str!("../src/objects/set_path_realm.rs");
 const ARRAY_FROM_ASYNC_SOURCE: &str = include_str!("../src/builtins/array_from_async.rs");
@@ -80,11 +80,16 @@ fn every_ordinary_descriptor_failure_uses_the_typed_mutation_error_owner() {
     assert!(!descriptor_validation.contains("TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX"));
 
     let no_message_emitter = bounded(
-        ERRORS_SOURCE,
-        "fn emit_throw_type_error_without_message_with_prototype_local(",
-        "pub(crate) fn emit_throw_current_function_realm_range_error(",
+        RUNTIME_ERROR_SOURCE,
+        "    fn emit_throw_type_error_without_message_with_prototype_local(",
+        "    pub(crate) fn emit_throw_current_function_realm_range_error(",
     );
-    assert!(no_message_emitter.contains("emit_set_thrown_error_text(TYPE_ERROR_NAME, None"));
+    assert_eq!(
+        no_message_emitter
+            .matches("self.emit_set_thrown_error_text(NativeErrorKind::TypeError, None, function);")
+            .count(),
+        1
+    );
     assert!(!no_message_emitter.contains("strings.payload(\"message\")"));
 
     let create_data_property = bounded(

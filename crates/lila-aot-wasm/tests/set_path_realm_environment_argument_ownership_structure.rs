@@ -299,9 +299,13 @@ fn source_projection_and_unit_observations_are_exhaustive_and_exact() {
 
 #[test]
 fn sole_product_consumer_emits_exactly_one_abi_argument() {
+    // Each row pushes exactly one i64. The fallback row never reads
+    // `current_env_local`: source bodies pass their source Realm's function
+    // context, resolved through the Global Environment, and every other body
+    // passes zero.
     let consumer = normalized_rust(bounded(
         OBJECTS_SOURCE,
-        "    pub(crate) fn emit_set_path_realm_environment_argument(&self, function: &mut Function) {",
+        "    pub(crate) fn emit_set_path_realm_environment_argument(&mut self, function: &mut Function) {",
         "    /// The strictness flag word for an object write that is **not** a",
     ));
     assert_eq!(
@@ -311,7 +315,9 @@ fn sole_product_consumer_emits_exactly_one_abi_argument() {
             "SetPathRealmEnvironmentArgument::TrustedCurrentEnvironment=>{",
             "function.instruction(&Instruction::LocalGet(self.current_env_local));}",
             "SetPathRealmEnvironmentArgument::MainRealmFallback=>{",
-            "function.instruction(&Instruction::I64Const(0));}}}"
+            "ifself.has_source_execution_environment(){",
+            "self.emit_source_realm_function_context_payload(function);}",
+            "else{function.instruction(&Instruction::I64Const(0));}}}}"
         )
     );
     for forbidden in [

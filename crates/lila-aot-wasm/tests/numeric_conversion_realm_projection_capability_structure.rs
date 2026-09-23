@@ -45,9 +45,11 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 
 #[test]
 fn numeric_realm_projections_are_exact_non_capability_domains() {
+    // `spec_operation_object_target_kind` is the item immediately preceding
+    // the Realm access declaration.
     let declarations = bounded(
         OPERATIONS_SOURCE,
-        "enum UnaryNumericKind {\n    Number,\n    BigInt,\n}\n",
+        "        | ValueKind::String => SpecOperationObjectTargetKind::StaticallyPrimitive,\n    }\n}\n",
         "fn numeric_conversion_realm_access(",
     );
     assert!(!declarations.contains("#["));
@@ -147,9 +149,12 @@ fn all_three_source_rows_project_once_for_both_consumers() {
 
 #[test]
 fn each_projection_consumer_keeps_its_exact_emission_policy() {
+    // The fallback row never reads `current_env_local` as Realm metadata:
+    // source bodies pass their source Realm's function context, resolved
+    // through the Global Environment, and every other body passes zero.
     let outlined_consumer = normalized(bounded(
         OPERATIONS_SOURCE,
-        "fn emit_outlined_numeric_realm_argument(&self, function: &mut Function) {",
+        "fn emit_outlined_numeric_realm_argument(&mut self, function: &mut Function) {",
         "\n    }\n\n    fn emit_numeric_conversion_type_error(",
     ));
     assert_eq!(
@@ -159,7 +164,9 @@ fn each_projection_consumer_keeps_its_exact_emission_policy() {
             "NumericConversionRealmAccess::TrustedCurrentEnvironment=>{",
             "function.instruction(&Instruction::LocalGet(self.current_env_local));}",
             "NumericConversionRealmAccess::MainRealmFallback=>{",
-            "function.instruction(&Instruction::I64Const(0));}}"
+            "ifself.has_source_execution_environment(){",
+            "self.emit_source_realm_function_context_payload(function);}",
+            "else{function.instruction(&Instruction::I64Const(0));}}}"
         )
     );
 
@@ -185,7 +192,7 @@ fn each_projection_consumer_keeps_its_exact_emission_policy() {
     let range_error_consumer = normalized(bounded(
         OPERATIONS_SOURCE,
         "fn emit_numeric_conversion_range_error(",
-        "\n    }\n\n    fn finish_may_throw_operation(",
+        "\n    }\n\n    fn finish_to_primitive_operation(",
     ));
     assert_eq!(
         range_error_consumer,

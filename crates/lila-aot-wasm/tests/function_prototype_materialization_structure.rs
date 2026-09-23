@@ -76,8 +76,8 @@ pub(crate) enum FunctionPrototypeMaterialization {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "FunctionPrototypeMaterialization"),
-        12,
-        "one declaration, one import, two parameters, six producers and two exhaustive arms own every mention"
+        13,
+        "one declaration, one import, two parameters, seven producers and two exhaustive arms own every mention"
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "FunctionPrototypeMaterialization::Automatic"),
@@ -88,7 +88,7 @@ pub(crate) enum FunctionPrototypeMaterialization {
             &source_root,
             "FunctionPrototypeMaterialization::BootstrapSupplied"
         ),
-        5
+        6
     );
     for forbidden in [
         "impl FunctionPrototypeMaterialization",
@@ -102,7 +102,7 @@ pub(crate) enum FunctionPrototypeMaterialization {
 }
 
 #[test]
-fn six_producers_select_the_exact_materialization_policy() {
+fn seven_producers_select_the_exact_materialization_policy() {
     let ordinary_wrapper = bounded(
         FUNCTIONS_SOURCE,
         "    pub(crate) fn emit_function_value_payload(\n",
@@ -129,18 +129,25 @@ fn six_producers_select_the_exact_materialization_policy() {
     );
     assert!(!realm_wrapper.contains("FunctionPrototypeMaterialization::BootstrapSupplied"));
 
-    let realm_array_wrapper = bounded(
-        FUNCTIONS_SOURCE,
-        "    pub(crate) fn emit_realm_array_constructor_value_payload(\n",
-        "    fn emit_function_value_payload_in_realm_with_prototype_materialization(\n",
-    );
-    assert_eq!(
-        realm_array_wrapper
-            .matches("FunctionPrototypeMaterialization::BootstrapSupplied")
-            .count(),
-        1
-    );
-    assert!(!realm_array_wrapper.contains("FunctionPrototypeMaterialization::Automatic"));
+    for (start, end) in [
+        (
+            "    pub(crate) fn emit_realm_array_constructor_value_payload(\n",
+            "    /// Materialize the created realm's hidden `%TypedArray%` constructor",
+        ),
+        (
+            "    pub(crate) fn emit_realm_typed_array_constructor_value_payload(\n",
+            "    fn emit_function_value_payload_in_realm_with_prototype_materialization(\n",
+        ),
+    ] {
+        let realm_bootstrap_wrapper = bounded(FUNCTIONS_SOURCE, start, end);
+        assert_eq!(
+            realm_bootstrap_wrapper
+                .matches("FunctionPrototypeMaterialization::BootstrapSupplied")
+                .count(),
+            1
+        );
+        assert!(!realm_bootstrap_wrapper.contains("FunctionPrototypeMaterialization::Automatic"));
+    }
 
     for (start, end) in [
         (
@@ -260,6 +267,12 @@ fn exhaustive_policy_projection_preserves_the_automatic_allocation_gate() {
             }
         }
 
+        if meta.standard_builtin.is_none()
+            && meta.host_builtin.is_none()
+            && self.has_source_execution_environment()
+        {
+            self.emit_install_source_function_execution_realm(meta, object_local, function);
+        }
         function.instruction(&Instruction::LocalGet(object_local));
         self.release_temp_local(proto_tag_local);
         self.release_temp_local(proto_value_local);
@@ -283,7 +296,7 @@ fn exhaustive_policy_projection_preserves_the_automatic_allocation_gate() {
 #[test]
 fn contract_and_t09_record_the_exhaustive_source_equivalence() {
     for marker in [
-        "six producer sites",
+        "seven producer sites",
         "exhaustive two-arm projection",
         "changes no emitted instruction",
     ] {

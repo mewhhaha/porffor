@@ -1,4 +1,4 @@
-const ERROR_SOURCE: &str = include_str!("../src/builtins/errors.rs");
+const ERROR_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const FIXTURE_SOURCE: &str =

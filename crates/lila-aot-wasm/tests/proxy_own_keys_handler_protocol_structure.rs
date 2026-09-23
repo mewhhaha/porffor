@@ -4,6 +4,8 @@ use std::path::Path;
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const OBJECT_BUILTINS_SOURCE: &str = include_str!("../src/builtins/object.rs");
 const REFLECT_BUILTINS_SOURCE: &str = include_str!("../src/builtins/reflect.rs");
+const ENUMERABLE_OWN_PROPERTIES_SOURCE: &str =
+    include_str!("../src/builtins/object/enumerable_own_properties.rs");
 const CLI_OBJECT_SOURCE: &str = include_str!("../../lila-cli/tests/cli/object.rs");
 const OWN_KEYS_FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_proxy_own_keys.js");
 const HANDLER_PROTOCOL_FIXTURE: &str =
@@ -386,7 +388,6 @@ fn assert_typed_caller(
     handler: &str,
     result_binding: &str,
     validator: &str,
-    validator_handler_count: usize,
 ) {
     assert_eq!(
         caller
@@ -396,10 +397,7 @@ fn assert_typed_caller(
     );
     assert_eq!(caller.matches("ProxySlotLocals::new(").count(), 1);
     assert_eq!(caller.matches("ProxyTargetLocals::new(").count(), 2);
-    assert_eq!(
-        caller.matches("ProxyHandlerLocals::new(").count(),
-        validator_handler_count + 1
-    );
+    assert_eq!(caller.matches("ProxyHandlerLocals::new(").count(), 1);
     assert_eq!(caller.matches("ProxyOwnKeysTrapLocals::new(").count(), 1);
     assert_eq!(
         caller.matches("ProxyOwnKeysTrapResultLocals::new(").count(),
@@ -484,11 +482,11 @@ fn own_keys_trap_roles_are_distinct_non_copy_and_closed_over_product_sources() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "ProxyOwnKeysTrapLocals"),
-        9
+        8
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "ProxyOwnKeysTrapResultLocals"),
-        14
+        12
     );
 }
 
@@ -661,12 +659,12 @@ fn nullish_fallback_retains_the_tagged_target() {
 }
 
 #[test]
-fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
+fn all_three_consumers_use_the_typed_acquisition_and_keep_validation() {
     assert_eq!(
         OBJECT_BUILTINS_SOURCE
             .matches("self.emit_proxy_own_keys_trap_result(")
             .count(),
-        3
+        2
     );
     assert_eq!(
         REFLECT_BUILTINS_SOURCE
@@ -687,13 +685,12 @@ fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
         "ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local)",
         "proxy_trap_result",
         "self.emit_proxy_own_keys_filtered_result(",
-        0,
     );
 
     let symbols = bounded(
         OBJECT_BUILTINS_SOURCE,
         "pub(super) fn compile_object_get_own_property_symbols_builtin(",
-        "pub(super) fn compile_object_keys_builtin(",
+        "pub(super) fn compile_object_is_builtin(",
     );
     assert_typed_caller(
         symbols,
@@ -702,23 +699,38 @@ fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
         "ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local)",
         "proxy_trap_result",
         "self.emit_proxy_own_keys_filtered_result(",
-        0,
     );
 
-    let keys = bounded(
-        OBJECT_BUILTINS_SOURCE,
-        "pub(super) fn compile_object_keys_builtin(",
-        "fn compile_object_own_descriptor_predicate_builtin(",
+    // `Object.keys`, `Object.values` and `Object.entries` share one
+    // EnumerableOwnProperties owner that performs `[[OwnPropertyKeys]]` by
+    // calling the Reflect.ownKeys builtin, so it reaches the typed acquisition
+    // below instead of acquiring the trap itself.
+    let enumerable = ENUMERABLE_OWN_PROPERTIES_SOURCE;
+    assert_eq!(
+        enumerable
+            .matches(".get(&StandardBuiltinId::ReflectOwnKeys.function_id())")
+            .count(),
+        1
     );
-    assert_typed_caller(
-        keys,
-        "TaggedLocals::new(arg_payload_local, arg_tag_local)",
-        "ProxyTargetLocals::new(proxy_target_payload_local, proxy_target_tag_local)",
-        "ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local)",
-        "proxy_trap_result",
-        "self.emit_proxy_object_keys_from_own_keys_result(",
-        1,
+    assert_eq!(enumerable.matches("&own_keys_meta,").count(), 1);
+    assert_before(
+        enumerable,
+        "self.emit_value_to_current_function_realm_object_locals(",
+        "&own_keys_meta,",
     );
+    for retired_inline_acquisition in [
+        "emit_proxy_own_keys_trap_result",
+        "ProxyOwnKeysTrapLocals",
+        "ProxyOwnKeysTrapResultLocals",
+        "emit_load_live_proxy_slots",
+        "self.strings.payload(\"ownKeys\")",
+    ] {
+        assert!(
+            !enumerable.contains(retired_inline_acquisition),
+            "EnumerableOwnProperties must not acquire the ownKeys trap itself: `{retired_inline_acquisition}`",
+        );
+    }
+    assert!(!OBJECTS_SOURCE.contains("emit_proxy_object_keys_from_own_keys_result"));
 
     let reflect = after(
         REFLECT_BUILTINS_SOURCE,
@@ -731,7 +743,6 @@ fn all_four_consumers_use_the_typed_acquisition_and_keep_validation() {
         "ProxyHandlerLocals::new(handler_payload_local, handler_tag_local)",
         "trap_result",
         "self.emit_proxy_own_keys_array_result(",
-        0,
     );
 }
 

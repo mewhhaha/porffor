@@ -42,7 +42,7 @@ fn create_realm_host() -> &'static str {
     bounded(
         HOST_SOURCE,
         "    pub(crate) fn compile_host_create_realm_builtin(",
-        "    /// Defensive body for the Test262 realm-evaluation capability.",
+        "    pub(crate) fn compile_host_agent_start_builtin(",
     )
 }
 

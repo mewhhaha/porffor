@@ -65,12 +65,12 @@ fn receiver_kind_is_an_exact_private_non_derived_domain() {
     let declaration_region = bounded(
         ARRAY_SOURCE,
         concat!(
-            "pub(crate) enum ArraySortOutput {\n",
+            "\nenum ArraySortOutput {\n",
             "    Receiver,\n",
             "    Copy,\n",
             "}\n\n"
         ),
-        "\n\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n#[repr(i64)]",
+        "\n\npub(crate) enum ArrayInheritedIndexSetState {",
     );
     assert_eq!(
         normalized(declaration_region),

@@ -126,12 +126,12 @@ fn complete_step_kind_is_one_closed_domain_with_one_boolean_projection() {
     let domain = bounded(
         PROMISE_SOURCE,
         "/// Whether an async-generator request publishes a yielded or terminal result.",
-        "/// The original completion",
+        "/// The coupled `[[Prototype]]` and executing Realm for one Promise allocation.",
     );
     let declaration = bounded(
         PROMISE_SOURCE,
         "pub(crate) enum AsyncGeneratorCompleteStepKind {",
-        "}\n\n/// The original completion",
+        "}\n\n/// The coupled `[[Prototype]]` and executing Realm",
     );
     let variants = declaration
         .lines()
@@ -210,12 +210,20 @@ fn complete_step_kind_is_one_closed_domain_with_one_boolean_projection() {
         "Completed may appear only in the projection and ten terminal calls"
     );
 
+    let promise_reexport = bounded(BUILTINS_SOURCE, "pub(crate) use promise::{", "};");
     assert_eq!(
-        BUILTINS_SOURCE
-            .matches("pub(crate) use promise::AsyncGeneratorCompleteStepKind;")
+        promise_reexport
+            .matches("AsyncGeneratorCompleteStepKind,")
             .count(),
         1,
         "the private promise module must export the lifecycle state at crate visibility"
+    );
+    assert_eq!(
+        BUILTINS_SOURCE
+            .matches("AsyncGeneratorCompleteStepKind")
+            .count(),
+        1,
+        "the crate-visible promise re-export must be the only builtins-module mention"
     );
     for (name, source) in [
         ("functions", FUNCTIONS_SOURCE),

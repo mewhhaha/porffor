@@ -8,6 +8,9 @@ const CLASSIFICATION_SOURCE: &str =
 const MATERIALIZATION_SOURCE: &str = include_str!("../src/modules/graph_materialization.rs");
 const LINK_SOURCE: &str = include_str!("../src/modules/link.rs");
 const NAMESPACE_SOURCE: &str = include_str!("../src/modules/namespace.rs");
+const NAMESPACE_DEFINITION_SOURCE: &str = include_str!("../src/modules/namespace_definition.rs");
+const DEFAULT_EXPORT_DEFINITION_SOURCE: &str =
+    include_str!("../src/modules/default_export_definition.rs");
 const DYNAMIC_SOURCE: &str = include_str!("../src/modules/dynamic.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 
@@ -155,11 +158,25 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
             .count(),
         1
     );
+    assert_eq!(
+        NAMESPACE_DEFINITION_SOURCE
+            .matches("use super::evaluation_mode::ModuleMaterializationModeIr;")
+            .count(),
+        1
+    );
+    assert_eq!(
+        DEFAULT_EXPORT_DEFINITION_SOURCE
+            .matches("use super::evaluation_mode::ModuleMaterializationModeIr;")
+            .count(),
+        1
+    );
     for source in [
         GRAPH_SOURCE,
         MATERIALIZATION_SOURCE,
         LINK_SOURCE,
         NAMESPACE_SOURCE,
+        NAMESPACE_DEFINITION_SOURCE,
+        DEFAULT_EXPORT_DEFINITION_SOURCE,
     ] {
         assert!(!source.contains("use super::graph::ModuleMaterializationModeIr;"));
     }
@@ -181,13 +198,25 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
         NAMESPACE_SOURCE
             .matches("ModuleMaterializationModeIr")
             .count(),
-        12
+        16
+    );
+    assert_eq!(
+        NAMESPACE_DEFINITION_SOURCE
+            .matches("ModuleMaterializationModeIr")
+            .count(),
+        2
+    );
+    assert_eq!(
+        DEFAULT_EXPORT_DEFINITION_SOURCE
+            .matches("ModuleMaterializationModeIr")
+            .count(),
+        4
     );
     assert!(!DYNAMIC_SOURCE.contains("ModuleMaterializationModeIr"));
     assert_eq!(GRAPH_SOURCE.matches("ModuleEvaluationModeIr").count(), 5);
     assert_eq!(
         GRAPH_TESTS_SOURCE.matches("ModuleEvaluationModeIr").count(),
-        10
+        11
     );
     assert_eq!(
         ASYNC_EVALUATION_SOURCE

@@ -11,20 +11,22 @@ are distinct, non-copyable `ProxyOwnKeysTrapLocals` and
 write into the wrong scratch pair while post-trap validation read the other
 pair.
 
-Each of the four Object/Reflect producers now gives the result authority to the
-single acquisition emitter, receives that same authority back, and consumes it
-once in the corresponding post-trap validator. Validators also accept the
-existing distinct `ProxyTargetLocals` and, for `Object.keys`,
-`ProxyHandlerLocals`, instead of adjacent raw payload/tag arguments. Trap,
-target, handler, and result roles therefore cannot be transposed at these
-boundaries.
+Each of the three Object/Reflect producers (`Object.getOwnPropertyNames`,
+`Object.getOwnPropertySymbols` and `Reflect.ownKeys`) now gives the result
+authority to the single acquisition emitter, receives that same authority back,
+and consumes it once in the corresponding post-trap validator. `Object.keys`,
+`Object.values` and `Object.entries` share one EnumerableOwnProperties owner
+that calls the `Reflect.ownKeys` builtin and so acquires no trap of its own.
+Validators also accept the existing distinct `ProxyTargetLocals` instead of
+adjacent raw payload/tag arguments. Trap, target, handler, and result roles
+therefore cannot be transposed at these boundaries.
 
 ## Durable evidence
 
 `proxy_own_keys_handler_protocol_structure` uses a Rust lexical identifier
 census that excludes comments and ordinary, raw, byte, C-string, character,
 and byte-character literals. It pins both exact role types, their lack of Copy
-or Clone, the sole acquisition, all four producers, the returned ownership
+or Clone, the sole acquisition, all three producers, the returned ownership
 transition, and exactly one typed validator consumption per producer.
 
 On 2026-08-27, its seven focused structure tests passed, as did

@@ -222,7 +222,7 @@ fn exactly_two_helper_producers_and_filings_choose_their_fallback_policy() {
     let helper_filings = normalized(bounded(
         EMIT_SOURCE,
         concat!(
-            ".expect(\"array-write helper must exist when heap is enabled\"),\n",
+            ".expect(\"array present-index helper must exist when heap is enabled\"),\n",
             "        );"
         ),
         "        helper_bodies.insert(\n            RuntimeHelperId::DecimalToBinary64,",

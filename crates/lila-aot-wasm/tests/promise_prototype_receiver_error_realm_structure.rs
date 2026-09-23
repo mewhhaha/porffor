@@ -437,15 +437,21 @@ fn delegated_then_invocation_is_private_validated_and_one_shot() {
     assert_eq!(non_callable_errors.len(), 2);
     assert_eq!(
         shared_call
+            .matches("self.emit_proxy_execution_realm_type_error(")
+            .count(),
+        4
+    );
+    assert_eq!(
+        shared_call
             .matches("self.emit_throw_runtime_error(")
             .count(),
-        3
+        0
     );
     assert_eq!(
         shared_call
             .matches("self.emit_throw_runtime_error_with_prototype_local(")
             .count(),
-        1
+        0
     );
     let revoked_proxy_error = shared_call.find("\"Proxy handler is null\"").unwrap();
     let apply_lookup = shared_call.find("self.emit_object_read(").unwrap();
@@ -507,11 +513,44 @@ fn catch_and_finally_route_lookup_before_validated_delegated_then_call() {
     let realm_aware_to_object = between(
         OPERATIONS_SOURCE,
         "pub(crate) fn emit_value_to_current_function_realm_object_locals(",
+        "pub(crate) fn emit_value_to_function_realm_object_locals(",
+    );
+    assert!(realm_aware_to_object.contains("self.current_env_local"));
+    assert!(realm_aware_to_object.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
+    assert!(!realm_aware_to_object.contains("CURRENT_REALM_GLOBAL_INDEX"));
+    assert_eq!(
+        realm_aware_to_object
+            .matches("self.emit_value_to_object_in_realm_locals(\n            realm_local,")
+            .count(),
+        1,
+        "the current-function Realm must be the only Realm handed to ToObject",
+    );
+
+    let to_object_in_realm = between(
+        OPERATIONS_SOURCE,
+        "fn emit_value_to_object_in_realm_locals(",
         "pub(crate) fn emit_to_integer_or_infinity_number_payload_from_number_payload(",
     );
-    assert!(realm_aware_to_object.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
-    assert!(realm_aware_to_object.contains("HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET"));
-    assert!(realm_aware_to_object.contains("emit_throw_current_function_realm_type_error("));
+    assert!(to_object_in_realm.contains("HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET"));
+    assert!(!to_object_in_realm.contains("CURRENT_REALM_GLOBAL_INDEX"));
+    assert!(!to_object_in_realm.contains("self.emit_throw_runtime_error("));
+    let type_error_prototype = to_object_in_realm
+        .find(
+            "self.emit_load_realm_intrinsic_prototype_or_global(\n            realm_local,\n            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,\n            TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,\n            prototype_local,",
+        )
+        .expect("ToObject TypeError prototype must come from the supplied Realm");
+    let type_error_throw = to_object_in_realm
+        .find(
+            "self.emit_throw_runtime_error_with_prototype_local(\n            TYPE_ERROR_NAME,\n            \"Cannot convert undefined or null to object\",\n            prototype_local,",
+        )
+        .expect("ToObject TypeError must use the supplied Realm prototype");
+    assert!(type_error_prototype < type_error_throw);
+    assert_eq!(
+        to_object_in_realm
+            .matches("self.emit_throw_runtime_error_with_prototype_local(")
+            .count(),
+        1
+    );
 }
 
 #[test]

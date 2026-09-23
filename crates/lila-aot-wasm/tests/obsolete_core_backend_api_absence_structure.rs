@@ -50,7 +50,7 @@ fn live_neighboring_apis_remain_reachable() {
         ("emit_string_substring_method_call", 2),
         ("emit_string_char_code_at_from_locals", 9),
         ("buffer_memarg64", 11),
-        ("buffer_memarg8", 31),
+        ("buffer_memarg8", 33),
         ("emit_store_realm_message_error_prototype", 4),
         ("emit_store_current_realm_message_error_prototype", 10),
         ("standard_builtin_function_global_index", 3),

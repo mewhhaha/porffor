@@ -24,7 +24,9 @@ pub struct ModuleUnitIr {
     pub functions: Vec<FunctionIr>,
     /// This unit's own top-level environment bindings.
     pub owned_env_bindings: Vec<OwnedEnvBindingIr>,
-    /// Set when any importer or `import()` observes this module's namespace.
+    /// One namespace object per observed mode: an entry exists when an
+    /// importer or `import()` observes this module's eager or deferred
+    /// namespace, and the two modes are distinct objects.
     pub namespaces: BTreeMap<ModuleNamespaceModeIr, ModuleNamespaceIr>,
     /// One entry per `record.import_entries[i]`, same index.
     pub resolved_imports: Vec<ResolvedBindingIr>,

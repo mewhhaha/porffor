@@ -1,10 +1,22 @@
 # Prepared destructuring target
 
 `PreparedDestructuringTarget` is the private, must-use, capability-free
-six-variant boundary between target evaluation and the later destructuring
+seven-variant boundary between target evaluation and the later destructuring
 write. Its `Binding`, `AssignmentIdentifier`, `Property`, `Private`,
 `NestedArray` and `NestedObject` variants mirror the closed
 `DestructuringTargetIr` domain and carry exactly the values each write needs.
+`EnvironmentIdentifier` is the seventh: an identifier Reference whose base is a
+runtime environment is resolved during preparation, before the source value or
+default initializer is observed, and keeps its resolved Reference and key local
+until PutValue.
+
+`AssignmentIdentifier` carries the private, must-use `PreparedIdentifierWrite`
+domain rather than the IR Reference. Preparation projects
+`IdentifierWriteDisposition` exhaustively: its `Environment` case becomes
+`EnvironmentIdentifier`, and `MutableBinding`, `IgnoreImmutableBinding`,
+`Throw` and `Global` become the four `PreparedIdentifierWrite` variants. The
+write therefore cannot meet an environment disposition again, and needs no
+`unreachable!` to reject one.
 
 Preparation matches the IR target exhaustively. Property and private targets
 evaluate and retain their receiver locals before the source value or default
@@ -26,7 +38,7 @@ static keys own no temporary locals.
 
 Batch AD changes no evaluation, abrupt-completion, IteratorClose, Reference
 strictness or temporary-local order. The recursive four-test guard pins the
-six-variant mirror, sole exhaustive producer and consumer, absence of the
+variant mirror, sole exhaustive producer and consumer, absence of the
 parallel discriminant and focused direct, property, nested and private runtime
 witnesses. `cargo xc` passes. The prepared-target and neighboring iterator-step
 structure guards pass `8/8`; the array-iterator, rest-setter-after-completion
