@@ -1,5 +1,6 @@
 use super::super::*;
 use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use crate::emit::NumericErrorRealmSource;
 
 macro_rules! array_iterator_kind_domain {
     ($name:ident { $($variant:ident = $word:literal),+ $(,)? }) => {
@@ -512,11 +513,7 @@ impl<'a> FunctionBuilder<'a> {
         let prototype_local = self.reserve_temp_local();
         let done_payload_local = self.reserve_temp_local();
         let done_tag_local = self.reserve_temp_local();
-        self.emit_load_function_defining_realm_object_prototype(
-            self.current_env_local,
-            prototype_local,
-            function,
-        );
+        self.emit_iterator_result_object_prototype(prototype_local, function);
         self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.emit_object_define_local_data_with_flags(
@@ -552,6 +549,79 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(prototype_local);
         self.release_temp_local(object_local);
         Ok(())
+    }
+
+    /// Loads %Object.prototype% of the Realm CreateIteratorResultObject
+    /// allocates in: the running execution context's Realm.
+    ///
+    /// Which Wasm state names that Realm depends on what `current_env_local`
+    /// means in this body, so the choice is an exhaustive projection of the
+    /// body's [`NumericErrorRealmSource`] rather than a direct read of
+    /// `current_env_local`. Reading it as a function object in the main
+    /// export is what trapped: the promise-job drain completes async
+    /// generator steps there (AsyncGeneratorCompleteStep), where
+    /// `current_env_local` is the script's lexical environment, so the
+    /// "defining realm" load at `HEAP_FUNCTION_DEFINING_REALM_OFFSET` read
+    /// past that record into whatever the heap held next.
+    fn emit_iterator_result_object_prototype(
+        &mut self,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
+        match self.numeric_error_realm_source() {
+            // A standard builtin's environment is its own self-backed function
+            // object; a numeric-conversion helper receives that same trusted
+            // value or zero through ABI parameter 6.
+            NumericErrorRealmSource::StandardBuiltinEnvironment
+            | NumericErrorRealmSource::NumericConversionHelperArgument => {
+                function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_local));
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::Else);
+                self.emit_load_function_defining_realm_object_prototype(
+                    self.current_env_local,
+                    prototype_local,
+                    function,
+                );
+                function.instruction(&Instruction::End);
+            }
+            // Main, user, host and ordinary helper bodies carry a lexical
+            // environment (or none) that is never a function object. The
+            // current Realm record is the running Realm there: the promise-job
+            // drain installs each job's Realm (HostEnqueuePromiseJob's `realm`)
+            // before running it and restores the checkpoint Realm after.
+            //
+            // The walk reuses `prototype_local` for the Realm and intrinsics
+            // records, so this arm needs no temp local beyond the caller's.
+            NumericErrorRealmSource::GlobalFallback => {
+                function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_local));
+                for offset in [
+                    HEAP_REALM_INTRINSICS_OFFSET,
+                    HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
+                ] {
+                    function.instruction(&Instruction::LocalGet(prototype_local));
+                    function.instruction(&Instruction::I64Eqz);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    function.instruction(&Instruction::Else);
+                    self.load_i64_to_local_from_offset(
+                        prototype_local,
+                        offset,
+                        prototype_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::End);
+                }
+                function.instruction(&Instruction::LocalGet(prototype_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
+                function.instruction(&Instruction::LocalSet(prototype_local));
+                function.instruction(&Instruction::End);
+            }
+        }
     }
 
     pub(crate) fn emit_string_iterator_next_from_locals(

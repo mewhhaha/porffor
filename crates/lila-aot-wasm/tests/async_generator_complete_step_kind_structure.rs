@@ -5,6 +5,7 @@ const PROMISE_SOURCE: &str = include_str!("../src/builtins/promise.rs");
 const BUILTINS_SOURCE: &str = include_str!("../src/builtins/mod.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
+const ITERATORS_SOURCE: &str = include_str!("../src/builtins/iterators.rs");
 
 const COMPLETE_STEP_CALL: &str = "self.emit_complete_async_generator_step(";
 
@@ -536,4 +537,56 @@ fn complete_step_preserves_request_settlement_order_and_temp_lifetime() {
         .find("self.release_temp_local(")
         .expect("complete-step should release its temporaries");
     assert!(normalize < first_release);
+}
+
+/// AsyncGeneratorCompleteStep is emitted into the main export's promise-job
+/// drain as well as into the AsyncGenerator.prototype builtins, and its
+/// iterator result must be allocated in the running execution context's Realm
+/// (CreateIteratorResultObject). In the main export
+/// `current_env_local` is the script's lexical environment; reading it as a
+/// function object's defining-Realm slot is what trapped
+/// `wasm_using_async_generator_lifecycle.js` and
+/// `wasm_await_using_async_generator_lifecycle.js` with an out-of-bounds load.
+#[test]
+fn iterator_results_take_the_running_realm_from_the_body_kind() {
+    let materializer = bounded(
+        ITERATORS_SOURCE,
+        "pub(crate) fn emit_iterator_result_object_from_locals(",
+        "/// Loads %Object.prototype% of the Realm CreateIteratorResultObject",
+    );
+    assert_eq!(
+        materializer
+            .matches("self.emit_iterator_result_object_prototype(prototype_local, function);")
+            .count(),
+        1
+    );
+    assert!(!materializer.contains("current_env_local"));
+
+    let selection = bounded(
+        ITERATORS_SOURCE,
+        "fn emit_iterator_result_object_prototype(",
+        "pub(crate) fn emit_string_iterator_next_from_locals(",
+    );
+    assert_eq!(
+        selection
+            .matches("match self.numeric_error_realm_source() {")
+            .count(),
+        1
+    );
+    assert!(!selection.contains("_ =>"));
+    let trusted = bounded(
+        selection,
+        "| NumericErrorRealmSource::NumericConversionHelperArgument => {",
+        "NumericErrorRealmSource::GlobalFallback => {",
+    );
+    assert!(trusted.contains("self.emit_load_function_defining_realm_object_prototype("));
+    let fallback = bounded(
+        selection,
+        "NumericErrorRealmSource::GlobalFallback => {",
+        "\n            }\n",
+    );
+    assert!(fallback.contains("Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX)"));
+    assert!(!fallback.contains("current_env_local"));
+    assert!(!fallback.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
+    assert!(!fallback.contains("reserve_temp_local"));
 }
