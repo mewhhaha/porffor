@@ -95,6 +95,26 @@ fn only_named_wrappers_can_select_the_raw_proxy_call_route() {
 }
 
 #[test]
+fn indirect_calls_leave_the_throw_for_their_propagating_callers() {
+    // `instanceof` and the JSON reviver emit this call inline in user code and
+    // propagate afterwards; returning the current function would bypass an
+    // enclosing user `catch` or `finally`.
+    let indirect = between(
+        FUNCTIONS_SOURCE,
+        "pub(crate) fn emit_indirect_call_from_locals(",
+        "pub(crate) fn emit_tail_indirect_call(",
+    );
+    assert_eq!(
+        indirect
+            .matches("self.emit_function_or_proxy_call_with_argv_leave_throw_completion(")
+            .count(),
+        1
+    );
+    assert!(!indirect.contains("without_throw_propagation"));
+    assert!(!indirect.contains("emit_return_current_completion"));
+}
+
+#[test]
 fn raw_dispatch_and_outlined_helper_preserve_the_reviewed_policy_split() {
     let raw_dispatch = between(
         FUNCTIONS_SOURCE,

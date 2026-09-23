@@ -8953,6 +8953,11 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Calls a pre-evaluated callee and leaves an abrupt completion for the
+    /// caller, which must propagate it (`instanceof`'s @@hasInstance and the
+    /// JSON reviver do). These sites can be inline in user code, so returning
+    /// the current function's completion here would skip an enclosing user
+    /// `catch` or `finally`.
     pub(crate) fn emit_indirect_call_from_locals(
         &mut self,
         callee_payload_local: u32,
@@ -8981,7 +8986,7 @@ impl<'a> FunctionBuilder<'a> {
                 (default_this_payload_local, default_this_tag_local)
             };
 
-        self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
+        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
             callee_payload_local,
             callee_tag_local,
             this_payload_local,
