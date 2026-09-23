@@ -592,6 +592,44 @@ impl ObjectReadErrorRealmSource {
     }
 }
 
+/// Which objects the append helpers (`emit_object_append_*_property_with_flags`)
+/// can be handed while this body is being emitted.
+///
+/// An append skips [[DefineOwnProperty]] and writes straight into an ordinary
+/// object's property table. %Array.prototype% is an Array exotic object, so a
+/// builtin installed into it must take the array named-descriptor path
+/// instead; the append helpers guard that with a run-time identity check
+/// against `ARRAY_PROTOTYPE_GLOBAL_INDEX`. Only the main export's
+/// installation of the Array constructor installs into %Array.prototype% by
+/// append (created realms are built in host builtins, which define rather than
+/// append). Every other append targets an object its caller just allocated or
+/// another intrinsic, so the check could never fire there, yet keyed on
+/// `is_main()` it inlined a whole array descriptor definition at each of those
+/// sites.
+///
+/// The scope is `OrdinaryObjects` for every body and becomes
+/// `RealmBootstrap` only inside
+/// [`FunctionBuilder::with_realm_bootstrap_appends`], whose one caller is the
+/// main export's Array constructor installation, so a script-level append, or
+/// any other intrinsic's, cannot carry the check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppendTargetScope {
+    /// The main export's realm bootstrap prologue: an install may target
+    /// %Array.prototype%.
+    RealmBootstrap,
+    /// Every other emission: append targets are ordinary objects.
+    OrdinaryObjects,
+}
+
+impl AppendTargetScope {
+    pub(crate) const fn may_target_array_prototype(self) -> bool {
+        match self {
+            Self::RealmBootstrap => true,
+            Self::OrdinaryObjects => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OrdinarySetDataOnReceiverEmission {
     Inline,
@@ -835,6 +873,9 @@ pub(crate) struct FunctionBuilder<'a> {
     /// builders keep these writes inline so only the repeated copies inside the
     /// already-outlined object-write state machine are extracted.
     pub(crate) ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission,
+    /// See [`AppendTargetScope`]; private so only
+    /// [`Self::with_realm_bootstrap_appends`] can widen it.
+    append_target_scope: AppendTargetScope,
     /// When `Some(local)`, `emit_object_write` is being emitted as the shared
     /// outlined write helper and must decide sloppy/strict `[[Set]]` failure
     /// behavior from the runtime value of `local` (a helper parameter carrying
@@ -3732,6 +3773,7 @@ impl<'a> FunctionBuilder<'a> {
             outline_value_to_primitive: true,
             outline_value_to_property_key: true,
             ordinary_set_data_on_receiver_emission: OrdinarySetDataOnReceiverEmission::Inline,
+            append_target_scope: AppendTargetScope::OrdinaryObjects,
             object_write_strict_flag_local: None,
         }
     }
@@ -4639,6 +4681,32 @@ impl<'a> FunctionBuilder<'a> {
         let heap_start = align_heap_start(self.strings.bytes.len()) as i64;
         function.instruction(&Instruction::I64Const(heap_start));
         function.instruction(&Instruction::GlobalSet(HEAP_PTR_GLOBAL_INDEX));
+    }
+
+    pub(crate) const fn append_target_scope(&self) -> AppendTargetScope {
+        self.append_target_scope
+    }
+
+    /// Runs `install` in [`AppendTargetScope::RealmBootstrap`] and restores
+    /// `OrdinaryObjects` afterwards, on success and on error alike.
+    ///
+    /// This is the only widening of the scope. Its one caller is the main
+    /// export's installation of the Array constructor and %Array.prototype%
+    /// (`init_builtin_constructor_object(ArrayConstructor, ..)` in
+    /// `init_runtime_roots`), the only builtin installation whose target can
+    /// be %Array.prototype%. Every other intrinsic's installation, and all of
+    /// the script's own function objects, global-object bindings and template
+    /// objects, append without the identity check.
+    pub(crate) fn with_realm_bootstrap_appends<T>(
+        &mut self,
+        install: impl FnOnce(&mut Self) -> Result<T, EmitError>,
+    ) -> Result<T, EmitError> {
+        debug_assert!(self.is_main());
+        debug_assert_eq!(self.append_target_scope, AppendTargetScope::OrdinaryObjects);
+        self.append_target_scope = AppendTargetScope::RealmBootstrap;
+        let installed = install(self);
+        self.append_target_scope = AppendTargetScope::OrdinaryObjects;
+        installed
     }
 
     fn init_current_realm(&mut self, function: &mut Function) -> Result<(), EmitError> {

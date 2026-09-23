@@ -2654,7 +2654,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if let Some(append_function_index) = self.object_append_data_property_function_index {
-            if self.is_main() {
+            let may_target_array_prototype =
+                self.append_target_scope().may_target_array_prototype();
+            if may_target_array_prototype {
                 function.instruction(&Instruction::LocalGet(object_local));
                 function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::I64Eq);
@@ -2701,7 +2703,7 @@ impl<'a> FunctionBuilder<'a> {
                 .descriptor_kind_bits() as i64,
             ));
             function.instruction(&Instruction::Call(append_function_index));
-            if self.is_main() {
+            if may_target_array_prototype {
                 function.instruction(&Instruction::End);
             }
             return Ok(());
@@ -2816,7 +2818,9 @@ impl<'a> FunctionBuilder<'a> {
             setter.expect("setter locals must be materialized");
 
         if let Some(append_function_index) = self.object_append_accessor_property_function_index {
-            if self.is_main() {
+            let may_target_array_prototype =
+                self.append_target_scope().may_target_array_prototype();
+            if may_target_array_prototype {
                 function.instruction(&Instruction::LocalGet(object_local));
                 function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::I64Eq);
@@ -2861,7 +2865,7 @@ impl<'a> FunctionBuilder<'a> {
                 .descriptor_kind_bits() as i64,
             ));
             function.instruction(&Instruction::Call(append_function_index));
-            if self.is_main() {
+            if may_target_array_prototype {
                 function.instruction(&Instruction::End);
             }
         } else {
