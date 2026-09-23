@@ -1658,6 +1658,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
         | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
         | StandardBuiltinId::TemporalInstantPrototypeToString
+        | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
         | StandardBuiltinId::TemporalInstantPrototypeToJson
         | StandardBuiltinId::TemporalInstantPrototypeValueOf
         | StandardBuiltinId::TemporalZonedDateTimeFrom

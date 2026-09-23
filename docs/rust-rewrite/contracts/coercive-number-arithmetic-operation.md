@@ -1,22 +1,38 @@
 # Coercive arithmetic operation ownership
 
 `compile_coercive_binary_number_to_locals` accepts the closed
-`ArithmeticBinaryOp::{Add, Sub, Mul, Div, Mod, Exp}` domain. Addition delegates
-to the shared addition emitter before the numeric operand locals are reserved,
-so both primitive conversions and string concatenation retain their specified
-order. The other five operators share evaluation, ToNumeric, mixed-type
-validation and runtime Number/BigInt dispatch.
+`ArithmeticBinaryOp::{Add, Sub, Mul, Div, Mod, Exp}` domain. Only operands
+proved to own Number payloads by `expr_has_static_number_payload` can bypass
+conversion and runtime Number/BigInt dispatch. Inferred Number kinds from
+mutable storage, calls or unproven coercive results are insufficient. An
+explicit unary plus can guarantee a Number result while its operand still
+performs observable coercion. Both expressions evaluate left to right into
+retained locals before the operation, including their effects and abrupt
+completions.
 
-The Number branch exhaustively identifies every operation. Subtraction,
-multiplication and division use their binary64 instructions. Remainder uses
+Without that proof, addition delegates to the shared addition emitter before
+the numeric operand locals are reserved, so both primitive conversions and
+string concatenation retain their specified order. The other five operators
+share evaluation, ToNumeric, mixed-type validation and runtime Number/BigInt
+dispatch.
+
+The Number branch exhaustively identifies every operation. Addition,
+subtraction, multiplication and division use their binary64 instructions.
+Remainder uses
 `emit_number_remainder_payload`, shared with typed binary expressions and local
 and property compound assignments. It reduces integer binary significands,
 then reconstructs the result with the numerator's sign. This preserves exact
 remainders when a floating-point quotient would overflow or round away needed
 bits, including subnormal results and negative zero. NaN, zero divisors and
 infinite operands take explicit branches. Exponentiation retains the shared
-Number-power emitter. Addition has already returned through its own conversion
-path. A new IR operation requires an explicit backend decision.
+Number-power emitter. Addition reaches this branch only for proved Number
+operands. A new IR operation requires an explicit backend decision.
+
+The same recursive Number-payload proof allows primitive-only arithmetic
+scripts to omit Realm bootstrap and its Intl and clock imports. Exponentiation
+retains the runtime because its Number-power operation has a separately
+planned host dependency. Dynamic and observable coercions retain the ordinary
+runtime and installed callable bodies.
 
 The remainder emitter owns five temporary locals. Its callers retain both
 operands across child evaluation, so nested right-hand expressions cannot

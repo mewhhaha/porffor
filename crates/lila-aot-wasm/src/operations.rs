@@ -3667,16 +3667,11 @@ impl<'a> FunctionBuilder<'a> {
         // ToPrimitive already ran left-to-right above. Only the numeric
         // conversion remains, and both BigInt representations stay numeric.
         for (operand_payload, operand_tag) in [(lhs_payload, lhs_tag), (rhs_payload, rhs_tag)] {
-            self.emit_primitive_to_numeric_locals_without_throw_return(
+            self.emit_primitive_to_numeric_locals(
                 operand_payload,
                 operand_tag,
                 operand_payload,
                 operand_tag,
-                function,
-            )?;
-            self.emit_propagate_throw_from_locals_if_needed(
-                self.result_local,
-                self.result_tag_local,
                 function,
             )?;
         }
@@ -4057,16 +4052,11 @@ impl<'a> FunctionBuilder<'a> {
             primitive_tag_local,
             function,
         )?;
-        self.emit_primitive_to_numeric_locals_without_throw_return(
+        self.emit_primitive_to_numeric_locals(
             primitive_payload_local,
             primitive_tag_local,
             payload_local,
             tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
 
@@ -4112,16 +4102,11 @@ impl<'a> FunctionBuilder<'a> {
             ToPrimitiveAbruptRoute::ActiveHandler,
             function,
         )?;
-        self.emit_primitive_to_numeric_locals_without_throw_return(
+        self.emit_primitive_to_numeric_locals(
             primitive_payload_local,
             primitive_tag_local,
             payload_local,
             tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(
-            self.result_local,
-            self.result_tag_local,
             function,
         )?;
 
@@ -4501,7 +4486,9 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if matches!(op, ArithmeticBinaryOp::Add) {
+        let number_operands =
+            expr_has_static_number_payload(lhs) && expr_has_static_number_payload(rhs);
+        if !number_operands && matches!(op, ArithmeticBinaryOp::Add) {
             return self.compile_coercive_add_to_locals(
                 lhs,
                 rhs,
@@ -4519,42 +4506,53 @@ impl<'a> FunctionBuilder<'a> {
         self.compile_expr_to_locals(lhs, lhs_payload_local, lhs_tag_local, function)?;
         self.compile_expr_to_locals(rhs, rhs_payload_local, rhs_tag_local, function)?;
 
-        self.emit_value_to_numeric_locals(lhs_payload_local, lhs_tag_local, function)?;
-        self.emit_value_to_numeric_locals(rhs_payload_local, rhs_tag_local, function)?;
+        if !number_operands {
+            self.emit_value_to_numeric_locals(lhs_payload_local, lhs_tag_local, function)?;
+            self.emit_value_to_numeric_locals(rhs_payload_local, rhs_tag_local, function)?;
 
-        // Both representations of a BigInt count as "BigInt" for the mixing
-        // check, so an inline operand and a heap-backed one are not treated as
-        // different types.
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        self.emit_is_bigint_tag_i32(rhs_tag_local, function);
-        function.instruction(&Instruction::I32Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
-            "Cannot mix BigInt and other types",
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        function.instruction(&Instruction::End);
+            // Both representations of a BigInt count as "BigInt" for the mixing
+            // check, so an inline operand and a heap-backed one are not treated as
+            // different types.
+            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+            self.emit_is_bigint_tag_i32(rhs_tag_local, function);
+            function.instruction(&Instruction::I32Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_runtime_error(
+                TYPE_ERROR_NAME,
+                "Cannot mix BigInt and other types",
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
+            function.instruction(&Instruction::End);
 
-        self.emit_is_bigint_tag_i32(lhs_tag_local, function);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_bigint_binary_op_to_locals(
-            BigIntHelperOp::from_arithmetic(op),
-            lhs_payload_local,
-            lhs_tag_local,
-            rhs_payload_local,
-            rhs_tag_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::Else);
+            self.emit_is_bigint_tag_i32(lhs_tag_local, function);
+            self.open_frame(ControlFrameKind::If, function);
+            self.emit_bigint_binary_op_to_locals(
+                BigIntHelperOp::from_arithmetic(op),
+                lhs_payload_local,
+                lhs_tag_local,
+                rhs_payload_local,
+                rhs_tag_local,
+                payload_local,
+                tag_local,
+                function,
+            )?;
+            self.pop_control(ControlFrameKind::If);
+            function.instruction(&Instruction::Else);
+        }
+
         match op {
-            ArithmeticBinaryOp::Add => unreachable!("addition uses its primitive-pair route"),
+            ArithmeticBinaryOp::Add => {
+                function.instruction(&Instruction::LocalGet(lhs_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::LocalGet(rhs_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Add);
+                function.instruction(&Instruction::I64ReinterpretF64);
+                function.instruction(&Instruction::LocalSet(payload_local));
+            }
             ArithmeticBinaryOp::Sub => {
                 function.instruction(&Instruction::LocalGet(lhs_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
@@ -4601,7 +4599,9 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
-        function.instruction(&Instruction::End);
+        if !number_operands {
+            function.instruction(&Instruction::End);
+        }
 
         self.release_temp_local(rhs_tag_local);
         self.release_temp_local(rhs_payload_local);
@@ -4610,7 +4610,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_primitive_to_numeric_locals_without_throw_return(
+    pub(crate) fn emit_primitive_to_numeric_locals(
         &mut self,
         primitive_payload_local: u32,
         primitive_tag_local: u32,
@@ -4630,6 +4630,9 @@ impl<'a> FunctionBuilder<'a> {
             primitive_payload_local,
             function,
         )?;
+        // A destination may alias the pending thrown value or its tag.
+        // Route the throw before publishing a normal Number result.
+        self.emit_propagate_current_completion_if_throw(function);
         function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
@@ -8022,6 +8025,8 @@ impl<'a> FunctionBuilder<'a> {
                 ValueKind::Object | ValueKind::Dynamic => None,
             };
             if let Some(static_typeof_result) = static_typeof_result {
+                self.compile_expr_payload(expr, function)?;
+                function.instruction(&Instruction::Drop);
                 function.instruction(&Instruction::I64Const(
                     self.strings.payload(static_typeof_result),
                 ));

@@ -1933,6 +1933,7 @@ impl<'a> ScriptLowerer<'a> {
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
             StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
             | StandardBuiltinId::TemporalInstantPrototypeToJson => {
                 Some(ValueInfo::new(ValueKind::String))
             }

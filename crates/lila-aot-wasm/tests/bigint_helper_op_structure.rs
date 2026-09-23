@@ -649,7 +649,7 @@ fn bigint_helper_op_has_exactly_ten_semantic_producer_owners() {
     let coercive_arithmetic = bounded(
         OPERATIONS_SOURCE,
         "    pub(crate) fn compile_coercive_binary_number_to_locals(",
-        "    pub(crate) fn emit_primitive_to_numeric_locals_without_throw_return(",
+        "    pub(crate) fn emit_primitive_to_numeric_locals(",
     );
     assert_exact_call(
         coercive_arithmetic,

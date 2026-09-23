@@ -3308,6 +3308,13 @@ standard_builtin_catalog! {
         installer: None,
         native: "toString",
     }
+    TemporalInstantPrototypeToLocaleString {
+        function: FunctionOrdinal(841) => "$builtin.Temporal.Instant.prototype.toLocaleString",
+        debug: "Temporal.Instant.prototype.toLocaleString",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "toLocaleString",
+    }
     TemporalInstantPrototypeToJson {
         function: FunctionOrdinal(454) => BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID,
         debug: "Temporal.Instant.prototype.toJSON",
@@ -6178,6 +6185,7 @@ mod tests {
                 StandardBuiltinId::IntlNumberFormatPrototypeFormatRange,
                 StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,
                 StandardBuiltinId::IntlNumberFormatBoundFormat,
+                StandardBuiltinId::TemporalInstantPrototypeToLocaleString,
             ]
         );
     }

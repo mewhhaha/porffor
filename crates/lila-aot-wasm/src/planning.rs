@@ -385,6 +385,78 @@ mod tests {
     }
 
     #[test]
+    fn scalar_arithmetic_proves_nested_number_results_without_trusting_mutable_sources() {
+        let number = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::Number(3.0_f64.to_bits()),
+        );
+        let nested = TypedExpr::from_info(
+            ValueInfo::new(ValueKind::Number),
+            ExprIr::CoerciveBinaryNumber {
+                op: ArithmeticBinaryOp::Add,
+                lhs: Box::new(number.clone()),
+                rhs: Box::new(number.clone()),
+            },
+        );
+        assert!(expr_has_static_number_payload(&nested));
+
+        for op in [
+            ArithmeticBinaryOp::Add,
+            ArithmeticBinaryOp::Sub,
+            ArithmeticBinaryOp::Mul,
+            ArithmeticBinaryOp::Div,
+            ArithmeticBinaryOp::Mod,
+            ArithmeticBinaryOp::Exp,
+        ] {
+            let mut arithmetic = TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::CoerciveBinaryNumber {
+                    op,
+                    lhs: Box::new(nested.clone()),
+                    rhs: Box::new(number.clone()),
+                },
+            );
+            assert!(expr_has_static_number_payload(&arithmetic), "{op:?}");
+
+            for source in [
+                ExprIr::Identifier("value".to_string()),
+                ExprIr::GlobalIdentifierRead {
+                    name: "value".to_string(),
+                },
+                ExprIr::CallNamed {
+                    name: "value".to_string(),
+                    args: Vec::new(),
+                },
+                ExprIr::SpecOperation {
+                    operation: SpecOperationIr::GetV,
+                    operands: vec![
+                        number.clone(),
+                        TypedExpr::from_info(
+                            ValueInfo::new(ValueKind::String),
+                            ExprIr::String("value".to_string()),
+                        ),
+                    ],
+                },
+            ] {
+                let inferred_number =
+                    TypedExpr::from_info(ValueInfo::new(ValueKind::Number), source);
+                for (lhs, rhs) in [
+                    (inferred_number.clone(), number.clone()),
+                    (number.clone(), inferred_number.clone()),
+                ] {
+                    arithmetic.expr = ExprIr::CoerciveBinaryNumber {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    };
+                    assert!(expr_result_tag_is_runtime_dynamic(&arithmetic.expr));
+                    assert!(!expr_has_static_number_payload(&arithmetic), "{op:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn deeply_nested_coercive_arithmetic_budgets_live_operands_and_conversion_phases() {
         run_deep_planning_test(|| {
             let one = TypedExpr::from_info(
@@ -3143,10 +3215,12 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalInstantPrototypeSince
             | StandardBuiltinId::TemporalInstantPrototypeEquals
             | StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
             | StandardBuiltinId::TemporalInstantPrototypeToJson
             | StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 self.require_temporal_namespace();
                 self.require_standard_builtin(StandardBuiltinId::TemporalDurationConstructor);
+                self.require_intl_namespace();
                 for dependency in [
                     StandardBuiltinId::TemporalInstantConstructor,
                     StandardBuiltinId::TemporalInstantFrom,
@@ -3162,6 +3236,7 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalInstantPrototypeSince,
                     StandardBuiltinId::TemporalInstantPrototypeEquals,
                     StandardBuiltinId::TemporalInstantPrototypeToString,
+                    StandardBuiltinId::TemporalInstantPrototypeToLocaleString,
                     StandardBuiltinId::TemporalInstantPrototypeToJson,
                     StandardBuiltinId::TemporalInstantPrototypeValueOf,
                 ] {
@@ -7673,6 +7748,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainDate
         | StandardBuiltinId::TemporalPlainDateTimePrototypeToPlainTime
         | StandardBuiltinId::TemporalInstantPrototypeToString
+        | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
         | StandardBuiltinId::TemporalInstantPrototypeToJson
         | StandardBuiltinId::TemporalInstantPrototypeValueOf => 0,
         StandardBuiltinId::TemporalZonedDateTimePrototypeEpochMillisecondsGetter
@@ -7799,7 +7875,10 @@ pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {
         ExprIr::UnaryMinusNumeric { expr } | ExprIr::UnaryBitwiseNumeric { expr, .. } => {
             !expr_has_static_number_payload(expr)
         }
-        ExprIr::CoerciveAdd { .. } | ExprIr::CoerciveBinaryNumber { .. } => true,
+        ExprIr::CoerciveAdd { .. } => true,
+        ExprIr::CoerciveBinaryNumber { lhs, rhs, .. } => {
+            !(expr_has_static_number_payload(lhs) && expr_has_static_number_payload(rhs))
+        }
         ExprIr::UpdateIdentifier {
             value_kind: NumericUpdateValueKind::BigInt | NumericUpdateValueKind::Dynamic,
             ..

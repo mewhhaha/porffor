@@ -1009,6 +1009,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantPrototypeRound,
             StandardBuiltinId::TemporalInstantPrototypeUntil,
             StandardBuiltinId::TemporalInstantPrototypeSince,
+            StandardBuiltinId::TemporalInstantPrototypeToLocaleString,
         ] {
             properties.insert(
                 builtin
@@ -6139,6 +6140,7 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
             | StandardBuiltinId::TemporalInstantPrototypeToJson => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),

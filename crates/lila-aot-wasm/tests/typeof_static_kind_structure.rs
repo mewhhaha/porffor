@@ -90,6 +90,23 @@ fn static_typeof_results_and_runtime_fallback_remain_exact() {
 }
 
 #[test]
+fn a_known_type_still_evaluates_its_operand_before_publishing_the_type_string() {
+    let body = normalized(bounded(
+        OPERATIONS_SOURCE,
+        "pub(crate) fn compile_typeof_payload(",
+        "pub(crate) fn emit_typeof_payload_from_tag_payload_local(",
+    ));
+    assert!(body.contains(concat!(
+        "ifletSome(static_typeof_result)=static_typeof_result{",
+        "self.compile_expr_payload(expr,function)?;",
+        "function.instruction(&Instruction::Drop);",
+        "function.instruction(&Instruction::I64Const(",
+        "self.strings.payload(static_typeof_result),));",
+        "returnOk(());}",
+    )));
+}
+
+#[test]
 fn contract_and_task_record_total_static_typeof_ownership() {
     for source in [CONTRACT, TASK] {
         assert!(source.contains("ValueKind"));

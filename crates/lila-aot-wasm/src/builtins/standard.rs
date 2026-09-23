@@ -21797,6 +21797,9 @@ impl<'a> FunctionBuilder<'a> {
             | StandardBuiltinId::TemporalInstantPrototypeToJson => {
                 self.emit_temporal_instant_to_string(function)?;
             }
+            StandardBuiltinId::TemporalInstantPrototypeToLocaleString => {
+                self.emit_temporal_instant_to_locale_string(function)?;
+            }
             StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 self.emit_temporal_instant_value_of(function)?;
             }

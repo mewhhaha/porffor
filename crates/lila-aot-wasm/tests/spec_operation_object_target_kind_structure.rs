@@ -45,7 +45,7 @@ fn all_six_object_only_operations_consume_the_shared_classification() {
     let body = bounded(
         OPERATIONS_SOURCE,
         "pub(crate) fn compile_spec_operation_to_locals(",
-        "pub(crate) fn emit_primitive_to_numeric_locals_without_throw_return(",
+        "pub(crate) fn emit_primitive_to_numeric_locals(",
     );
     assert_eq!(
         body.matches("spec_operation_object_target_kind(target.kind)")

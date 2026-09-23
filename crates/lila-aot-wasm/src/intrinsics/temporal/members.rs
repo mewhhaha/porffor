@@ -79,6 +79,7 @@ impl TemporalIntrinsicFamily {
                 StandardBuiltinId::TemporalInstantPrototypeUntil,
                 StandardBuiltinId::TemporalInstantPrototypeSince,
                 StandardBuiltinId::TemporalInstantPrototypeToString,
+                StandardBuiltinId::TemporalInstantPrototypeToLocaleString,
                 StandardBuiltinId::TemporalInstantPrototypeEquals,
                 StandardBuiltinId::TemporalInstantPrototypeToJson,
                 StandardBuiltinId::TemporalInstantPrototypeValueOf,

@@ -111,3 +111,19 @@ fn number_format_and_both_primitive_locale_consumers_root_the_provider() {
         assert_eq!(intl_import_count(source, HostSurfacePolicy::Test262), 1);
     }
 }
+
+#[test]
+fn instant_locale_methods_root_their_intrinsic_formatter_dependencies() {
+    for (source, host_surface_policy) in [
+        (
+            "new Temporal.Instant(0n).toLocaleString('en-US', {timeZone:'UTC'});",
+            HostSurfacePolicy::default(),
+        ),
+        (
+            "var foreign=__lilaCreateRealm().global; var method=foreign.Temporal.Instant.prototype.toLocaleString; method.call(new Temporal.Instant(-1n),'en-US',{timeZone:'UTC'});",
+            HostSurfacePolicy::Test262,
+        ),
+    ] {
+        assert_eq!(intl_import_count(source, host_surface_policy), 1);
+    }
+}

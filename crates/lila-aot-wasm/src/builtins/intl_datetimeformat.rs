@@ -1433,7 +1433,7 @@ impl FunctionBuilder<'_> {
         self.compile_this_to_locals(this_payload_local, this_tag_local, function)?;
 
         self.emit_intl_create_date_time_format(
-            IntlDateTimeFormatPurpose::TemporalPlain(*kind),
+            IntlDateTimeFormatPurpose::Temporal(*kind),
             function,
         )?;
         function.instruction(&Instruction::LocalGet(self.result_local));

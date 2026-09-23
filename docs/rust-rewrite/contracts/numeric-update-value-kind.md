@@ -26,8 +26,18 @@ Static BigInt inference cannot replace either runtime representation tag.
 Numeric conversion, GetValue and PutValue keep their existing order and
 completion routes.
 
+Immutable updates still evaluate `ToNumeric(GetValue(reference))` before the
+immutable-binding error. The shared primitive-ToNumeric owner propagates a
+conversion throw before writing a normal numeric payload or tag. Destinations
+may alias the pending completion pair, so publishing the Number tag first
+would relabel a TypeError as a Number. The same owner serves explicit
+ToNumeric, inline tagged conversion and coercive addition; each uses the
+existing active catch/finally or function-return route. BigInt results keep
+their original payload and representation tag.
+
 ```sh
 cargo test -p lila-aot-wasm --test numeric_update_value_kind_structure
+cargo test -p lila-aot-wasm --test primitive_to_number_throw_routing_structure
 cargo test -p lila-aot-wasm --test ordinary_property_numeric_update_structure
 cargo test -p lila-aot-wasm --test super_property_reference_mutation_structure
 cargo test -p lila-aot-wasm --test global_object_environment_numeric_update_structure

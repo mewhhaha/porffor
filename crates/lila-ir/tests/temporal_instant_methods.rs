@@ -57,3 +57,29 @@ fn instant_methods_preserve_result_shapes_and_observable_coercions() {
         );
     }
 }
+
+#[test]
+fn instant_locale_method_is_string_valued_and_observes_user_code() {
+    let builtin = StandardBuiltinId::TemporalInstantPrototypeToLocaleString;
+    assert_eq!(builtin.native_function_name(), Some("toLocaleString"));
+    assert!(!builtin.constructable());
+    assert!(builtin.may_run_user_code_synchronously());
+    assert!(builtin.requires_intl_host());
+    assert_eq!(
+        StandardBuiltinId::from_function_id(&builtin.function_id()),
+        Some(builtin)
+    );
+    for source in [
+        "new Temporal.Instant(0n).toLocaleString();",
+        "new Temporal.Instant(0n)['toLocaleString']('en-US', {timeZone:'UTC'});",
+    ] {
+        let unit = parse(source, ParseOptions::script()).expect("locale fixture parses");
+        let program = lower(&unit);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert_eq!(
+            program.script.expect("script IR").result_kind(),
+            ValueKind::String,
+            "{source}"
+        );
+    }
+}

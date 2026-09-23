@@ -6,7 +6,7 @@ use lila_intl::{DateTimeCalendar, DateTimeDefaults, DateTimeRequired, IntlHostOp
 pub(crate) enum IntlDateTimeFormatPurpose {
     Constructor,
     DateLocale(DateLocaleFormat),
-    TemporalPlain(DtfTemporalKind),
+    Temporal(DtfTemporalKind),
 }
 
 enum RejectedDateTimeStyle {
@@ -22,7 +22,7 @@ impl IntlDateTimeFormatPurpose {
             }
             Self::DateLocale(DateLocaleFormat::Date) => DateTimeRequired::Date,
             Self::DateLocale(DateLocaleFormat::Time) => DateTimeRequired::Time,
-            Self::TemporalPlain(kind) => match kind {
+            Self::Temporal(kind) => match kind {
                 DtfTemporalKind::PlainDate
                 | DtfTemporalKind::PlainYearMonth
                 | DtfTemporalKind::PlainMonthDay => DateTimeRequired::Date,
@@ -36,7 +36,7 @@ impl IntlDateTimeFormatPurpose {
             Self::Constructor | Self::DateLocale(DateLocaleFormat::Date) => DateTimeDefaults::Date,
             Self::DateLocale(DateLocaleFormat::Time) => DateTimeDefaults::Time,
             Self::DateLocale(DateLocaleFormat::DateAndTime) => DateTimeDefaults::All,
-            Self::TemporalPlain(kind) => match kind {
+            Self::Temporal(kind) => match kind {
                 DtfTemporalKind::PlainDate
                 | DtfTemporalKind::PlainYearMonth
                 | DtfTemporalKind::PlainMonthDay => DateTimeDefaults::Date,
@@ -56,7 +56,7 @@ impl IntlDateTimeFormatPurpose {
                 RejectedDateTimeStyle::Date,
                 "Date.prototype.toLocaleTimeString does not support the dateStyle option".into(),
             )),
-            Self::TemporalPlain(kind) => kind.rejected_style().map(|(property, offset)| {
+            Self::Temporal(kind) => kind.rejected_style().map(|(property, offset)| {
                 (
                     if offset == HEAP_INTL_DTF_DATE_STYLE_OFFSET {
                         RejectedDateTimeStyle::Date

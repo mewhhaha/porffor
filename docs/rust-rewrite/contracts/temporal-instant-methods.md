@@ -1,4 +1,4 @@
-# Temporal.Instant arithmetic and differences
+# Temporal.Instant arithmetic, differences and locale formatting
 
 The authoritative built-in catalog adds add, subtract, round, until and since
 with one required argument, ordinary method attributes and synchronous user
@@ -49,6 +49,22 @@ created callable materialization couples the defining Realm with callable
 Function.prototype. Retained namespace locals publish in reverse allocation
 order. Other created-Realm Temporal families remain separately unimplemented.
 
+`toLocaleString` is an own nonconstructable method with length zero and a
+String result. Its catalog identity declares synchronous user code and the
+Intl provider dependency; both Realm installers consume the same member row.
+The Instant family roots the intrinsic DateTimeFormat dependencies even when
+the source contains no explicit Intl reference.
+
+The method validates the Instant brand before observing locales or options,
+then uses the shared intrinsic DateTimeFormat creation and formatting path
+with required fields `any` and defaults `all`. Public constructor bindings,
+formatter prototype methods and receiver conversion hooks do not select that
+path. Option boxing and generated errors follow the called method's Realm.
+The existing provider input owner retains exact floor epoch seconds and
+nanoseconds, including negative submillisecond values and both epoch limits.
+The `Temporal` formatter purpose covers both Plain types and Instant without
+adding another formatter, time-zone database or calendar implementation.
+
 Required verification includes `aot_temporal_instant_methods`, the IR
 `temporal_instant_methods` target, the epoch proof and new method/Realm source
 contracts, existing ZonedDateTime difference regressions, and the exact
@@ -56,4 +72,14 @@ contracts, existing ZonedDateTime difference regressions, and the exact
 fields are a canonical prerequisite: the implementation must not narrow valid
 nanosecond/microsecond durations or use an Instant-specific representation.
 
+Locale verification also includes `intl_host_imports`,
+`aot_intl_datetime_provider`, and the complete pinned built-ins and intl402
+Instant `toLocaleString` directories. Native regressions cover method
+descriptors, Proxy receiver rejection, branding before argument observations,
+defaults, exact instants, intrinsic identity, primitive options, callback
+effects, abrupt identity and borrowed-method Realms. An unsupported provider
+calendar remains a separate formatting-profile gap; this method does not
+establish full Temporal or Intl conformance.
+
 Primary algorithm authority: [Temporal.Instant methods and abstract operations](https://tc39.es/proposal-temporal/#sec-temporal-instant-objects).
+Locale algorithm authority: [Temporal integration with Intl](https://tc39.es/proposal-temporal/#sec-intl.datetimeformat).

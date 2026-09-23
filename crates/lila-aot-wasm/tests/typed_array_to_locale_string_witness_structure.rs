@@ -1,5 +1,6 @@
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
+const ARGUMENTS_PROPERTIES_SOURCE: &str = include_str!("../src/objects/arguments_properties.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/array.rs");
 const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_array_to_locale_string_core.js");
@@ -596,45 +597,173 @@ fn focused_cli_fixture_covers_non_throwing_generic_typed_array_snapshots() {
 
 #[test]
 fn ordinary_get_distinguishes_arguments_length_descriptors_from_array_storage() {
-    let body = bounded(
+    let body = without_whitespace(bounded(
         include_str!("../src/objects.rs"),
         "pub(crate) fn emit_object_read_ordinary_inner(",
         "// Array-like exotic elements and named properties live in",
+    ));
+    assert_eq!(
+        body.matches("emit_arguments_special_property_get(").count(),
+        1
     );
-    let descriptor = unique_normalized_position(
-        body,
-        "HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET",
-        "arguments own length descriptor",
-    );
-    let present = unique_normalized_position(
-        body,
-        "HEAP_ARGUMENTS_LENGTH_VALUE_OFFSET",
-        "arguments own data value",
-    );
-    assert!(descriptor < present);
-    for field in [
-        "HEAP_ARGUMENTS_LENGTH_VALUE_TAG_OFFSET",
-        "HEAP_ARGUMENTS_LENGTH_GETTER_PAYLOAD_OFFSET",
-        "HEAP_ARGUMENTS_LENGTH_GETTER_TAG_OFFSET",
-    ] {
-        assert!(
-            body.contains(field),
-            "missing arguments length field: {field}"
-        );
-    }
-    assert!(without_whitespace(body).contains(&without_whitespace(
+    let arguments_get = unique_normalized_position(
+        &body,
         r#"
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            getter_payload_local,
-            getter_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
-            &[],
-            payload_local,
-            tag_local,
+        self.emit_arguments_special_property_get(
+            TaggedLocals::new(current_local, current_tag_local),
+            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+            key_local,
+            found_local,
+            TaggedLocals::new(payload_local, tag_local),
             function,
         )?;
-        "#
-    )));
-    assert!(body.contains("self.emit_load_prototype_to_current_locals("));
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::BrIf(1));
+        "#,
+        "arguments own property read and prototype-walk exit",
+    );
+    let array_length = unique_normalized_position(
+        &body,
+        r#"
+        function.instruction(&Instruction::I64Const(self.strings.payload("length")));
+        function.instruction(&Instruction::LocalSet(self.scratch_local));
+        self.emit_string_payload_equality_i32(key_local, self.scratch_local, function);
+        function.instruction(&Instruction::LocalGet(current_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_array_length(current_local, payload_local, tag_local, function);
+        "#,
+        "array-only storage length read",
+    );
+    let prototype = unique_normalized_position(
+        &body,
+        r#"
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_load_prototype_to_current_locals(
+            current_local,
+            current_tag_local,
+            prototype_local,
+            function,
+        );
+        function.instruction(&Instruction::End);
+        "#,
+        "absent own property prototype fallback",
+    );
+    assert!(arguments_get < array_length && array_length < prototype);
+
+    let property_fields = without_whitespace(bounded(
+        ARGUMENTS_PROPERTIES_SOURCE,
+        "impl ArgumentsSpecialProperty {",
+        "fn setter_offsets(",
+    ));
+    for (snippet, label) in [
+        (
+            "const ALL: [Self; 2] = [Self::Length, Self::Callee];",
+            "complete arguments special property inventory",
+        ),
+        ("Self::Length => \"length\",", "arguments length key"),
+        (
+            "Self::Length => HEAP_ARGUMENTS_LENGTH_DESCRIPTOR_KIND_OFFSET,",
+            "arguments own length descriptor",
+        ),
+        (
+            r#"Self::Length => (
+                HEAP_ARGUMENTS_LENGTH_VALUE_OFFSET,
+                HEAP_ARGUMENTS_LENGTH_VALUE_TAG_OFFSET,
+            ),"#,
+            "arguments own length data value",
+        ),
+        (
+            r#"Self::Length => (
+                HEAP_ARGUMENTS_LENGTH_GETTER_PAYLOAD_OFFSET,
+                HEAP_ARGUMENTS_LENGTH_GETTER_TAG_OFFSET,
+            ),"#,
+            "arguments own length getter",
+        ),
+    ] {
+        unique_normalized_position(&property_fields, snippet, label);
+    }
+
+    let get = without_whitespace(bounded(
+        ARGUMENTS_PROPERTIES_SOURCE,
+        "pub(super) fn emit_arguments_special_property_get(",
+        "pub(super) fn emit_arguments_special_property_set(",
+    ));
+    let target_and_key = unique_normalized_position(
+        &get,
+        r#"
+        function.instruction(&Instruction::LocalGet(target.tag));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        for property in ArgumentsSpecialProperty::ALL {
+            function.instruction(&Instruction::I64Const(
+                self.strings.payload(property.name()),
+            ));
+            function.instruction(&Instruction::LocalSet(self.scratch_local));
+            self.emit_property_key_payload_equality_i32(key, self.scratch_local, function);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.load_i64_to_local_from_offset(
+                target.payload,
+                property.descriptor_offset(),
+                descriptor,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(descriptor));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+        "#,
+        "arguments target, matching key and present descriptor",
+    );
+    let present = unique_normalized_position(
+        &get,
+        r#"
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(found));
+        function.instruction(&Instruction::LocalGet(descriptor));
+        function.instruction(&Instruction::I64Const(OBJECT_DESCRIPTOR_ACCESSOR as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let (payload, tag) = property.value_offsets();
+        self.load_i64_to_local_from_offset(target.payload, payload, result.payload, function);
+        self.load_i64_to_local_from_offset(target.payload, tag, result.tag, function);
+        function.instruction(&Instruction::Else);
+        let (payload, tag) = property.getter_offsets();
+        self.load_i64_to_local_from_offset(target.payload, payload, getter.payload, function);
+        self.load_i64_to_local_from_offset(target.payload, tag, getter.tag, function);
+        "#,
+        "present descriptor before data or accessor selection",
+    );
+    let getter = unique_normalized_position(
+        &get,
+        r#"
+        self.emit_is_callable_i32(getter.tag, getter.payload, function)?;
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_function_or_proxy_call_leave_throw_completion(
+            getter.payload,
+            getter.tag,
+            receiver.payload,
+            receiver.tag,
+            &[],
+            result.payload,
+            result.tag,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result.payload));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(result.tag));
+        "#,
+        "original getter receiver, throw completion and undefined getter shadowing",
+    );
+    assert!(target_and_key < present && present < getter);
 }

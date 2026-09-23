@@ -1065,9 +1065,10 @@ runtime-free and allocating programs without weakening their layout checks.
 The frozen `batch22r2` compiler completes all 198 planned source/library and
 runtime groups with 3,446 passing tests, two failures and zero ignored tests.
 Every group ran on this checkpoint; no earlier group result was reused.
-Its 13 initial changed-path groups pass all 92 tests. All 129 source/library
-groups pass, with 2,864 passing tests. These are subsets of the 3,446 total,
-not additional tests. Release workspace all-target checking, CLI/native builds,
+Its 13 initial changed-path groups pass all 92 tests. The source/library
+verification boundary includes those initial groups and passes all 129 groups,
+with 2,864 passing tests. These are subsets of the 3,446 total, not additional
+tests. Release workspace all-target checking, CLI/native builds,
 the optional `spec-exec-oracle` feature check, formatting and the generated
 shortcut-status check also pass.
 
@@ -1119,3 +1120,73 @@ are refreshed with `cargo test --release --locked -j2 -p lila-aot-wasm --test
 intl_host_imports` and `cargo test --release --locked -j2 -p lila-cli --test cli
 language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct
 -- --exact`.
+
+## Arithmetic completion and Instant locale follow-up, 2026-09-22
+
+The `batch22r3` frozen compiler passes both original `batch22r2` failures.
+Number-only coercive arithmetic now uses the canonical emitter's static operand
+proof to avoid unrelated runtime imports. Unproven operands retain their
+observable conversions. Static `typeof` results still evaluate the operand and
+propagate its effects or abrupt completion. Primitive ToNumeric propagates a
+Symbol conversion error before publishing a numeric result or attempting the
+binding write, preserving TypeError for captured and uncaptured const updates.
+
+Workspace all-targets release checking, builds and the optional oracle feature
+check pass. The focused boundary completes 26 of 217 planned groups with 196
+passing tests, one failure and no ignored tests. The other 191 groups did not
+run. Its sole failure is a new artifact assertion demanding an internal helper
+for exponentiation. The corrected assertion checks the actual
+`lila_host.number_pow` dependency and retains the value regression. The original
+scalar import-absence and captured-Symbol CLI assertions remain intact and pass.
+All 19 separate Symbol-update and `typeof` CLI probes pass without timeouts.
+
+The compiler binary SHA-256 is
+`34ea89391f4a5b7e14da0300a2a5ade9602d39de850f734a5f7cf1b30781e3d3`;
+its 4,129-input source manifest SHA-256 is
+`e1a0cd8f77cead115b638d39d2bb7e36b78ec6f900c2ccb5e4b5b08e6396646a`.
+The audited partial result is `batch22r3-checkpoint-result.json` in the local
+evidence directory. No pinned replay ran on this compiler.
+
+CI also exposed two stale expectations: the Arguments length source guard
+still looked for the implementation before its ownership extraction, and a
+typed-array fixture expected Float16Array to be absent. The guard now verifies
+the extracted descriptor/accessor path. The fixture positively checks
+Float16Array.from NaN conversion while retaining every other assertion.
+
+The next batch adds the missing own `Temporal.Instant.prototype.toLocaleString`
+method. It validates the receiver before observing locales or options and
+uses the intrinsic DateTimeFormat owner with exact epoch values, intrinsic
+identity and called-method Realm behavior. Six native/IR/artifact regressions
+cover those boundaries; see the [method contract](contracts/temporal-instant-methods.md).
+Three standalone before probes fail on the saved compiler and remain paired
+for candidate execution. The complete pinned method cohort contains 42
+executions, including 30 verified merged-main Bugs and 12 historical-success
+controls. It is disjoint from the earlier 1,386 selections, giving 1,428 total;
+these are prepared selections, not passing results. The Islamic-tbla formatting
+expectation remains selected even though its calendar may exceed the existing
+provider profile. Candidate verification is pending.
+
+The first `batch23` run passed workspace all-target checking and built the CLI
+and native test executables. Its focused boundary completed 33 of 221 groups:
+269 tests passed, one test failed and none were ignored. The 188 remaining
+groups and all pinned candidate executions did not run. The single failure was
+a new exponentiation artifact assertion whose all-literal input was folded
+before code generation; it therefore could not require a `number_pow` import.
+The assertion now uses a runtime binding to test the actual import boundary.
+The original scalar-import, captured-Symbol and new Instant focused targets
+all passed in the frozen run. The corrected assertion passes its exact release
+test locally; the full 221-group checkpoint remains unverified.
+
+Refresh the changed paths with `cargo check --release --workspace --all-targets
+--locked -j2`, then `LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release
+--locked -j2 -p lila-engine --test aot_runtime_import_reachability --test
+aot_bigint_numeric_updates --test aot_temporal_instant_methods --test
+aot_intl_datetime_provider --test aot_date_locale -- --test-threads=2`.
+Run `cargo test --release --locked -j2 -p lila-aot-wasm --test
+runtime_import_reachability --test intl_host_imports --test
+typed_array_to_locale_string_witness_structure` and `cargo test --release
+--locked -j2 -p lila-ir --test temporal_instant_methods` for the artifact,
+source and IR boundaries. The exact typed-array CLI regression is
+`cargo test --release --locked -j2 -p lila-cli --test cli
+typed_array::run_wasm_backend_succeeds_for_typedarray_from_nan_conversion_fixture
+-- --exact`. Published full-suite counts remain unchanged.

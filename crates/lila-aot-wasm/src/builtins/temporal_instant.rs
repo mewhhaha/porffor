@@ -548,6 +548,19 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    pub(crate) fn emit_temporal_instant_to_locale_string(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
+        self.release_temp_local(record_local);
+        self.emit_intl_dtf_temporal_to_locale_string(
+            OBJECT_INTERNAL_BRAND_TEMPORAL_INSTANT,
+            function,
+        )
+    }
+
     /// Temporal proposal 8.3.12 `Temporal.Instant.prototype.valueOf`.
     ///
     /// An unconditional TypeError, before any brand check: step 1 of the

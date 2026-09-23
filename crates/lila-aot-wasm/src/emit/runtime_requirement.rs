@@ -3,7 +3,8 @@ use lila_ir::{ArithmeticBinaryOp, BlockIr, ExprIr, ScriptIr, StatementIr, TypedE
 
 /// Elide Realm bootstrap only when the lowered script cannot observe it.
 /// This is a conservative IR proof: every unrecognized operation retains the
-/// ordinary runtime, including declarations, coercions, calls and abrupt exits.
+/// ordinary runtime, including declarations, observable coercions, calls and
+/// abrupt exits.
 /// Admitted expressions still go through the same Wasm expression emitter.
 pub(super) fn requires_runtime(script: &ScriptIr) -> bool {
     script.eval_environment.is_some()
@@ -46,7 +47,7 @@ fn expression_is_runtime_free(expression: &TypedExpr) -> bool {
         ExprIr::UnaryPlus { expr }
         | ExprIr::UnaryMinusNumeric { expr }
         | ExprIr::UnaryBitwiseNumeric { expr, .. } => number_is_runtime_free(expr),
-        ExprIr::BinaryNumber { op, lhs, rhs } => {
+        ExprIr::BinaryNumber { op, lhs, rhs } | ExprIr::CoerciveBinaryNumber { op, lhs, rhs } => {
             // Exponentiation calls a separately planned host function. All
             // remaining Number operations emit scalar Wasm instructions.
             let scalar_operation = match op {

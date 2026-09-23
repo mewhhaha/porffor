@@ -4,13 +4,15 @@ Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, lib
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
-The 2026-09-22 checkpoint preserves the current baseline repairs in PR #52.
-Its frozen compiler passes workspace checking and builds; all 198 planned
-source/library and runtime groups completed with 3,446 passing tests, two
-failures and no ignored tests. The two failures concern scalar arithmetic's
-runtime imports and a captured Symbol update. The prepared 1,300-execution
-pinned replay remains pending.
-See the [saved checkpoint, remaining findings and refresh commands](docs/rust-rewrite/completed-baseline-follow-up.md#saved-checkpoint-2026-09-22).
+The 2026-09-22 baseline repairs are preserved in PR #52. The latest focused
+checkpoint passes both original failures from the preceding 3,446-pass,
+two-failure run. It completes 26 groups with 196 passes and one incorrect
+artifact assertion, now corrected; the remaining 191 groups did not run.
+All 19 separate Symbol-update and `typeof` probes pass. The next batch adds
+`Temporal.Instant.toLocaleString` and prepares 1,428 distinct pinned executions;
+its first focused run completes 33 of 221 groups with 269 passes and one
+artifact-assertion failure. The remaining groups and pinned replay are pending.
+See the [checkpoint findings and refresh commands](docs/rust-rewrite/completed-baseline-follow-up.md#arithmetic-completion-and-instant-locale-follow-up-2026-09-22).
 The published full-suite conformance counts remain unchanged.
 
 The direct Wasm `Intl.Locale` constructor applies core and Unicode-extension
@@ -30,6 +32,8 @@ pinned CLDR 47 patterns, calendar fields and parts. Its locale profiles cover
 `en`/`en-US`, `ar`/`ar-EG` and Simplified Chinese, with Gregorian, ISO8601 and
 Chinese calendars and all 77 positional numbering systems. Date and Plain
 Temporal locale methods share the same constructor and formatting boundary.
+The Instant locale method now uses that intrinsic boundary with exact
+nanoseconds and called-method Realm semantics; its verification is pending.
 Named zones use pinned IANA transitions and localized CLDR display names.
 See the [provider contract](docs/rust-rewrite/intl-datetime-provider.md) and
 [pinned profile details](docs/rust-rewrite/intl-datetime-locale-kernel.md).

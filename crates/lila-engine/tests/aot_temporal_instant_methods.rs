@@ -164,3 +164,31 @@ fn difference_option_snapshots_and_error_realm() {
         "fixtures/temporal_instant_methods/difference_option_snapshots_and_error_realm.js"
     ));
 }
+
+#[test]
+fn locale_metadata_and_branding() {
+    assert_instant_methods(include_str!(
+        "fixtures/temporal_instant_methods/locale_metadata_and_branding.js"
+    ));
+}
+
+#[test]
+fn locale_intrinsic_defaults_and_exact_inputs() {
+    assert_instant_methods(include_str!(
+        "fixtures/temporal_instant_methods/locale_intrinsic_defaults_and_exact_inputs.js"
+    ));
+}
+
+#[test]
+fn locale_options_and_abrupt_order() {
+    assert_instant_methods(include_str!(
+        "fixtures/temporal_instant_methods/locale_options_and_abrupt_order.js"
+    ));
+}
+
+#[test]
+fn locale_called_function_realms() {
+    assert_instant_methods(include_str!(
+        "fixtures/temporal_instant_methods/locale_called_function_realms.js"
+    ));
+}

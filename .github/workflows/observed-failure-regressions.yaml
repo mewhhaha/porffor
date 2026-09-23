@@ -100,7 +100,7 @@ jobs:
           cargo test --locked -p lila-ir --test float16_array --test intl_locale_getters --test temporal_instant_methods
           cargo test --locked -p lila-aot-wasm --test object_literal_home_object_structure
           cargo test --locked -p lila-aot-wasm --test arguments_index_descriptor_structure --test plain_async_function_synchronous_using_structure --test async_generator_synchronous_using_structure --test plain_async_function_await_using_structure
-          cargo test --locked -p lila-aot-wasm --test runtime_import_reachability
+          cargo test --locked -p lila-aot-wasm --test runtime_import_reachability --test intl_host_imports --test arithmetic_number_conversion_order_structure --test typeof_static_kind_structure --test primitive_to_number_throw_routing_structure --test spec_operation_object_target_kind_structure
           cargo test --locked -p lila-aot-wasm --test numeric_bitwise_emission --test created_realm_typed_array_method_publication_structure --test typed_array_witness_use_ownership_structure
           cargo test --locked -p lila-aot-wasm --test typed_array_set_witness_structure --test typed_array_with_witness_structure --test typed_array_slice_witness_structure --test typed_array_constructor_source_witness_structure --test promise_internal_function_realm_context_structure
           cargo test --locked -p lila-aot-wasm --test intl_canonical_locale_tag_invocation_structure --test intl_namespace_plan_structure --test object_read_proxy_realm_structure
@@ -128,6 +128,12 @@ jobs:
           --test aot_intl_locale_options --test aot_intl_locale_constructor
           --test aot_temporal_zoned_with
           -- --test-threads=1
+
+      - name: Preserve CLI numeric completion policies
+        run: >-
+          cargo test --locked -p lila-cli --test cli
+          language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct
+          -- --exact
 
       - name: Preserve pinned Test262 harness semantics
         run: cargo test --locked -p lila-test262 --test wasm_aot_pinned_harness -- --test-threads=1

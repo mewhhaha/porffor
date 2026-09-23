@@ -40,6 +40,24 @@ fn runtime_free_ir_does_not_introduce_intl_or_clock_imports() {
         "",
         ";;",
         "262;",
+        "1 + 1;",
+        "(7 - 2) * 3 / 2;",
+        "5 % 2;",
+        "17 % (8 % 3);",
+        "1.7976931348623157e308 % 3;",
+        "1.5e-323 % 1e-323;",
+        "-5 % 2;",
+        "-4 % 2;",
+        "-0 + -0;",
+        "-0 - 0;",
+        "-0 * 3;",
+        "1 / 0;",
+        "0 / 0;",
+        "void (1 + 2);",
+        "+(1 + 2);",
+        "-(1 + 2);",
+        "~(1 + 2);",
+        "(1 + 2) ? (3 * 4) : (5 % 2);",
         "true; null; 'text';",
         "-0;",
         "+7;",
@@ -100,12 +118,9 @@ fn observable_intrinsics_keep_callable_bodies_and_provider_imports() {
 #[test]
 fn unproven_ir_retains_ordinary_realm_bootstrap() {
     for source in [
-        // These expressions lower through coercive IR. Its generic emission
-        // still requires runtime bodies even when the source operands are literals.
-        "1 + 1;",
-        "(7 - 2) * 3 / 2;",
-        "5 % 2;",
-        "void (1 + 2);",
+        // The scalar proof excludes observable or non-Number conversion.
+        "1 + '2';",
+        "1n + 2n;",
         "1 < 2;",
         "+(null ?? 7);",
         "var answer = 262; answer;",
@@ -122,6 +137,22 @@ fn unproven_ir_retains_ordinary_realm_bootstrap() {
             "{source}"
         );
     }
+}
+
+#[test]
+fn exponentiation_retains_its_planned_host_dependency() {
+    let source = "var base = 2; base ** (1 + 2);";
+    let (bytes, debug_dump) = artifact(source);
+    assert!(
+        debug_dump.contains("heap: enabled"),
+        "{source}\n{debug_dump}"
+    );
+    assert!(
+        imported_functions(&bytes)
+            .iter()
+            .any(|name| name == "lila_host.number_pow"),
+        "{source} retains the Number exponentiation host import"
+    );
 }
 
 #[test]
