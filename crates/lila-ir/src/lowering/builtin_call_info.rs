@@ -1608,7 +1608,7 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TypeErrorConstructor
             | StandardBuiltinId::URIErrorConstructor
             | StandardBuiltinId::ReferenceErrorConstructor => {
-                Some(Self::standard_error_instance_info(builtin))
+                Some(self.standard_error_instance_info(builtin))
             }
             StandardBuiltinId::FunctionPrototypeToString
             | StandardBuiltinId::ErrorPrototypeToString

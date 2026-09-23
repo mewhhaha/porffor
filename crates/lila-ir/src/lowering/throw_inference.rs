@@ -436,12 +436,12 @@ impl<'a> ScriptLowerer<'a> {
         let strict_put_value_throw = match carried_put_value_failure(&expr.expr) {
             Some((Strictness::Strict, failure)) => {
                 let type_error =
-                    Self::standard_error_instance_info(StandardBuiltinId::TypeErrorConstructor);
+                    self.standard_error_instance_info(StandardBuiltinId::TypeErrorConstructor);
                 Some(match failure {
                     PutValueFailure::TypeErrorOnly => type_error,
                     PutValueFailure::TypeErrorOrReferenceError => self.merge_value_infos(
                         type_error,
-                        Self::standard_error_instance_info(
+                        self.standard_error_instance_info(
                             StandardBuiltinId::ReferenceErrorConstructor,
                         ),
                     ),
@@ -510,9 +510,9 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
             ExprIr::EnvironmentIdentifier(_) => Some(unknown_runtime_value_info()),
-            ExprIr::GlobalIdentifierRead { .. } => Some(Self::standard_error_instance_info(
-                StandardBuiltinId::ReferenceErrorConstructor,
-            )),
+            ExprIr::GlobalIdentifierRead { .. } => Some(
+                self.standard_error_instance_info(StandardBuiltinId::ReferenceErrorConstructor),
+            ),
             // No match here on purpose. `NativeErrorKind::constructor` is total
             // over the nine error intrinsics (20.5.1, 20.5.5, 20.5.7 and
             // Explicit Resource Management), so a tenth kind cannot be omitted
@@ -523,7 +523,7 @@ impl<'a> ScriptLowerer<'a> {
             // `Error` and made every downstream `instanceof` and shape
             // inference keyed on the result wrong.
             ExprIr::RuntimeThrow { name, .. } => {
-                Some(Self::standard_error_instance_info(name.constructor()))
+                Some(self.standard_error_instance_info(name.constructor()))
             }
             ExprIr::ObjectLiteral(properties) => {
                 let mut info = None;
@@ -632,7 +632,7 @@ impl<'a> ScriptLowerer<'a> {
                         if !target.possible_kinds.is_subset_of(object_like) {
                             info = self.merge_optional_value_info(
                                 info,
-                                Some(Self::standard_error_instance_info(
+                                Some(self.standard_error_instance_info(
                                     StandardBuiltinId::TypeErrorConstructor,
                                 )),
                             );
@@ -817,12 +817,13 @@ impl<'a> ScriptLowerer<'a> {
                             | StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable
                     )
                 ) {
-                    info = self.merge_optional_value_info(
-                        info,
-                        Some(Self::standard_error_instance_info(
-                            StandardBuiltinId::TypeErrorConstructor,
-                        )),
-                    );
+                    info =
+                        self.merge_optional_value_info(
+                            info,
+                            Some(self.standard_error_instance_info(
+                                StandardBuiltinId::TypeErrorConstructor,
+                            )),
+                        );
                 }
                 if let Some(this_arg) = this_arg {
                     info =
@@ -894,12 +895,13 @@ impl<'a> ScriptLowerer<'a> {
                         .possible_kinds
                         .is_subset_of(Self::object_like_kind_set())
                 {
-                    info = self.merge_optional_value_info(
-                        info,
-                        Some(Self::standard_error_instance_info(
-                            StandardBuiltinId::TypeErrorConstructor,
-                        )),
-                    );
+                    info =
+                        self.merge_optional_value_info(
+                            info,
+                            Some(self.standard_error_instance_info(
+                                StandardBuiltinId::TypeErrorConstructor,
+                            )),
+                        );
                 }
                 info
             }
@@ -913,12 +915,13 @@ impl<'a> ScriptLowerer<'a> {
                     .union(KindSet::from_kind(ValueKind::Arguments))
                     .union(KindSet::from_kind(ValueKind::Function));
                 if !rhs.possible_kinds.is_subset_of(rhs_object_like) {
-                    info = self.merge_optional_value_info(
-                        info,
-                        Some(Self::standard_error_instance_info(
-                            StandardBuiltinId::TypeErrorConstructor,
-                        )),
-                    );
+                    info =
+                        self.merge_optional_value_info(
+                            info,
+                            Some(self.standard_error_instance_info(
+                                StandardBuiltinId::TypeErrorConstructor,
+                            )),
+                        );
                 }
                 info
             }
