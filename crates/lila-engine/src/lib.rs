@@ -16987,8 +16987,11 @@ primaryError + "|" + otherError;
 let other = __lilaCreateRealm();
 let regexp = new other.global.RegExp("a", "g");
 let iterator = other.global.String.prototype.matchAll.call("a", regexp);
-let arrayIteratorPrototype =
-  Object.getPrototypeOf(other.global.Array.prototype.values.call(new other.global.Array()));
+// %RegExpStringIteratorPrototype% of each Realm (22.2.9.2), not an Array Iterator.
+let otherRegExpStringIteratorPrototype = Object.getPrototypeOf(
+  other.global.RegExp.prototype[Symbol.matchAll].call(new other.global.RegExp("a", "g"), "a")
+);
+let regExpStringIteratorPrototype = Object.getPrototypeOf(/a/g[Symbol.matchAll]("a"));
 let iteratorPrototype = Object.getPrototypeOf(iterator);
 let next = iteratorPrototype.next;
 let direct = "missing";
@@ -17004,8 +17007,8 @@ try {
 
 let nextResult = next.call(iterator);
 [
-  iteratorPrototype === arrayIteratorPrototype,
-  iteratorPrototype === Object.getPrototypeOf(Array.prototype.values.call([])),
+  iteratorPrototype === otherRegExpStringIteratorPrototype,
+  iteratorPrototype === regExpStringIteratorPrototype,
   direct,
   Object.getPrototypeOf(nextResult) === other.global.Object.prototype,
   Object.getPrototypeOf(nextResult) === Object.prototype
@@ -19793,7 +19796,6 @@ try {
 if (!(undefinedThisError instanceof TypeError)) throw "module this was folded as globalThis";
 function ordinary() { return this; }
 if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
-262;
 "#,
                 CompileOptions::default(),
                 RunOptions {
@@ -19802,8 +19804,10 @@ if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
                 },
             )
             .expect("module root and activation this bindings should remain distinct");
+        // A synchronous Module entry completes normally with `undefined`; see
+        // docs/rust-rewrite/contracts/module-entry-completion.md.
         assert!(
-            outcome.note.contains("number(262"),
+            outcome.note.contains("undefined(undefined)"),
             "note: {}",
             outcome.note
         );
@@ -19813,7 +19817,8 @@ if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
     fn wasm_backend_module_split_anonymous_default_evaluates_in_place() {
         let outcome = engine()
             .run_module(
-                "let seen = 0;\nexport\ndefault (seen = 42);\nseen;",
+                "let seen = 0;\nexport\ndefault (seen = 42);\n\
+                 if (seen !== 42) throw \"split default was not evaluated in place\";",
                 CompileOptions::default(),
                 RunOptions {
                     backend: ExecutionBackend::WasmAot,
@@ -19821,7 +19826,12 @@ if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
                 },
             )
             .expect("split anonymous default should compile and run");
-        assert!(outcome.note.contains("number(42"), "note: {}", outcome.note);
+        // A synchronous Module entry completes normally with `undefined`.
+        assert!(
+            outcome.note.contains("undefined(undefined)"),
+            "note: {}",
+            outcome.note
+        );
     }
 
     #[test]
@@ -33087,7 +33097,7 @@ try {
             try { functionPrototype(); } catch (error) { prototypeCallThrows = error instanceof TypeError; }
 
             Object.getPrototypeOf(functionPrototype) === Function.prototype
-                && Object.getPrototypeOf(constructor) === functionPrototype
+                && Object.getPrototypeOf(constructor) === Function
                 && constructor.prototype === functionPrototype
                 && functionPrototype.prototype === generatorPrototype
                 && generatorPrototype.constructor === functionPrototype
