@@ -15138,27 +15138,47 @@ let proxyError = Reflect.construct(Error, ["m"], new Proxy(other.Error, {}));
         );
     }
 
+    // Proxy [[Call]] and [[Construct]] (ECMA-262 10.5.12 and 10.5.13, step 1)
+    // perform ValidateNonRevokedProxy (10.5.14), whose TypeError comes from
+    // the current Realm. A Proxy exotic object has no [[Realm]] and pushes no
+    // execution context, so that Realm is the caller's, never the Realm of the
+    // Proxy constructor or of the target. Test262 pins the same rule in
+    // built-ins/Proxy/{apply,construct}/null-handler-realm.js.
     #[test]
-    fn wasm_backend_cross_realm_revoked_proxy_throws_other_realm_type_error() {
+    fn wasm_backend_cross_realm_revoked_proxy_throws_running_realm_type_error() {
         let outcome = engine()
             .run_script(
                 r#"
 let other = __lilaCreateRealm();
 let OProxy = other.global.Proxy;
-let proxyObj = OProxy.revocable(function() {}, {});
-let proxy = proxyObj.proxy;
-proxyObj.revoke();
 let sameRealm = (new TypeError("same")) instanceof TypeError;
-
-try {
-  proxy();
-  "missing";
-} catch (error) {
-  sameRealm + ":" +
-    (Object.getPrototypeOf(error) === other.global.TypeError.prototype) + ":" +
-    (error instanceof other.global.TypeError) + ":" +
-    (error instanceof TypeError);
+function describe(operation) {
+  try {
+    operation();
+    return "missing";
+  } catch (error) {
+    return (Object.getPrototypeOf(error) === TypeError.prototype) + ":" +
+      (error instanceof other.global.TypeError) + ":" +
+      (error instanceof TypeError);
+  }
 }
+let localTarget = OProxy.revocable(function() {}, {});
+localTarget.revoke();
+let otherTarget = OProxy.revocable(other.global.Object, {});
+otherTarget.revoke();
+let mainRevocable = Proxy.revocable(function() {}, {});
+mainRevocable.revoke();
+other.global.mainRevokedProxy = mainRevocable.proxy;
+let otherCallerError = other.evalScript("var caught = 'missing'; try { mainRevokedProxy(); } catch (error) { caught = error; } caught;");
+[
+  sameRealm,
+  describe(() => localTarget.proxy()),
+  describe(() => new localTarget.proxy()),
+  describe(() => otherTarget.proxy()),
+  describe(() => new otherTarget.proxy()),
+  (Object.getPrototypeOf(otherCallerError) === other.global.TypeError.prototype) + ":" +
+    (otherCallerError instanceof TypeError)
+].join("|");
 "#,
                 CompileOptions::default(),
                 RunOptions {
@@ -15166,9 +15186,11 @@ try {
                     ..RunOptions::default()
                 },
             )
-            .expect("revoked cross-realm proxy call should throw in proxy function realm");
+            .expect("revoked cross-realm proxy call should throw in the running realm");
         assert!(
-            outcome.note.contains("string(true:true:true:false)"),
+            outcome.note.contains(
+                "string(true|true:false:true|true:false:true|true:false:true|true:false:true|true:false)"
+            ),
             "note: {}",
             outcome.note
         );
@@ -16571,6 +16593,16 @@ var isExtensibleTarget = wrapDeeply(new Proxy({}, {
         );
     }
 
+    // Global function properties are writable, non-enumerable, configurable
+    // data properties (ECMA-262 clause 18, "ECMAScript Standard Built-in
+    // Objects") with the lengths and names of 19.2 and B.2.1. The other
+    // Realm's `eval` is a built-in whose call context takes its own [[Realm]]
+    // (10.3.1 [[Call]] via BuiltinCallOrConstruct, 10.3.3), and indirect eval
+    // evaluates in that current Realm's global environment (19.2.1 eval and
+    // 19.2.1.1 PerformEval). A compile-time-known source is therefore ordinary
+    // other-Realm eval code: `"1 + 1"` completes with 2, `this` and `Array`
+    // resolve in the other Realm, and GetValue on a null base (6.2.5.5, ToObject)
+    // throws the other Realm's TypeError.
     #[test]
     fn wasm_backend_create_realm_exposes_global_function_properties() {
         let outcome = engine()
@@ -16581,14 +16613,33 @@ let infinityDesc = Object.getOwnPropertyDescriptor(other, "Infinity");
 let nanDesc = Object.getOwnPropertyDescriptor(other, "NaN");
 let undefinedDesc = Object.getOwnPropertyDescriptor(other, "undefined");
 let globalThisDesc = Object.getOwnPropertyDescriptor(other, "globalThis");
+let evalSum = other.eval("1 + 1");
+let evalRealm =
+  (other.eval("this") === other) + ":" +
+  (other.eval("Array") === other.Array) + ":" +
+  (other.eval("Array") === Array);
 let evalThrow = "missing";
 try {
-  other.eval("1 + 1");
+  other.eval("null.x");
 } catch (error) {
   evalThrow =
     (Object.getPrototypeOf(error) === other.TypeError.prototype) + ":" +
     (error instanceof other.TypeError) + ":" +
     (error instanceof TypeError);
+}
+let functionPropertyMismatches = [];
+for (let [name, length] of [
+  ["eval", 1], ["isFinite", 1], ["isNaN", 1], ["parseFloat", 1], ["parseInt", 2],
+  ["decodeURI", 1], ["decodeURIComponent", 1], ["encodeURI", 1],
+  ["encodeURIComponent", 1], ["escape", 1], ["unescape", 1]
+]) {
+  let desc = Object.getOwnPropertyDescriptor(other, name);
+  if (!desc || !desc.writable || desc.enumerable || !desc.configurable ||
+      typeof desc.value !== "function" || desc.value.length !== length ||
+      desc.value.name !== name || desc.value === globalThis[name] ||
+      Object.getPrototypeOf(desc.value) !== other.Function.prototype) {
+    functionPropertyMismatches.push(name);
+  }
 }
 [
   other.Infinity === Infinity,
@@ -16611,7 +16662,10 @@ try {
   other.eval === eval,
   typeof other.eval,
   other.eval(7),
+  evalSum,
+  evalRealm,
   evalThrow,
+  functionPropertyMismatches.length === 0 ? "ok" : functionPropertyMismatches.join(","),
   other.isFinite === isFinite,
   other.isNaN === isNaN,
   other.escape === escape,
@@ -16636,7 +16690,7 @@ try {
             .expect("synthetic realm global object should expose global function properties");
         assert!(
             outcome.note.contains(
-                "string(true|false|true|true|false|false|false|false|false|false|false|false|false|false|true|false|true|false|function|7|true:true:false|false|false|false|false|function|function|function|function|true|false|true|false|true)"
+                "string(true|false|true|true|false|false|false|false|false|false|false|false|false|false|true|false|true|false|function|7|2|true:true:false|true:true:false|ok|false|false|false|false|function|function|function|function|true|false|true|false|true)"
             ),
             "note: {}",
             outcome.note

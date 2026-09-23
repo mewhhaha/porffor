@@ -6726,7 +6726,8 @@ try {
   proxy();
 } catch (error) {
   caught = true;
-  if (Object.getPrototypeOf(error) !== other.global.TypeError.prototype) {
+  // ValidateNonRevokedProxy throws in the running (caller's) Realm.
+  if (Object.getPrototypeOf(error) !== TypeError.prototype) {
     throw "revoked proxy wrong realm";
   }
 }
