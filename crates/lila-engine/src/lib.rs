@@ -10261,6 +10261,30 @@ const detachedResizableState = [
     }
 
     #[test]
+    fn wasm_backend_typed_array_owned_buffer_inherits_the_complete_array_buffer_prototype() {
+        // No Uint8Array or ArrayBuffer reference: the Float64Array alone must
+        // publish %ArrayBuffer.prototype%, whose members the detach call leaves
+        // reachable only through ordinary [[Get]] on the owned buffer.
+        let outcome = engine()
+            .run_script(
+                "const view = new Float64Array(2); const buffer = view.buffer; __lilaDetachArrayBuffer(buffer); [buffer.detached, buffer.resizable, buffer.maxByteLength, buffer.byteLength, typeof buffer.slice, typeof buffer.resize, typeof buffer.transfer, view.length].join();",
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("TypedArray owned buffer should expose ArrayBuffer.prototype");
+        assert!(
+            outcome
+                .note
+                .contains("string(true,false,0,0,function,function,function,0)"),
+            "note: {}",
+            outcome.note
+        );
+    }
+
+    #[test]
     fn wasm_backend_growable_shared_array_buffer_grows_in_place_and_updates_live_views() {
         let source = r#"
 const buffer = new SharedArrayBuffer(2, { maxByteLength: 8 });
@@ -13288,7 +13312,12 @@ clampedFirst.value + ":" + clampedFirst.done;
 
     #[test]
     fn wasm_backend_typed_array_iterators_keep_state_in_private_slots() {
-        let source = "const iterator = new Uint8Array([7, 8]).values(); const slotNames = ['$ArrayIterator.array', '$ArrayIterator.index', '$ArrayIterator.done', '$ArrayIterator.kind']; const hidden = slotNames.every(name => !Object.hasOwn(iterator, name)); iterator.$ArrayIterator.array = []; iterator.$ArrayIterator.index = 100; iterator.$ArrayIterator.done = true; iterator.$ArrayIterator.kind = 0; const first = iterator.next(); const second = iterator.next(); const done = iterator.next(); const forgedTarget = { length: 1, 0: 42, $TypedArrayViewedArrayBuffer: new ArrayBuffer(1), $TypedArrayByteOffset: 0, $TypedArrayByteLength: 0, $TypedArrayBytesPerElement: 1, $TypedArrayLengthTracking: false }; const genericValue = Array.prototype.values.call(forgedTarget).next().value; hidden + '|' + first.value + ':' + first.done + '|' + second.value + ':' + second.done + '|' + (done.value === undefined) + ':' + done.done + '|' + genericValue;";
+        // The forged slots are written under the exact names `hidden` probes.
+        // Spelling them `iterator.$ArrayIterator.array = []` instead reads the
+        // absent `$ArrayIterator` property first, so PutValue's
+        // ToObject(undefined) throws a TypeError before any slot is forged
+        // (13.15.2 step 1.d via 6.2.5.6 PutValue step 3.a).
+        let source = "const iterator = new Uint8Array([7, 8]).values(); const slotNames = ['$ArrayIterator.array', '$ArrayIterator.index', '$ArrayIterator.done', '$ArrayIterator.kind']; const hidden = slotNames.every(name => !Object.hasOwn(iterator, name)); iterator['$ArrayIterator.array'] = []; iterator['$ArrayIterator.index'] = 100; iterator['$ArrayIterator.done'] = true; iterator['$ArrayIterator.kind'] = 0; const first = iterator.next(); const second = iterator.next(); const done = iterator.next(); const forgedTarget = { length: 1, 0: 42, $TypedArrayViewedArrayBuffer: new ArrayBuffer(1), $TypedArrayByteOffset: 0, $TypedArrayByteLength: 0, $TypedArrayBytesPerElement: 1, $TypedArrayLengthTracking: false }; const genericValue = Array.prototype.values.call(forgedTarget).next().value; hidden + '|' + first.value + ':' + first.done + '|' + second.value + ':' + second.done + '|' + (done.value === undefined) + ':' + done.done + '|' + genericValue;";
         let outcome = engine()
             .run_script(
                 source,
@@ -31861,6 +31890,43 @@ try {
                 "thrown:true".to_string(),
                 "invalid:true".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn wasm_backend_directly_called_promise_prototype_methods_throw_receiver_type_errors() {
+        // Both calls resolve statically, so each builtin runs with the caller
+        // Realm's %Function.prototype% as its environment rather than its own
+        // function object. The receiver TypeError must still come from that
+        // Realm (27.2.5.4 step 2, 27.2.5.3 step 2) instead of trapping.
+        let source = r#"
+            let thenError = "none";
+            try { Promise.prototype.then(); } catch (error) {
+                thenError = error instanceof TypeError && error.constructor === TypeError;
+            }
+            const finallyMethod = Promise.prototype.finally;
+            let finallyError = "none";
+            try { finallyMethod(); } catch (error) {
+                finallyError = error instanceof TypeError && error.constructor === TypeError;
+            }
+            thenError + "|" + finallyError;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| {
+                panic!("direct Promise prototype receiver errors should run: {err:?}")
+            });
+        assert!(
+            outcome.note.contains("string(true|true)"),
+            "{}",
+            outcome.note
         );
     }
 

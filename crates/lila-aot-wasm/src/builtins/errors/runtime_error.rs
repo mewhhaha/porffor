@@ -339,6 +339,48 @@ impl FunctionBuilder<'_> {
         )
     }
 
+    /// Load `%TypeError.prototype%` of the executing builtin's Realm, the
+    /// Realm a builtin's [[Call]] installs on its execution context
+    /// (10.3.3 BuiltinCallOrConstruct steps 5-6).
+    ///
+    /// A builtin body's `current_env_local` is zero only for the entry Realm.
+    /// Otherwise it is a function object whose defining Realm is that Realm:
+    /// the builtin itself when reached through its function object, or the
+    /// caller Realm's `%Function.prototype%` when source code calls a
+    /// statically resolved builtin directly. `%Function.prototype%` is
+    /// allocated before any native error prototype exists, so its per-object
+    /// `HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET` snapshot is zero; only
+    /// the defining Realm's intrinsic table answers for both environments.
+    /// Every link is complete before user code runs, so a zero is a compiler
+    /// bug and traps rather than borrowing another Realm's prototype.
+    pub(crate) fn emit_load_active_builtin_realm_type_error_prototype(
+        &mut self,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        for offset in [
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+        ] {
+            self.load_i64_to_local_from_offset(prototype_local, offset, prototype_local, function);
+            function.instruction(&Instruction::LocalGet(prototype_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Unreachable);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::End);
+    }
+
     pub(crate) fn emit_throw_runtime_type_error_without_message(
         &mut self,
         payload_local: u32,

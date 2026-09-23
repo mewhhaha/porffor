@@ -4,6 +4,7 @@ use std::path::Path;
 const PROMISE_SOURCE: &str = include_str!("../src/builtins/promise.rs");
 const PROMISE_TRY_CALLBACK_TYPE_ERROR_SOURCE: &str =
     include_str!("../src/builtins/promise/promise_try_callback_type_error.rs");
+const RUNTIME_ERROR_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_promise_internal_callback_realm.js");
 
@@ -119,37 +120,83 @@ fn promise_try_callback_type_error_proof_is_private_and_one_shot() {
 }
 
 #[test]
-fn promise_try_callback_type_error_proof_uses_only_the_executing_function_snapshot() {
+fn promise_try_callback_type_error_proof_uses_the_active_builtin_realm() {
     let factory = between(
         PROMISE_TRY_CALLBACK_TYPE_ERROR_SOURCE,
         "fn emit_load_promise_try_callback_type_error_prototype(",
         "pub(super) fn emit_throw_promise_try_non_callable_callback(",
     );
-    for marker in [
-        "self.current_env_local",
-        "TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX",
+    assert_eq!(
+        factory
+            .matches(
+                "self.emit_load_active_builtin_realm_type_error_prototype(prototype_local, function);"
+            )
+            .count(),
+        1,
+        "Promise.try must take its TypeError prototype from the shared active-Realm authority"
+    );
+    assert_eq!(factory.matches("reserve_temp_local()").count(), 1);
+    // A directly called Promise.try runs with the caller Realm's
+    // %Function.prototype% as its environment, whose per-object snapshot is
+    // allocated empty; reading it is what trapped `Promise.try(null)`.
+    for retired in [
         "HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET",
+        "TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX",
+        "CURRENT_REALM_GLOBAL_INDEX",
+        "PROMISE_CONSTRUCTOR_GLOBAL_INDEX",
+        "Instruction::",
     ] {
         assert!(
-            factory.contains(marker),
-            "missing Realm authority: {marker}"
+            !factory.contains(retired),
+            "the proof factory must not choose its own Realm authority: {retired}"
         );
     }
-    assert!(!factory.contains("CURRENT_REALM_GLOBAL_INDEX"));
-    assert!(!factory.contains("PROMISE_CONSTRUCTOR_GLOBAL_INDEX"));
-    assert!(!factory.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
-    assert_eq!(factory.matches("Instruction::Unreachable").count(), 1);
+}
+
+#[test]
+fn active_builtin_realm_type_error_prototype_comes_from_the_defining_realm_catalog() {
+    let loader = between(
+        RUNTIME_ERROR_SOURCE,
+        "pub(crate) fn emit_load_active_builtin_realm_type_error_prototype(",
+        "\n    }\n",
+    );
+    assert!(!loader.contains("HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET"));
+    assert!(!loader.contains("CURRENT_REALM_GLOBAL_INDEX"));
+    assert!(!loader.contains("error_prototype_global_index("));
+    let entry_end = loader.find("Instruction::Else").unwrap();
     assert!(
-        factory.find("TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX").unwrap()
-            < factory.find("Instruction::Else").unwrap(),
+        loader.find("self.current_env_local").unwrap() < entry_end
+            && loader.find("TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX").unwrap() < entry_end,
         "the entry TypeError prototype is valid only for the zero environment"
     );
+    assert_eq!(
+        loader.matches("TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX").count(),
+        1
+    );
+    let chain = between(loader, "for offset in [", "] {");
+    let links = [
+        "HEAP_FUNCTION_DEFINING_REALM_OFFSET,",
+        "HEAP_REALM_INTRINSICS_OFFSET,",
+        "HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,",
+    ];
+    let positions = links
+        .iter()
+        .map(|link| {
+            chain
+                .find(link)
+                .unwrap_or_else(|| panic!("missing Realm link: {link}"))
+        })
+        .collect::<Vec<_>>();
     assert!(
-        factory
-            .find("HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET")
-            .unwrap()
-            > factory.find("Instruction::Else").unwrap(),
-        "a self-backed Promise.try must load its published snapshot"
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "the environment is followed to its Realm, then its intrinsics, then the prototype"
+    );
+    assert_eq!(chain.matches(',').count(), links.len());
+    assert!(loader.find("for offset in [").unwrap() > entry_end);
+    assert_eq!(
+        loader.matches("Instruction::Unreachable").count(),
+        1,
+        "every link shares the one loop-emitted invariant trap; none falls back"
     );
 }
 

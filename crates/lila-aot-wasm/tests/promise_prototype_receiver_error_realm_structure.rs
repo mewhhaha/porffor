@@ -200,35 +200,37 @@ fn promise_prototype_receiver_errors_form_a_closed_two_variant_domain() {
 }
 
 #[test]
-fn promise_prototype_receiver_error_proof_uses_only_the_executing_function_snapshot() {
+fn promise_prototype_receiver_error_proof_uses_the_active_builtin_realm() {
     let factory = between(
         PROMISE_PROTOTYPE_RECEIVER_TYPE_ERROR_SOURCE,
         "fn emit_load_promise_prototype_receiver_type_error_prototype(",
         "fn emit_throw_promise_prototype_receiver_error(",
     );
-    for marker in [
-        "self.current_env_local",
-        "TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX",
-        "HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET",
-    ] {
-        assert!(
-            factory.contains(marker),
-            "missing Realm authority: {marker}"
-        );
-    }
-    assert!(!factory.contains("CURRENT_REALM_GLOBAL_INDEX"));
-    assert!(!factory.contains("PROMISE_CONSTRUCTOR_GLOBAL_INDEX"));
-    assert!(!factory.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
-    assert_eq!(factory.matches("Instruction::Unreachable").count(), 1);
-    let nonentry_branch = factory.find("Instruction::Else").unwrap();
-    assert!(factory.find("TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX").unwrap() < nonentry_branch);
-    assert!(
+    assert_eq!(
         factory
-            .find("HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET")
-            .unwrap()
-            > nonentry_branch
+            .matches(
+                "self.emit_load_active_builtin_realm_type_error_prototype(prototype_local, function);"
+            )
+            .count(),
+        1,
+        "then and finally must take their TypeError prototype from the shared active-Realm authority"
     );
     assert_eq!(factory.matches("reserve_temp_local()").count(), 1);
+    // A directly called then/finally runs with the caller Realm's
+    // %Function.prototype% as its environment, whose per-object snapshot is
+    // allocated empty; reading it is what trapped `Promise.prototype.then()`.
+    for retired in [
+        "HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET",
+        "TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX",
+        "CURRENT_REALM_GLOBAL_INDEX",
+        "PROMISE_CONSTRUCTOR_GLOBAL_INDEX",
+        "Instruction::",
+    ] {
+        assert!(
+            !factory.contains(retired),
+            "the proof factory must not choose its own Realm authority: {retired}"
+        );
+    }
 }
 
 #[test]

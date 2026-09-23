@@ -24,26 +24,8 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> PromisePrototypeReceiverTypeErrorPrototypeLocal {
         let prototype_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
-            prototype_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(prototype_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
+        // The receiver checks throw from the executing then/finally's Realm.
+        self.emit_load_active_builtin_realm_type_error_prototype(prototype_local, function);
         PromisePrototypeReceiverTypeErrorPrototypeLocal(prototype_local)
     }
 

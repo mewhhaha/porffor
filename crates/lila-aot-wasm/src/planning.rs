@@ -1522,6 +1522,21 @@ mod tests {
     }
 
     #[test]
+    fn every_typed_array_constructor_roots_the_array_buffer_prototype_installer() {
+        for kind in TypedArrayElementKind::ALL {
+            let mut plan = RuntimeBootstrapPlan::default();
+            plan.require_standard_builtin(kind.constructor());
+
+            assert!(
+                plan.standard_roots
+                    .contains(&StandardBuiltinId::ArrayBufferConstructor),
+                "{:?} exposes an ArrayBuffer whose prototype would be left uninstalled",
+                kind.constructor()
+            );
+        }
+    }
+
+    #[test]
     fn object_constructor_roots_group_by_and_property_key_bootstrap() {
         let mut plan = RuntimeBootstrapPlan::default();
         plan.require_standard_builtin(StandardBuiltinId::ObjectConstructor);
@@ -2319,7 +2334,6 @@ impl RuntimeBootstrapPlan {
                 .any(|&(_, codec)| codec == builtin)
         {
             self.require_standard_builtin(StandardBuiltinId::Uint8ArrayConstructor);
-            self.require_standard_builtin(StandardBuiltinId::ArrayBufferConstructor);
             for &(_, codec) in lila_ir::UINT8_ARRAY_CODEC_STATIC_MEMBERS
                 .iter()
                 .chain(lila_ir::UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS.iter())
@@ -2390,6 +2404,14 @@ impl RuntimeBootstrapPlan {
         }
         if is_typed_array_constructor(builtin) {
             self.require_standard_builtin(StandardBuiltinId::TypedArrayConstructor);
+            // Every TypedArray owns an observable ArrayBuffer: AllocateTypedArray
+            // reaches AllocateArrayBuffer(%ArrayBuffer%, ...), whose
+            // OrdinaryCreateFromConstructor gives the buffer
+            // %ArrayBuffer.prototype% (23.2.5.1.1, 25.1.3.1). The ArrayBuffer
+            // constructor's installer is the only writer of that prototype's
+            // members, so without it `view.buffer.detached` read through
+            // ordinary [[Get]] finds no accessor and answers `undefined`.
+            self.require_standard_builtin(StandardBuiltinId::ArrayBufferConstructor);
             for iterator_builtin in [
                 StandardBuiltinId::ArrayPrototypeValues,
                 StandardBuiltinId::TypedArrayPrototypeIncludes,
