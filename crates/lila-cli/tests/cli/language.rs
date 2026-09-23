@@ -392,6 +392,31 @@ fn run_wasm_backend_supports_annex_b_block_functions() {
     assert!(stdout.contains("boolean(true)"));
 }
 
+/// B.3.2.1's evaluation of an Annex B function declaration writes the
+/// function's VariableEnvironment directly (`fenv.SetMutableBinding`); it must
+/// not resolve through a same-named catch parameter that B.3.4 lets coexist
+/// with the var-scoped name, while a plain `var` initializer in that catch
+/// block still assigns the parameter.
+#[test]
+fn run_wasm_backend_keeps_catch_parameters_under_annex_b_function_copies() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_annexb_catch_parameter_copy.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
 #[test]
 fn run_wasm_backend_captures_annex_b_block_function_bindings() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

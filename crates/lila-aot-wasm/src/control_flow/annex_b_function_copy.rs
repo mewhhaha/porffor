@@ -32,7 +32,14 @@ impl FunctionBuilder<'_> {
         self.read_binding_to_locals(source, self.scratch_local, self.result_tag_local, function)?;
         match target {
             AnnexBFunctionCopyTargetIr::OwnerBinding { storage_name } => {
-                let target = self.lookup_binding(storage_name).ok_or_else(|| {
+                // B.3.2.1, evaluating f: `fenv.SetMutableBinding(F, fobj,
+                // false)` writes the function's VariableEnvironment directly.
+                // It does not resolve F through the running LexicalEnvironment,
+                // so a same-named binding between the block and the function
+                // body — the catch parameter that B.3.4 lets coexist with the
+                // var-scoped name, which this builder also registers under its
+                // source name — must keep its value.
+                let target = self.lookup_owner_binding(storage_name).ok_or_else(|| {
                     EmitError::unsupported(format!(
                         "Annex B declaration `{source_name}` is missing owner binding `{storage_name}`"
                     ))
