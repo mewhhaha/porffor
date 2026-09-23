@@ -8220,13 +8220,6 @@ impl<'a> FunctionBuilder<'a> {
         let rhs_tag = self.reserve_temp_local();
         let lhs_string = self.reserve_temp_local();
         let rhs_string = self.reserve_temp_local();
-        let lhs_offset = self.reserve_temp_local();
-        let lhs_len = self.reserve_temp_local();
-        let rhs_offset = self.reserve_temp_local();
-        let rhs_len = self.reserve_temp_local();
-        let total_len = self.reserve_temp_local();
-        let dst_offset = self.reserve_temp_local();
-        let rhs_dst_offset = self.reserve_temp_local();
 
         self.compile_expr_to_locals(lhs, lhs_payload, lhs_tag, function)?;
         self.emit_value_to_string_payload(lhs_payload, lhs_tag, function)?;
@@ -8235,31 +8228,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_string_payload(rhs_payload, rhs_tag, function)?;
         function.instruction(&Instruction::LocalSet(rhs_string));
 
-        self.emit_unpack_string_payload(lhs_string, lhs_offset, lhs_len, function);
-        self.emit_unpack_string_payload(rhs_string, rhs_offset, rhs_len, function);
+        // The one concatenation primitive: it keeps the payload canonical
+        // when an unpaired high surrogate meets an unpaired low surrogate.
+        self.emit_concat_string_payloads_local(lhs_string, rhs_string, function)?;
 
-        function.instruction(&Instruction::LocalGet(lhs_len));
-        function.instruction(&Instruction::LocalGet(rhs_len));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(total_len));
-        self.emit_heap_alloc_from_local(total_len, function)?;
-        function.instruction(&Instruction::LocalSet(dst_offset));
-
-        self.emit_copy_bytes(lhs_offset, dst_offset, lhs_len, function);
-        function.instruction(&Instruction::LocalGet(dst_offset));
-        function.instruction(&Instruction::LocalGet(lhs_len));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(rhs_dst_offset));
-        self.emit_copy_bytes(rhs_offset, rhs_dst_offset, rhs_len, function);
-        self.emit_pack_string_payload(dst_offset, total_len, function);
-
-        self.release_temp_local(rhs_dst_offset);
-        self.release_temp_local(dst_offset);
-        self.release_temp_local(total_len);
-        self.release_temp_local(rhs_len);
-        self.release_temp_local(rhs_offset);
-        self.release_temp_local(lhs_len);
-        self.release_temp_local(lhs_offset);
         self.release_temp_local(rhs_string);
         self.release_temp_local(lhs_string);
         self.release_temp_local(rhs_tag);

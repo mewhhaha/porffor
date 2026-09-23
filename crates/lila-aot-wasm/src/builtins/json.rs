@@ -5869,6 +5869,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(dst_offset_local));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(decoded_len_local));
+        // An escaped surrogate pair (or an escaped half beside a literal one)
+        // decodes to two code units that together are one scalar.
+        self.emit_canonicalize_surrogate_pairs_in_place(
+            dst_offset_local,
+            decoded_len_local,
+            function,
+        );
         self.emit_pack_string_payload(dst_offset_local, decoded_len_local, function);
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::End);
@@ -8094,6 +8101,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(dst_offset_local));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(decoded_len_local));
+        // An escaped surrogate pair (or an escaped half beside a literal one)
+        // decodes to two code units that together are one scalar.
+        self.emit_canonicalize_surrogate_pairs_in_place(
+            dst_offset_local,
+            decoded_len_local,
+            function,
+        );
         self.emit_pack_string_payload(dst_offset_local, decoded_len_local, function);
         function.instruction(&Instruction::LocalSet(value_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));

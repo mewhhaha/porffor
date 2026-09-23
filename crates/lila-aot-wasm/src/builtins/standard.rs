@@ -26904,6 +26904,7 @@ impl<'a> FunctionBuilder<'a> {
                 let output_offset_local = self.reserve_temp_local();
                 let output_position_local = self.reserve_temp_local();
                 let encode_temp_local = self.reserve_temp_local();
+                let pending_high_local = self.reserve_temp_local();
 
                 function.instruction(&Instruction::LocalGet(self.argc_param_local()));
                 function.instruction(&Instruction::I64Eqz);
@@ -26925,6 +26926,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(output_position_local));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(index_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(pending_high_local));
 
                 function.instruction(&Instruction::Block(BlockType::Empty));
                 function.instruction(&Instruction::Loop(BlockType::Empty));
@@ -26952,12 +26955,62 @@ impl<'a> FunctionBuilder<'a> {
                     code_unit_local,
                     function,
                 );
+                // Keep the payload canonical: a low surrogate right after an
+                // unpaired high surrogate replaces that high surrogate's
+                // three WTF-8 bytes with the pair's four-byte scalar.
+                function.instruction(&Instruction::LocalGet(pending_high_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::LocalGet(code_unit_local));
+                function.instruction(&Instruction::I64Const(0xFC00));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Const(0xDC00));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::LocalGet(output_position_local));
+                function.instruction(&Instruction::I64Const(3));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::LocalSet(output_position_local));
+                function.instruction(&Instruction::LocalGet(pending_high_local));
+                function.instruction(&Instruction::I64Const(0xD800));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::I64Const(10));
+                function.instruction(&Instruction::I64Shl);
+                function.instruction(&Instruction::LocalGet(code_unit_local));
+                function.instruction(&Instruction::I64Const(0xDC00));
+                function.instruction(&Instruction::I64Sub);
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::I64Const(0x1_0000));
+                function.instruction(&Instruction::I64Add);
+                function.instruction(&Instruction::LocalSet(code_unit_local));
                 self.emit_store_utf8_codepoint(
                     output_position_local,
                     code_unit_local,
                     encode_temp_local,
                     function,
                 );
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(pending_high_local));
+                function.instruction(&Instruction::Else);
+                self.emit_store_utf8_codepoint(
+                    output_position_local,
+                    code_unit_local,
+                    encode_temp_local,
+                    function,
+                );
+                function.instruction(&Instruction::LocalGet(code_unit_local));
+                function.instruction(&Instruction::I64Const(0xFC00));
+                function.instruction(&Instruction::I64And);
+                function.instruction(&Instruction::I64Const(0xD800));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                function.instruction(&Instruction::LocalGet(code_unit_local));
+                function.instruction(&Instruction::Else);
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalSet(pending_high_local));
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalGet(index_local));
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::I64Add);
@@ -26976,6 +27029,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
+                self.release_temp_local(pending_high_local);
                 self.release_temp_local(encode_temp_local);
                 self.release_temp_local(output_position_local);
                 self.release_temp_local(output_offset_local);
