@@ -89,38 +89,115 @@ fn run_wasm_backend_routes_exceptional_to_length_throws_to_their_owners() {
 /// runtime fixture above reaches the simple fallback through an AOT program
 /// table miss; this source gate also prevents either emitter from silently
 /// returning the raw ToLength completion if their dispatch changes later.
+///
+/// `lastIndex` is read and converted exactly once, by the shared
+/// `RegExpBuiltinExec` wrapper, before either emitter runs: ToLength can invoke
+/// user code that recompiles the RegExp, so neither matching path may read the
+/// source, flags or program handle until it has completed. Both emitters then
+/// consume the converted `last_index_local` and must not convert it again —
+/// a second ToLength would observably re-run `valueOf`, and the ordinary
+/// wrapper would return the raw completion past the active handler.
 #[test]
 fn regexp_exec_exceptional_to_length_routes_cover_both_emitters() {
     let source = include_str!("../../../lila-aot-wasm/src/builtins/string.rs");
-    let program = source
-        .split_once("    fn emit_regexp_exec_program_from_locals(")
-        .expect("compiled-program RegExp emitter should exist")
-        .1
-        .split_once("    fn emit_regexp_exec_simple_from_locals(")
-        .expect("compiled-program RegExp emitter should have a bounded body")
-        .0;
-    let simple = source
-        .split_once("    fn emit_regexp_exec_simple_from_locals(")
-        .expect("simple-fallback RegExp emitter should exist")
-        .1
-        .split_once("    pub(crate) fn emit_array_to_string_locals(")
-        .expect("simple-fallback RegExp emitter should have a bounded body")
-        .0;
+    let bounded = |start: &str, end: &str, name: &str| -> &str {
+        source
+            .split_once(start)
+            .unwrap_or_else(|| panic!("{name} RegExp emitter should exist"))
+            .1
+            .split_once(end)
+            .unwrap_or_else(|| panic!("{name} RegExp emitter should have a bounded body"))
+            .0
+    };
+    let wrapper = bounded(
+        "    fn emit_regexp_prototype_exec_from_locals(",
+        "    fn emit_regexp_matcher_failure_and_return(",
+        "shared exec wrapper",
+    );
+    let program = bounded(
+        "    fn emit_regexp_exec_program_from_locals(",
+        "    fn emit_regexp_exec_simple_from_locals(",
+        "compiled-program",
+    );
+    let simple = bounded(
+        "    fn emit_regexp_exec_simple_from_locals(",
+        "    pub(crate) fn emit_concat_string_payloads_local(",
+        "simple-fallback",
+    );
+
+    let routed_to_length = "self.emit_to_length_i64_from_value_locals_with_abrupt_route(";
+    assert_eq!(
+        wrapper.matches(routed_to_length).count(),
+        1,
+        "the shared RegExp exec wrapper must use the exceptional ToLength route exactly once"
+    );
+    assert_eq!(
+        wrapper
+            .matches("ToLengthAbruptRoute::ActiveHandler")
+            .count(),
+        1,
+        "the shared RegExp exec wrapper must route abrupt ToLength through its active handler"
+    );
+    assert_eq!(
+        wrapper
+            .matches("emit_to_length_i64_from_value_locals(")
+            .count(),
+        0,
+        "the shared RegExp exec wrapper must not use the ordinary ToLength completion policy"
+    );
+    let to_length_at = wrapper
+        .find(routed_to_length)
+        .expect("routed ToLength call is counted above");
+    for (name, call) in [
+        (
+            "compiled-program",
+            "self.emit_regexp_exec_program_from_locals(",
+        ),
+        (
+            "simple-fallback",
+            "self.emit_regexp_exec_simple_from_locals(",
+        ),
+    ] {
+        assert_eq!(
+            wrapper.matches(call).count(),
+            1,
+            "the shared RegExp exec wrapper must dispatch to the {name} emitter exactly once"
+        );
+        let call_at = wrapper.find(call).expect("call is counted above");
+        assert!(
+            to_length_at < call_at,
+            "lastIndex ToLength must complete before the {name} emitter reads the RegExp"
+        );
+        let arguments = wrapper[call_at..]
+            .split_once(")?;")
+            .expect("emitter call should be a complete fallible statement")
+            .0;
+        assert!(
+            arguments.contains("last_index_local,"),
+            "the {name} emitter must receive the lastIndex converted by the wrapper"
+        );
+    }
 
     for (name, emitter) in [("compiled-program", program), ("simple-fallback", simple)] {
-        assert_eq!(
+        assert!(
             emitter
-                .matches("emit_to_length_i64_from_value_locals_with_abrupt_route(")
-                .count(),
-            1,
-            "the {name} RegExp emitter must use the exceptional ToLength route exactly once"
+                .split_once(") -> Result<(), EmitError> {")
+                .expect("emitter should have a fallible signature")
+                .0
+                .contains("last_index_local: u32,"),
+            "the {name} RegExp emitter must take the already-converted lastIndex"
         );
         assert_eq!(
             emitter
-                .matches("ToLengthAbruptRoute::ActiveHandler")
+                .matches("emit_to_length_i64_from_value_locals")
                 .count(),
-            1,
-            "the {name} RegExp emitter must route abrupt ToLength through its active handler"
+            0,
+            "the {name} RegExp emitter must not convert lastIndex a second time"
+        );
+        assert_eq!(
+            emitter.matches("ToLengthAbruptRoute").count(),
+            0,
+            "the {name} RegExp emitter must leave the abrupt ToLength route to the wrapper"
         );
     }
 }

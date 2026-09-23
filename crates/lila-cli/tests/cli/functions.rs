@@ -43,9 +43,22 @@ fn inspect_reports_phase_twenty_seven_boxed_builtin_ir_shape() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("boxed_builtin_globals=3"));
-    assert!(stdout.contains("boxed_builtin_calls=3"));
+    // The fixture never calls `Number`, `String` or `Boolean` as a function.
+    // Before c4e15caf5 each `new Number(1)`/`new String("x")`/`new Boolean(false)`
+    // was recorded both as a construct and as a call, which is where the old
+    // `boxed_builtin_calls=3` came from; they are now constructs only.
+    assert!(stdout.contains("boxed_builtin_calls=0"), "{stdout}");
     assert!(stdout.contains("boxed_builtin_constructs=3"));
-    assert!(stdout.contains("boxed_receiver_adaptations=3"));
+    // Only `isStringBox.apply("x", [])` is resolved statically. Since c4e15caf5
+    // `.call` resolves to `%Function.prototype.call%` only while
+    // `function_prototype_call_is_intrinsic` can still prove the receiver and
+    // `%Function.prototype%.call` untouched, and the earlier `instanceof`
+    // operands in this `&&` chain (which may run a user `@@hasInstance`)
+    // invalidate those facts first, so `isNumberBox.call(1)` and
+    // `isBooleanBox.call(false)` stay dynamic calls.
+    // `run_wasm_backend_succeeds_for_supported_boxed_builtin_fixture` checks
+    // that all three still box their primitive receiver.
+    assert!(stdout.contains("boxed_receiver_adaptations=1"), "{stdout}");
 }
 
 #[test]
@@ -199,7 +212,15 @@ fn inspect_reports_phase_twenty_eight_bind_builtin_ir_shape() {
     assert!(stdout.contains("function_proto_binds=6"));
     assert!(stdout.contains("bound_functions=6"));
     assert!(stdout.contains("bound_function_constructs=6"));
-    assert!(stdout.contains("error_proto_to_strings=2"));
+    // Neither `err.toString()` nor `TypeError("y").toString()` resolves to
+    // `%Error.prototype.toString%` statically any more: since 5eca93e67 the
+    // user-code calls earlier in this `&&` chain (`inc(2)`, `new G()`, ...)
+    // invalidate what lowering knew, erasing `err`'s heap shape and widening
+    // the global `TypeError` binding, so both calls read `toString` from their
+    // receiver at run time. Without those calls both still resolve.
+    // `run_wasm_backend_succeeds_for_supported_bind_builtin_fixture` checks
+    // both results.
+    assert!(stdout.contains("error_proto_to_strings=0"), "{stdout}");
 }
 
 #[test]
